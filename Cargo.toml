@@ -1,0 +1,30 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/tp-core",
+    "crates/tp-pty",
+    "crates/tp-db",
+    "crates/tp-gui",
+    "crates/tp-cli",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+authors = ["xb"]
+
+[workspace.dependencies]
+tp-core = { path = "crates/tp-core" }
+tp-pty = { path = "crates/tp-pty" }
+tp-db = { path = "crates/tp-db" }
+tp-gui = { path = "crates/tp-gui" }
+
+tokio = { version = "1", features = ["full"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+regex = "1"
+anyhow = "1"
+tracing = "0.1"
+tracing-subscriber = "0.3"
+uuid = { version = "1", features = ["v4", "serde"] }

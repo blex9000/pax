@@ -1,0 +1,225 @@
+{
+  "name": "untitled",
+  "id": "752d9015-a213-4173-8d2d-5a76f0fc9c5c",
+  "layout": {
+    "type": "vsplit",
+    "children": [
+      {
+        "type": "hsplit",
+        "children": [
+          {
+            "type": "panel",
+            "id": "p1"
+          },
+          {
+            "type": "tabs",
+            "children": [
+              {
+                "type": "panel",
+                "id": "p5"
+              },
+              {
+                "type": "panel",
+                "id": "p6"
+              }
+            ],
+            "labels": [
+              "remote_tmux",
+              "New Panel 6"
+            ]
+          }
+        ],
+        "ratios": [
+          0.5,
+          0.5
+        ]
+      },
+      {
+        "type": "hsplit",
+        "children": [
+          {
+            "type": "hsplit",
+            "children": [
+              {
+                "type": "panel",
+                "id": "p2"
+              },
+              {
+                "type": "tabs",
+                "children": [
+                  {
+                    "type": "panel",
+                    "id": "p7"
+                  },
+                  {
+                    "type": "panel",
+                    "id": "p8"
+                  }
+                ],
+                "labels": [
+                  "New Panel 7",
+                  "New Panel 8"
+                ]
+              }
+            ],
+            "ratios": [
+              0.5,
+              0.5
+            ]
+          },
+          {
+            "type": "panel",
+            "id": "p3"
+          }
+        ],
+        "ratios": [
+          0.5,
+          0.5
+        ]
+      }
+    ],
+    "ratios": [
+      0.5,
+      0.5
+    ]
+  },
+  "panels": [
+    {
+      "id": "p1",
+      "name": "browser",
+      "panel_type": {
+        "type": "browser",
+        "url": "about:blank"
+      },
+      "target": {
+        "type": "local"
+      },
+      "startup_commands": [],
+      "groups": [],
+      "record_output": false,
+      "cwd": null,
+      "env": {},
+      "pre_script": null,
+      "post_script": null
+    },
+    {
+      "id": "p2",
+      "name": "terminal",
+      "panel_type": {
+        "type": "terminal"
+      },
+      "target": {
+        "type": "local"
+      },
+      "startup_commands": [],
+      "groups": [],
+      "record_output": false,
+      "cwd": null,
+      "env": {},
+      "pre_script": null,
+      "post_script": null
+    },
+    {
+      "id": "p3",
+      "name": "markdown",
+      "panel_type": {
+        "type": "markdown",
+        "file": "README.md"
+      },
+      "target": {
+        "type": "local"
+      },
+      "startup_commands": [],
+      "groups": [],
+      "record_output": false,
+      "cwd": null,
+      "env": {},
+      "pre_script": null,
+      "post_script": null
+    },
+    {
+      "id": "p5",
+      "name": "remote_tmux",
+      "panel_type": {
+        "type": "remote_tmux",
+        "host": "localhost",
+        "session": "main",
+        "user": null
+      },
+      "target": {
+        "type": "local"
+      },
+      "startup_commands": [],
+      "groups": [],
+      "record_output": false,
+      "cwd": null,
+      "env": {},
+      "pre_script": null,
+      "post_script": null
+    },
+    {
+      "id": "p6",
+      "name": "New Panel 6",
+      "panel_type": {
+        "type": "terminal"
+      },
+      "target": {
+        "type": "local"
+      },
+      "startup_commands": [],
+      "groups": [],
+      "record_output": false,
+      "cwd": null,
+      "env": {},
+      "pre_script": null,
+      "post_script": null
+    },
+    {
+      "id": "p7",
+      "name": "ssh",
+      "panel_type": {
+        "type": "ssh",
+        "host": "localhost",
+        "port": 22,
+        "user": null,
+        "identity_file": null
+      },
+      "target": {
+        "type": "local"
+      },
+      "startup_commands": [],
+      "groups": [],
+      "record_output": false,
+      "cwd": null,
+      "env": {},
+      "pre_script": null,
+      "post_script": null
+    },
+    {
+      "id": "p8",
+      "name": "New Panel 8",
+      "panel_type": {
+        "type": "terminal"
+      },
+      "target": {
+        "type": "local"
+      },
+      "startup_commands": [],
+      "groups": [],
+      "record_output": false,
+      "cwd": null,
+      "env": {},
+      "pre_script": null,
+      "post_script": null
+    }
+  ],
+  "groups": [],
+  "alerts": [],
+  "startup_script": null,
+  "notes_file": null,
+  "settings": {
+    "default_shell": "/bin/bash",
+    "scrollback_lines": 10000,
+    "output_retention_days": null
+  }
+}

@@ -1,0 +1,46 @@
+{
+    "name": "tabs-demo",
+    "layout": {
+        "type": "hsplit",
+        "children": [
+            {
+                "type": "panel",
+                "id": "main"
+            },
+            {
+                "type": "tabs",
+                "children": [
+                    { "type": "panel", "id": "shell2" },
+                    { "type": "panel", "id": "shell3" },
+                    { "type": "panel", "id": "notes" }
+                ],
+                "labels": ["Build", "Logs", "Notes"]
+            }
+        ],
+        "ratios": [0.6, 0.4]
+    },
+    "panels": [
+        {
+            "id": "main",
+            "name": "Main Shell",
+            "panel_type": { "type": "terminal" }
+        },
+        {
+            "id": "shell2",
+            "name": "Build",
+            "panel_type": { "type": "terminal" },
+            "startup_commands": ["echo 'Build terminal ready'"]
+        },
+        {
+            "id": "shell3",
+            "name": "Logs",
+            "panel_type": { "type": "terminal" },
+            "startup_commands": ["echo 'Log viewer ready'"]
+        },
+        {
+            "id": "notes",
+            "name": "Notes",
+            "panel_type": { "type": "markdown", "file": "README.md" }
+        }
+    ]
+}

@@ -1,0 +1,57 @@
+/* MyTerms GTK4 theme */
+
+.panel-frame {
+    border: 1px solid @borders;
+    border-radius: 4px;
+    margin: 1px;
+}
+
+.panel-focused {
+    border: 2px solid @accent_color;
+}
+
+.panel-unfocused {
+    border: 1px solid @borders;
+}
+
+.panel-title-bar {
+    background-color: alpha(@headerbar_bg_color, 0.8);
+    padding: 2px 6px;
+    min-height: 20px;
+}
+
+.panel-title {
+    font-size: 11px;
+    font-weight: bold;
+}
+
+.alert-red {
+    border-color: red;
+    border-width: 2px;
+}
+
+.alert-yellow {
+    border-color: #e5a50a;
+    border-width: 2px;
+}
+
+.alert-green {
+    border-color: green;
+    border-width: 2px;
+}
+
+.status-bar {
+    background-color: alpha(@headerbar_bg_color, 0.9);
+    padding: 2px 8px;
+    min-height: 22px;
+}
+
+.status-mode {
+    font-weight: bold;
+    padding: 0 6px;
+}
+
+.markdown-panel {
+    font-family: sans-serif;
+    font-size: 12px;
+}

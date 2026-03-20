@@ -1,0 +1,25 @@
+[package]
+name = "tp-gui"
+version.workspace = true
+edition.workspace = true
+
+[features]
+default = ["vte"]
+vte = ["dep:vte4"]
+
+[dependencies]
+tp-core = { workspace = true }
+tp-pty = { workspace = true }
+tp-db = { workspace = true }
+tokio = { workspace = true }
+anyhow = { workspace = true }
+tracing = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+gtk4 = { version = "0.9", features = ["v4_10"] }
+libadwaita = { version = "0.7", features = ["v1_4"] }
+vte4 = { version = "0.8", optional = true }
+vt100 = "0.15"
+portable-pty = "0.8"
+fuzzy-matcher = "0.3"

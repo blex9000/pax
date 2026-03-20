@@ -1,0 +1,23 @@
+{
+    "name": "simple-test",
+    "layout": {
+        "type": "hsplit",
+        "children": [
+            { "type": "panel", "id": "left" },
+            { "type": "panel", "id": "right" }
+        ],
+        "ratios": [0.5, 0.5]
+    },
+    "panels": [
+        {
+            "id": "left",
+            "name": "Left Terminal",
+            "panel_type": { "type": "terminal" }
+        },
+        {
+            "id": "right",
+            "name": "Right Terminal",
+            "panel_type": { "type": "terminal" }
+        }
+    ]
+}

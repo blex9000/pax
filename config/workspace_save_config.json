@@ -1,0 +1,66 @@
+{
+  "name": "untitled",
+  "id": "e4c64546-c17b-44fa-b89e-7d7560d4b25d",
+  "layout": {
+    "type": "vsplit",
+    "children": [
+      {
+        "type": "panel",
+        "id": "p1"
+      },
+      {
+        "type": "panel",
+        "id": "p2"
+      }
+    ],
+    "ratios": [
+      0.5,
+      0.5
+    ]
+  },
+  "panels": [
+    {
+      "id": "p1",
+      "name": "Terminale xxx",
+      "panel_type": {
+        "type": "terminal"
+      },
+      "target": {
+        "type": "local"
+      },
+      "startup_commands": [],
+      "groups": [],
+      "record_output": false,
+      "cwd": null,
+      "env": {},
+      "pre_script": null,
+      "post_script": null
+    },
+    {
+      "id": "p2",
+      "name": "New Panel 2",
+      "panel_type": {
+        "type": "terminal"
+      },
+      "target": {
+        "type": "local"
+      },
+      "startup_commands": [],
+      "groups": [],
+      "record_output": false,
+      "cwd": null,
+      "env": {},
+      "pre_script": null,
+      "post_script": null
+    }
+  ],
+  "groups": [],
+  "alerts": [],
+  "startup_script": null,
+  "notes_file": null,
+  "settings": {
+    "default_shell": "/bin/bash",
+    "scrollback_lines": 10000,
+    "output_retention_days": null
+  }
+}

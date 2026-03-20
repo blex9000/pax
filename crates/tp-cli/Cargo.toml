@@ -1,0 +1,18 @@
+[package]
+name = "myterms"
+version.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "myterms"
+path = "src/main.rs"
+
+[dependencies]
+tp-core = { workspace = true }
+tp-gui = { workspace = true }
+tp-db = { workspace = true }
+tokio = { workspace = true }
+anyhow = { workspace = true }
+clap = { version = "4", features = ["derive"] }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true, features = ["env-filter"] }
