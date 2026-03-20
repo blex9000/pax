@@ -1,0 +1,194 @@
+use gtk4::prelude::*;
+use std::rc::Rc;
+
+/// Callback when user makes a choice on the welcome screen.
+#[derive(Clone)]
+pub enum WelcomeChoice {
+    NewWorkspace,
+    OpenFile,
+    OpenRecent(String), // config path
+}
+
+pub type WelcomeCallback = Rc<dyn Fn(WelcomeChoice)>;
+
+/// Welcome screen shown on startup — like VS Code / IntelliJ start page.
+pub fn build_welcome(on_choice: WelcomeCallback) -> gtk4::Widget {
+    let container = gtk4::Box::new(gtk4::Orientation::Vertical, 24);
+    container.set_valign(gtk4::Align::Center);
+    container.set_halign(gtk4::Align::Center);
+    container.set_margin_top(40);
+    container.set_margin_bottom(40);
+    container.set_margin_start(40);
+    container.set_margin_end(40);
+    container.set_width_request(600);
+
+    // Title
+    let title = gtk4::Label::new(Some("MyTerms"));
+    title.add_css_class("title-1");
+    container.append(&title);
+
+    let subtitle = gtk4::Label::new(Some("Workspace Manager"));
+    subtitle.add_css_class("dim-label");
+    container.append(&subtitle);
+
+    // Action buttons row
+    let actions = gtk4::Box::new(gtk4::Orientation::Horizontal, 16);
+    actions.set_halign(gtk4::Align::Center);
+    actions.set_margin_top(8);
+
+    // New Workspace button
+    {
+        let btn = gtk4::Button::new();
+        btn.add_css_class("card");
+        btn.add_css_class("welcome-action-btn");
+
+        let vbox = gtk4::Box::new(gtk4::Orientation::Vertical, 8);
+        vbox.set_margin_top(20);
+        vbox.set_margin_bottom(20);
+        vbox.set_margin_start(32);
+        vbox.set_margin_end(32);
+
+        let icon = gtk4::Image::from_icon_name("document-new-symbolic");
+        icon.set_pixel_size(32);
+        vbox.append(&icon);
+
+        let label = gtk4::Label::new(Some("New Workspace"));
+        label.add_css_class("heading");
+        vbox.append(&label);
+
+        let desc = gtk4::Label::new(Some("Start from scratch"));
+        desc.add_css_class("dim-label");
+        desc.add_css_class("caption");
+        vbox.append(&desc);
+
+        btn.set_child(Some(&vbox));
+
+        let cb = on_choice.clone();
+        btn.connect_clicked(move |_| cb(WelcomeChoice::NewWorkspace));
+        actions.append(&btn);
+    }
+
+    // Open File button
+    {
+        let btn = gtk4::Button::new();
+        btn.add_css_class("card");
+        btn.add_css_class("welcome-action-btn");
+
+        let vbox = gtk4::Box::new(gtk4::Orientation::Vertical, 8);
+        vbox.set_margin_top(20);
+        vbox.set_margin_bottom(20);
+        vbox.set_margin_start(32);
+        vbox.set_margin_end(32);
+
+        let icon = gtk4::Image::from_icon_name("document-open-symbolic");
+        icon.set_pixel_size(32);
+        vbox.append(&icon);
+
+        let label = gtk4::Label::new(Some("Open File"));
+        label.add_css_class("heading");
+        vbox.append(&label);
+
+        let desc = gtk4::Label::new(Some("Load workspace JSON"));
+        desc.add_css_class("dim-label");
+        desc.add_css_class("caption");
+        vbox.append(&desc);
+
+        btn.set_child(Some(&vbox));
+
+        let cb = on_choice.clone();
+        btn.connect_clicked(move |_| cb(WelcomeChoice::OpenFile));
+        actions.append(&btn);
+    }
+
+    container.append(&actions);
+
+    // Recent workspaces section
+    let db_path = tp_db::Database::default_path();
+    let recents = tp_db::Database::open(&db_path)
+        .ok()
+        .and_then(|db| db.list_workspaces_limit(10).ok())
+        .unwrap_or_default();
+
+    if !recents.is_empty() {
+        let sep = gtk4::Separator::new(gtk4::Orientation::Horizontal);
+        sep.set_margin_top(8);
+        container.append(&sep);
+
+        let recent_label = gtk4::Label::new(Some("Recent Workspaces"));
+        recent_label.add_css_class("title-4");
+        recent_label.set_halign(gtk4::Align::Start);
+        container.append(&recent_label);
+
+        let list_box = gtk4::ListBox::new();
+        list_box.set_selection_mode(gtk4::SelectionMode::None);
+        list_box.add_css_class("boxed-list");
+
+        for record in &recents {
+            if let Some(ref config_path) = record.config_path {
+                let path = std::path::Path::new(config_path);
+                if !path.exists() {
+                    continue;
+                }
+
+                let row_box = gtk4::Box::new(gtk4::Orientation::Horizontal, 12);
+                row_box.set_margin_top(6);
+                row_box.set_margin_bottom(6);
+                row_box.set_margin_start(8);
+                row_box.set_margin_end(8);
+
+                let icon = gtk4::Image::from_icon_name("document-open-recent-symbolic");
+                row_box.append(&icon);
+
+                let info = gtk4::Box::new(gtk4::Orientation::Vertical, 2);
+                info.set_hexpand(true);
+
+                let name = gtk4::Label::new(Some(&record.name));
+                name.add_css_class("heading");
+                name.set_halign(gtk4::Align::Start);
+                info.append(&name);
+
+                let path_label = gtk4::Label::new(Some(config_path));
+                path_label.add_css_class("dim-label");
+                path_label.add_css_class("caption");
+                path_label.set_halign(gtk4::Align::Start);
+                path_label.set_ellipsize(gtk4::pango::EllipsizeMode::Start);
+                path_label.set_tooltip_text(Some(config_path));
+                info.append(&path_label);
+
+                row_box.append(&info);
+
+                // Make the whole row clickable
+                let row = gtk4::ListBoxRow::new();
+                row.set_child(Some(&row_box));
+                row.set_activatable(true);
+
+                let cb = on_choice.clone();
+                let cp = config_path.clone();
+                // We'll use ListBox row-activated signal instead
+                row_box.set_widget_name(&cp);
+
+                list_box.append(&row);
+            }
+        }
+
+        // Connect row activation
+        let cb = on_choice.clone();
+        list_box.connect_row_activated(move |_, row| {
+            if let Some(child) = row.child() {
+                let name = child.widget_name();
+                let name_str = name.as_str();
+                if !name_str.is_empty() {
+                    cb(WelcomeChoice::OpenRecent(name_str.to_string()));
+                }
+            }
+        });
+
+        let scroll = gtk4::ScrolledWindow::new();
+        scroll.set_child(Some(&list_box));
+        scroll.set_max_content_height(250);
+        scroll.set_propagate_natural_height(true);
+        container.append(&scroll);
+    }
+
+    container.upcast::<gtk4::Widget>()
+}

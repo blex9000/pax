@@ -15,7 +15,89 @@ use crate::panel_host::PanelAction;
 use crate::workspace_view::WorkspaceView;
 use crate::widgets::status_bar::StatusBar;
 
-/// Main application entry point.
+/// Entry point showing welcome screen — user picks new or recent.
+pub fn run_app_welcome() -> Result<()> {
+    let app = adw::Application::builder()
+        .application_id("com.sinelec.myterms.welcome")
+        .build();
+
+    app.connect_activate(move |app| {
+        load_css();
+
+        let window = adw::ApplicationWindow::builder()
+            .application(app)
+            .title("MyTerms")
+            .default_width(700)
+            .default_height(550)
+            .build();
+
+        let header = adw::HeaderBar::new();
+        header.set_show_end_title_buttons(true);
+        header.set_show_start_title_buttons(true);
+
+        let toolbar_view = adw::ToolbarView::new();
+        toolbar_view.add_top_bar(&header);
+
+        let window_rc = Rc::new(window.clone());
+
+        let win = window_rc.clone();
+        let welcome = crate::widgets::welcome::build_welcome(Rc::new(move |choice| {
+            use crate::widgets::welcome::WelcomeChoice;
+            match choice {
+                WelcomeChoice::NewWorkspace => {
+                    win.close();
+                    // Spawn new process with empty workspace
+                    let exe = std::env::current_exe().unwrap_or_else(|_| "myterms".into());
+                    let _ = std::process::Command::new(exe).arg("new").spawn();
+                }
+                WelcomeChoice::OpenFile => {
+                    let win2 = win.clone();
+                    let dialog = gtk4::FileDialog::builder()
+                        .title("Open Workspace")
+                        .modal(true)
+                        .build();
+                    let filter = gtk4::FileFilter::new();
+                    filter.set_name(Some("JSON files"));
+                    filter.add_pattern("*.json");
+                    let filters = gtk4::gio::ListStore::new::<gtk4::FileFilter>();
+                    filters.append(&filter);
+                    dialog.set_filters(Some(&filters));
+
+                    let win3 = win2.clone();
+                    dialog.open(Some(win2.as_ref()), gtk4::gio::Cancellable::NONE, move |result| {
+                        if let Ok(file) = result {
+                            if let Some(path) = file.path() {
+                                win3.close();
+                                let exe = std::env::current_exe().unwrap_or_else(|_| "myterms".into());
+                                let _ = std::process::Command::new(exe)
+                                    .arg("launch")
+                                    .arg(path.to_string_lossy().as_ref())
+                                    .spawn();
+                            }
+                        }
+                    });
+                }
+                WelcomeChoice::OpenRecent(path) => {
+                    win.close();
+                    let exe = std::env::current_exe().unwrap_or_else(|_| "myterms".into());
+                    let _ = std::process::Command::new(exe)
+                        .arg("launch")
+                        .arg(&path)
+                        .spawn();
+                }
+            }
+        }));
+
+        toolbar_view.set_content(Some(&welcome));
+        window.set_content(Some(&toolbar_view));
+        window.present();
+    });
+
+    app.run_with_args::<String>(&[]);
+    Ok(())
+}
+
+/// Main application entry point with a workspace.
 pub fn run_app(workspace: Workspace, config_path: Option<&Path>) -> Result<()> {
     let app = adw::Application::builder()
         .application_id("com.sinelec.myterms")
@@ -162,11 +244,12 @@ pub fn run_app(workspace: Workspace, config_path: Option<&Path>) -> Result<()> {
                         }
                     }
                     PanelAction::Configure => {
-                        let (pname, ptype) = {
+                        let (pname, ptype, pcmds) = {
                             let view = ws_for_cb.borrow();
                             (
                                 view.panel_name(panel_id).unwrap_or_default(),
                                 view.panel_type(panel_id).unwrap_or(tp_core::workspace::PanelType::Terminal),
+                                view.panel_startup_commands(panel_id),
                             )
                         };
                         let pid = panel_id.to_string();
@@ -177,8 +260,9 @@ pub fn run_app(workspace: Workspace, config_path: Option<&Path>) -> Result<()> {
                             &*win_for_cb,
                             &pname,
                             &ptype,
-                            move |new_name, new_type| {
-                                ws2.borrow_mut().apply_panel_config(&pid, new_name, new_type);
+                            &pcmds,
+                            move |new_name, new_type, new_cmds| {
+                                ws2.borrow_mut().apply_panel_config(&pid, new_name, new_type, new_cmds);
                                 update_dirty_ui(&ws2, &win2, &sa2);
                             },
                         );

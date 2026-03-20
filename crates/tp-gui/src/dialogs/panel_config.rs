@@ -1,18 +1,20 @@
 use gtk4::prelude::*;
-use std::collections::HashMap;
 
 use tp_core::workspace::PanelType;
 
+/// Callback: (name, panel_type, startup_commands)
+pub type ConfigDoneCallback = dyn Fn(String, PanelType, Vec<String>) + 'static;
+
 /// Show a configuration dialog for the given panel type.
-/// Returns the updated PanelType if the user confirms, None if cancelled.
 pub fn show_panel_config_dialog(
     parent: &impl IsA<gtk4::Window>,
     panel_name: &str,
     panel_type: &PanelType,
-    on_done: impl Fn(String, PanelType) + 'static,
+    startup_commands: &[String],
+    on_done: impl Fn(String, PanelType, Vec<String>) + 'static,
 ) {
     match panel_type {
-        PanelType::Terminal => show_terminal_config(parent, panel_name, on_done),
+        PanelType::Terminal => show_terminal_config(parent, panel_name, startup_commands, on_done),
         PanelType::Ssh { host, port, user, identity_file } => {
             show_ssh_config(parent, panel_name, host, *port, user.as_deref(), identity_file.as_deref(), on_done)
         }
@@ -25,25 +27,14 @@ pub fn show_panel_config_dialog(
     }
 }
 
-fn make_dialog(parent: &impl IsA<gtk4::Window>, title: &str) -> (gtk4::Window, gtk4::Box, gtk4::Entry) {
-    let dialog = gtk4::Window::builder()
+fn make_dialog(parent: &impl IsA<gtk4::Window>, title: &str) -> gtk4::Window {
+    gtk4::Window::builder()
         .title(title)
         .transient_for(parent)
         .modal(true)
-        .default_width(450)
-        .default_height(300)
-        .build();
-
-    let vbox = gtk4::Box::new(gtk4::Orientation::Vertical, 8);
-    vbox.set_margin_top(16);
-    vbox.set_margin_bottom(16);
-    vbox.set_margin_start(16);
-    vbox.set_margin_end(16);
-
-    let name_entry = gtk4::Entry::new();
-    name_entry.set_placeholder_text(Some("Panel name"));
-
-    (dialog, vbox, name_entry)
+        .default_width(500)
+        .default_height(400)
+        .build()
 }
 
 fn add_field(vbox: &gtk4::Box, label: &str, value: &str, placeholder: &str) -> gtk4::Entry {
@@ -85,36 +76,114 @@ fn add_buttons(vbox: &gtk4::Box, dialog: &gtk4::Window, on_apply: impl Fn() + 's
     vbox.append(&btn_box);
 }
 
+/// Build the startup script editor widget.
+/// Returns the TextView that contains the script.
+fn add_script_editor(
+    vbox: &gtk4::Box,
+    dialog: &gtk4::Window,
+    existing_commands: &[String],
+) -> gtk4::TextView {
+    let label = gtk4::Label::new(Some("Startup script:"));
+    label.set_halign(gtk4::Align::Start);
+    vbox.append(&label);
+
+    let script_view = gtk4::TextView::new();
+    script_view.set_monospace(true);
+    script_view.set_wrap_mode(gtk4::WrapMode::Word);
+    script_view.set_left_margin(8);
+    script_view.set_top_margin(4);
+
+    // Prepopulate
+    let initial_text = if existing_commands.is_empty() {
+        "#!/bin/bash\necho \"Hello World\"\n".to_string()
+    } else {
+        existing_commands.join("\n")
+    };
+    script_view.buffer().set_text(&initial_text);
+
+    let scroll = gtk4::ScrolledWindow::new();
+    scroll.set_child(Some(&script_view));
+    scroll.set_min_content_height(120);
+    scroll.set_vexpand(true);
+    vbox.append(&scroll);
+
+    // Browse button to load script from file
+    let browse_btn = gtk4::Button::with_label("Load from file…");
+    browse_btn.add_css_class("flat");
+    browse_btn.set_halign(gtk4::Align::Start);
+
+    let sv = script_view.clone();
+    let d = dialog.clone();
+    browse_btn.connect_clicked(move |_| {
+        let file_dialog = gtk4::FileDialog::builder()
+            .title("Select Script")
+            .modal(true)
+            .build();
+        let filter = gtk4::FileFilter::new();
+        filter.set_name(Some("Scripts"));
+        filter.add_pattern("*.sh");
+        filter.add_pattern("*.bash");
+        filter.add_mime_type("application/x-shellscript");
+        let all = gtk4::FileFilter::new();
+        all.set_name(Some("All files"));
+        all.add_pattern("*");
+        let filters = gtk4::gio::ListStore::new::<gtk4::FileFilter>();
+        filters.append(&filter);
+        filters.append(&all);
+        file_dialog.set_filters(Some(&filters));
+
+        let sv2 = sv.clone();
+        file_dialog.open(Some(&d), gtk4::gio::Cancellable::NONE, move |result| {
+            if let Ok(file) = result {
+                if let Some(path) = file.path() {
+                    if let Ok(content) = std::fs::read_to_string(&path) {
+                        sv2.buffer().set_text(&content);
+                    }
+                }
+            }
+        });
+    });
+    vbox.append(&browse_btn);
+
+    script_view
+}
+
+/// Extract script lines from a TextView buffer.
+fn get_script_lines(view: &gtk4::TextView) -> Vec<String> {
+    let buf = view.buffer();
+    let text = buf.text(&buf.start_iter(), &buf.end_iter(), false);
+    let text = text.to_string();
+    if text.trim().is_empty() {
+        return vec![];
+    }
+    text.lines()
+        .filter(|l| !l.starts_with("#!")) // Skip shebang
+        .map(|l| l.to_string())
+        .collect()
+}
+
 fn show_terminal_config(
     parent: &impl IsA<gtk4::Window>,
     panel_name: &str,
-    on_done: impl Fn(String, PanelType) + 'static,
+    startup_commands: &[String],
+    on_done: impl Fn(String, PanelType, Vec<String>) + 'static,
 ) {
-    let (dialog, vbox, _) = make_dialog(parent, "Terminal Configuration");
+    let dialog = make_dialog(parent, "Terminal Configuration");
+    let vbox = gtk4::Box::new(gtk4::Orientation::Vertical, 8);
+    vbox.set_margin_top(16);
+    vbox.set_margin_bottom(16);
+    vbox.set_margin_start(16);
+    vbox.set_margin_end(16);
 
     let name_entry = add_field(&vbox, "Name:", panel_name, "Terminal");
-
-    // Startup commands (multi-line)
-    let cmd_label = gtk4::Label::new(Some("Startup commands (one per line):"));
-    cmd_label.set_halign(gtk4::Align::Start);
-    vbox.append(&cmd_label);
-
-    let cmd_view = gtk4::TextView::new();
-    cmd_view.set_monospace(true);
-    cmd_view.set_wrap_mode(gtk4::WrapMode::Word);
-    let cmd_scroll = gtk4::ScrolledWindow::new();
-    cmd_scroll.set_child(Some(&cmd_view));
-    cmd_scroll.set_min_content_height(80);
-    cmd_scroll.set_vexpand(true);
-    vbox.append(&cmd_scroll);
+    let script_view = add_script_editor(&vbox, &dialog, startup_commands);
 
     let ne = name_entry.clone();
-    let cv = cmd_view.clone();
+    let sv = script_view.clone();
     add_buttons(&vbox, &dialog, move || {
         let name = ne.text().to_string();
-        // Store startup commands in panel config via callback
-        // For now, Terminal type doesn't carry commands in PanelType itself
-        on_done(name, PanelType::Terminal);
+        let cmds = get_script_lines(&sv);
+        on_done(name, PanelType::Terminal, cmds);
     });
 
     dialog.set_child(Some(&vbox));
@@ -128,9 +197,14 @@ fn show_ssh_config(
     port: u16,
     user: Option<&str>,
     identity_file: Option<&str>,
-    on_done: impl Fn(String, PanelType) + 'static,
+    on_done: impl Fn(String, PanelType, Vec<String>) + 'static,
 ) {
-    let (dialog, vbox, _) = make_dialog(parent, "SSH Configuration");
+    let dialog = make_dialog(parent, "SSH Configuration");
+    let vbox = gtk4::Box::new(gtk4::Orientation::Vertical, 8);
+    vbox.set_margin_top(16);
+    vbox.set_margin_bottom(16);
+    vbox.set_margin_start(16);
+    vbox.set_margin_end(16);
 
     let name_entry = add_field(&vbox, "Name:", panel_name, "SSH Terminal");
     let host_entry = add_field(&vbox, "Host:", host, "hostname or IP");
@@ -138,18 +212,13 @@ fn show_ssh_config(
     let user_entry = add_field(&vbox, "User:", user.unwrap_or(""), "username");
     let id_entry = add_field(&vbox, "Identity file:", identity_file.unwrap_or(""), "~/.ssh/id_rsa");
 
-    let ne = name_entry.clone();
-    let he = host_entry.clone();
-    let pe = port_entry.clone();
-    let ue = user_entry.clone();
-    let ie = id_entry.clone();
     add_buttons(&vbox, &dialog, move || {
-        let name = ne.text().to_string();
-        let host = he.text().to_string();
-        let port = pe.text().parse::<u16>().unwrap_or(22);
-        let user = if ue.text().is_empty() { None } else { Some(ue.text().to_string()) };
-        let identity = if ie.text().is_empty() { None } else { Some(ie.text().to_string()) };
-        on_done(name, PanelType::Ssh { host, port, user, identity_file: identity });
+        let name = name_entry.text().to_string();
+        let host = host_entry.text().to_string();
+        let port = port_entry.text().parse::<u16>().unwrap_or(22);
+        let user = if user_entry.text().is_empty() { None } else { Some(user_entry.text().to_string()) };
+        let identity = if id_entry.text().is_empty() { None } else { Some(id_entry.text().to_string()) };
+        on_done(name, PanelType::Ssh { host, port, user, identity_file: identity }, vec![]);
     });
 
     dialog.set_child(Some(&vbox));
@@ -162,25 +231,26 @@ fn show_tmux_config(
     host: &str,
     session: &str,
     user: Option<&str>,
-    on_done: impl Fn(String, PanelType) + 'static,
+    on_done: impl Fn(String, PanelType, Vec<String>) + 'static,
 ) {
-    let (dialog, vbox, _) = make_dialog(parent, "Remote Tmux Configuration");
+    let dialog = make_dialog(parent, "Remote Tmux Configuration");
+    let vbox = gtk4::Box::new(gtk4::Orientation::Vertical, 8);
+    vbox.set_margin_top(16);
+    vbox.set_margin_bottom(16);
+    vbox.set_margin_start(16);
+    vbox.set_margin_end(16);
 
     let name_entry = add_field(&vbox, "Name:", panel_name, "Remote Tmux");
     let host_entry = add_field(&vbox, "Host:", host, "hostname or IP");
     let session_entry = add_field(&vbox, "Session:", session, "main");
     let user_entry = add_field(&vbox, "User:", user.unwrap_or(""), "username");
 
-    let ne = name_entry.clone();
-    let he = host_entry.clone();
-    let se = session_entry.clone();
-    let ue = user_entry.clone();
     add_buttons(&vbox, &dialog, move || {
-        let name = ne.text().to_string();
-        let host = he.text().to_string();
-        let session = se.text().to_string();
-        let user = if ue.text().is_empty() { None } else { Some(ue.text().to_string()) };
-        on_done(name, PanelType::RemoteTmux { host, session, user });
+        let name = name_entry.text().to_string();
+        let host = host_entry.text().to_string();
+        let session = session_entry.text().to_string();
+        let user = if user_entry.text().is_empty() { None } else { Some(user_entry.text().to_string()) };
+        on_done(name, PanelType::RemoteTmux { host, session, user }, vec![]);
     });
 
     dialog.set_child(Some(&vbox));
@@ -191,15 +261,20 @@ fn show_markdown_config(
     parent: &impl IsA<gtk4::Window>,
     panel_name: &str,
     file: &str,
-    on_done: impl Fn(String, PanelType) + 'static,
+    on_done: impl Fn(String, PanelType, Vec<String>) + 'static,
 ) {
-    let (dialog, vbox, _) = make_dialog(parent, "Markdown Configuration");
+    let dialog = make_dialog(parent, "Markdown Configuration");
+    let vbox = gtk4::Box::new(gtk4::Orientation::Vertical, 8);
+    vbox.set_margin_top(16);
+    vbox.set_margin_bottom(16);
+    vbox.set_margin_start(16);
+    vbox.set_margin_end(16);
 
     let name_entry = add_field(&vbox, "Name:", panel_name, "Markdown");
     let file_entry = add_field(&vbox, "File:", file, "path/to/file.md");
 
-    // Browse button
-    let browse_btn = gtk4::Button::with_label("Browse...");
+    let browse_btn = gtk4::Button::with_label("Browse…");
+    browse_btn.add_css_class("flat");
     browse_btn.set_halign(gtk4::Align::Start);
     let fe = file_entry.clone();
     let d = dialog.clone();
@@ -227,12 +302,10 @@ fn show_markdown_config(
     });
     vbox.append(&browse_btn);
 
-    let ne = name_entry.clone();
-    let fe = file_entry.clone();
     add_buttons(&vbox, &dialog, move || {
-        let name = ne.text().to_string();
-        let file = fe.text().to_string();
-        on_done(name, PanelType::Markdown { file });
+        let name = name_entry.text().to_string();
+        let file = file_entry.text().to_string();
+        on_done(name, PanelType::Markdown { file }, vec![]);
     });
 
     dialog.set_child(Some(&vbox));
@@ -243,19 +316,22 @@ fn show_browser_config(
     parent: &impl IsA<gtk4::Window>,
     panel_name: &str,
     url: &str,
-    on_done: impl Fn(String, PanelType) + 'static,
+    on_done: impl Fn(String, PanelType, Vec<String>) + 'static,
 ) {
-    let (dialog, vbox, _) = make_dialog(parent, "Browser Configuration");
+    let dialog = make_dialog(parent, "Browser Configuration");
+    let vbox = gtk4::Box::new(gtk4::Orientation::Vertical, 8);
+    vbox.set_margin_top(16);
+    vbox.set_margin_bottom(16);
+    vbox.set_margin_start(16);
+    vbox.set_margin_end(16);
 
     let name_entry = add_field(&vbox, "Name:", panel_name, "Browser");
     let url_entry = add_field(&vbox, "URL:", url, "https://example.com");
 
-    let ne = name_entry.clone();
-    let ue = url_entry.clone();
     add_buttons(&vbox, &dialog, move || {
-        let name = ne.text().to_string();
-        let url = ue.text().to_string();
-        on_done(name, PanelType::Browser { url });
+        let name = name_entry.text().to_string();
+        let url = url_entry.text().to_string();
+        on_done(name, PanelType::Browser { url }, vec![]);
     });
 
     dialog.set_child(Some(&vbox));

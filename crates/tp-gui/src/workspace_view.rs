@@ -192,12 +192,13 @@ impl WorkspaceView {
     }
 
     /// Update panel config after Configure dialog.
-    /// Recreates the backend with the new type/settings.
-    pub fn apply_panel_config(&mut self, panel_id: &str, new_name: String, new_type: PanelType) {
+    /// Recreates the backend with the new type/settings and runs startup commands.
+    pub fn apply_panel_config(&mut self, panel_id: &str, new_name: String, new_type: PanelType, startup_commands: Vec<String>) {
         // Update model
         if let Some(panel_cfg) = self.workspace.panels.iter_mut().find(|p| p.id == panel_id) {
             panel_cfg.name = new_name.clone();
             panel_cfg.panel_type = new_type.clone();
+            panel_cfg.startup_commands = startup_commands.clone();
         }
 
         // Update title
@@ -205,15 +206,28 @@ impl WorkspaceView {
             host.set_title(&new_name);
         }
 
-        // Recreate backend
+        // Recreate backend with startup commands
         let config = panel_type_to_create_config(&new_type, &self.workspace.settings.default_shell);
         if let Some(backend) = self.registry.create(panel_type_to_id(&new_type), &config) {
             if let Some(host) = self.hosts.get(panel_id) {
                 host.set_backend(backend);
+                // Send startup commands
+                for cmd in &startup_commands {
+                    let line = format!("{}\n", cmd);
+                    host.write_input(line.as_bytes());
+                }
             }
         }
 
         self.dirty = true;
+    }
+
+    /// Get startup commands for a panel.
+    pub fn panel_startup_commands(&self, panel_id: &str) -> Vec<String> {
+        self.workspace.panels.iter()
+            .find(|p| p.id == panel_id)
+            .map(|p| p.startup_commands.clone())
+            .unwrap_or_default()
     }
 
     /// Rename the workspace.

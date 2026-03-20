@@ -70,12 +70,12 @@ fn main() -> Result<()> {
     let cli = Cli::parse();
 
     match cli.command {
-        // No subcommand → open new empty workspace
-        None | Some(Commands::New { .. }) => {
-            let (name, output) = match cli.command {
-                Some(Commands::New { name, output }) => (name, output),
-                _ => ("untitled".to_string(), None),
-            };
+        // No subcommand → show welcome screen
+        None => {
+            tp_gui::app::run_app_welcome()?;
+        }
+        // Explicit new → open empty workspace directly
+        Some(Commands::New { name, output }) => {
             let ws = tp_core::template::empty_workspace(&name);
             tp_gui::app::run_app(ws, output.as_deref())?;
         }
