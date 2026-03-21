@@ -552,7 +552,7 @@ fn show_markdown_config(
     let name_entry = add_field(&vbox, "Name:", panel_name, "Markdown");
     let file_entry = add_field(&vbox, "File:", file, "path/to/file.md");
 
-    let browse_btn = gtk4::Button::with_label("Browse…");
+    let browse_btn = gtk4::Button::with_label("Browse...");
     browse_btn.add_css_class("flat");
     browse_btn.set_halign(gtk4::Align::Start);
     let fe = file_entry.clone();

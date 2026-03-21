@@ -1,5 +1,4 @@
 use gtk4::prelude::*;
-use std::cell::RefCell;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
@@ -51,7 +50,7 @@ impl WorkspaceView {
         }
 
         // Build layout widget tree
-        let root_widget = build_layout_widget(&workspace.layout, &hosts);
+        let root_widget = build_layout_widget(&workspace.layout, &hosts, &workspace.panels);
         root_widget.set_vexpand(true);
         root_widget.set_hexpand(true);
 
@@ -148,7 +147,7 @@ impl WorkspaceView {
             hosts.insert(panel_cfg.id.clone(), host);
         }
 
-        let root_widget = build_layout_widget(&ws.layout, &hosts);
+        let root_widget = build_layout_widget(&ws.layout, &hosts, &ws.panels);
         root_widget.set_vexpand(true);
         root_widget.set_hexpand(true);
         self.root_box.append(&root_widget);
@@ -942,8 +941,14 @@ impl WorkspaceView {
 
     // ── Save ─────────────────────────────────────────────────────────────
 
+    /// Sync ratios from GTK widget positions back into the layout model.
+    fn sync_ratios_from_widgets(&mut self) {
+        sync_ratios_recursive(&self.root_widget, &mut self.workspace.layout);
+    }
+
     /// Save the current workspace to the original config file.
     pub fn save(&mut self) -> Result<PathBuf, String> {
+        self.sync_ratios_from_widgets();
         let path = self
             .config_path
             .as_ref()
@@ -967,6 +972,7 @@ impl WorkspaceView {
 
     /// Save to a specific path.
     pub fn save_as(&mut self, path: &Path) -> Result<(), String> {
+        self.sync_ratios_from_widgets();
         tp_core::config::save_workspace(&self.workspace, path)
             .map_err(|e| format!("Save failed: {}", e))?;
         self.config_path = Some(path.to_path_buf());
@@ -1428,6 +1434,7 @@ fn create_backend_from_registry(
 fn build_layout_widget(
     node: &LayoutNode,
     hosts: &HashMap<String, PanelHost>,
+    panels: &[PanelConfig],
 ) -> gtk4::Widget {
     match node {
         LayoutNode::Panel { id } => {
@@ -1439,10 +1446,10 @@ fn build_layout_widget(
             }
         }
         LayoutNode::Hsplit { children, ratios } => {
-            build_paned(children, ratios, hosts, gtk4::Orientation::Horizontal)
+            build_paned(children, ratios, hosts, panels, gtk4::Orientation::Horizontal)
         }
         LayoutNode::Vsplit { children, ratios } => {
-            build_paned(children, ratios, hosts, gtk4::Orientation::Vertical)
+            build_paned(children, ratios, hosts, panels, gtk4::Orientation::Vertical)
         }
         LayoutNode::Tabs { children, labels } => {
             let notebook = gtk4::Notebook::new();
@@ -1450,7 +1457,7 @@ fn build_layout_widget(
             notebook.set_scrollable(true);
 
             for (i, child) in children.iter().enumerate() {
-                let child_widget = build_layout_widget(child, hosts);
+                let child_widget = build_layout_widget(child, hosts, panels);
                 let label_text = labels
                     .get(i)
                     .cloned()
@@ -1495,13 +1502,14 @@ fn build_paned(
     children: &[LayoutNode],
     ratios: &[f64],
     hosts: &HashMap<String, PanelHost>,
+    panels: &[PanelConfig],
     orientation: gtk4::Orientation,
 ) -> gtk4::Widget {
     if children.is_empty() {
         return gtk4::Box::new(orientation, 0).upcast::<gtk4::Widget>();
     }
     if children.len() == 1 {
-        return build_layout_widget(&children[0], hosts);
+        return build_layout_widget(&children[0], hosts, panels);
     }
 
     let sum: f64 = ratios.iter().take(children.len()).sum();
@@ -1517,10 +1525,10 @@ fn build_paned(
 
     if children.len() == 2 {
         let paned = gtk4::Paned::new(orientation);
-        let w1 = build_layout_widget(&children[0], hosts);
-        let w2 = build_layout_widget(&children[1], hosts);
-        let c1_fixed = subtree_has_min_size(&children[0], hosts);
-        let c2_fixed = subtree_has_min_size(&children[1], hosts);
+        let w1 = build_layout_widget(&children[0], hosts, panels);
+        let w2 = build_layout_widget(&children[1], hosts, panels);
+        let c1_fixed = subtree_has_min_size(&children[0], panels);
+        let c2_fixed = subtree_has_min_size(&children[1], panels);
         paned.set_start_child(Some(&w1));
         paned.set_end_child(Some(&w2));
         paned.set_shrink_start_child(!c1_fixed);
@@ -1533,11 +1541,11 @@ fn build_paned(
     }
 
     let paned = gtk4::Paned::new(orientation);
-    let w1 = build_layout_widget(&children[0], hosts);
+    let w1 = build_layout_widget(&children[0], hosts, panels);
     let rest_nodes = &children[1..];
-    let rest = build_paned(rest_nodes, &ratios[1..], hosts, orientation);
-    let c1_fixed = subtree_has_min_size(&children[0], hosts);
-    let rest_fixed = rest_nodes.iter().any(|n| subtree_has_min_size(n, hosts));
+    let rest = build_paned(rest_nodes, &ratios[1..], hosts, panels, orientation);
+    let c1_fixed = subtree_has_min_size(&children[0], panels);
+    let rest_fixed = rest_nodes.iter().any(|n| subtree_has_min_size(n, panels));
     paned.set_start_child(Some(&w1));
     paned.set_end_child(Some(&rest));
     paned.set_shrink_start_child(!c1_fixed);
@@ -1558,21 +1566,101 @@ fn apply_min_size(host: &PanelHost, cfg: &PanelConfig) {
     }
 }
 
-/// Check if any panel in a layout subtree has a min size set on its host widget.
-fn subtree_has_min_size(node: &LayoutNode, hosts: &HashMap<String, PanelHost>) -> bool {
+/// Check if any panel in a layout subtree has a min size set.
+fn subtree_has_min_size(node: &LayoutNode, panels: &[PanelConfig]) -> bool {
     match node {
         LayoutNode::Panel { id } => {
-            if let Some(host) = hosts.get(id) {
-                let (w, h) = host.widget().size_request();
-                w > 0 || h > 0
-            } else {
-                false
-            }
+            panels.iter().any(|p| p.id == *id && (p.min_width > 0 || p.min_height > 0))
         }
         LayoutNode::Hsplit { children, .. }
         | LayoutNode::Vsplit { children, .. }
         | LayoutNode::Tabs { children, .. } => {
-            children.iter().any(|c| subtree_has_min_size(c, hosts))
+            children.iter().any(|c| subtree_has_min_size(c, panels))
+        }
+    }
+}
+
+/// Recursively sync GTK Paned positions back into LayoutNode ratios.
+fn sync_ratios_recursive(widget: &gtk4::Widget, node: &mut LayoutNode) {
+    let is_hsplit = matches!(node, LayoutNode::Hsplit { .. });
+    match node {
+        LayoutNode::Panel { .. } => {}
+        LayoutNode::Hsplit { children, ratios } | LayoutNode::Vsplit { children, ratios } => {
+            if children.len() < 2 {
+                return;
+            }
+            // The widget should be a Paned
+            if let Ok(paned) = widget.clone().downcast::<gtk4::Paned>() {
+                let alloc = paned.allocation();
+                let total = if paned.orientation() == gtk4::Orientation::Horizontal {
+                    alloc.width()
+                } else {
+                    alloc.height()
+                };
+                if total > 0 {
+                    let pos = paned.position();
+                    let r1 = pos as f64 / total as f64;
+                    let r2 = 1.0 - r1;
+
+                    if children.len() == 2 {
+                        // Simple 2-child split
+                        if ratios.len() >= 2 {
+                            ratios[0] = r1;
+                            ratios[1] = r2;
+                        }
+                        // Recurse into children
+                        if let Some(w1) = paned.start_child() {
+                            sync_ratios_recursive(&w1, &mut children[0]);
+                        }
+                        if let Some(w2) = paned.end_child() {
+                            sync_ratios_recursive(&w2, &mut children[1]);
+                        }
+                    } else {
+                        // N>2: first child is start, rest are nested in end
+                        if !ratios.is_empty() {
+                            ratios[0] = r1;
+                        }
+                        if let Some(w1) = paned.start_child() {
+                            sync_ratios_recursive(&w1, &mut children[0]);
+                        }
+                        if let Some(w2) = paned.end_child() {
+                            let rest_children = children[1..].to_vec();
+                            let rest_ratios = if ratios.len() > 1 { ratios[1..].to_vec() } else { vec![1.0; rest_children.len()] };
+                            let mut rest_node = if is_hsplit {
+                                LayoutNode::Hsplit { children: rest_children, ratios: rest_ratios }
+                            } else {
+                                LayoutNode::Vsplit { children: rest_children, ratios: rest_ratios }
+                            };
+                            sync_ratios_recursive(&w2, &mut rest_node);
+                            // Copy back
+                            match rest_node {
+                                LayoutNode::Hsplit { children: rc, ratios: rr }
+                                | LayoutNode::Vsplit { children: rc, ratios: rr } => {
+                                    for (i, c) in rc.into_iter().enumerate() {
+                                        children[i + 1] = c;
+                                    }
+                                    for (i, r) in rr.into_iter().enumerate() {
+                                        if i + 1 < ratios.len() {
+                                            ratios[i + 1] = r;
+                                        }
+                                    }
+                                }
+                                _ => {}
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        LayoutNode::Tabs { children, .. } => {
+            // For notebooks, recurse into each page
+            if let Ok(notebook) = widget.clone().downcast::<gtk4::Notebook>() {
+                for (i, child) in children.iter_mut().enumerate() {
+                    if let Some(page_widget) = notebook.nth_page(Some(i as u32)) {
+                        sync_ratios_recursive(&page_widget, child);
+                    }
+                }
+            }
         }
     }
 }

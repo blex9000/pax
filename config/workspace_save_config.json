@@ -20,8 +20,8 @@
               }
             ],
             "ratios": [
-              0.5,
-              0.5
+              0.4309799789251844,
+              0.5690200210748155
             ]
           },
           {
@@ -47,14 +47,14 @@
           }
         ],
         "ratios": [
-          0.5,
-          0.5
+          0.4993757802746567,
+          0.5006242197253433
         ]
       }
     ],
     "ratios": [
-      0.5,
-      0.5
+      0.6609311740890689,
+      0.3390688259109311
     ]
   },
   "panels": [
@@ -89,7 +89,9 @@
       "target": {
         "type": "local"
       },
-      "startup_commands": [],
+      "startup_commands": [
+        "#!/bin/bash\necho \"Hello World\""
+      ],
       "groups": [],
       "record_output": false,
       "cwd": null,
@@ -98,7 +100,7 @@
       "post_script": null,
       "before_close": null,
       "min_width": 0,
-      "min_height": 0
+      "min_height": 400
     },
     {
       "id": "p3",
@@ -139,7 +141,7 @@
       "post_script": null,
       "before_close": null,
       "min_width": 0,
-      "min_height": 0
+      "min_height": 500
     },
     {
       "id": "p5",
@@ -150,7 +152,9 @@
       "target": {
         "type": "local"
       },
-      "startup_commands": [],
+      "startup_commands": [
+        "#!/bin/bash\necho \"Hello World\""
+      ],
       "groups": [],
       "record_output": false,
       "cwd": null,
@@ -159,7 +163,7 @@
       "post_script": null,
       "before_close": null,
       "min_width": 0,
-      "min_height": 0
+      "min_height": 400
     }
   ],
   "groups": [],
