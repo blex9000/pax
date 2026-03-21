@@ -551,7 +551,8 @@ impl WorkspaceView {
         let parent = focused_widget.parent()?;
 
         let new_paned = gtk4::Paned::new(orientation);
-        new_paned.set_shrink_start_child(!has_min_size(&focused_widget));
+        let (fw, fh) = focused_widget.size_request();
+        new_paned.set_shrink_start_child(!(fw > 0 || fh > 0));
         new_paned.set_shrink_end_child(true); // new panel has no min-size yet
 
         let new_host_widget = host.widget().clone();
@@ -1518,12 +1519,14 @@ fn build_paned(
         let paned = gtk4::Paned::new(orientation);
         let w1 = build_layout_widget(&children[0], hosts);
         let w2 = build_layout_widget(&children[1], hosts);
+        let c1_fixed = subtree_has_min_size(&children[0], hosts);
+        let c2_fixed = subtree_has_min_size(&children[1], hosts);
         paned.set_start_child(Some(&w1));
         paned.set_end_child(Some(&w2));
-        paned.set_shrink_start_child(!has_min_size(&w1));
-        paned.set_shrink_end_child(!has_min_size(&w2));
-        paned.set_resize_start_child(true);
-        paned.set_resize_end_child(true);
+        paned.set_shrink_start_child(!c1_fixed);
+        paned.set_shrink_end_child(!c2_fixed);
+        paned.set_resize_start_child(!c1_fixed || !c2_fixed);
+        paned.set_resize_end_child(!c2_fixed || !c1_fixed);
 
         setup_paned_ratio(&paned, normalized[0], orientation);
         return paned.upcast::<gtk4::Widget>();
@@ -1531,11 +1534,14 @@ fn build_paned(
 
     let paned = gtk4::Paned::new(orientation);
     let w1 = build_layout_widget(&children[0], hosts);
-    let rest = build_paned(&children[1..], &ratios[1..], hosts, orientation);
+    let rest_nodes = &children[1..];
+    let rest = build_paned(rest_nodes, &ratios[1..], hosts, orientation);
+    let c1_fixed = subtree_has_min_size(&children[0], hosts);
+    let rest_fixed = rest_nodes.iter().any(|n| subtree_has_min_size(n, hosts));
     paned.set_start_child(Some(&w1));
     paned.set_end_child(Some(&rest));
-    paned.set_shrink_start_child(!has_min_size(&w1));
-    paned.set_shrink_end_child(!has_min_size(&rest));
+    paned.set_shrink_start_child(!c1_fixed);
+    paned.set_shrink_end_child(!rest_fixed);
     paned.set_resize_start_child(true);
     paned.set_resize_end_child(true);
 
@@ -1552,8 +1558,21 @@ fn apply_min_size(host: &PanelHost, cfg: &PanelConfig) {
     }
 }
 
-/// Check if a widget has a non-trivial minimum size request.
-fn has_min_size(widget: &gtk4::Widget) -> bool {
-    let (w, h) = widget.size_request();
-    w > 0 || h > 0
+/// Check if any panel in a layout subtree has a min size set on its host widget.
+fn subtree_has_min_size(node: &LayoutNode, hosts: &HashMap<String, PanelHost>) -> bool {
+    match node {
+        LayoutNode::Panel { id } => {
+            if let Some(host) = hosts.get(id) {
+                let (w, h) = host.widget().size_request();
+                w > 0 || h > 0
+            } else {
+                false
+            }
+        }
+        LayoutNode::Hsplit { children, .. }
+        | LayoutNode::Vsplit { children, .. }
+        | LayoutNode::Tabs { children, .. } => {
+            children.iter().any(|c| subtree_has_min_size(c, hosts))
+        }
+    }
 }
