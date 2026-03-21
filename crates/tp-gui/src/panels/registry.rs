@@ -120,11 +120,18 @@ pub fn build_default_registry() -> PanelRegistry {
         true,
         |config| {
             let shell = if config.shell.is_empty() { "/bin/bash" } else { &config.shell };
-            Box::new(super::terminal::TerminalPanel::new(
+            let ws_dir = config.extra.get("__workspace_dir__").map(|s| s.as_str());
+            let panel = super::terminal::TerminalPanel::new(
                 shell,
                 config.cwd.as_deref(),
                 &config.env,
-            ))
+                ws_dir,
+            );
+            if let Some(cmds_str) = config.extra.get("__startup_commands__") {
+                let cmds: Vec<String> = cmds_str.lines().map(|l| l.to_string()).collect();
+                panel.send_commands(&cmds);
+            }
+            Box::new(panel)
         },
     );
 
@@ -168,10 +175,12 @@ pub fn build_default_registry() -> PanelRegistry {
         true,
         |config| {
             let shell = if config.shell.is_empty() { "/bin/bash" } else { &config.shell };
+            let ws_dir = config.extra.get("__workspace_dir__").map(|s| s.as_str());
             let terminal = super::terminal::TerminalPanel::new(
                 shell,
                 config.cwd.as_deref(),
                 &config.env,
+                ws_dir,
             );
             if let Some(host) = config.extra.get("host") {
                 let user = config.extra.get("user");
@@ -195,10 +204,12 @@ pub fn build_default_registry() -> PanelRegistry {
         true,
         |config| {
             let shell = if config.shell.is_empty() { "/bin/bash" } else { &config.shell };
+            let ws_dir = config.extra.get("__workspace_dir__").map(|s| s.as_str());
             let terminal = super::terminal::TerminalPanel::new(
                 shell,
                 config.cwd.as_deref(),
                 &config.env,
+                ws_dir,
             );
             if let Some(host) = config.extra.get("host") {
                 let session = config.extra.get("session").map(|s| s.as_str()).unwrap_or("main");

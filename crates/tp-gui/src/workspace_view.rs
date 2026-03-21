@@ -34,19 +34,19 @@ impl WorkspaceView {
     /// Call `set_action_callback` after wrapping in Rc<RefCell<>> to enable menu actions.
     pub fn build(workspace: &Workspace, config_path: Option<&Path>) -> Self {
         let registry = registry::build_default_registry();
+        let ws_dir = config_path.and_then(|p| p.parent()).map(|p| p.to_string_lossy().to_string());
         let mut hosts = HashMap::new();
 
-        // Create panel hosts — Empty panels get chooser, others get their type
         for panel_cfg in &workspace.panels {
             let host = PanelHost::new(&panel_cfg.id, &panel_cfg.name, None);
             if panel_cfg.effective_type() == PanelType::Empty {
-                // Chooser will be set later when on_type_chosen callback is wired
                 let chooser = ChooserPanel::new(&panel_cfg.id, &registry, None);
                 host.set_backend(Box::new(chooser));
             } else {
-                let backend = create_backend_from_registry(panel_cfg, &workspace.settings.default_shell, &registry);
+                let backend = create_backend_from_registry(panel_cfg, &workspace.settings.default_shell, &registry, ws_dir.as_deref());
                 host.set_backend(backend);
             }
+            apply_min_size(&host, panel_cfg);
             hosts.insert(panel_cfg.id.clone(), host);
         }
 
@@ -119,8 +119,10 @@ impl WorkspaceView {
 
     /// Reload from a workspace file, rebuilding the entire view.
     pub fn load_from_file(&mut self, path: &Path) -> Result<(), String> {
+        tracing::info!("Loading workspace from {}", path.display());
         let ws = tp_core::config::load_workspace(path)
             .map_err(|e| format!("Failed to load: {}", e))?;
+        tracing::info!("Loaded workspace '{}' with {} panels", ws.name, ws.panels.len());
         self.config_path = Some(path.to_path_buf());
         self.rebuild_from_workspace(ws)
     }
@@ -130,6 +132,7 @@ impl WorkspaceView {
         self.root_box.remove(&self.root_widget);
 
         let registry = registry::build_default_registry();
+        let ws_dir = self.config_path.as_ref().and_then(|p| p.parent()).map(|p| p.to_string_lossy().to_string());
         let mut hosts = HashMap::new();
 
         for panel_cfg in &ws.panels {
@@ -138,9 +141,10 @@ impl WorkspaceView {
                 let chooser = ChooserPanel::new(&panel_cfg.id, &registry, self.on_type_chosen.clone());
                 host.set_backend(Box::new(chooser));
             } else {
-                let backend = create_backend_from_registry(panel_cfg, &ws.settings.default_shell, &registry);
+                let backend = create_backend_from_registry(panel_cfg, &ws.settings.default_shell, &registry, ws_dir.as_deref());
                 host.set_backend(backend);
             }
+            apply_min_size(&host, panel_cfg);
             hosts.insert(panel_cfg.id.clone(), host);
         }
 
@@ -191,14 +195,35 @@ impl WorkspaceView {
             .map(|p| p.name.clone())
     }
 
+    /// Get min_width for a panel.
+    pub fn panel_min_width(&self, panel_id: &str) -> u32 {
+        self.workspace.panels.iter()
+            .find(|p| p.id == panel_id)
+            .map(|p| p.min_width)
+            .unwrap_or(0)
+    }
+
+    /// Get min_height for a panel.
+    pub fn panel_min_height(&self, panel_id: &str) -> u32 {
+        self.workspace.panels.iter()
+            .find(|p| p.id == panel_id)
+            .map(|p| p.min_height)
+            .unwrap_or(0)
+    }
+
     /// Update panel config after Configure dialog.
     /// Recreates the backend with the new type/settings and runs startup commands.
-    pub fn apply_panel_config(&mut self, panel_id: &str, new_name: String, new_type: PanelType, startup_commands: Vec<String>) {
+    pub fn apply_panel_config(&mut self, panel_id: &str, new_name: String, new_type: PanelType, startup_commands: Vec<String>, before_close: Option<String>, min_width: u32, min_height: u32) {
+        tracing::info!("Configuring panel {}: name={}, type={:?}, cmds={}, before_close={}",
+            panel_id, new_name, new_type, startup_commands.len(), before_close.is_some());
         // Update model
         if let Some(panel_cfg) = self.workspace.panels.iter_mut().find(|p| p.id == panel_id) {
             panel_cfg.name = new_name.clone();
             panel_cfg.panel_type = new_type.clone();
             panel_cfg.startup_commands = startup_commands.clone();
+            panel_cfg.before_close = before_close;
+            panel_cfg.min_width = min_width;
+            panel_cfg.min_height = min_height;
         }
 
         // Update title
@@ -206,17 +231,24 @@ impl WorkspaceView {
             host.set_title(&new_name);
         }
 
-        // Recreate backend with startup commands
-        let config = panel_type_to_create_config(&new_type, &self.workspace.settings.default_shell);
+        // Recreate backend with startup commands queued
+        let ws_dir = self.config_path.as_ref().and_then(|p| p.parent()).map(|p| p.to_string_lossy().to_string());
+        let mut config = panel_type_to_create_config(&new_type, &self.workspace.settings.default_shell, ws_dir.as_deref());
+        // Pass startup commands via extra so the registry factory can queue them
+        if !startup_commands.is_empty() {
+            config.extra.insert("__startup_commands__".to_string(), startup_commands.join("\n"));
+        }
         if let Some(backend) = self.registry.create(panel_type_to_id(&new_type), &config) {
             if let Some(host) = self.hosts.get(panel_id) {
                 host.set_backend(backend);
-                // Send startup commands
-                for cmd in &startup_commands {
-                    let line = format!("{}\n", cmd);
-                    host.write_input(line.as_bytes());
-                }
             }
+        }
+
+        // Apply min size to widget
+        if let Some(host) = self.hosts.get(panel_id) {
+            let w = if min_width > 0 { min_width as i32 } else { -1 };
+            let h = if min_height > 0 { min_height as i32 } else { -1 };
+            host.widget().set_size_request(w, h);
         }
 
         self.dirty = true;
@@ -228,6 +260,58 @@ impl WorkspaceView {
             .find(|p| p.id == panel_id)
             .map(|p| p.startup_commands.clone())
             .unwrap_or_default()
+    }
+
+    /// Get before_close script for a panel.
+    pub fn panel_before_close(&self, panel_id: &str) -> Option<String> {
+        self.workspace.panels.iter()
+            .find(|p| p.id == panel_id)
+            .and_then(|p| p.before_close.clone())
+    }
+
+    /// Execute before_close script for a panel.
+    fn run_before_close(&self, panel_id: &str) {
+        if let Some(script) = self.panel_before_close(panel_id) {
+            self.execute_close_script(panel_id, &script);
+        }
+    }
+
+    /// Execute before_close scripts for ALL panels (called on app/window close).
+    pub fn run_all_before_close(&self) {
+        for panel_cfg in &self.workspace.panels {
+            if let Some(ref script) = panel_cfg.before_close {
+                self.execute_close_script(&panel_cfg.id, script);
+            }
+        }
+    }
+
+    fn execute_close_script(&self, panel_id: &str, script: &str) {
+        if script.trim().is_empty() {
+            return;
+        }
+        let host = match self.hosts.get(panel_id) {
+            Some(h) => h,
+            None => return,
+        };
+
+        // "file:<path>" → resolve and execute the file
+        if script.starts_with("file:") {
+            let path = script.trim_start_matches("file:");
+            let ws_dir = self.config_path.as_ref().and_then(|p| p.parent());
+            let resolved = if std::path::Path::new(path).is_absolute() {
+                path.to_string()
+            } else if let Some(dir) = ws_dir {
+                dir.join(path).to_string_lossy().to_string()
+            } else {
+                path.to_string()
+            };
+            let cmd = format!("bash {}\n", resolved);
+            host.write_input(cmd.as_bytes());
+        } else {
+            // Inline script
+            let cmd = format!("{}\n", script);
+            host.write_input(cmd.as_bytes());
+        }
     }
 
     /// Rename the workspace.
@@ -246,6 +330,10 @@ impl WorkspaceView {
 
     pub fn has_config_path(&self) -> bool {
         self.config_path.is_some()
+    }
+
+    pub fn config_path_str(&self) -> Option<String> {
+        self.config_path.as_ref().map(|p| p.to_string_lossy().to_string())
     }
 
     /// Set callback for when a panel type is chosen from the chooser.
@@ -268,6 +356,7 @@ impl WorkspaceView {
 
     /// Change a panel's type. Swaps the backend in the existing PanelHost.
     pub fn set_panel_type(&mut self, panel_id: &str, type_id: &str) {
+        tracing::info!("Setting panel {} type to {}", panel_id, type_id);
         let config = PanelCreateConfig {
             shell: self.workspace.settings.default_shell.clone(),
             cwd: None,
@@ -330,6 +419,11 @@ impl WorkspaceView {
 
     pub fn workspace(&self) -> &Workspace {
         &self.workspace
+    }
+
+    pub fn workspace_mut(&mut self) -> &mut Workspace {
+        self.dirty = true;
+        &mut self.workspace
     }
 
     // ── Focus management ─────────────────────────────────────────────────
@@ -427,6 +521,7 @@ impl WorkspaceView {
 
     fn split_focused(&mut self, orientation: gtk4::Orientation) -> Option<String> {
         let focused_id = self.focused_panel_id()?.to_string();
+        tracing::info!("Split panel {} orientation={:?}", focused_id, orientation);
         let new_id = self.alloc_panel_id();
         let new_name = format!("New Panel {}", &new_id[1..]);
 
@@ -443,6 +538,9 @@ impl WorkspaceView {
             env: Default::default(),
             pre_script: None,
             post_script: None,
+            before_close: None,
+            min_width: 0,
+            min_height: 0,
         };
         let host = PanelHost::new(&new_id, &new_name, self.action_cb.clone());
         let backend = self.create_chooser_backend(&new_id);
@@ -453,8 +551,8 @@ impl WorkspaceView {
         let parent = focused_widget.parent()?;
 
         let new_paned = gtk4::Paned::new(orientation);
-        new_paned.set_shrink_start_child(true);
-        new_paned.set_shrink_end_child(true);
+        new_paned.set_shrink_start_child(!has_min_size(&focused_widget));
+        new_paned.set_shrink_end_child(true); // new panel has no min-size yet
 
         let new_host_widget = host.widget().clone();
         new_host_widget.set_vexpand(true);
@@ -554,6 +652,7 @@ impl WorkspaceView {
         let notebook = gtk4::Notebook::new();
         notebook.set_show_tabs(true);
         notebook.set_scrollable(true);
+        style_notebook(&notebook);
 
         let focused_name = self.workspace
             .panel(&focused_id)
@@ -700,6 +799,9 @@ impl WorkspaceView {
             env: Default::default(),
             pre_script: None,
             post_script: None,
+            before_close: None,
+            min_width: 0,
+            min_height: 0,
         }
     }
 
@@ -717,6 +819,9 @@ impl WorkspaceView {
             Some(id) => id.to_string(),
             None => return false,
         };
+
+        // Run before_close script
+        self.run_before_close(&focused_id);
 
         let focused_widget = match self.hosts.get(&focused_id) {
             Some(h) => h.widget().clone(),
@@ -845,6 +950,15 @@ impl WorkspaceView {
             .clone();
         tp_core::config::save_workspace(&self.workspace, &path)
             .map_err(|e| format!("Save failed: {}", e))?;
+        tracing::info!("Saved {} panels to {}", self.workspace.panels.len(), path.display());
+        for p in &self.workspace.panels {
+            if !p.startup_commands.is_empty() {
+                tracing::debug!("  {} startup: {:?}", p.id, &p.startup_commands[0][..p.startup_commands[0].len().min(80)]);
+            }
+            if let Some(ref bc) = p.before_close {
+                tracing::debug!("  {} before_close: {:?}", p.id, &bc[..bc.len().min(80)]);
+            }
+        }
         self.dirty = false;
         self.record_in_db();
         Ok(path)
@@ -1150,6 +1264,7 @@ fn setup_notebook_menu_widget(notebook: &gtk4::Notebook, action_cb: Option<Panel
     let btn = gtk4::Button::new();
     btn.set_icon_name("tab-new-symbolic");
     btn.add_css_class("flat");
+    btn.set_margin_end(14);
     btn.set_tooltip_text(Some("Add tab"));
 
     let nb = notebook.clone();
@@ -1215,7 +1330,7 @@ fn panel_type_to_id(pt: &PanelType) -> &str {
     }
 }
 
-fn panel_type_to_create_config(pt: &PanelType, default_shell: &str) -> PanelCreateConfig {
+fn panel_type_to_create_config(pt: &PanelType, default_shell: &str, workspace_dir: Option<&str>) -> PanelCreateConfig {
     let mut extra = HashMap::new();
     match pt {
         PanelType::Ssh { host, user, .. } => {
@@ -1235,6 +1350,9 @@ fn panel_type_to_create_config(pt: &PanelType, default_shell: &str) -> PanelCrea
         }
         _ => {}
     }
+    if let Some(dir) = workspace_dir {
+        extra.insert("__workspace_dir__".to_string(), dir.to_string());
+    }
     PanelCreateConfig {
         shell: default_shell.to_string(),
         cwd: None,
@@ -1248,9 +1366,10 @@ fn create_backend_from_registry(
     panel_cfg: &PanelConfig,
     default_shell: &str,
     registry: &PanelRegistry,
+    workspace_dir: Option<&str>,
 ) -> Box<dyn crate::panels::PanelBackend> {
     let effective = panel_cfg.effective_type();
-    let (type_id, extra) = match &effective {
+    let (type_id, mut extra) = match &effective {
         PanelType::Empty => ("__empty__", HashMap::new()),
         PanelType::Terminal => ("terminal", HashMap::new()),
         PanelType::Ssh { host, user, .. } => {
@@ -1282,6 +1401,13 @@ fn create_backend_from_registry(
         }
     };
 
+    if !panel_cfg.startup_commands.is_empty() {
+        extra.insert("__startup_commands__".to_string(), panel_cfg.startup_commands.join("\n"));
+    }
+    if let Some(dir) = workspace_dir {
+        extra.insert("__workspace_dir__".to_string(), dir.to_string());
+    }
+
     let config = PanelCreateConfig {
         shell: default_shell.to_string(),
         cwd: panel_cfg.cwd.clone(),
@@ -1289,19 +1415,8 @@ fn create_backend_from_registry(
         extra,
     };
 
-    let mut backend = registry.create(type_id, &config)
+    let backend = registry.create(type_id, &config)
         .unwrap_or_else(|| Box::new(MarkdownPanel::new("/dev/null")));
-
-    // Send startup commands for terminal-like panels
-    if !panel_cfg.startup_commands.is_empty() && backend.accepts_input() {
-        // The backend is already created with commands via the factory
-        // but startup_commands from config need to be sent separately
-        // We handle this by writing to the backend
-        for cmd in &panel_cfg.startup_commands {
-            let line = format!("{}\n", cmd);
-            backend.write_input(line.as_bytes());
-        }
-    }
 
     backend
 }
@@ -1346,6 +1461,11 @@ fn build_layout_widget(
             notebook.upcast::<gtk4::Widget>()
         }
     }
+}
+
+/// Style a notebook to match the app theme (remove default bg overlay).
+fn style_notebook(_notebook: &gtk4::Notebook) {
+    // Using default libadwaita styling
 }
 
 /// Set paned position based on ratio, deferred until widget has real size.
@@ -1400,8 +1520,8 @@ fn build_paned(
         let w2 = build_layout_widget(&children[1], hosts);
         paned.set_start_child(Some(&w1));
         paned.set_end_child(Some(&w2));
-        paned.set_shrink_start_child(true);
-        paned.set_shrink_end_child(true);
+        paned.set_shrink_start_child(!has_min_size(&w1));
+        paned.set_shrink_end_child(!has_min_size(&w2));
         paned.set_resize_start_child(true);
         paned.set_resize_end_child(true);
 
@@ -1414,11 +1534,26 @@ fn build_paned(
     let rest = build_paned(&children[1..], &ratios[1..], hosts, orientation);
     paned.set_start_child(Some(&w1));
     paned.set_end_child(Some(&rest));
-    paned.set_shrink_start_child(true);
-    paned.set_shrink_end_child(true);
+    paned.set_shrink_start_child(!has_min_size(&w1));
+    paned.set_shrink_end_child(!has_min_size(&rest));
     paned.set_resize_start_child(true);
     paned.set_resize_end_child(true);
 
     setup_paned_ratio(&paned, normalized[0], orientation);
     paned.upcast::<gtk4::Widget>()
+}
+
+/// Apply min_width/min_height from PanelConfig to the PanelHost widget.
+fn apply_min_size(host: &PanelHost, cfg: &PanelConfig) {
+    let w = if cfg.min_width > 0 { cfg.min_width as i32 } else { -1 };
+    let h = if cfg.min_height > 0 { cfg.min_height as i32 } else { -1 };
+    if w > 0 || h > 0 {
+        host.widget().set_size_request(w, h);
+    }
+}
+
+/// Check if a widget has a non-trivial minimum size request.
+fn has_min_size(widget: &gtk4::Widget) -> bool {
+    let (w, h) = widget.size_request();
+    w > 0 || h > 0
 }

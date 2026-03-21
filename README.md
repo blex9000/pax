@@ -13,11 +13,18 @@ Workspace manager GUI cross-platform in Rust (GTK4 + VTE), stile Tilix, con pann
 ### Linux (Ubuntu/Debian)
 
 ```bash
-# Dipendenze
+# Rust
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+
+# Dipendenze GTK4
 sudo apt install libgtk-4-dev libadwaita-1-dev libvte-2.91-gtk4-dev
 
 # Opzionale (pannello browser)
 sudo apt install libwebkitgtk-6.0-dev
+
+# Debug: GTK Inspector
+gsettings set org.gtk.Settings.Debug enable-inspector-keybinding true
+# Poi Ctrl+Shift+D nella finestra per aprire l'inspector
 
 # Build
 cargo build --release
@@ -158,6 +165,27 @@ myterms/
 ```
 
 Vedi [ROADMAP.md](ROADMAP.md) per architettura dettagliata e piano di implementazione.
+
+## Log
+
+I log vengono scritti in `~/.local/share/myterms/myterms.log`. Per monitorarli in tempo reale:
+
+```bash
+tail -f ~/.local/share/myterms/myterms.log
+```
+
+Il livello di log è configurabile via variabile d'ambiente:
+
+```bash
+RUST_LOG=tp_gui=debug myterms
+```
+
+## Dati persistenti
+
+| File | Contenuto |
+|------|-----------|
+| `~/.local/share/myterms/myterms.db` | Database SQLite — workspace recenti, history comandi, output salvato |
+| `~/.local/share/myterms/myterms.log` | Log applicazione |
 
 ## Licenza
 

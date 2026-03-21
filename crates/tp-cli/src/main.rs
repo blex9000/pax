@@ -62,9 +62,21 @@ enum Commands {
 }
 
 fn main() -> Result<()> {
+    // Setup logging to file ~/.local/share/myterms/myterms.log
+    let log_dir = dirs::data_local_dir()
+        .unwrap_or_else(|| PathBuf::from("/tmp"))
+        .join("myterms");
+    std::fs::create_dir_all(&log_dir).ok();
+    let log_file = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(log_dir.join("myterms.log"))
+        .unwrap_or_else(|_| std::fs::File::create("/tmp/myterms.log").unwrap());
+
     tracing_subscriber::fmt()
-        .with_env_filter("myterms=info,tp_gui=info,tp_pty=info")
-        .with_writer(std::io::stderr)
+        .with_env_filter("myterms=debug,tp_gui=debug,tp_pty=info,tp_core=info")
+        .with_writer(std::sync::Mutex::new(log_file))
+        .with_ansi(false)
         .init();
 
     let cli = Cli::parse();
@@ -72,12 +84,12 @@ fn main() -> Result<()> {
     match cli.command {
         // No subcommand → show welcome screen
         None => {
-            tp_gui::app::run_app_welcome()?;
+            tp_gui::app::run_app(None, None)?;
         }
         // Explicit new → open empty workspace directly
         Some(Commands::New { name, output }) => {
             let ws = tp_core::template::empty_workspace(&name);
-            tp_gui::app::run_app(ws, output.as_deref())?;
+            tp_gui::app::run_app(Some(ws), output.as_deref())?;
         }
         Some(Commands::Launch { config }) => {
             let ws = tp_core::config::load_workspace(&config)
@@ -88,7 +100,7 @@ fn main() -> Result<()> {
                 db.record_workspace_open(&ws.name, config.to_str()).ok();
             }
 
-            tp_gui::app::run_app(ws, Some(&config))?;
+            tp_gui::app::run_app(Some(ws), Some(&config))?;
         }
         Some(Commands::List) => {
             let db_path = tp_db::Database::default_path();

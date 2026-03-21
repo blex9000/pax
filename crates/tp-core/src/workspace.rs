@@ -78,6 +78,15 @@ pub struct PanelConfig {
     pub pre_script: Option<String>,
     #[serde(default)]
     pub post_script: Option<String>,
+    /// Script executed before closing the panel (cleanup, kill processes, etc.)
+    #[serde(default)]
+    pub before_close: Option<String>,
+    /// Minimum width in pixels (0 = no minimum, panel shrinks freely).
+    #[serde(default)]
+    pub min_width: u32,
+    /// Minimum height in pixels (0 = no minimum, panel shrinks freely).
+    #[serde(default)]
+    pub min_height: u32,
 }
 
 /// What kind of panel to create — determines the widget type.
@@ -231,6 +240,8 @@ pub struct WorkspaceSettings {
     pub scrollback_lines: usize,
     #[serde(default)]
     pub output_retention_days: Option<u32>,
+    #[serde(default)]
+    pub theme: String,
 }
 
 impl Default for WorkspaceSettings {
@@ -239,6 +250,7 @@ impl Default for WorkspaceSettings {
             default_shell: default_shell(),
             scrollback_lines: default_scrollback(),
             output_retention_days: None,
+            theme: String::new(),
         }
     }
 }

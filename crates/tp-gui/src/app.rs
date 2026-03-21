@@ -6,20 +6,24 @@ use libadwaita as adw;
 use adw::prelude::*;
 use std::cell::RefCell;
 use std::collections::HashMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
 use tp_core::workspace::Workspace;
 
 use crate::panel_host::PanelAction;
+use crate::theme::Theme;
 use crate::workspace_view::WorkspaceView;
 use crate::widgets::status_bar::StatusBar;
 
-/// Entry point showing welcome screen — user picks new or recent.
-pub fn run_app_welcome() -> Result<()> {
+/// Single entry point — shows welcome if no workspace, or workspace directly.
+pub fn run_app(workspace: Option<Workspace>, config_path: Option<&Path>) -> Result<()> {
     let app = adw::Application::builder()
-        .application_id("com.sinelec.myterms.welcome")
+        .application_id("com.sinelec.myterms")
         .build();
+
+    let ws = workspace;
+    let cp = config_path.map(|p| p.to_path_buf());
 
     app.connect_activate(move |app| {
         load_css();
@@ -27,454 +31,20 @@ pub fn run_app_welcome() -> Result<()> {
         let window = adw::ApplicationWindow::builder()
             .application(app)
             .title("MyTerms")
-            .default_width(700)
-            .default_height(550)
-            .build();
-
-        let header = adw::HeaderBar::new();
-        header.set_show_end_title_buttons(true);
-        header.set_show_start_title_buttons(true);
-
-        let toolbar_view = adw::ToolbarView::new();
-        toolbar_view.add_top_bar(&header);
-
-        let window_rc = Rc::new(window.clone());
-
-        let win = window_rc.clone();
-        let welcome = crate::widgets::welcome::build_welcome(Rc::new(move |choice| {
-            use crate::widgets::welcome::WelcomeChoice;
-            match choice {
-                WelcomeChoice::NewWorkspace => {
-                    win.close();
-                    // Spawn new process with empty workspace
-                    let exe = std::env::current_exe().unwrap_or_else(|_| "myterms".into());
-                    let _ = std::process::Command::new(exe).arg("new").spawn();
-                }
-                WelcomeChoice::OpenFile => {
-                    let win2 = win.clone();
-                    let dialog = gtk4::FileDialog::builder()
-                        .title("Open Workspace")
-                        .modal(true)
-                        .build();
-                    let filter = gtk4::FileFilter::new();
-                    filter.set_name(Some("JSON files"));
-                    filter.add_pattern("*.json");
-                    let filters = gtk4::gio::ListStore::new::<gtk4::FileFilter>();
-                    filters.append(&filter);
-                    dialog.set_filters(Some(&filters));
-
-                    let win3 = win2.clone();
-                    dialog.open(Some(win2.as_ref()), gtk4::gio::Cancellable::NONE, move |result| {
-                        if let Ok(file) = result {
-                            if let Some(path) = file.path() {
-                                win3.close();
-                                let exe = std::env::current_exe().unwrap_or_else(|_| "myterms".into());
-                                let _ = std::process::Command::new(exe)
-                                    .arg("launch")
-                                    .arg(path.to_string_lossy().as_ref())
-                                    .spawn();
-                            }
-                        }
-                    });
-                }
-                WelcomeChoice::OpenRecent(path) => {
-                    win.close();
-                    let exe = std::env::current_exe().unwrap_or_else(|_| "myterms".into());
-                    let _ = std::process::Command::new(exe)
-                        .arg("launch")
-                        .arg(&path)
-                        .spawn();
-                }
-            }
-        }));
-
-        toolbar_view.set_content(Some(&welcome));
-        window.set_content(Some(&toolbar_view));
-        window.present();
-    });
-
-    app.run_with_args::<String>(&[]);
-    Ok(())
-}
-
-/// Main application entry point with a workspace.
-pub fn run_app(workspace: Workspace, config_path: Option<&Path>) -> Result<()> {
-    let app = adw::Application::builder()
-        .application_id("com.sinelec.myterms")
-        .build();
-
-    let ws_name = workspace.name.clone();
-    let config_path_owned = config_path.map(|p| p.to_path_buf());
-
-    app.connect_activate(move |app| {
-        load_css();
-
-        let window = adw::ApplicationWindow::builder()
-            .application(app)
-            .title(&format!("MyTerms — {}", ws_name))
             .default_width(1200)
             .default_height(800)
             .build();
 
-        // Header bar with hamburger menu
-        let header = adw::HeaderBar::new();
-        header.set_show_end_title_buttons(true);
-        header.set_show_start_title_buttons(true);
-
-        // Hamburger menu
-        let menu_btn = gtk4::MenuButton::new();
-        menu_btn.set_icon_name("open-menu-symbolic");
-        menu_btn.set_tooltip_text(Some("Menu"));
-
-        let menu = gtk4::gio::Menu::new();
-        let file_section = gtk4::gio::Menu::new();
-        file_section.append(Some("New Workspace"), Some("app.new"));
-        file_section.append(Some("Open Workspace…"), Some("app.open"));
-        file_section.append(Some("Open Recent…"), Some("app.recent"));
-        file_section.append(Some("Save Workspace"), Some("app.save"));
-        file_section.append(Some("Save Workspace As…"), Some("app.save-as"));
-        menu.append_section(None, &file_section);
-        let ws_section = gtk4::gio::Menu::new();
-        ws_section.append(Some("Rename Workspace…"), Some("app.rename"));
-        menu.append_section(None, &ws_section);
-        menu.append(Some("Quit"), Some("app.quit"));
-        menu_btn.set_menu_model(Some(&menu));
-
-        header.pack_start(&menu_btn);
-
-        // Shared state
-        let ws_view = Rc::new(RefCell::new(WorkspaceView::build(
-            &workspace,
-            config_path_owned.as_deref(),
-        )));
-        let status_bar = Rc::new(RefCell::new(StatusBar::new(&workspace.name)));
         let window_rc = Rc::new(window.clone());
 
-        // Create save action early so callbacks can reference it
-        let save_action = gtk4::gio::SimpleAction::new("save", None);
-
-        // Wire up type chooser callback
-        {
-            let ws_for_chooser = ws_view.clone();
-            let sb_for_chooser = status_bar.clone();
-            let win_for_chooser = window_rc.clone();
-            let sa_for_chooser = save_action.clone();
-            let cb: crate::panels::chooser::OnTypeChosen = Rc::new(move |panel_id, type_id| {
-                ws_for_chooser.borrow_mut().set_panel_type(panel_id, type_id);
-                sb_for_chooser.borrow().set_message(&format!("{} → {}", panel_id, type_id));
-                update_dirty_ui(&ws_for_chooser, &win_for_chooser, &sa_for_chooser);
-            });
-            ws_view.borrow_mut().set_type_chosen_callback(cb);
+        if let Some(ref workspace) = ws {
+            // Direct workspace launch
+            setup_workspace_ui(&window_rc, workspace.clone(), cp.as_deref());
+        } else {
+            // Show welcome, then transition to workspace
+            setup_welcome_ui(&window_rc);
         }
 
-        // Wire up panel ⋮ menu action callback
-        {
-            let ws_for_cb = ws_view.clone();
-            let sb_for_cb = status_bar.clone();
-            let win_for_cb = window_rc.clone();
-            let sa_for_cb = save_action.clone();
-            let cb: crate::panel_host::PanelActionCallback = Rc::new(move |panel_id, action| {
-                // "nb:<panel_id>" means action on notebook containing panel_id
-                if let Some(real_id) = panel_id.strip_prefix("nb:") {
-                    let view = ws_for_cb.borrow();
-                    if let Some(host) = view.host(real_id) {
-                        let widget = host.widget().clone();
-                        if let Some(nb) = crate::workspace_view::find_notebook_ancestor(&widget) {
-                            drop(view);
-                            match action {
-                                PanelAction::AddTabToNotebook => {
-                                    if let Some(new_id) = ws_for_cb.borrow_mut().add_tab_to_notebook(&nb) {
-                                        sb_for_cb.borrow().set_message(&format!("Tab + → {}", new_id));
-                                    }
-                                }
-                                PanelAction::RemoveTab => {
-                                    {
-                                        let v = ws_for_cb.borrow();
-                                        if let Some(idx) = v.focus_order_index(real_id) {
-                                            drop(v);
-                                            ws_for_cb.borrow_mut().set_focus_index(idx);
-                                        }
-                                    }
-                                    if ws_for_cb.borrow_mut().close_focused() {
-                                        if let Some(id) = ws_for_cb.borrow().focused_panel_id() {
-                                            sb_for_cb.borrow().set_panel(id);
-                                        }
-                                        sb_for_cb.borrow().set_message("Tab removed");
-                                    }
-                                }
-                                _ => {}
-                            }
-                        }
-                    }
-                    return;
-                }
-
-                // Focus the panel that triggered the action
-                {
-                    let view = ws_for_cb.borrow();
-                    if let Some(idx) = view.focus_order_index(panel_id) {
-                        drop(view);
-                        ws_for_cb.borrow_mut().set_focus_index(idx);
-                    }
-                }
-                match action {
-                    PanelAction::SplitH => {
-                        if let Some(new_id) = ws_for_cb.borrow_mut().split_focused_h() {
-                            sb_for_cb.borrow().set_message(&format!("Split H → {}", new_id));
-                        }
-                    }
-                    PanelAction::SplitV => {
-                        if let Some(new_id) = ws_for_cb.borrow_mut().split_focused_v() {
-                            sb_for_cb.borrow().set_message(&format!("Split V → {}", new_id));
-                        }
-                    }
-                    PanelAction::AddTab => {
-                        if let Some(new_id) = ws_for_cb.borrow_mut().add_tab_focused() {
-                            sb_for_cb.borrow().set_message(&format!("TabSplit → {}", new_id));
-                        }
-                    }
-                    PanelAction::Close => {
-                        if ws_for_cb.borrow_mut().close_focused() {
-                            if let Some(id) = ws_for_cb.borrow().focused_panel_id() {
-                                sb_for_cb.borrow().set_panel(id);
-                            }
-                            sb_for_cb.borrow().set_message("Panel closed");
-                        } else {
-                            sb_for_cb.borrow().set_message("Cannot close last panel");
-                        }
-                    }
-                    PanelAction::Configure => {
-                        let (pname, ptype, pcmds) = {
-                            let view = ws_for_cb.borrow();
-                            (
-                                view.panel_name(panel_id).unwrap_or_default(),
-                                view.panel_type(panel_id).unwrap_or(tp_core::workspace::PanelType::Terminal),
-                                view.panel_startup_commands(panel_id),
-                            )
-                        };
-                        let pid = panel_id.to_string();
-                        let ws2 = ws_for_cb.clone();
-                        let win2 = win_for_cb.clone();
-                        let sa2 = sa_for_cb.clone();
-                        crate::dialogs::panel_config::show_panel_config_dialog(
-                            &*win_for_cb,
-                            &pname,
-                            &ptype,
-                            &pcmds,
-                            move |new_name, new_type, new_cmds| {
-                                ws2.borrow_mut().apply_panel_config(&pid, new_name, new_type, new_cmds);
-                                update_dirty_ui(&ws2, &win2, &sa2);
-                            },
-                        );
-                    }
-                    PanelAction::AddTabToNotebook | PanelAction::RemoveTab => {}
-                }
-                update_dirty_ui(&ws_for_cb, &win_for_cb, &sa_for_cb);
-            });
-            ws_view.borrow_mut().set_action_callback(cb);
-        }
-
-        // Register GIO actions for menu items
-        let action_group = gtk4::gio::SimpleActionGroup::new();
-
-        let save_as_action = gtk4::gio::SimpleAction::new("save-as", None);
-
-        // Open action
-        {
-            let action = gtk4::gio::SimpleAction::new("open", None);
-            let ws = ws_view.clone();
-            let win = window_rc.clone();
-            let sb = status_bar.clone();
-            let sa = save_action.clone();
-            action.connect_activate(move |_, _| {
-                do_open(&ws, &sb, &win, &sa);
-            });
-            action_group.add_action(&action);
-        }
-
-        // Save action
-        {
-            let ws = ws_view.clone();
-            let sb = status_bar.clone();
-            let win = window_rc.clone();
-            let sa = save_action.clone();
-            save_action.connect_activate(move |_, _| {
-                do_save(&ws, &sb, &win, &sa, false);
-            });
-            action_group.add_action(&save_action);
-        }
-
-        // Save As action
-        {
-            let ws = ws_view.clone();
-            let sb = status_bar.clone();
-            let win = window_rc.clone();
-            let sa = save_action.clone();
-            save_as_action.connect_activate(move |_, _| {
-                do_save(&ws, &sb, &win, &sa, true);
-            });
-            action_group.add_action(&save_as_action);
-        }
-
-        // New workspace action
-        {
-            let action = gtk4::gio::SimpleAction::new("new", None);
-            let ws = ws_view.clone();
-            let win = window_rc.clone();
-            let sa = save_action.clone();
-            let sb = status_bar.clone();
-            action.connect_activate(move |_, _| {
-                let empty = tp_core::template::empty_workspace("untitled");
-                if let Err(e) = ws.borrow_mut().load_workspace(empty, None) {
-                    sb.borrow().set_message(&format!("Error: {}", e));
-                }
-                update_dirty_ui(&ws, &win, &sa);
-            });
-            action_group.add_action(&action);
-        }
-
-        // Open recent action
-        {
-            let action = gtk4::gio::SimpleAction::new("recent", None);
-            let ws = ws_view.clone();
-            let win = window_rc.clone();
-            let sa = save_action.clone();
-            let sb = status_bar.clone();
-            action.connect_activate(move |_, _| {
-                show_recent_dialog(&ws, &sb, &win, &sa);
-            });
-            action_group.add_action(&action);
-        }
-
-        // Rename workspace action
-        {
-            let action = gtk4::gio::SimpleAction::new("rename", None);
-            let ws = ws_view.clone();
-            let win = window_rc.clone();
-            let sa = save_action.clone();
-            action.connect_activate(move |_, _| {
-                let current_name = ws.borrow().workspace_name().to_string();
-                show_rename_dialog(&win, &current_name, {
-                    let ws = ws.clone();
-                    let win = win.clone();
-                    let sa = sa.clone();
-                    move |new_name| {
-                        ws.borrow_mut().rename_workspace(&new_name);
-                        update_dirty_ui(&ws, &win, &sa);
-                    }
-                });
-            });
-            action_group.add_action(&action);
-        }
-
-        // Quit action
-        {
-            let action = gtk4::gio::SimpleAction::new("quit", None);
-            action.connect_activate(move |_, _| {
-                std::process::exit(0);
-            });
-            action_group.add_action(&action);
-        }
-
-        window.insert_action_group("app", Some(&action_group));
-
-        // Initial dirty state
-        update_dirty_ui(&ws_view, &window_rc, &save_action);
-
-        // Content area
-        let content_box = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
-        let ws_widget = ws_view.borrow().widget().clone();
-        ws_widget.set_vexpand(true);
-        ws_widget.set_hexpand(true);
-        content_box.append(&ws_widget);
-        content_box.append(status_bar.borrow().widget());
-
-        // ToolbarView
-        let toolbar_view = adw::ToolbarView::new();
-        toolbar_view.add_top_bar(&header);
-        toolbar_view.set_content(Some(&content_box));
-        window.set_content(Some(&toolbar_view));
-
-        // Keyboard shortcuts — CAPTURE phase to intercept before VTE
-        let controller = gtk4::EventControllerKey::new();
-        controller.set_propagation_phase(gtk4::PropagationPhase::Capture);
-
-        {
-            let ws = ws_view.clone();
-            let sb = status_bar.clone();
-            let win = window_rc.clone();
-            let sa = save_action.clone();
-            controller.connect_key_pressed(move |_ctrl, key, _code, modifiers| {
-                let ctrl = modifiers.contains(gdk::ModifierType::CONTROL_MASK);
-                let shift = modifiers.contains(gdk::ModifierType::SHIFT_MASK);
-
-                if ctrl && shift {
-                    match key {
-                        gdk::Key::H => {
-                            if let Some(new_id) = ws.borrow_mut().split_focused_h() {
-                                sb.borrow().set_message(&format!("Split H → {}", new_id));
-                            }
-                            return glib::Propagation::Stop;
-                        }
-                        gdk::Key::J => {
-                            if let Some(new_id) = ws.borrow_mut().split_focused_v() {
-                                sb.borrow().set_message(&format!("Split V → {}", new_id));
-                            }
-                            return glib::Propagation::Stop;
-                        }
-                        gdk::Key::T => {
-                            if let Some(new_id) = ws.borrow_mut().add_tab_focused() {
-                                sb.borrow().set_message(&format!("Tab → {}", new_id));
-                            }
-                            return glib::Propagation::Stop;
-                        }
-                        gdk::Key::W => {
-                            if ws.borrow_mut().close_focused() {
-                                if let Some(id) = ws.borrow().focused_panel_id() {
-                                    sb.borrow().set_panel(id);
-                                }
-                                sb.borrow().set_message("Panel closed");
-                            }
-                            return glib::Propagation::Stop;
-                        }
-                        _ => {}
-                    }
-                }
-
-                if ctrl && !shift {
-                    match key {
-                        gdk::Key::q => std::process::exit(0),
-                        gdk::Key::n => {
-                            ws.borrow_mut().focus_next();
-                            if let Some(id) = ws.borrow().focused_panel_id() {
-                                sb.borrow().set_panel(id);
-                            }
-                            return glib::Propagation::Stop;
-                        }
-                        gdk::Key::p => {
-                            ws.borrow_mut().focus_prev();
-                            if let Some(id) = ws.borrow().focused_panel_id() {
-                                sb.borrow().set_panel(id);
-                            }
-                            return glib::Propagation::Stop;
-                        }
-                        gdk::Key::s => {
-                            do_save(&ws, &sb, &win, &sa, false);
-                            return glib::Propagation::Stop;
-                        }
-                        gdk::Key::o => {
-                            do_open(&ws, &sb, &win, &sa);
-                            return glib::Propagation::Stop;
-                        }
-                        _ => {}
-                    }
-                }
-
-                glib::Propagation::Proceed
-            });
-        }
-
-        window.add_controller(controller);
         window.present();
     });
 
@@ -482,7 +52,522 @@ pub fn run_app(workspace: Workspace, config_path: Option<&Path>) -> Result<()> {
     Ok(())
 }
 
-/// Update window title and save action sensitivity based on dirty state.
+/// Convenience: launch with welcome screen.
+pub fn run_app_welcome() -> Result<()> {
+    run_app(None, None)
+}
+
+/// Setup the welcome screen in the window.
+fn setup_welcome_ui(window: &Rc<adw::ApplicationWindow>) {
+    let header = adw::HeaderBar::new();
+    header.set_show_end_title_buttons(true);
+    header.set_show_start_title_buttons(true);
+
+    let toolbar_view = adw::ToolbarView::new();
+    toolbar_view.add_top_bar(&header);
+
+    let win = window.clone();
+    let welcome = crate::widgets::welcome::build_welcome(Rc::new(move |choice| {
+        use crate::widgets::welcome::WelcomeChoice;
+        match choice {
+            WelcomeChoice::NewWorkspace => {
+                let ws = tp_core::template::empty_workspace("untitled");
+                setup_workspace_ui(&win, ws, None);
+            }
+            WelcomeChoice::OpenFile => {
+                let win2 = win.clone();
+                let dialog = gtk4::FileDialog::builder()
+                    .title("Open Workspace")
+                    .modal(true)
+                    .build();
+                let filter = gtk4::FileFilter::new();
+                filter.set_name(Some("JSON files"));
+                filter.add_pattern("*.json");
+                let filters = gtk4::gio::ListStore::new::<gtk4::FileFilter>();
+                filters.append(&filter);
+                dialog.set_filters(Some(&filters));
+
+                let win3 = win2.clone();
+                dialog.open(Some(win2.as_ref()), gtk4::gio::Cancellable::NONE, move |result| {
+                    if let Ok(file) = result {
+                        if let Some(path) = file.path() {
+                            if let Ok(ws) = tp_core::config::load_workspace(&path) {
+                                setup_workspace_ui(&win3, ws, Some(&path));
+                            }
+                        }
+                    }
+                });
+            }
+            WelcomeChoice::OpenRecent(path) => {
+                let p = PathBuf::from(&path);
+                if let Ok(ws) = tp_core::config::load_workspace(&p) {
+                    setup_workspace_ui(&win, ws, Some(&p));
+                }
+            }
+        }
+    }));
+
+    toolbar_view.set_content(Some(&welcome));
+    window.set_content(Some(&toolbar_view));
+    window.set_default_size(700, 550);
+}
+
+/// Setup the full workspace UI in the window (replaces any existing content).
+fn setup_workspace_ui(
+    window: &Rc<adw::ApplicationWindow>,
+    workspace: Workspace,
+    config_path: Option<&Path>,
+) {
+    let ws_name = workspace.name.clone();
+    window.set_title(Some(&format!("MyTerms — {}", ws_name)));
+    window.set_default_size(1200, 800);
+
+    // Apply saved theme
+    apply_theme(Theme::from_id(&workspace.settings.theme));
+
+    // Header bar with hamburger menu
+    let header = adw::HeaderBar::new();
+    header.set_show_end_title_buttons(true);
+    header.set_show_start_title_buttons(true);
+
+    let menu_btn = gtk4::MenuButton::new();
+    menu_btn.set_icon_name("open-menu-symbolic");
+    menu_btn.set_tooltip_text(Some("Menu"));
+
+    let menu = gtk4::gio::Menu::new();
+    let file_section = gtk4::gio::Menu::new();
+    file_section.append(Some("New Workspace"), Some("app.new"));
+    file_section.append(Some("Open Workspace…"), Some("app.open"));
+    file_section.append(Some("Open Recent…"), Some("app.recent"));
+    file_section.append(Some("Save"), Some("app.save"));
+    file_section.append(Some("Save As…"), Some("app.save-as"));
+    menu.append_section(None, &file_section);
+    let settings_section = gtk4::gio::Menu::new();
+    settings_section.append(Some("Settings…"), Some("app.settings"));
+    menu.append_section(None, &settings_section);
+    menu.append(Some("Quit"), Some("app.quit"));
+    menu_btn.set_menu_model(Some(&menu));
+    header.pack_start(&menu_btn);
+
+    // Dirty indicator (orange floppy) — packed at end (right side, near window buttons)
+    let dirty_sep = gtk4::Separator::new(gtk4::Orientation::Vertical);
+    dirty_sep.set_margin_start(4);
+    dirty_sep.set_margin_end(4);
+    dirty_sep.set_visible(false);
+    header.pack_end(&dirty_sep);
+
+    let dirty_icon = gtk4::Image::from_icon_name("media-floppy-symbolic");
+    dirty_icon.add_css_class("dirty-indicator");
+    dirty_icon.set_tooltip_text(Some("Unsaved changes"));
+    dirty_icon.set_visible(false);
+    header.pack_end(&dirty_icon);
+    DIRTY_INDICATOR.with(|cell| {
+        cell.borrow_mut().replace((dirty_icon, dirty_sep));
+    });
+
+    // Shared state
+    let ws_view = Rc::new(RefCell::new(WorkspaceView::build(&workspace, config_path)));
+    let status_bar = Rc::new(RefCell::new(StatusBar::new()));
+    let save_action = gtk4::gio::SimpleAction::new("save", None);
+    let window_rc = window.clone();
+
+    // Wire up type chooser callback
+    {
+        let ws = ws_view.clone();
+        let sb = status_bar.clone();
+        let win = window_rc.clone();
+        let sa = save_action.clone();
+        let cb: crate::panels::chooser::OnTypeChosen = Rc::new(move |panel_id, type_id| {
+            ws.borrow_mut().set_panel_type(panel_id, type_id);
+            sb.borrow().set_message(&format!("{} → {}", panel_id, type_id));
+            update_dirty_ui(&ws, &win, &sa);
+        });
+        ws_view.borrow_mut().set_type_chosen_callback(cb);
+    }
+
+    // Wire up panel ⋮ menu action callback
+    {
+        let ws_for_cb = ws_view.clone();
+        let sb_for_cb = status_bar.clone();
+        let win_for_cb = window_rc.clone();
+        let sa_for_cb = save_action.clone();
+        let cb: crate::panel_host::PanelActionCallback = Rc::new(move |panel_id, action| {
+            // "nb:<panel_id>" means action on notebook
+            if let Some(real_id) = panel_id.strip_prefix("nb:") {
+                let view = ws_for_cb.borrow();
+                if let Some(host) = view.host(real_id) {
+                    let widget = host.widget().clone();
+                    if let Some(nb) = crate::workspace_view::find_notebook_ancestor(&widget) {
+                        drop(view);
+                        match action {
+                            PanelAction::AddTabToNotebook => {
+                                if let Some(new_id) = ws_for_cb.borrow_mut().add_tab_to_notebook(&nb) {
+                                    sb_for_cb.borrow().set_message(&format!("Tab + → {}", new_id));
+                                }
+                            }
+                            PanelAction::RemoveTab => {
+                                {
+                                    let v = ws_for_cb.borrow();
+                                    if let Some(idx) = v.focus_order_index(real_id) {
+                                        drop(v);
+                                        ws_for_cb.borrow_mut().set_focus_index(idx);
+                                    }
+                                }
+                                if ws_for_cb.borrow_mut().close_focused() {
+                                    if let Some(id) = ws_for_cb.borrow().focused_panel_id() {
+                                        sb_for_cb.borrow().set_panel(id);
+                                    }
+                                    sb_for_cb.borrow().set_message("Tab removed");
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+                update_dirty_ui(&ws_for_cb, &win_for_cb, &sa_for_cb);
+                return;
+            }
+
+            // Focus the panel that triggered the action
+            {
+                let view = ws_for_cb.borrow();
+                if let Some(idx) = view.focus_order_index(panel_id) {
+                    drop(view);
+                    ws_for_cb.borrow_mut().set_focus_index(idx);
+                }
+            }
+            match action {
+                PanelAction::SplitH => {
+                    if let Some(new_id) = ws_for_cb.borrow_mut().split_focused_h() {
+                        sb_for_cb.borrow().set_message(&format!("Split H → {}", new_id));
+                    }
+                }
+                PanelAction::SplitV => {
+                    if let Some(new_id) = ws_for_cb.borrow_mut().split_focused_v() {
+                        sb_for_cb.borrow().set_message(&format!("Split V → {}", new_id));
+                    }
+                }
+                PanelAction::AddTab => {
+                    if let Some(new_id) = ws_for_cb.borrow_mut().add_tab_focused() {
+                        sb_for_cb.borrow().set_message(&format!("TabSplit → {}", new_id));
+                    }
+                }
+                PanelAction::Close => {
+                    if ws_for_cb.borrow_mut().close_focused() {
+                        if let Some(id) = ws_for_cb.borrow().focused_panel_id() {
+                            sb_for_cb.borrow().set_panel(id);
+                        }
+                        sb_for_cb.borrow().set_message("Panel closed");
+                    } else {
+                        sb_for_cb.borrow().set_message("Cannot close last panel");
+                    }
+                }
+                PanelAction::Configure => {
+                    let (pname, ptype, pcmds, pclose, pmw, pmh) = {
+                        let view = ws_for_cb.borrow();
+                        (
+                            view.panel_name(panel_id).unwrap_or_default(),
+                            view.panel_type(panel_id).unwrap_or(tp_core::workspace::PanelType::Terminal),
+                            view.panel_startup_commands(panel_id),
+                            view.panel_before_close(panel_id),
+                            view.panel_min_width(panel_id),
+                            view.panel_min_height(panel_id),
+                        )
+                    };
+                    let pid = panel_id.to_string();
+                    let ws2 = ws_for_cb.clone();
+                    let win2 = win_for_cb.clone();
+                    let sa2 = sa_for_cb.clone();
+                    crate::dialogs::panel_config::show_panel_config_dialog(
+                        &*win_for_cb,
+                        &pname,
+                        &ptype,
+                        &pcmds,
+                        pclose.as_deref(),
+                        pmw,
+                        pmh,
+                        move |new_name, new_type, new_cmds, new_close, new_mw, new_mh| {
+                            ws2.borrow_mut().apply_panel_config(&pid, new_name, new_type, new_cmds, new_close, new_mw, new_mh);
+                            update_dirty_ui(&ws2, &win2, &sa2);
+                        },
+                    );
+                }
+                PanelAction::AddTabToNotebook | PanelAction::RemoveTab => {}
+            }
+            update_dirty_ui(&ws_for_cb, &win_for_cb, &sa_for_cb);
+        });
+        ws_view.borrow_mut().set_action_callback(cb);
+    }
+
+    // Register GIO actions
+    let action_group = gtk4::gio::SimpleActionGroup::new();
+
+    // New workspace
+    {
+        let action = gtk4::gio::SimpleAction::new("new", None);
+        let ws = ws_view.clone();
+        let win = window_rc.clone();
+        let sa = save_action.clone();
+        let sb = status_bar.clone();
+        action.connect_activate(move |_, _| {
+            let empty = tp_core::template::empty_workspace("untitled");
+            if let Err(e) = ws.borrow_mut().load_workspace(empty, None) {
+                sb.borrow().set_message(&format!("Error: {}", e));
+            }
+            update_dirty_ui(&ws, &win, &sa);
+            update_status_bar_path(&ws, &sb);
+        });
+        action_group.add_action(&action);
+    }
+
+    // Open recent
+    {
+        let action = gtk4::gio::SimpleAction::new("recent", None);
+        let ws = ws_view.clone();
+        let win = window_rc.clone();
+        let sa = save_action.clone();
+        let sb = status_bar.clone();
+        action.connect_activate(move |_, _| {
+            show_recent_dialog(&ws, &sb, &win, &sa);
+        });
+        action_group.add_action(&action);
+    }
+
+    // Open file
+    {
+        let action = gtk4::gio::SimpleAction::new("open", None);
+        let ws = ws_view.clone();
+        let win = window_rc.clone();
+        let sb = status_bar.clone();
+        let sa = save_action.clone();
+        action.connect_activate(move |_, _| {
+            do_open(&ws, &sb, &win, &sa);
+        });
+        action_group.add_action(&action);
+    }
+
+    // Save
+    {
+        let ws = ws_view.clone();
+        let sb = status_bar.clone();
+        let win = window_rc.clone();
+        let sa = save_action.clone();
+        save_action.connect_activate(move |_, _| {
+            do_save(&ws, &sb, &win, &sa, false);
+        });
+        action_group.add_action(&save_action);
+    }
+
+    // Save As
+    {
+        let action = gtk4::gio::SimpleAction::new("save-as", None);
+        let ws = ws_view.clone();
+        let sb = status_bar.clone();
+        let win = window_rc.clone();
+        let sa = save_action.clone();
+        action.connect_activate(move |_, _| {
+            do_save(&ws, &sb, &win, &sa, true);
+        });
+        action_group.add_action(&action);
+    }
+
+    // Settings
+    {
+        let action = gtk4::gio::SimpleAction::new("settings", None);
+        let ws = ws_view.clone();
+        let win = window_rc.clone();
+        let sa = save_action.clone();
+        action.connect_activate(move |_, _| {
+            let current = {
+                let view = ws.borrow();
+                crate::dialogs::settings::AppSettings {
+                    workspace_name: view.workspace().name.clone(),
+                    theme: Theme::from_id(&view.workspace().settings.theme),
+                    default_shell: view.workspace().settings.default_shell.clone(),
+                    scrollback_lines: view.workspace().settings.scrollback_lines,
+                    output_retention_days: view.workspace().settings.output_retention_days,
+                }
+            };
+            let ws2 = ws.clone();
+            let win2 = win.clone();
+            let sa2 = sa.clone();
+            crate::dialogs::settings::show_settings_dialog(&*win, &current, move |new_settings| {
+                apply_theme(new_settings.theme);
+                {
+                    let mut view = ws2.borrow_mut();
+                    view.rename_workspace(&new_settings.workspace_name);
+                    let ws = view.workspace_mut();
+                    ws.settings.theme = new_settings.theme.to_id().to_string();
+                    ws.settings.default_shell = new_settings.default_shell;
+                    ws.settings.scrollback_lines = new_settings.scrollback_lines;
+                    ws.settings.output_retention_days = new_settings.output_retention_days;
+                }
+                update_dirty_ui(&ws2, &win2, &sa2);
+            });
+        });
+        action_group.add_action(&action);
+    }
+
+    // Quit
+    {
+        let action = gtk4::gio::SimpleAction::new("quit", None);
+        let ws = ws_view.clone();
+        action.connect_activate(move |_, _| {
+            ws.borrow().run_all_before_close();
+            std::process::exit(0);
+        });
+        action_group.add_action(&action);
+    }
+
+    window.insert_action_group("app", Some(&action_group));
+
+    // Window close request
+    {
+        let ws = ws_view.clone();
+        window.connect_close_request(move |_| {
+            ws.borrow().run_all_before_close();
+            glib::Propagation::Proceed
+        });
+    }
+
+    // Content
+    let content_box = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
+    let ws_widget = ws_view.borrow().widget().clone();
+    ws_widget.set_vexpand(true);
+    ws_widget.set_hexpand(true);
+    content_box.append(&ws_widget);
+    content_box.append(status_bar.borrow().widget());
+
+    let toolbar_view = adw::ToolbarView::new();
+    toolbar_view.add_top_bar(&header);
+    toolbar_view.set_content(Some(&content_box));
+    window.set_content(Some(&toolbar_view));
+
+    // Keyboard shortcuts
+    let controller = gtk4::EventControllerKey::new();
+    controller.set_propagation_phase(gtk4::PropagationPhase::Capture);
+
+    {
+        let ws = ws_view.clone();
+        let sb = status_bar.clone();
+        let win = window_rc.clone();
+        let sa = save_action.clone();
+        controller.connect_key_pressed(move |_ctrl, key, _code, modifiers| {
+            let ctrl = modifiers.contains(gdk::ModifierType::CONTROL_MASK);
+            let shift = modifiers.contains(gdk::ModifierType::SHIFT_MASK);
+
+            if ctrl && shift {
+                match key {
+                    gdk::Key::H => {
+                        if let Some(new_id) = ws.borrow_mut().split_focused_h() {
+                            sb.borrow().set_message(&format!("Split H → {}", new_id));
+                        }
+                        update_dirty_ui(&ws, &win, &sa);
+                        return glib::Propagation::Stop;
+                    }
+                    gdk::Key::J => {
+                        if let Some(new_id) = ws.borrow_mut().split_focused_v() {
+                            sb.borrow().set_message(&format!("Split V → {}", new_id));
+                        }
+                        update_dirty_ui(&ws, &win, &sa);
+                        return glib::Propagation::Stop;
+                    }
+                    gdk::Key::T => {
+                        if let Some(new_id) = ws.borrow_mut().add_tab_focused() {
+                            sb.borrow().set_message(&format!("Tab → {}", new_id));
+                        }
+                        update_dirty_ui(&ws, &win, &sa);
+                        return glib::Propagation::Stop;
+                    }
+                    gdk::Key::W => {
+                        if ws.borrow_mut().close_focused() {
+                            if let Some(id) = ws.borrow().focused_panel_id() {
+                                sb.borrow().set_panel(id);
+                            }
+                            sb.borrow().set_message("Panel closed");
+                        }
+                        update_dirty_ui(&ws, &win, &sa);
+                        return glib::Propagation::Stop;
+                    }
+                    gdk::Key::C | gdk::Key::V => {
+                        return glib::Propagation::Proceed;
+                    }
+                    _ => {}
+                }
+            }
+
+            if ctrl && !shift {
+                match key {
+                    gdk::Key::q => {
+                        ws.borrow().run_all_before_close();
+                        std::process::exit(0);
+                    }
+                    gdk::Key::n => {
+                        ws.borrow_mut().focus_next();
+                        if let Some(id) = ws.borrow().focused_panel_id() {
+                            sb.borrow().set_panel(id);
+                        }
+                        return glib::Propagation::Stop;
+                    }
+                    gdk::Key::p => {
+                        ws.borrow_mut().focus_prev();
+                        if let Some(id) = ws.borrow().focused_panel_id() {
+                            sb.borrow().set_panel(id);
+                        }
+                        return glib::Propagation::Stop;
+                    }
+                    gdk::Key::s => {
+                        do_save(&ws, &sb, &win, &sa, false);
+                        return glib::Propagation::Stop;
+                    }
+                    gdk::Key::o => {
+                        do_open(&ws, &sb, &win, &sa);
+                        return glib::Propagation::Stop;
+                    }
+                    _ => {}
+                }
+            }
+
+            glib::Propagation::Proceed
+        });
+    }
+
+    window.add_controller(controller);
+
+    // Initial UI state
+    update_dirty_ui(&ws_view, &window_rc, &save_action);
+    update_status_bar_path(&ws_view, &status_bar);
+}
+
+// ── Helper functions ─────────────────────────────────────────────────────────
+
+fn update_dirty_ui(
+    ws: &Rc<RefCell<WorkspaceView>>,
+    window: &Rc<adw::ApplicationWindow>,
+    save_action: &gtk4::gio::SimpleAction,
+) {
+    let view = ws.borrow();
+    let dirty = view.is_dirty();
+    let name = &view.workspace().name;
+    window.set_title(Some(&format!("MyTerms — {}", name)));
+    save_action.set_enabled(dirty || !view.has_config_path());
+    DIRTY_INDICATOR.with(|cell| {
+        if let Some((ref icon, ref sep)) = *cell.borrow() {
+            icon.set_visible(dirty);
+            sep.set_visible(dirty);
+        }
+    });
+}
+
+fn update_status_bar_path(ws: &Rc<RefCell<WorkspaceView>>, sb: &Rc<RefCell<StatusBar>>) {
+    let view = ws.borrow();
+    if let Some(path) = view.config_path_str() {
+        sb.borrow().set_path(&path);
+    } else {
+        sb.borrow().set_path("(unsaved)");
+    }
+}
+
 fn show_recent_dialog(
     ws: &Rc<RefCell<WorkspaceView>>,
     sb: &Rc<RefCell<StatusBar>>,
@@ -510,7 +595,6 @@ fn show_recent_dialog(
 
     let vbox = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
 
-    // Header
     let header_box = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
     header_box.set_margin_top(12);
     header_box.set_margin_bottom(8);
@@ -523,7 +607,6 @@ fn show_recent_dialog(
     header_box.append(&title);
     vbox.append(&header_box);
 
-    // List in scrolled window
     let list_box = gtk4::ListBox::new();
     list_box.set_selection_mode(gtk4::SelectionMode::None);
     list_box.add_css_class("boxed-list");
@@ -542,13 +625,11 @@ fn show_recent_dialog(
         row.set_margin_start(12);
         row.set_margin_end(12);
 
-        // Row 1: name
         let name_label = gtk4::Label::new(Some(&record.name));
         name_label.add_css_class("heading");
         name_label.set_halign(gtk4::Align::Start);
         row.append(&name_label);
 
-        // Row 2: filepath (truncated, full on hover)
         let path_text = record.config_path.as_deref().unwrap_or("(no file)");
         let path_label = gtk4::Label::new(Some(path_text));
         path_label.add_css_class("dim-label");
@@ -557,7 +638,6 @@ fn show_recent_dialog(
         path_label.set_tooltip_text(Some(path_text));
         row.append(&path_label);
 
-        // Row 3: stats + open button
         let bottom_row = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
         let stats = format!("Opened {} times • {}", record.open_count, record.last_opened);
         let stats_label = gtk4::Label::new(Some(&stats));
@@ -579,19 +659,15 @@ fn show_recent_dialog(
             let win_clone = window.clone();
             let sa_clone = save_action.clone();
             let d = dialog.clone();
-            let path_exists = path.exists();
 
-            if path_exists {
+            if path.exists() {
                 open_btn.connect_clicked(move |_| {
                     match ws_clone.borrow_mut().load_from_file(&path) {
-                        Ok(()) => {
-                            sb_clone.borrow().set_message(&format!("Opened: {}", path.display()));
-                        }
-                        Err(e) => {
-                            sb_clone.borrow().set_message(&format!("Error: {}", e));
-                        }
+                        Ok(()) => sb_clone.borrow().set_message(&format!("Opened: {}", path.display())),
+                        Err(e) => sb_clone.borrow().set_message(&format!("Error: {}", e)),
                     }
                     update_dirty_ui(&ws_clone, &win_clone, &sa_clone);
+                    update_status_bar_path(&ws_clone, &sb_clone);
                     d.close();
                 });
             } else {
@@ -614,83 +690,6 @@ fn show_recent_dialog(
     dialog.present();
 }
 
-fn show_rename_dialog(
-    window: &Rc<adw::ApplicationWindow>,
-    current_name: &str,
-    on_done: impl Fn(String) + 'static,
-) {
-    let dialog = gtk4::Window::builder()
-        .title("Rename Workspace")
-        .transient_for(window.as_ref())
-        .modal(true)
-        .default_width(350)
-        .build();
-
-    let vbox = gtk4::Box::new(gtk4::Orientation::Vertical, 8);
-    vbox.set_margin_top(16);
-    vbox.set_margin_bottom(16);
-    vbox.set_margin_start(16);
-    vbox.set_margin_end(16);
-
-    let label = gtk4::Label::new(Some("Workspace name:"));
-    label.set_halign(gtk4::Align::Start);
-    vbox.append(&label);
-
-    let entry = gtk4::Entry::new();
-    entry.set_text(current_name);
-    entry.set_activates_default(true);
-    vbox.append(&entry);
-
-    let btn_box = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
-    btn_box.set_halign(gtk4::Align::End);
-    btn_box.set_margin_top(12);
-
-    let cancel = gtk4::Button::with_label("Cancel");
-    cancel.add_css_class("flat");
-    let apply = gtk4::Button::with_label("Rename");
-    apply.add_css_class("suggested-action");
-
-    let d = dialog.clone();
-    cancel.connect_clicked(move |_| d.close());
-
-    let d = dialog.clone();
-    let e = entry.clone();
-    apply.connect_clicked(move |_| {
-        let name = e.text().to_string();
-        if !name.is_empty() {
-            on_done(name);
-        }
-        d.close();
-    });
-
-    btn_box.append(&cancel);
-    btn_box.append(&apply);
-    vbox.append(&btn_box);
-
-    dialog.set_child(Some(&vbox));
-    dialog.present();
-}
-
-fn update_dirty_ui(
-    ws: &Rc<RefCell<WorkspaceView>>,
-    window: &Rc<adw::ApplicationWindow>,
-    save_action: &gtk4::gio::SimpleAction,
-) {
-    let view = ws.borrow();
-    let dirty = view.is_dirty();
-    let name = &view.workspace().name;
-    let title = if dirty {
-        format!("● MyTerms — {}", name)
-    } else {
-        format!("MyTerms — {}", name)
-    };
-    window.set_title(Some(&title));
-
-    // Disable save if not dirty and already has a file
-    save_action.set_enabled(dirty || !view.has_config_path());
-}
-
-/// Save workspace. If force_dialog or no path set, open "Save As" dialog.
 fn do_save(
     ws: &Rc<RefCell<WorkspaceView>>,
     sb: &Rc<RefCell<StatusBar>>,
@@ -706,6 +705,7 @@ fn do_save(
                 Ok(path) => {
                     sb.borrow().set_message(&format!("Saved: {}", path.display()));
                     update_dirty_ui(ws, window, save_action);
+                    update_status_bar_path(ws, sb);
                     return;
                 }
                 Err(e) => {
@@ -714,7 +714,6 @@ fn do_save(
                 }
             }
         }
-        // No path — fall through to Save As
     }
 
     let dialog = gtk4::FileDialog::builder()
@@ -745,6 +744,7 @@ fn do_save(
                         Ok(()) => {
                             sb.borrow().set_message(&format!("Saved: {}", path.display()));
                             update_dirty_ui(&ws, &win, &sa);
+                            update_status_bar_path(&ws, &sb);
                         }
                         Err(e) => sb.borrow().set_message(&format!("Save error: {}", e)),
                     }
@@ -754,7 +754,6 @@ fn do_save(
     );
 }
 
-/// Open workspace — file dialog, then load in current window.
 fn do_open(
     ws: &Rc<RefCell<WorkspaceView>>,
     sb: &Rc<RefCell<StatusBar>>,
@@ -786,7 +785,6 @@ fn do_open(
                     match ws.borrow_mut().load_from_file(&path) {
                         Ok(()) => {
                             sb.borrow().set_message(&format!("Opened: {}", path.display()));
-                            // Need to drop borrow before update_dirty_ui
                         }
                         Err(e) => {
                             sb.borrow().set_message(&format!("Open error: {}", e));
@@ -794,60 +792,51 @@ fn do_open(
                         }
                     }
                     update_dirty_ui(&ws, &win, &sa);
+                    update_status_bar_path(&ws, &sb);
                 }
             }
         },
     );
 }
 
+thread_local! {
+    static THEME_PROVIDER: RefCell<Option<gtk4::CssProvider>> = RefCell::new(None);
+    static DIRTY_INDICATOR: RefCell<Option<(gtk4::Image, gtk4::Separator)>> = RefCell::new(None);
+}
+
 fn load_css() {
+    apply_theme(Theme::System);
+}
+
+fn apply_theme(theme: Theme) {
+    let display = gdk::Display::default().expect("Could not connect to display");
+
+    // Remove old provider
+    THEME_PROVIDER.with(|cell| {
+        if let Some(old) = cell.borrow_mut().take() {
+            gtk4::style_context_remove_provider_for_display(&display, &old);
+        }
+    });
+
+    // Set color scheme
+    let style_manager = adw::StyleManager::default();
+    style_manager.set_color_scheme(theme.color_scheme());
+
+    // Update VTE terminal colors
+    crate::theme::set_current_theme(theme);
+
+    // Build CSS: theme overrides + base layout
+    let css = format!("{}\n{}", theme.css_overrides(), crate::theme::BASE_CSS);
+
     let provider = gtk4::CssProvider::new();
-    provider.load_from_data(CSS);
+    provider.load_from_data(&css);
     gtk4::style_context_add_provider_for_display(
-        &gdk::Display::default().expect("Could not connect to display"),
+        &display,
         &provider,
         gtk4::STYLE_PROVIDER_PRIORITY_APPLICATION,
     );
-}
 
-const CSS: &str = r#"
-.panel-frame {
-    border: none;
-    border-radius: 0;
-    margin: 0;
+    THEME_PROVIDER.with(|cell| {
+        cell.borrow_mut().replace(provider);
+    });
 }
-.panel-focused {
-    border: none;
-}
-.panel-unfocused {
-    border: none;
-}
-.panel-title-bar {
-    padding: 2px 6px;
-    min-height: 20px;
-    border-bottom: 1px solid @borders;
-}
-.panel-title {
-    font-size: 11px;
-    font-weight: bold;
-}
-.panel-menu-btn {
-    min-height: 16px;
-    min-width: 16px;
-    padding: 2px;
-}
-.panel-type-btn {
-    min-width: 120px;
-}
-.alert-red { border-color: red; border-width: 2px; }
-.alert-yellow { border-color: #e5a50a; border-width: 2px; }
-.alert-green { border-color: green; border-width: 2px; }
-.status-bar {
-    background-color: alpha(@headerbar_bg_color, 0.9);
-    padding: 2px 8px;
-    min-height: 22px;
-}
-.status-mode { font-weight: bold; padding: 0 6px; }
-.markdown-panel { font-family: sans-serif; font-size: 12px; }
-.tab-close-btn { min-height: 14px; min-width: 14px; padding: 1px; }
-"#;

@@ -4,3 +4,4 @@ pub mod panel_host;
 pub mod panels;
 pub mod widgets;
 pub mod dialogs;
+pub mod theme;

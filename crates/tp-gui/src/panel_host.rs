@@ -23,9 +23,9 @@ pub enum PanelAction {
 /// Callback type for panel menu actions.
 pub type PanelActionCallback = Rc<dyn Fn(&str, PanelAction)>;
 
-/// Container widget that hosts a PanelBackend inside a frame with title bar.
+/// Container widget that hosts a PanelBackend with title bar.
 pub struct PanelHost {
-    frame: gtk4::Frame,
+    outer: gtk4::Box,
     container: gtk4::Box,
     title_label: gtk4::Label,
     menu_button: gtk4::MenuButton,
@@ -50,8 +50,7 @@ impl PanelHost {
         // Title bar
         let title_bar = gtk4::Box::new(gtk4::Orientation::Horizontal, 4);
         title_bar.add_css_class("panel-title-bar");
-        title_bar.set_margin_start(4);
-        title_bar.set_margin_end(4);
+
 
         let title_label = gtk4::Label::new(Some(name));
         title_label.add_css_class("panel-title");
@@ -73,16 +72,16 @@ impl PanelHost {
         title_bar.append(&menu_button);
         container.append(&title_bar);
 
-        let frame = gtk4::Frame::new(None);
-        frame.set_child(Some(&container));
-        frame.add_css_class("panel-frame");
-        frame.set_widget_name(panel_id);
-        frame.set_size_request(80, 60); // Minimum size to stay visible
+        let outer = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
+        outer.append(&container);
+        outer.add_css_class("panel-frame");
+        outer.set_widget_name(panel_id);
+        outer.set_size_request(80, 60);
 
-        let widget = frame.clone().upcast::<gtk4::Widget>();
+        let widget = outer.clone().upcast::<gtk4::Widget>();
 
         Self {
-            frame,
+            outer,
             container,
             title_label,
             menu_button,
@@ -125,14 +124,14 @@ impl PanelHost {
     pub fn set_focused(&self, focused: bool) {
         *self.focused.borrow_mut() = focused;
         if focused {
-            self.frame.add_css_class("panel-focused");
-            self.frame.remove_css_class("panel-unfocused");
+            self.outer.add_css_class("panel-focused");
+            self.outer.remove_css_class("panel-unfocused");
             if let Some(ref backend) = *self.backend.borrow() {
                 backend.on_focus();
             }
         } else {
-            self.frame.remove_css_class("panel-focused");
-            self.frame.add_css_class("panel-unfocused");
+            self.outer.remove_css_class("panel-focused");
+            self.outer.add_css_class("panel-unfocused");
             if let Some(ref backend) = *self.backend.borrow() {
                 backend.on_blur();
             }
@@ -140,16 +139,16 @@ impl PanelHost {
     }
 
     pub fn set_alert_border(&self, color: &str) {
-        self.frame.remove_css_class("alert-red");
-        self.frame.remove_css_class("alert-yellow");
-        self.frame.remove_css_class("alert-green");
-        self.frame.add_css_class(&format!("alert-{}", color));
+        self.outer.remove_css_class("alert-red");
+        self.outer.remove_css_class("alert-yellow");
+        self.outer.remove_css_class("alert-green");
+        self.outer.add_css_class(&format!("alert-{}", color));
     }
 
     pub fn clear_alert_border(&self) {
-        self.frame.remove_css_class("alert-red");
-        self.frame.remove_css_class("alert-yellow");
-        self.frame.remove_css_class("alert-green");
+        self.outer.remove_css_class("alert-red");
+        self.outer.remove_css_class("alert-yellow");
+        self.outer.remove_css_class("alert-green");
     }
 
     pub fn set_title(&self, title: &str) {

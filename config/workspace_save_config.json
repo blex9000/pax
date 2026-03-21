@@ -1,16 +1,55 @@
 {
-  "name": "untitled",
+  "name": "aaaaaaa",
   "id": "e4c64546-c17b-44fa-b89e-7d7560d4b25d",
   "layout": {
     "type": "vsplit",
     "children": [
       {
-        "type": "panel",
-        "id": "p1"
+        "type": "tabs",
+        "children": [
+          {
+            "type": "hsplit",
+            "children": [
+              {
+                "type": "panel",
+                "id": "p1"
+              },
+              {
+                "type": "panel",
+                "id": "p4"
+              }
+            ],
+            "ratios": [
+              0.5,
+              0.5
+            ]
+          },
+          {
+            "type": "panel",
+            "id": "p3"
+          }
+        ],
+        "labels": [
+          "Terminale xxx",
+          "New Panel 3"
+        ]
       },
       {
-        "type": "panel",
-        "id": "p2"
+        "type": "vsplit",
+        "children": [
+          {
+            "type": "panel",
+            "id": "p2"
+          },
+          {
+            "type": "panel",
+            "id": "p5"
+          }
+        ],
+        "ratios": [
+          0.5,
+          0.5
+        ]
       }
     ],
     "ratios": [
@@ -28,13 +67,18 @@
       "target": {
         "type": "local"
       },
-      "startup_commands": [],
+      "startup_commands": [
+        "#!/bin/bash\nls -lsa\necho \"hello world\" "
+      ],
       "groups": [],
       "record_output": false,
       "cwd": null,
       "env": {},
       "pre_script": null,
-      "post_script": null
+      "post_script": null,
+      "before_close": "echo \"byebye\"",
+      "min_width": 400,
+      "min_height": 400
     },
     {
       "id": "p2",
@@ -51,7 +95,71 @@
       "cwd": null,
       "env": {},
       "pre_script": null,
-      "post_script": null
+      "post_script": null,
+      "before_close": null,
+      "min_width": 0,
+      "min_height": 0
+    },
+    {
+      "id": "p3",
+      "name": "terminal",
+      "panel_type": {
+        "type": "terminal"
+      },
+      "target": {
+        "type": "local"
+      },
+      "startup_commands": [],
+      "groups": [],
+      "record_output": false,
+      "cwd": null,
+      "env": {},
+      "pre_script": null,
+      "post_script": null,
+      "before_close": null,
+      "min_width": 0,
+      "min_height": 0
+    },
+    {
+      "id": "p4",
+      "name": "browser",
+      "panel_type": {
+        "type": "browser",
+        "url": "about:blank"
+      },
+      "target": {
+        "type": "local"
+      },
+      "startup_commands": [],
+      "groups": [],
+      "record_output": false,
+      "cwd": null,
+      "env": {},
+      "pre_script": null,
+      "post_script": null,
+      "before_close": null,
+      "min_width": 0,
+      "min_height": 0
+    },
+    {
+      "id": "p5",
+      "name": "New Panel 5",
+      "panel_type": {
+        "type": "terminal"
+      },
+      "target": {
+        "type": "local"
+      },
+      "startup_commands": [],
+      "groups": [],
+      "record_output": false,
+      "cwd": null,
+      "env": {},
+      "pre_script": null,
+      "post_script": null,
+      "before_close": null,
+      "min_width": 0,
+      "min_height": 0
     }
   ],
   "groups": [],
@@ -61,6 +169,7 @@
   "settings": {
     "default_shell": "/bin/bash",
     "scrollback_lines": 10000,
-    "output_retention_days": null
+    "output_retention_days": null,
+    "theme": "dracula"
   }
 }

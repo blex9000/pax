@@ -19,6 +19,9 @@ pub fn empty_workspace(name: &str) -> Workspace {
             env: Default::default(),
             pre_script: None,
             post_script: None,
+            before_close: None,
+            min_width: 0,
+            min_height: 0,
         }],
         groups: vec![],
         alerts: vec![],
@@ -43,6 +46,9 @@ pub fn simple_hsplit(name: &str, count: usize) -> Workspace {
             env: Default::default(),
             pre_script: None,
             post_script: None,
+            before_close: None,
+            min_width: 0,
+            min_height: 0,
         })
         .collect();
 
@@ -81,6 +87,9 @@ pub fn grid_2x2(name: &str) -> Workspace {
             env: Default::default(),
             pre_script: None,
             post_script: None,
+            before_close: None,
+            min_width: 0,
+            min_height: 0,
         })
         .collect();
 
