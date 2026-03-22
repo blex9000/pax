@@ -9,7 +9,6 @@ vte = ["dep:vte4"]
 
 [dependencies]
 tp-core = { workspace = true }
-tp-pty = { workspace = true }
 tp-db = { workspace = true }
 tokio = { workspace = true }
 anyhow = { workspace = true }

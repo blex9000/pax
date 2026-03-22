@@ -1618,23 +1618,9 @@ dependencies = [
  "tokio",
  "tp-core",
  "tp-db",
- "tp-pty",
  "tracing",
  "vt100",
  "vte4",
-]
-
-[[package]]
-name = "tp-pty"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "portable-pty",
- "regex",
- "tokio",
- "tp-core",
- "tracing",
- "vt100",
 ]
 
 [[package]]

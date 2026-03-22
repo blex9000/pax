@@ -74,7 +74,7 @@ fn main() -> Result<()> {
         .unwrap_or_else(|_| std::fs::File::create("/tmp/myterms.log").unwrap());
 
     tracing_subscriber::fmt()
-        .with_env_filter("myterms=debug,tp_gui=debug,tp_pty=info,tp_core=info")
+        .with_env_filter("myterms=debug,tp_gui=debug,tp_core=info")
         .with_writer(std::sync::Mutex::new(log_file))
         .with_ansi(false)
         .init();

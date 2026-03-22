@@ -2,7 +2,6 @@
 resolver = "2"
 members = [
     "crates/tp-core",
-    "crates/tp-pty",
     "crates/tp-db",
     "crates/tp-gui",
     "crates/tp-cli",
@@ -16,7 +15,6 @@ authors = ["xb"]
 
 [workspace.dependencies]
 tp-core = { path = "crates/tp-core" }
-tp-pty = { path = "crates/tp-pty" }
 tp-db = { path = "crates/tp-db" }
 tp-gui = { path = "crates/tp-gui" }
 
