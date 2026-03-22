@@ -29,6 +29,8 @@ pub struct PanelHost {
     container: gtk4::Box,
     title_label: gtk4::Label,
     menu_button: gtk4::MenuButton,
+    footer_bar: gtk4::Box,
+    footer_label: gtk4::Label,
     widget: gtk4::Widget,
     panel_id: String,
     backend: RefCell<Option<Box<dyn PanelBackend>>>,
@@ -72,8 +74,22 @@ impl PanelHost {
         title_bar.append(&menu_button);
         container.append(&title_bar);
 
+        // Footer bar
+        let footer_bar = gtk4::Box::new(gtk4::Orientation::Horizontal, 4);
+        footer_bar.add_css_class("panel-footer-bar");
+        let footer_label = gtk4::Label::new(None);
+        footer_label.set_use_markup(true);
+        footer_label.add_css_class("panel-footer");
+        footer_label.set_halign(gtk4::Align::Start);
+        footer_label.set_hexpand(true);
+        footer_label.set_ellipsize(gtk4::pango::EllipsizeMode::Middle);
+        footer_label.set_margin_start(6);
+        footer_bar.append(&footer_label);
+        footer_bar.set_visible(false); // Hidden until content is set
+
         let outer = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
         outer.append(&container);
+        outer.append(&footer_bar);
         outer.add_css_class("panel-frame");
         outer.set_widget_name(panel_id);
         outer.set_size_request(80, 60);
@@ -85,6 +101,8 @@ impl PanelHost {
             container,
             title_label,
             menu_button,
+            footer_bar,
+            footer_label,
             widget,
             panel_id: panel_id.to_string(),
             backend: RefCell::new(None),
@@ -106,10 +124,17 @@ impl PanelHost {
             let old_widget = old.widget().clone();
             self.container.remove(&old_widget);
         }
+        self.footer_bar.set_visible(false);
+
         let panel_widget = backend.widget().clone();
         panel_widget.set_vexpand(true);
         panel_widget.set_hexpand(true);
         self.container.append(&panel_widget);
+
+        // If this is a VTE terminal, connect directory tracking
+        #[cfg(feature = "vte")]
+        self.setup_vte_directory_tracking(&panel_widget);
+
         *self.backend.borrow_mut() = Some(backend);
     }
 
@@ -153,6 +178,63 @@ impl PanelHost {
 
     pub fn set_title(&self, title: &str) {
         self.title_label.set_text(title);
+    }
+
+    /// Set footer text (e.g. user@host:directory). Empty string hides the footer.
+    pub fn set_footer(&self, text: &str) {
+        if text.is_empty() {
+            self.footer_bar.set_visible(false);
+        } else {
+            self.footer_label.set_text(text);
+            self.footer_label.set_tooltip_text(Some(text));
+            self.footer_bar.set_visible(true);
+        }
+    }
+
+    /// Connect VTE current-directory-uri signal to update the footer.
+    #[cfg(feature = "vte")]
+    fn setup_vte_directory_tracking(&self, widget: &gtk4::Widget) {
+        use vte4::prelude::*;
+        if let Ok(vte) = widget.clone().downcast::<vte4::Terminal>() {
+            let footer = self.footer_label.clone();
+            let footer_bar = self.footer_bar.clone();
+            let user = std::env::var("USER").unwrap_or_default();
+            let hostname = std::env::var("HOSTNAME")
+                .or_else(|_| std::fs::read_to_string("/etc/hostname").map(|s| s.trim().to_string()))
+                .unwrap_or_else(|_| "localhost".to_string());
+            vte.connect_current_directory_uri_changed(move |vte| {
+                if let Some(uri) = vte.current_directory_uri() {
+                    // URI format: file://hostname/path/to/dir
+                    // Parse with url crate logic: strip scheme, then hostname
+                    let after_scheme = uri.strip_prefix("file://").unwrap_or(&uri);
+                    // Find the first '/' after hostname — that starts the absolute path
+                    let path = if let Some(slash_pos) = after_scheme.find('/') {
+                        &after_scheme[slash_pos..]
+                    } else {
+                        after_scheme
+                    };
+                    // URL-decode %XX sequences
+                    let path = percent_decode(path);
+                    // Abbreviate home dir
+                    let home = std::env::var("HOME").unwrap_or_default();
+                    let display_path = if !home.is_empty() && path.starts_with(&home) {
+                        format!("~{}", &path[home.len()..])
+                    } else {
+                        path
+                    };
+                    let plain = format!("{}@{}:{}", user, hostname, display_path);
+                    let markup = format!(
+                        "<span color='#33cc33'>{}@{}</span>:<span color='#5588ff'>{}</span>",
+                        glib::markup_escape_text(&user),
+                        glib::markup_escape_text(&hostname),
+                        glib::markup_escape_text(&display_path),
+                    );
+                    footer.set_markup(&markup);
+                    footer.set_tooltip_text(Some(&plain));
+                    footer_bar.set_visible(true);
+                }
+            });
+        }
     }
 
     pub fn write_input(&self, data: &[u8]) -> bool {
@@ -253,4 +335,26 @@ fn build_panel_menu(panel_id: &str, action_cb: Option<PanelActionCallback>) -> g
 
     popover.set_child(Some(&vbox));
     popover
+}
+
+/// Decode percent-encoded URI path (e.g. %20 → space).
+fn percent_decode(s: &str) -> String {
+    let mut result = Vec::new();
+    let bytes = s.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%' && i + 2 < bytes.len() {
+            if let Ok(byte) = u8::from_str_radix(
+                std::str::from_utf8(&bytes[i + 1..i + 3]).unwrap_or(""),
+                16,
+            ) {
+                result.push(byte);
+                i += 3;
+                continue;
+            }
+        }
+        result.push(bytes[i]);
+        i += 1;
+    }
+    String::from_utf8(result).unwrap_or_else(|_| s.to_string())
 }

@@ -81,13 +81,20 @@ mod backend {
                 move |result| {
                     if result.is_ok() && !*spawned_for_cb.borrow() {
                         *spawned_for_cb.borrow_mut() = true;
+                        // Override PS1 and set PROMPT_COMMAND for OSC 7 directory tracking
+                        // (after .bashrc has run, so it sticks)
+                        vte_for_cb.feed_child(b" export PS1='\\[\\033[32m\\]$:\\[\\033[0m\\] '\n");
+                        vte_for_cb.feed_child(b" export PROMPT_COMMAND='printf \"\\033]7;file://%s%s\\033\\\\\" \"$HOSTNAME\" \"$PWD\"'\n");
+                        vte_for_cb.feed_child(b" export LS_COLORS='di=38;2;85;136;255:ln=36:so=35:pi=33:ex=32:bd=34;46:cd=34;43:su=30;41:sg=30;46:tw=30;42:ow=34;42'\n");
+                        // Run pending startup commands
                         let cmds = pending_for_cb.borrow().clone();
                         for cmd in &cmds {
-                            // Leading space = don't save in bash history
                             let silent = format!(" {}\n", cmd);
                             vte_for_cb.feed_child(silent.as_bytes());
                         }
                         pending_for_cb.borrow_mut().clear();
+                        // Clear screen to hide setup commands
+                        vte_for_cb.feed_child(b" clear\n");
                     }
                 },
             );
