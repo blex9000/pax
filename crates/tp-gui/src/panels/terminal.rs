@@ -191,10 +191,13 @@ mod backend {
                 return;
             }
 
-            // Inline mode: write to temp file
+            // Inline mode: write to temp file (unique per panel)
+            use std::sync::atomic::{AtomicU64, Ordering};
+            static COUNTER: AtomicU64 = AtomicU64::new(0);
             let tmp = std::env::temp_dir().join(format!(
-                "myterms_startup_{}.sh",
+                "myterms_startup_{}_{}.sh",
                 std::process::id(),
+                COUNTER.fetch_add(1, Ordering::Relaxed),
             ));
 
             let interpreter = full_text.lines()

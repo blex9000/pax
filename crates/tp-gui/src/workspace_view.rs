@@ -1,7 +1,6 @@
 use gtk4::prelude::*;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::rc::Rc;
 
 use tp_core::workspace::{LayoutNode, PanelConfig, PanelType, Workspace};
 
@@ -212,13 +211,14 @@ impl WorkspaceView {
 
     /// Update panel config after Configure dialog.
     /// Recreates the backend with the new type/settings and runs startup commands.
-    pub fn apply_panel_config(&mut self, panel_id: &str, new_name: String, new_type: PanelType, startup_commands: Vec<String>, before_close: Option<String>, min_width: u32, min_height: u32) {
-        tracing::info!("Configuring panel {}: name={}, type={:?}, cmds={}, before_close={}",
-            panel_id, new_name, new_type, startup_commands.len(), before_close.is_some());
+    pub fn apply_panel_config(&mut self, panel_id: &str, new_name: String, new_type: PanelType, cwd: Option<String>, startup_commands: Vec<String>, before_close: Option<String>, min_width: u32, min_height: u32) {
+        tracing::info!("Configuring panel {}: name={}, type={:?}, cwd={:?}, cmds={}, before_close={}",
+            panel_id, new_name, new_type, cwd, startup_commands.len(), before_close.is_some());
         // Update model
         if let Some(panel_cfg) = self.workspace.panels.iter_mut().find(|p| p.id == panel_id) {
             panel_cfg.name = new_name.clone();
             panel_cfg.panel_type = new_type.clone();
+            panel_cfg.cwd = cwd.clone();
             panel_cfg.startup_commands = startup_commands.clone();
             panel_cfg.before_close = before_close;
             panel_cfg.min_width = min_width;
@@ -251,6 +251,13 @@ impl WorkspaceView {
         }
 
         self.dirty = true;
+    }
+
+    /// Get cwd for a panel.
+    pub fn panel_cwd(&self, panel_id: &str) -> Option<String> {
+        self.workspace.panels.iter()
+            .find(|p| p.id == panel_id)
+            .and_then(|p| p.cwd.clone())
     }
 
     /// Get startup commands for a panel.

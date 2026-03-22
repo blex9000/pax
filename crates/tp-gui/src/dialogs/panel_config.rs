@@ -2,22 +2,23 @@ use gtk4::prelude::*;
 
 use tp_core::workspace::PanelType;
 
-/// Callback: (name, panel_type, startup_commands, before_close, min_width, min_height)
-pub type ConfigDoneCallback = dyn Fn(String, PanelType, Vec<String>, Option<String>, u32, u32) + 'static;
+/// Callback: (name, panel_type, cwd, startup_commands, before_close, min_width, min_height)
+pub type ConfigDoneCallback = dyn Fn(String, PanelType, Option<String>, Vec<String>, Option<String>, u32, u32) + 'static;
 
 /// Show a configuration dialog for the given panel type.
 pub fn show_panel_config_dialog(
     parent: &impl IsA<gtk4::Window>,
     panel_name: &str,
     panel_type: &PanelType,
+    cwd: Option<&str>,
     startup_commands: &[String],
     before_close: Option<&str>,
     min_width: u32,
     min_height: u32,
-    on_done: impl Fn(String, PanelType, Vec<String>, Option<String>, u32, u32) + 'static,
+    on_done: impl Fn(String, PanelType, Option<String>, Vec<String>, Option<String>, u32, u32) + 'static,
 ) {
     match panel_type {
-        PanelType::Terminal => show_terminal_config(parent, panel_name, startup_commands, before_close, min_width, min_height, on_done),
+        PanelType::Terminal => show_terminal_config(parent, panel_name, cwd, startup_commands, before_close, min_width, min_height, on_done),
         PanelType::Ssh { host, port, user, identity_file } => {
             show_ssh_config(parent, panel_name, host, *port, user.as_deref(), identity_file.as_deref(), min_width, min_height, on_done)
         }
@@ -289,11 +290,12 @@ fn detect_interpreters() -> Vec<String> {
 fn show_terminal_config(
     parent: &impl IsA<gtk4::Window>,
     panel_name: &str,
+    cwd: Option<&str>,
     startup_commands: &[String],
     before_close: Option<&str>,
     min_width: u32,
     min_height: u32,
-    on_done: impl Fn(String, PanelType, Vec<String>, Option<String>, u32, u32) + 'static,
+    on_done: impl Fn(String, PanelType, Option<String>, Vec<String>, Option<String>, u32, u32) + 'static,
 ) {
     let dialog = make_dialog(parent, "Terminal Configuration");
     let vbox = gtk4::Box::new(gtk4::Orientation::Vertical, 8);
@@ -303,6 +305,33 @@ fn show_terminal_config(
     vbox.set_margin_end(16);
 
     let name_entry = add_field(&vbox, "Name:", panel_name, "Terminal");
+
+    // Working directory
+    let cwd_box = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
+    let cwd_label = gtk4::Label::new(Some("Working dir:"));
+    cwd_label.set_width_chars(15);
+    cwd_label.set_halign(gtk4::Align::Start);
+    let cwd_entry = gtk4::Entry::new();
+    cwd_entry.set_text(cwd.unwrap_or(""));
+    cwd_entry.set_placeholder_text(Some("(default)"));
+    cwd_entry.set_hexpand(true);
+    let cwd_browse = gtk4::Button::new();
+    cwd_browse.set_icon_name("folder-open-symbolic");
+    cwd_browse.add_css_class("flat");
+    cwd_browse.set_tooltip_text(Some("Browse..."));
+    let ce = cwd_entry.clone();
+    let d_cwd = dialog.clone();
+    cwd_browse.connect_clicked(move |_| {
+        let fd = gtk4::FileDialog::builder().title("Select Working Directory").modal(true).build();
+        let ce2 = ce.clone();
+        fd.select_folder(Some(&d_cwd), gtk4::gio::Cancellable::NONE, move |r| {
+            if let Ok(f) = r { if let Some(p) = f.path() { ce2.set_text(&p.to_string_lossy()); } }
+        });
+    });
+    cwd_box.append(&cwd_label);
+    cwd_box.append(&cwd_entry);
+    cwd_box.append(&cwd_browse);
+    vbox.append(&cwd_box);
 
     // Interpreter selector
     let interp_box = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
@@ -332,18 +361,36 @@ fn show_terminal_config(
         }
     }
 
-    let script_editor = add_script_editor(&vbox, &dialog, startup_commands);
+    // ── Startup script (with enable checkbox) ────────────────────────────
+    let startup_enabled = !startup_commands.is_empty();
+    let startup_check = gtk4::CheckButton::with_label("Startup script");
+    startup_check.set_active(startup_enabled);
+    vbox.append(&startup_check);
 
-    // Before close script
+    let startup_container = gtk4::Box::new(gtk4::Orientation::Vertical, 4);
+    let script_editor = add_script_editor(&startup_container, &dialog, startup_commands);
+    startup_container.set_sensitive(startup_enabled);
+    vbox.append(&startup_container);
+
+    {
+        let sc = startup_container.clone();
+        startup_check.connect_toggled(move |btn| {
+            sc.set_sensitive(btn.is_active());
+        });
+    }
+
+    // ── Before close script (with enable checkbox) ───────────────────────
     let sep = gtk4::Separator::new(gtk4::Orientation::Horizontal);
     sep.set_margin_top(8);
     sep.set_margin_bottom(4);
     vbox.append(&sep);
 
-    let close_label = gtk4::Label::new(Some("Before close (optional):"));
-    close_label.set_halign(gtk4::Align::Start);
-    close_label.add_css_class("dim-label");
-    vbox.append(&close_label);
+    let close_enabled = before_close.is_some() && !before_close.unwrap_or("").trim().is_empty();
+    let close_check = gtk4::CheckButton::with_label("Before close script");
+    close_check.set_active(close_enabled);
+    vbox.append(&close_check);
+
+    let close_container = gtk4::Box::new(gtk4::Orientation::Vertical, 4);
 
     // Inline/file radio for before_close
     let close_mode_box = gtk4::Box::new(gtk4::Orientation::Horizontal, 16);
@@ -352,7 +399,7 @@ fn show_terminal_config(
     close_mode_file.set_group(Some(&close_mode_inline));
     close_mode_box.append(&close_mode_inline);
     close_mode_box.append(&close_mode_file);
-    vbox.append(&close_mode_box);
+    close_container.append(&close_mode_box);
 
     let close_stack = gtk4::Stack::new();
 
@@ -406,36 +453,60 @@ fn show_terminal_config(
     let cs = close_stack.clone();
     close_mode_file.connect_toggled(move |b| { if b.is_active() { cs.set_visible_child_name("file"); } });
 
-    vbox.append(&close_stack);
+    close_container.append(&close_stack);
+    close_container.set_sensitive(close_enabled);
+    vbox.append(&close_container);
+
+    {
+        let cc = close_container.clone();
+        close_check.connect_toggled(move |btn| {
+            cc.set_sensitive(btn.is_active());
+        });
+    }
 
     let (mw_spin, mh_spin) = add_min_size_fields(&vbox, min_width, min_height);
 
     let ne = name_entry.clone();
+    let ce = cwd_entry.clone();
     let id = interp_dropdown.clone();
     let interps = interpreters.clone();
     let cv = close_view.clone();
     let cmf = close_mode_file.clone();
     let cfe = close_file_entry.clone();
+    let sc = startup_check.clone();
+    let cc = close_check.clone();
     add_buttons(&vbox, &dialog, move || {
         let name = ne.text().to_string();
+        let cwd_text = ce.text().to_string();
+        let cwd = if cwd_text.trim().is_empty() { None } else { Some(cwd_text) };
         let selected = id.selected() as usize;
         let interpreter = interps.get(selected).cloned().unwrap_or_else(|| "/bin/bash".to_string());
         let mw = mw_spin.value() as u32;
         let mh = mh_spin.value() as u32;
 
-        // Before close
-        let before_close = if cmf.is_active() {
-            let path = cfe.text().to_string();
-            if path.trim().is_empty() { None } else { Some(format!("file:{}", path)) }
+        // Before close (only if enabled)
+        let before_close = if cc.is_active() {
+            if cmf.is_active() {
+                let path = cfe.text().to_string();
+                if path.trim().is_empty() { None } else { Some(format!("file:{}", path)) }
+            } else {
+                let close_buf = cv.buffer();
+                let close_text = close_buf.text(&close_buf.start_iter(), &close_buf.end_iter(), false).to_string();
+                if close_text.trim().is_empty() { None } else { Some(close_text) }
+            }
         } else {
-            let close_buf = cv.buffer();
-            let close_text = close_buf.text(&close_buf.start_iter(), &close_buf.end_iter(), false).to_string();
-            if close_text.trim().is_empty() { None } else { Some(close_text) }
+            None
         };
+
+        // Startup script (only if enabled)
+        if !sc.is_active() {
+            on_done(name, PanelType::Terminal, cwd, vec![], before_close, mw, mh);
+            return;
+        }
 
         let cmds = script_editor.get_script();
         if cmds.is_empty() {
-            on_done(name, PanelType::Terminal, vec![], before_close, mw, mh);
+            on_done(name, PanelType::Terminal, cwd, vec![], before_close, mw, mh);
             return;
         }
 
@@ -443,7 +514,7 @@ fn show_terminal_config(
         let first = &cmds[0];
         if first.starts_with("file:") {
             let path = first.trim_start_matches("file:");
-            on_done(name, PanelType::Terminal, vec![format!("file:{}:{}", interpreter, path)], before_close, mw, mh);
+            on_done(name, PanelType::Terminal, cwd, vec![format!("file:{}:{}", interpreter, path)], before_close, mw, mh);
         } else {
             let script = if first.starts_with("#!") {
                 let rest = first.lines().skip(1).collect::<Vec<_>>().join("\n");
@@ -451,7 +522,7 @@ fn show_terminal_config(
             } else {
                 format!("#!{}\n{}", interpreter, first.clone())
             };
-            on_done(name, PanelType::Terminal, vec![script], before_close, mw, mh);
+            on_done(name, PanelType::Terminal, cwd, vec![script], before_close, mw, mh);
         }
     });
 
@@ -468,7 +539,7 @@ fn show_ssh_config(
     identity_file: Option<&str>,
     min_width: u32,
     min_height: u32,
-    on_done: impl Fn(String, PanelType, Vec<String>, Option<String>, u32, u32) + 'static,
+    on_done: impl Fn(String, PanelType, Option<String>, Vec<String>, Option<String>, u32, u32) + 'static,
 ) {
     let dialog = make_dialog(parent, "SSH Configuration");
     let vbox = gtk4::Box::new(gtk4::Orientation::Vertical, 8);
@@ -491,7 +562,7 @@ fn show_ssh_config(
         let port = port_entry.text().parse::<u16>().unwrap_or(22);
         let user = if user_entry.text().is_empty() { None } else { Some(user_entry.text().to_string()) };
         let identity = if id_entry.text().is_empty() { None } else { Some(id_entry.text().to_string()) };
-        on_done(name, PanelType::Ssh { host, port, user, identity_file: identity }, vec![], None, mw_spin.value() as u32, mh_spin.value() as u32);
+        on_done(name, PanelType::Ssh { host, port, user, identity_file: identity }, None, vec![], None, mw_spin.value() as u32, mh_spin.value() as u32);
     });
 
     dialog.set_child(Some(&vbox));
@@ -506,7 +577,7 @@ fn show_tmux_config(
     user: Option<&str>,
     min_width: u32,
     min_height: u32,
-    on_done: impl Fn(String, PanelType, Vec<String>, Option<String>, u32, u32) + 'static,
+    on_done: impl Fn(String, PanelType, Option<String>, Vec<String>, Option<String>, u32, u32) + 'static,
 ) {
     let dialog = make_dialog(parent, "Remote Tmux Configuration");
     let vbox = gtk4::Box::new(gtk4::Orientation::Vertical, 8);
@@ -527,7 +598,7 @@ fn show_tmux_config(
         let host = host_entry.text().to_string();
         let session = session_entry.text().to_string();
         let user = if user_entry.text().is_empty() { None } else { Some(user_entry.text().to_string()) };
-        on_done(name, PanelType::RemoteTmux { host, session, user }, vec![], None, mw_spin.value() as u32, mh_spin.value() as u32);
+        on_done(name, PanelType::RemoteTmux { host, session, user }, None, vec![], None, mw_spin.value() as u32, mh_spin.value() as u32);
     });
 
     dialog.set_child(Some(&vbox));
@@ -540,7 +611,7 @@ fn show_markdown_config(
     file: &str,
     min_width: u32,
     min_height: u32,
-    on_done: impl Fn(String, PanelType, Vec<String>, Option<String>, u32, u32) + 'static,
+    on_done: impl Fn(String, PanelType, Option<String>, Vec<String>, Option<String>, u32, u32) + 'static,
 ) {
     let dialog = make_dialog(parent, "Markdown Configuration");
     let vbox = gtk4::Box::new(gtk4::Orientation::Vertical, 8);
@@ -586,7 +657,7 @@ fn show_markdown_config(
     add_buttons(&vbox, &dialog, move || {
         let name = name_entry.text().to_string();
         let file = file_entry.text().to_string();
-        on_done(name, PanelType::Markdown { file }, vec![], None, mw_spin.value() as u32, mh_spin.value() as u32);
+        on_done(name, PanelType::Markdown { file }, None, vec![], None, mw_spin.value() as u32, mh_spin.value() as u32);
     });
 
     dialog.set_child(Some(&vbox));
@@ -599,7 +670,7 @@ fn show_browser_config(
     url: &str,
     min_width: u32,
     min_height: u32,
-    on_done: impl Fn(String, PanelType, Vec<String>, Option<String>, u32, u32) + 'static,
+    on_done: impl Fn(String, PanelType, Option<String>, Vec<String>, Option<String>, u32, u32) + 'static,
 ) {
     let dialog = make_dialog(parent, "Browser Configuration");
     let vbox = gtk4::Box::new(gtk4::Orientation::Vertical, 8);
@@ -616,7 +687,7 @@ fn show_browser_config(
     add_buttons(&vbox, &dialog, move || {
         let name = name_entry.text().to_string();
         let url = url_entry.text().to_string();
-        on_done(name, PanelType::Browser { url }, vec![], None, mw_spin.value() as u32, mh_spin.value() as u32);
+        on_done(name, PanelType::Browser { url }, None, vec![], None, mw_spin.value() as u32, mh_spin.value() as u32);
     });
 
     dialog.set_child(Some(&vbox));
