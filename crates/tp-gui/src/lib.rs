@@ -5,3 +5,4 @@ pub mod panels;
 pub mod widgets;
 pub mod dialogs;
 pub mod theme;
+pub mod focus;

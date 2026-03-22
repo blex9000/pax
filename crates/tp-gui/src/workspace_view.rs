@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 
 use tp_core::workspace::{LayoutNode, PanelConfig, PanelType, Workspace};
 
+use crate::focus::FocusManager;
 use crate::panel_host::{PanelAction, PanelActionCallback, PanelHost};
 use crate::panels::chooser::{ChooserPanel, OnTypeChosen};
 use crate::panels::registry::{self, PanelCreateConfig, PanelRegistry};
@@ -16,8 +17,7 @@ pub struct WorkspaceView {
     root_box: gtk4::Box,
     scrolled: gtk4::ScrolledWindow,
     hosts: HashMap<String, PanelHost>,
-    focus_order: Vec<String>,
-    focus_index: usize,
+    focus: FocusManager,
     workspace: Workspace,
     config_path: Option<PathBuf>,
     next_panel_id: usize,
@@ -61,7 +61,7 @@ impl WorkspaceView {
         scrolled.set_child(Some(&root_box));
         scrolled.set_policy(gtk4::PolicyType::Automatic, gtk4::PolicyType::Automatic);
 
-        let focus_order: Vec<String> = workspace
+        let focus_ids: Vec<String> = workspace
             .layout
             .panel_ids()
             .iter()
@@ -80,13 +80,12 @@ impl WorkspaceView {
             .unwrap_or(0)
             + 1;
 
-        let view = Self {
+        let mut view = Self {
             root_widget,
             root_box,
             scrolled,
             hosts,
-            focus_order,
-            focus_index: 0,
+            focus: FocusManager::from_ids(focus_ids),
             workspace: workspace.clone(),
             config_path: config_path.map(|p| p.to_path_buf()),
             next_panel_id,
@@ -97,11 +96,7 @@ impl WorkspaceView {
         };
 
         // Focus first panel
-        if let Some(first) = view.focus_order.first() {
-            if let Some(host) = view.hosts.get(first) {
-                host.set_focused(true);
-            }
-        }
+        view.focus.focus_first(&view.hosts);
 
         // Record in recent workspaces DB
         view.record_in_db();
@@ -169,11 +164,7 @@ impl WorkspaceView {
         self.rebuild_focus_order();
         self.dirty = false;
 
-        if let Some(first) = self.focus_order.first() {
-            if let Some(host) = self.hosts.get(first) {
-                host.set_focused(true);
-            }
-        }
+        self.focus.focus_first(&self.hosts);
 
         self.record_in_db();
         Ok(())
@@ -432,68 +423,26 @@ impl WorkspaceView {
         &mut self.workspace
     }
 
-    // ── Focus management ─────────────────────────────────────────────────
+    // ── Focus management (delegated to FocusManager) ──────────────────────
 
     pub fn focus_next(&mut self) {
-        if self.focus_order.is_empty() {
-            return;
-        }
-        if let Some(current) = self.focus_order.get(self.focus_index) {
-            if let Some(host) = self.hosts.get(current) {
-                host.set_focused(false);
-            }
-        }
-        self.focus_index = (self.focus_index + 1) % self.focus_order.len();
-        if let Some(next) = self.focus_order.get(self.focus_index) {
-            if let Some(host) = self.hosts.get(next) {
-                host.set_focused(true);
-            }
-        }
+        self.focus.focus_next(&self.hosts);
     }
 
     pub fn focus_prev(&mut self) {
-        if self.focus_order.is_empty() {
-            return;
-        }
-        if let Some(current) = self.focus_order.get(self.focus_index) {
-            if let Some(host) = self.hosts.get(current) {
-                host.set_focused(false);
-            }
-        }
-        self.focus_index = if self.focus_index == 0 {
-            self.focus_order.len() - 1
-        } else {
-            self.focus_index - 1
-        };
-        if let Some(next) = self.focus_order.get(self.focus_index) {
-            if let Some(host) = self.hosts.get(next) {
-                host.set_focused(true);
-            }
-        }
+        self.focus.focus_prev(&self.hosts);
     }
 
     pub fn focused_panel_id(&self) -> Option<&str> {
-        self.focus_order
-            .get(self.focus_index)
-            .map(|s| s.as_str())
+        self.focus.focused_panel_id()
     }
 
     pub fn focus_order_index(&self, panel_id: &str) -> Option<usize> {
-        self.focus_order.iter().position(|s| s == panel_id)
+        self.focus.focus_order_index(panel_id)
     }
 
     pub fn set_focus_index(&mut self, idx: usize) {
-        if let Some(current) = self.focus_order.get(self.focus_index) {
-            if let Some(host) = self.hosts.get(current) {
-                host.set_focused(false);
-            }
-        }
-        self.focus_index = idx.min(self.focus_order.len().saturating_sub(1));
-        if let Some(next) = self.focus_order.get(self.focus_index) {
-            if let Some(host) = self.hosts.get(next) {
-                host.set_focused(true);
-            }
-        }
+        self.focus.set_focus_index(idx, &self.hosts);
     }
 
     pub fn host(&self, panel_id: &str) -> Option<&PanelHost> {
@@ -818,7 +767,7 @@ impl WorkspaceView {
 
     /// Close the focused panel.
     pub fn close_focused(&mut self) -> bool {
-        if self.focus_order.len() <= 1 {
+        if self.focus.order.len() <= 1 {
             return false; // Don't close the last panel
         }
 
@@ -934,14 +883,10 @@ impl WorkspaceView {
         self.rebuild_focus_order();
 
         // Focus next available
-        if self.focus_index >= self.focus_order.len() {
-            self.focus_index = 0;
+        if self.focus.index >= self.focus.order.len() {
+            self.focus.index = 0;
         }
-        if let Some(next) = self.focus_order.get(self.focus_index) {
-            if let Some(host) = self.hosts.get(next) {
-                host.set_focused(true);
-            }
-        }
+        self.focus.focus_current_pub(&self.hosts);
 
         true
     }
@@ -1000,16 +945,9 @@ impl WorkspaceView {
 
     fn rebuild_focus_order(&mut self) {
         self.dirty = true;
-        self.focus_order = self
-            .workspace
-            .layout
-            .panel_ids()
-            .iter()
-            .map(|s| s.to_string())
-            .collect();
-        if self.focus_index >= self.focus_order.len() && !self.focus_order.is_empty() {
-            self.focus_index = self.focus_order.len() - 1;
-        }
+        let ids: Vec<String> = self.workspace.layout.panel_ids()
+            .iter().map(|s| s.to_string()).collect();
+        self.focus.rebuild(ids);
     }
 
     fn update_layout_split(
