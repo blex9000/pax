@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 use tp_core::workspace::{LayoutNode, PanelConfig, PanelType, Workspace};
 
 use crate::focus::FocusManager;
+use crate::layout_ops::{replace_in_layout, remove_from_layout, add_to_existing_tabs};
 use crate::panel_host::{PanelAction, PanelActionCallback, PanelHost};
 use crate::panels::chooser::{ChooserPanel, OnTypeChosen};
 use crate::panels::registry::{self, PanelCreateConfig, PanelRegistry};
@@ -1031,146 +1032,7 @@ impl WorkspaceView {
     }
 }
 
-// ── Layout model helpers ─────────────────────────────────────────────────────
-
-/// Replace a Panel node in the layout tree, returning a new tree.
-fn replace_in_layout(
-    node: &LayoutNode,
-    panel_id: &str,
-    replacer: &dyn Fn(&LayoutNode) -> LayoutNode,
-) -> LayoutNode {
-    match node {
-        LayoutNode::Panel { id } if id == panel_id => replacer(node),
-        LayoutNode::Panel { .. } => node.clone(),
-        LayoutNode::Hsplit { children, ratios } => LayoutNode::Hsplit {
-            children: children
-                .iter()
-                .map(|c| replace_in_layout(c, panel_id, replacer))
-                .collect(),
-            ratios: ratios.clone(),
-        },
-        LayoutNode::Vsplit { children, ratios } => LayoutNode::Vsplit {
-            children: children
-                .iter()
-                .map(|c| replace_in_layout(c, panel_id, replacer))
-                .collect(),
-            ratios: ratios.clone(),
-        },
-        LayoutNode::Tabs { children, labels } => LayoutNode::Tabs {
-            children: children
-                .iter()
-                .map(|c| replace_in_layout(c, panel_id, replacer))
-                .collect(),
-            labels: labels.clone(),
-        },
-    }
-}
-
-/// Remove a panel from the layout tree, collapsing empty containers.
-fn remove_from_layout(node: &LayoutNode, panel_id: &str) -> LayoutNode {
-    match node {
-        LayoutNode::Panel { id } if id == panel_id => {
-            // This shouldn't be called on the root directly,
-            // but return a dummy that parent will clean up
-            node.clone()
-        }
-        LayoutNode::Panel { .. } => node.clone(),
-        LayoutNode::Hsplit { children, ratios } => {
-            let filtered: Vec<LayoutNode> = children
-                .iter()
-                .filter(|c| !is_panel_with_id(c, panel_id))
-                .map(|c| remove_from_layout(c, panel_id))
-                .collect();
-            let new_ratios: Vec<f64> = children
-                .iter()
-                .zip(ratios.iter())
-                .filter(|(c, _)| !is_panel_with_id(c, panel_id))
-                .map(|(_, r)| *r)
-                .collect();
-            if filtered.len() == 1 {
-                filtered.into_iter().next().unwrap()
-            } else {
-                LayoutNode::Hsplit {
-                    children: filtered,
-                    ratios: new_ratios,
-                }
-            }
-        }
-        LayoutNode::Vsplit { children, ratios } => {
-            let filtered: Vec<LayoutNode> = children
-                .iter()
-                .filter(|c| !is_panel_with_id(c, panel_id))
-                .map(|c| remove_from_layout(c, panel_id))
-                .collect();
-            let new_ratios: Vec<f64> = children
-                .iter()
-                .zip(ratios.iter())
-                .filter(|(c, _)| !is_panel_with_id(c, panel_id))
-                .map(|(_, r)| *r)
-                .collect();
-            if filtered.len() == 1 {
-                filtered.into_iter().next().unwrap()
-            } else {
-                LayoutNode::Vsplit {
-                    children: filtered,
-                    ratios: new_ratios,
-                }
-            }
-        }
-        LayoutNode::Tabs { children, labels } => {
-            let mut new_children = Vec::new();
-            let mut new_labels = Vec::new();
-            for (i, child) in children.iter().enumerate() {
-                if !is_panel_with_id(child, panel_id) {
-                    new_children.push(remove_from_layout(child, panel_id));
-                    if let Some(l) = labels.get(i) {
-                        new_labels.push(l.clone());
-                    }
-                }
-            }
-            if new_children.len() == 1 {
-                new_children.into_iter().next().unwrap()
-            } else {
-                LayoutNode::Tabs {
-                    children: new_children,
-                    labels: new_labels,
-                }
-            }
-        }
-    }
-}
-
-/// Try to add a new panel to an existing Tabs node that contains the given panel.
-/// Returns true if successful.
-fn add_to_existing_tabs(node: &mut LayoutNode, panel_id: &str, new_id: &str, new_label: &str) -> bool {
-    match node {
-        LayoutNode::Tabs { children, labels } => {
-            // Check if any direct child is this panel
-            let contains = children.iter().any(|c| is_panel_with_id(c, panel_id));
-            if contains {
-                children.push(LayoutNode::Panel { id: new_id.to_string() });
-                labels.push(new_label.to_string());
-                return true;
-            }
-            // Recurse into children
-            for child in children.iter_mut() {
-                if add_to_existing_tabs(child, panel_id, new_id, new_label) {
-                    return true;
-                }
-            }
-            false
-        }
-        LayoutNode::Hsplit { children, .. } | LayoutNode::Vsplit { children, .. } => {
-            for child in children.iter_mut() {
-                if add_to_existing_tabs(child, panel_id, new_id, new_label) {
-                    return true;
-                }
-            }
-            false
-        }
-        LayoutNode::Panel { .. } => false,
-    }
-}
+// ── Widget helpers ───────────────────────────────────────────────────────────
 
 /// Walk a widget tree and add ⋮ menus to any GtkNotebook found.
 fn add_plus_buttons_recursive(widget: &gtk4::Widget, action_cb: &PanelActionCallback) {
@@ -1263,10 +1125,6 @@ pub fn find_notebook_ancestor(widget: &gtk4::Widget) -> Option<gtk4::Notebook> {
         current = w.parent();
     }
     None
-}
-
-fn is_panel_with_id(node: &LayoutNode, panel_id: &str) -> bool {
-    matches!(node, LayoutNode::Panel { id } if id == panel_id)
 }
 
 // ── Backend creation ─────────────────────────────────────────────────────────
