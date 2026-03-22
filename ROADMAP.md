@@ -377,13 +377,13 @@ I layout sono annidabili arbitrariamente: tabs dentro split, split dentro tabs, 
 | Media | Dead code: unused imports, unused functions | Cleanup |
 | Bassa | Thread-local state (DIRTY_INDICATOR, THEME_PROVIDER) | Eventuale dependency injection |
 
-### Piano refactoring (da eseguire ora)
+### Piano refactoring — COMPLETATO
 
-1. Rimuovere `tp-tui` dal workspace (crate abbandonato)
-2. Estrarre `FocusManager` da `workspace_view.rs` in `focus.rs`
-3. Estrarre layout operations (split/tab/close/model updates) in `layout_ops.rs`
-4. Cleanup dead code (unused imports, unused functions in tutti i crate)
-5. Rimuovere `tp-pty` (non usato, GUI usa VTE direttamente) oppure marcarlo come futuro
+1. ~~Rimuovere `tp-tui` dal workspace (crate abbandonato)~~ Done
+2. ~~Estrarre `FocusManager` da `workspace_view.rs` in `focus.rs`~~ Done
+3. ~~Estrarre layout operations in `layout_ops.rs`~~ Done
+4. ~~Cleanup dead code (unused imports, unused functions)~~ Done — zero warnings
+5. ~~Rimuovere `tp-pty` (non usato, GUI usa VTE direttamente)~~ Done
 
 ### Prossime feature (in ordine di valore utente)
 
