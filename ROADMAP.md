@@ -158,17 +158,22 @@ myterms/
 │   │   ├── output.rs               # Output salvato
 │   │   └── workspaces.rs           # Metadata workspace
 │   ├── tp-gui/src/                 # GUI GTK4 (cross-platform)
-│   │   ├── app.rs                  # AdwApplication, window, keybindings, CSS
-│   │   ├── workspace_view.rs       # LayoutNode → GtkPaned/Notebook, crea backend
-│   │   ├── panel_host.rs           # Container con title bar + focus/alert styling
+│   │   ├── app.rs                  # AdwApplication, window, keybindings, theme loading
+│   │   ├── workspace_view.rs       # LayoutNode → GtkPaned/Notebook, crea backend, sync ratios
+│   │   ├── panel_host.rs           # Container con title bar + footer (user@host:dir) + focus/alert
+│   │   ├── theme.rs                # CSS temi (9 schemi colore) + VTE color management
 │   │   ├── panels/
 │   │   │   ├── mod.rs              # PanelBackend trait
 │   │   │   ├── terminal.rs         # VTE4 backend (Linux) + PTY fallback (macOS)
-│   │   │   └── markdown.rs         # TextView + parsing markdown
+│   │   │   ├── markdown.rs         # TextView + parsing markdown
+│   │   │   ├── chooser.rs          # Empty panel type selector
+│   │   │   └── registry.rs         # Panel factory/registry system
 │   │   ├── widgets/
-│   │   │   └── status_bar.rs       # Barra di stato
+│   │   │   ├── status_bar.rs       # Barra di stato applicazione
+│   │   │   └── welcome.rs          # Welcome screen con recent workspaces
 │   │   └── dialogs/
-│   │       └── mod.rs              # (futuro) Broadcast picker, SSH picker
+│   │       ├── panel_config.rs     # Dialog config pannello (CWD, script, min size)
+│   │       └── settings.rs         # Dialog impostazioni workspace
 │   └── tp-cli/src/main.rs          # Entry point CLI
 ├── config/
 │   ├── default_workspace.json      # 3 terminali in split
@@ -291,7 +296,7 @@ I layout sono annidabili arbitrariamente: tabs dentro split, split dentro tabs, 
 
 **Verifica**: pannello SSH si connette, pannello tmux aggancia sessione.
 
-### Fase 6: Command palette + UX polish (sett. 7-8) — PARZIALMENTE COMPLETATA
+### Fase 6: Command palette + UX polish (sett. 7-8) — IN CORSO
 
 **Obiettivo**: UX completa e rifinita.
 
@@ -299,14 +304,24 @@ I layout sono annidabili arbitrariamente: tabs dentro split, split dentro tabs, 
 |------|-------|
 | Split/tab/close dinamici dal menu ⋮ pannello | Done |
 | Save/Open workspace con FileDialog | Done |
-| Dirty indicator ● nel titolo finestra | Done |
+| Dirty indicator floppy nel header | Done |
 | ScrolledWindow per overflow pannelli | Done |
+| Sync ratios separatori → JSON al save | Done |
+| Terminal: prompt minimale `$:` verde + footer `user@host:dir` colorato | Done |
+| Terminal: directory tracking via OSC 7 + PROMPT_COMMAND | Done |
+| Terminal: colori `ls` personalizzati (#5588ff per directory) | Done |
+| Terminal: working directory configurabile | Done |
+| Terminal: startup/close script con toggle enable/disable | Done |
+| Panel config dialog: CWD, startup, close, min size | Done |
+| Temi: 9 temi colore (System, Catppuccin, Solarized, Nord, Dracula, Gruvbox, Tokyo Night) | Done |
+| Welcome page: carica tema dall'ultimo workspace | Done |
+| Recent workspaces dialog | Done |
+| Settings dialog (nome, tema, shell, scrollback) | Done |
+| Script startup unici per pannello (counter atomico) | Done |
 | Command palette (Ctrl+K) | Da fare |
 | Zoom pannello (Ctrl+Z) | Da fare |
 | Drag & drop split | Da fare |
 | Scorciatoie tastiera configurabili | Da fare |
-| GTK CSS theming avanzato | Da fare |
-| Pre/post script | Da fare |
 
 **Verifica**: palette funziona, zoom funziona, drag & drop crea split.
 
@@ -338,6 +353,45 @@ I layout sono annidabili arbitrariamente: tabs dentro split, split dentro tabs, 
 | SSH auth complessa (2FA, jump hosts) | Fallback a `ssh` binario di sistema |
 | Packaging dipendenze GTK | Flatpak (Linux), Homebrew formula (macOS) |
 | Performance con molti pannelli VTE | Lazy render per pannelli non visibili (tab) |
+
+---
+
+## Assessment architetturale (Marzo 2026)
+
+### Cosa funziona bene
+
+- **Panel plugin system** — Registry + PanelBackend trait è solido e estensibile
+- **Layout engine** — Paned/Notebook recursivo con ratios sync funziona bene
+- **Terminal UX** — Prompt minimale, footer con directory, colori personalizzati
+- **Temi** — 9 temi che funzionano sia per GTK che per VTE, persistenza tra sessioni
+
+### Debito tecnico da risolvere
+
+| Priorità | Problema | Azione |
+|----------|---------|--------|
+| Alta | `workspace_view.rs` è 1.674 LOC — split/tab/close/focus/model tutto insieme | Estrarre FocusManager e LayoutOps in moduli separati |
+| Alta | `tp-pty` è codice morto — GUI usa VTE direttamente | Rimuovere il crate o integrarlo |
+| Alta | `tp-tui` è abbandonato | Rimuovere dal workspace |
+| Media | Callback hell in `app.rs` — 4+ livelli di Rc<RefCell<>> nested | Refactoring graduale |
+| Media | Features dichiarate ma non implementate (Browser, SSH nativo, alerts, broadcast) | Implementare o rimuovere dal registry |
+| Media | Dead code: unused imports, unused functions | Cleanup |
+| Bassa | Thread-local state (DIRTY_INDICATOR, THEME_PROVIDER) | Eventuale dependency injection |
+
+### Piano refactoring (da eseguire ora)
+
+1. Rimuovere `tp-tui` dal workspace (crate abbandonato)
+2. Estrarre `FocusManager` da `workspace_view.rs` in `focus.rs`
+3. Estrarre layout operations (split/tab/close/model updates) in `layout_ops.rs`
+4. Cleanup dead code (unused imports, unused functions in tutti i crate)
+5. Rimuovere `tp-pty` (non usato, GUI usa VTE direttamente) oppure marcarlo come futuro
+
+### Prossime feature (in ordine di valore utente)
+
+1. **Command palette (Ctrl+K)** — fuzzy search per azioni, pannelli, comandi recenti
+2. **Zoom pannello (Ctrl+Z)** — fullscreen singolo pannello
+3. **Browser panel reale** — WebKitGTK per dashboard/Grafana
+4. **Alert su output** — collegare tp-core/alert.rs a VTE output
+5. **Broadcast groups** — UI per attivare/disattivare broadcast su gruppi
 
 ---
 

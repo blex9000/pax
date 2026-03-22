@@ -6,7 +6,19 @@ Workspace manager GUI cross-platform in Rust (GTK4 + VTE), stile Tilix, con pann
 
 ## Stato
 
-**In sviluppo** — Fase 0, 1 e 2 completate. Layout multi-pannello con split, tab e tipi eterogenei funzionanti. PanelRegistry plugin system per registrazione tipi pannello, PanelType::Empty con chooser, menu ⋮ per split/tab/close dinamici. Save/Open workspace con FileDialog, dirty tracking con indicatore ●.
+**In sviluppo** — Fase 0, 1, 2 completate + gran parte di Fase 6 (UX polish).
+
+Funzionalità principali:
+- Layout multi-pannello con split, tab e tipi eterogenei
+- PanelRegistry plugin system per registrazione tipi pannello
+- PanelType::Empty con chooser, menu ⋮ per split/tab/close dinamici
+- Save/Open workspace con FileDialog, dirty tracking con indicatore floppy
+- **Sync ratios**: le posizioni dei separatori vengono salvate nel JSON
+- **Terminal migliorato**: prompt minimale (`$:` verde), footer con `user@host:directory` colorato, directory tracking via OSC 7, colori `ls` personalizzati
+- **Panel config**: working directory, startup script (con toggle), before_close script (con toggle), min width/height
+- **Temi**: System, Catppuccin Mocha/Latte, Solarized Dark/Light, Nord, Dracula, Gruvbox, Tokyo Night — tema persistito tra sessioni
+- **Welcome page**: carica il tema dall'ultimo workspace usato
+- **Recent workspaces**: dialog con lista workspace recenti da DB SQLite
 
 ## Installazione
 
@@ -141,12 +153,12 @@ I layout sono annidabili: tabs dentro split, split dentro tabs, ecc.
 | `Ctrl+N/P` | Focus pannello successivo/precedente |
 | `Ctrl+O` | Apri workspace da file |
 | `Ctrl+S` | Salva workspace |
-| `Ctrl+Z` | Zoom pannello a schermo intero |
-| `Ctrl+B` | Cicla gruppi broadcast |
-| `Ctrl+T` | Cicla tab |
-| `Ctrl+K` | Command palette |
-| Menu ⋮ | Split H/V, nuovo tab, chiudi pannello, cambia tipo |
-| Hamburger ☰ | Open, Save, Save As, Quit |
+| `Ctrl+Shift+H` | Split orizzontale (nuovo pannello sotto) |
+| `Ctrl+Shift+J` | Split verticale (nuovo pannello a destra) |
+| `Ctrl+Shift+T` | Nuovo tab |
+| `Ctrl+Shift+W` | Chiudi pannello |
+| Menu ⋮ | Configure, Split H/V, Add Tab, Close |
+| Hamburger ☰ | New, Open, Recent, Save, Save As, Settings, Quit |
 
 ## Architettura
 
