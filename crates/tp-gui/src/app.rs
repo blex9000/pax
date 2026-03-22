@@ -5,7 +5,6 @@ use gtk4::gdk;
 use libadwaita as adw;
 use adw::prelude::*;
 use std::cell::RefCell;
-use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 

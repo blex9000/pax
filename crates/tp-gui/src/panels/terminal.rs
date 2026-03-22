@@ -1,5 +1,3 @@
-use gtk4::prelude::*;
-
 use super::PanelBackend;
 
 // ── VTE backend (Linux) ──────────────────────────────────────────────────────
@@ -31,7 +29,7 @@ mod backend {
         pub vte: vte4::Terminal,
         pub widget: gtk4::Widget,
         pending_commands: Rc<RefCell<Vec<String>>>,
-        spawned: Rc<RefCell<bool>>,
+        _spawned: Rc<RefCell<bool>>,
         workspace_dir: Option<String>,
     }
 
@@ -63,7 +61,6 @@ mod backend {
             // to execute them seamlessly. Otherwise spawn plain shell.
             // We defer this — commands are queued via send_commands() and the spawn
             // callback will create a temp rcfile that sources them.
-            let shell_owned = shell.to_string();
             let vte_for_cb = vte.clone();
             let pending_for_cb = pending_commands.clone();
             let spawned_for_cb = spawned.clone();
@@ -103,7 +100,7 @@ mod backend {
             let gesture = gtk4::GestureClick::new();
             gesture.set_button(3); // right click
             let vte_for_menu = vte.clone();
-            gesture.connect_pressed(move |gesture, _n, x, y| {
+            gesture.connect_pressed(move |_gesture, _n, x, y| {
                 let vte = &vte_for_menu;
                 let popover = gtk4::PopoverMenu::from_model(None::<&gtk4::gio::MenuModel>);
 
@@ -166,7 +163,7 @@ mod backend {
             crate::theme::register_vte_terminal(&vte);
 
             let widget = vte.clone().upcast::<gtk4::Widget>();
-            Self { vte, widget, pending_commands, spawned, workspace_dir: workspace_dir.map(|s| s.to_string()) }
+            Self { vte, widget, pending_commands, _spawned: spawned, workspace_dir: workspace_dir.map(|s| s.to_string()) }
         }
 
         /// Queue a script to run once the shell is ready.

@@ -5,7 +5,7 @@ use super::PanelBackend;
 /// Markdown viewer panel using GTK4 TextView.
 #[derive(Debug)]
 pub struct MarkdownPanel {
-    scrolled: gtk4::ScrolledWindow,
+    _scrolled: gtk4::ScrolledWindow,
     text_view: gtk4::TextView,
     widget: gtk4::Widget,
     file_path: String,
@@ -33,7 +33,7 @@ impl MarkdownPanel {
         let widget = scrolled.clone().upcast::<gtk4::Widget>();
 
         let mut panel = Self {
-            scrolled,
+            _scrolled: scrolled,
             text_view,
             widget,
             file_path: file_path.to_string(),

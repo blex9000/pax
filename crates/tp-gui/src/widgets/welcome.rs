@@ -162,7 +162,7 @@ pub fn build_welcome(on_choice: WelcomeCallback) -> gtk4::Widget {
                 row.set_child(Some(&row_box));
                 row.set_activatable(true);
 
-                let cb = on_choice.clone();
+                let _cb = on_choice.clone();
                 let cp = config_path.clone();
                 // We'll use ListBox row-activated signal instead
                 row_box.set_widget_name(&cp);

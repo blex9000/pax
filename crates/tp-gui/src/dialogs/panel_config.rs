@@ -113,7 +113,7 @@ fn add_min_size_fields(vbox: &gtk4::Box, min_width: u32, min_height: u32) -> (gt
 /// Script source: either inline text or a file path.
 struct ScriptEditor {
     mode_file: gtk4::CheckButton,
-    mode_inline: gtk4::CheckButton,
+    _mode_inline: gtk4::CheckButton,
     file_entry: gtk4::Entry,
     script_view: gtk4::TextView,
 }
@@ -256,22 +256,10 @@ fn add_script_editor(
 
     ScriptEditor {
         mode_file,
-        mode_inline,
+        _mode_inline: mode_inline,
         file_entry,
         script_view,
     }
-}
-
-/// Extract the full script text from a TextView buffer, keeping shebang.
-fn get_script_lines(view: &gtk4::TextView) -> Vec<String> {
-    let buf = view.buffer();
-    let text = buf.text(&buf.start_iter(), &buf.end_iter(), false);
-    let text = text.to_string();
-    if text.trim().is_empty() {
-        return vec![];
-    }
-    // Return as a single element — the full script
-    vec![text]
 }
 
 /// Detect available interpreters on the system.

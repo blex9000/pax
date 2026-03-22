@@ -1,5 +1,4 @@
 use gtk4::prelude::*;
-use std::cell::RefCell;
 use std::rc::Rc;
 
 use super::PanelBackend;

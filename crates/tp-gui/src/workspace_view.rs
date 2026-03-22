@@ -10,7 +10,6 @@ use crate::panel_host::{PanelAction, PanelActionCallback, PanelHost};
 use crate::panels::chooser::{ChooserPanel, OnTypeChosen};
 use crate::panels::registry::{self, PanelCreateConfig, PanelRegistry};
 use crate::panels::markdown::MarkdownPanel;
-use crate::panels::terminal::TerminalPanel;
 
 /// Builds the GTK widget tree from a workspace layout.
 pub struct WorkspaceView {
@@ -979,33 +978,6 @@ impl WorkspaceView {
                         ratios: vec![0.5, 0.5],
                     },
                 }
-            },
-        );
-    }
-
-    fn update_layout_add_tab(&mut self, existing_id: &str, new_id: &str, new_label: &str) {
-        // Check if the panel is already inside a Tabs node — if so, append to it
-        if add_to_existing_tabs(&mut self.workspace.layout, existing_id, new_id, new_label) {
-            return;
-        }
-        // Otherwise wrap the panel in a new Tabs node
-        let existing_label = self
-            .workspace
-            .panel(existing_id)
-            .map(|p| p.name.clone())
-            .unwrap_or_else(|| existing_id.to_string());
-        let new_label = new_label.to_string();
-        let new_id = new_id.to_string();
-        let existing_id = existing_id.to_string();
-        self.workspace.layout = replace_in_layout(
-            &self.workspace.layout,
-            &existing_id,
-            &|_| LayoutNode::Tabs {
-                children: vec![
-                    LayoutNode::Panel { id: existing_id.clone() },
-                    LayoutNode::Panel { id: new_id.clone() },
-                ],
-                labels: vec![existing_label.clone(), new_label.clone()],
             },
         );
     }
