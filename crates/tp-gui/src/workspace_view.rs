@@ -620,7 +620,7 @@ impl WorkspaceView {
         let new_cfg = PanelConfig {
             id: new_id.clone(),
             name: new_name.clone(),
-            panel_type: PanelType::Terminal,
+            panel_type: PanelType::Empty,
             target: Default::default(),
             startup_commands: vec![],
             groups: vec![],
@@ -727,7 +727,7 @@ impl WorkspaceView {
         PanelConfig {
             id: id.to_string(),
             name: name.to_string(),
-            panel_type: PanelType::Terminal, // Will be set when user chooses
+            panel_type: PanelType::Empty, // Chooser — user picks the type
             target: Default::default(),
             startup_commands: vec![],
             groups: vec![],
