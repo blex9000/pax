@@ -170,6 +170,52 @@ fn setup_workspace_ui(
     let save_action = gtk4::gio::SimpleAction::new("save", None);
     let window_rc = window.clone();
 
+    // Sync input bar (created early so callbacks can reference it)
+    let sync_bar = gtk4::Box::new(gtk4::Orientation::Horizontal, 6);
+    sync_bar.add_css_class("sync-bar");
+    sync_bar.set_visible(false);
+    let sync_label = gtk4::Label::new(Some("SYNC"));
+    sync_label.add_css_class("sync-label");
+    sync_bar.append(&sync_label);
+    let sync_entry = gtk4::Entry::new();
+    sync_entry.set_hexpand(true);
+    sync_entry.set_placeholder_text(Some("Type here to send to all synced panels..."));
+    sync_entry.add_css_class("sync-entry");
+    sync_bar.append(&sync_entry);
+    let sync_close_btn = gtk4::Button::new();
+    sync_close_btn.set_icon_name("window-close-symbolic");
+    sync_close_btn.add_css_class("flat");
+    sync_close_btn.set_tooltip_text(Some("Close sync mode"));
+    sync_bar.append(&sync_close_btn);
+
+    // Sync entry: on activate (Enter), send to synced panels + clear
+    {
+        let ws = ws_view.clone();
+        let entry = sync_entry.clone();
+        sync_entry.connect_activate(move |_| {
+            let text = entry.text().to_string();
+            if !text.is_empty() {
+                let cmd = format!("{}\n", text);
+                ws.borrow().write_to_synced(cmd.as_bytes());
+                entry.set_text("");
+            }
+        });
+    }
+
+    // Sync close button: clear all sync
+    {
+        let ws = ws_view.clone();
+        let bar = sync_bar.clone();
+        let sb2 = status_bar.clone();
+        sync_close_btn.connect_clicked(move |_| {
+            ws.borrow_mut().clear_sync();
+            bar.set_visible(false);
+            sb2.borrow().set_message("Sync off");
+        });
+    }
+
+    let sync_bar_rc = Rc::new(sync_bar.clone());
+
     // Wire up type chooser callback
     {
         let ws = ws_view.clone();
@@ -190,6 +236,7 @@ fn setup_workspace_ui(
         let sb_for_cb = status_bar.clone();
         let win_for_cb = window_rc.clone();
         let sa_for_cb = save_action.clone();
+        let sync_bar_for_cb = sync_bar_rc.clone();
         let cb: crate::panel_host::PanelActionCallback = Rc::new(move |panel_id, action| {
             // "nb:<panel_id>" means action on notebook
             if let Some(real_id) = panel_id.strip_prefix("nb:") {
@@ -292,6 +339,38 @@ fn setup_workspace_ui(
                             update_dirty_ui(&ws2, &win2, &sa2);
                         },
                     );
+                }
+                PanelAction::Zoom => {
+                    // Focus the panel first, then toggle zoom
+                    {
+                        let view = ws_for_cb.borrow();
+                        if let Some(idx) = view.focus_order_index(panel_id) {
+                            drop(view);
+                            ws_for_cb.borrow_mut().set_focus_index(idx);
+                        }
+                    }
+                    ws_for_cb.borrow_mut().toggle_zoom();
+                    let zoomed = ws_for_cb.borrow().is_zoomed();
+                    sb_for_cb.borrow().set_message(if zoomed { "Zoom ON" } else { "Zoom OFF" });
+                }
+                PanelAction::Sync => {
+                    // Focus the panel first, then toggle sync
+                    {
+                        let view = ws_for_cb.borrow();
+                        if let Some(idx) = view.focus_order_index(panel_id) {
+                            drop(view);
+                            ws_for_cb.borrow_mut().set_focus_index(idx);
+                        }
+                    }
+                    if let Some((pid, is_synced)) = ws_for_cb.borrow_mut().toggle_sync_focused() {
+                        let count = ws_for_cb.borrow().sync_count();
+                        if is_synced {
+                            sb_for_cb.borrow().set_message(&format!("Sync ON: {} ({} panels)", pid, count));
+                        } else {
+                            sb_for_cb.borrow().set_message(&format!("Sync OFF: {} ({} panels)", pid, count));
+                        }
+                        sync_bar_for_cb.set_visible(ws_for_cb.borrow().has_sync());
+                    }
                 }
                 PanelAction::AddTabToNotebook | PanelAction::RemoveTab => {}
             }
@@ -430,55 +509,6 @@ fn setup_workspace_ui(
             glib::Propagation::Proceed
         });
     }
-
-    // Sync input bar (hidden by default)
-    let sync_bar = gtk4::Box::new(gtk4::Orientation::Horizontal, 6);
-    sync_bar.add_css_class("sync-bar");
-    sync_bar.set_visible(false);
-
-    let sync_label = gtk4::Label::new(Some("SYNC"));
-    sync_label.add_css_class("sync-label");
-    sync_bar.append(&sync_label);
-
-    let sync_entry = gtk4::Entry::new();
-    sync_entry.set_hexpand(true);
-    sync_entry.set_placeholder_text(Some("Type here to send to all synced panels..."));
-    sync_entry.add_css_class("sync-entry");
-    sync_bar.append(&sync_entry);
-
-    let sync_close_btn = gtk4::Button::new();
-    sync_close_btn.set_icon_name("window-close-symbolic");
-    sync_close_btn.add_css_class("flat");
-    sync_close_btn.set_tooltip_text(Some("Close sync mode"));
-    sync_bar.append(&sync_close_btn);
-
-    // Sync entry: on activate (Enter), send to synced panels + clear
-    {
-        let ws = ws_view.clone();
-        let entry = sync_entry.clone();
-        sync_entry.connect_activate(move |_| {
-            let text = entry.text().to_string();
-            if !text.is_empty() {
-                let cmd = format!("{}\n", text);
-                ws.borrow().write_to_synced(cmd.as_bytes());
-                entry.set_text("");
-            }
-        });
-    }
-
-    // Sync close button: clear all sync
-    {
-        let ws = ws_view.clone();
-        let bar = sync_bar.clone();
-        let sb2 = status_bar.clone();
-        sync_close_btn.connect_clicked(move |_| {
-            ws.borrow_mut().clear_sync();
-            bar.set_visible(false);
-            sb2.borrow().set_message("Sync off");
-        });
-    }
-
-    let sync_bar_rc = Rc::new(sync_bar.clone());
 
     // Content
     let content_box = gtk4::Box::new(gtk4::Orientation::Vertical, 0);

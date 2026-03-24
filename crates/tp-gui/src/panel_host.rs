@@ -18,6 +18,10 @@ pub enum PanelAction {
     AddTabToNotebook,
     /// Remove current tab from Notebook (from tab bar menu)
     RemoveTab,
+    /// Toggle zoom/fullscreen
+    Zoom,
+    /// Toggle sync input
+    Sync,
 }
 
 /// Callback type for panel menu actions.
@@ -28,6 +32,8 @@ pub struct PanelHost {
     outer: gtk4::Box,
     container: gtk4::Box,
     title_label: gtk4::Label,
+    sync_button: gtk4::Button,
+    _zoom_button: gtk4::Button,
     menu_button: gtk4::MenuButton,
     footer_bar: gtk4::Box,
     footer_label: gtk4::Label,
@@ -59,6 +65,38 @@ impl PanelHost {
         title_label.set_halign(gtk4::Align::Start);
         title_label.set_hexpand(true);
 
+        // Sync button
+        let sync_button = gtk4::Button::new();
+        sync_button.set_icon_name("chain-link-symbolic");
+        sync_button.add_css_class("flat");
+        sync_button.add_css_class("panel-action-btn");
+        sync_button.set_tooltip_text(Some("Toggle sync input (Ctrl+Shift+S)"));
+        {
+            let cb = action_cb.clone();
+            let pid = panel_id.to_string();
+            sync_button.connect_clicked(move |_| {
+                if let Some(ref callback) = cb {
+                    callback(&pid, PanelAction::Sync);
+                }
+            });
+        }
+
+        // Zoom button
+        let zoom_button = gtk4::Button::new();
+        zoom_button.set_icon_name("view-fullscreen-symbolic");
+        zoom_button.add_css_class("flat");
+        zoom_button.add_css_class("panel-action-btn");
+        zoom_button.set_tooltip_text(Some("Toggle zoom (Ctrl+Z)"));
+        {
+            let cb = action_cb.clone();
+            let pid = panel_id.to_string();
+            zoom_button.connect_clicked(move |_| {
+                if let Some(ref callback) = cb {
+                    callback(&pid, PanelAction::Zoom);
+                }
+            });
+        }
+
         // ⋮ menu button
         let menu_button = gtk4::MenuButton::new();
         menu_button.set_icon_name("view-more-symbolic");
@@ -71,6 +109,8 @@ impl PanelHost {
         menu_button.set_popover(Some(&popover));
 
         title_bar.append(&title_label);
+        title_bar.append(&sync_button);
+        title_bar.append(&zoom_button);
         title_bar.append(&menu_button);
         container.append(&title_bar);
 
@@ -100,6 +140,8 @@ impl PanelHost {
             outer,
             container,
             title_label,
+            sync_button,
+            _zoom_button: zoom_button,
             menu_button,
             footer_bar,
             footer_label,
@@ -178,6 +220,15 @@ impl PanelHost {
 
     pub fn set_title(&self, title: &str) {
         self.title_label.set_text(title);
+    }
+
+    /// Update sync button visual state.
+    pub fn set_sync_active(&self, active: bool) {
+        if active {
+            self.sync_button.add_css_class("sync-active");
+        } else {
+            self.sync_button.remove_css_class("sync-active");
+        }
     }
 
     /// Set footer text (e.g. user@host:directory). Empty string hides the footer.
@@ -287,6 +338,8 @@ fn build_panel_menu(panel_id: &str, action_cb: Option<PanelActionCallback>) -> g
             PanelAction::Close => "window-close-symbolic",
             PanelAction::AddTabToNotebook => "tab-new-symbolic",
             PanelAction::RemoveTab => "window-close-symbolic",
+            PanelAction::Zoom => "view-fullscreen-symbolic",
+            PanelAction::Sync => "chain-link-symbolic",
         };
         let icon = gtk4::Image::from_icon_name(icon_name);
         let lbl = gtk4::Label::new(Some(label));
@@ -302,6 +355,8 @@ fn build_panel_menu(panel_id: &str, action_cb: Option<PanelActionCallback>) -> g
             PanelAction::Close => "Ctrl+Shift+W",
             PanelAction::AddTabToNotebook => "",
             PanelAction::RemoveTab => "",
+            PanelAction::Zoom => "Ctrl+Z",
+            PanelAction::Sync => "Ctrl+Shift+S",
         };
         let hint = gtk4::Label::new(Some(hint_text));
         hint.add_css_class("dim-label");

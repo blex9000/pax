@@ -160,6 +160,9 @@ box.panel-frame > box { margin: 0; padding: 0; }
 box.panel-title-bar { padding: 2px 6px; margin: 0; min-height: 20px; }
 .panel-title { font-size: 11px; font-weight: bold; }
 .panel-menu-btn { min-height: 16px; min-width: 16px; padding: 2px; }
+.panel-action-btn { min-height: 16px; min-width: 16px; padding: 2px; opacity: 0.5; }
+.panel-action-btn:hover { opacity: 1.0; }
+.sync-active { opacity: 1.0; color: #e5a50a; }
 .panel-focused { border: none; }
 .panel-unfocused { border: none; }
 .panel-type-btn { min-width: 120px; }

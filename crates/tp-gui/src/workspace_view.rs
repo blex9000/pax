@@ -496,12 +496,14 @@ impl WorkspaceView {
             self.sync_panels.remove(&focused_id);
             if let Some(host) = self.hosts.get(&focused_id) {
                 host.clear_alert_border();
+                host.set_sync_active(false);
             }
             false
         } else {
             self.sync_panels.insert(focused_id.clone());
             if let Some(host) = self.hosts.get(&focused_id) {
                 host.set_alert_border("yellow");
+                host.set_sync_active(true);
             }
             true
         };
@@ -532,6 +534,7 @@ impl WorkspaceView {
         for panel_id in self.sync_panels.drain() {
             if let Some(host) = self.hosts.get(&panel_id) {
                 host.clear_alert_border();
+                host.set_sync_active(false);
             }
         }
     }
