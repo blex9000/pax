@@ -27,6 +27,8 @@ pub struct WorkspaceView {
     dirty: bool,
     /// When a panel is zoomed (fullscreen), store which panel and hidden siblings.
     zoomed_panel: Option<String>,
+    /// Panel IDs that are in sync-input mode.
+    sync_panels: std::collections::HashSet<String>,
 }
 
 impl WorkspaceView {
@@ -96,6 +98,7 @@ impl WorkspaceView {
             on_type_chosen: None,
             dirty: false,
             zoomed_panel: None,
+            sync_panels: std::collections::HashSet::new(),
         };
 
         // Focus first panel
@@ -481,6 +484,55 @@ impl WorkspaceView {
                 host.widget().set_visible(*id == focused_id);
             }
             self.zoomed_panel = Some(focused_id);
+        }
+    }
+
+    // ── Sync input ───────────────────────────────────────────────────────
+
+    /// Toggle sync-input on the focused panel. Returns (panel_id, is_now_synced).
+    pub fn toggle_sync_focused(&mut self) -> Option<(String, bool)> {
+        let focused_id = self.focus.focused_panel_id()?.to_string();
+        let is_synced = if self.sync_panels.contains(&focused_id) {
+            self.sync_panels.remove(&focused_id);
+            if let Some(host) = self.hosts.get(&focused_id) {
+                host.clear_alert_border();
+            }
+            false
+        } else {
+            self.sync_panels.insert(focused_id.clone());
+            if let Some(host) = self.hosts.get(&focused_id) {
+                host.set_alert_border("yellow");
+            }
+            true
+        };
+        Some((focused_id, is_synced))
+    }
+
+    /// Write input to all synced panels (called from the sync input bar).
+    pub fn write_to_synced(&self, data: &[u8]) {
+        for panel_id in &self.sync_panels {
+            if let Some(host) = self.hosts.get(panel_id) {
+                host.write_input(data);
+            }
+        }
+    }
+
+    /// Number of panels currently in sync.
+    pub fn sync_count(&self) -> usize {
+        self.sync_panels.len()
+    }
+
+    /// Check if any panels are in sync mode.
+    pub fn has_sync(&self) -> bool {
+        !self.sync_panels.is_empty()
+    }
+
+    /// Clear all sync panels.
+    pub fn clear_sync(&mut self) {
+        for panel_id in self.sync_panels.drain() {
+            if let Some(host) = self.hosts.get(&panel_id) {
+                host.clear_alert_border();
+            }
         }
     }
 

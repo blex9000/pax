@@ -431,12 +431,62 @@ fn setup_workspace_ui(
         });
     }
 
+    // Sync input bar (hidden by default)
+    let sync_bar = gtk4::Box::new(gtk4::Orientation::Horizontal, 6);
+    sync_bar.add_css_class("sync-bar");
+    sync_bar.set_visible(false);
+
+    let sync_label = gtk4::Label::new(Some("SYNC"));
+    sync_label.add_css_class("sync-label");
+    sync_bar.append(&sync_label);
+
+    let sync_entry = gtk4::Entry::new();
+    sync_entry.set_hexpand(true);
+    sync_entry.set_placeholder_text(Some("Type here to send to all synced panels..."));
+    sync_entry.add_css_class("sync-entry");
+    sync_bar.append(&sync_entry);
+
+    let sync_close_btn = gtk4::Button::new();
+    sync_close_btn.set_icon_name("window-close-symbolic");
+    sync_close_btn.add_css_class("flat");
+    sync_close_btn.set_tooltip_text(Some("Close sync mode"));
+    sync_bar.append(&sync_close_btn);
+
+    // Sync entry: on activate (Enter), send to synced panels + clear
+    {
+        let ws = ws_view.clone();
+        let entry = sync_entry.clone();
+        sync_entry.connect_activate(move |_| {
+            let text = entry.text().to_string();
+            if !text.is_empty() {
+                let cmd = format!("{}\n", text);
+                ws.borrow().write_to_synced(cmd.as_bytes());
+                entry.set_text("");
+            }
+        });
+    }
+
+    // Sync close button: clear all sync
+    {
+        let ws = ws_view.clone();
+        let bar = sync_bar.clone();
+        let sb2 = status_bar.clone();
+        sync_close_btn.connect_clicked(move |_| {
+            ws.borrow_mut().clear_sync();
+            bar.set_visible(false);
+            sb2.borrow().set_message("Sync off");
+        });
+    }
+
+    let sync_bar_rc = Rc::new(sync_bar.clone());
+
     // Content
     let content_box = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
     let ws_widget = ws_view.borrow().widget().clone();
     ws_widget.set_vexpand(true);
     ws_widget.set_hexpand(true);
     content_box.append(&ws_widget);
+    content_box.append(&sync_bar);
     content_box.append(status_bar.borrow().widget());
 
     let toolbar_view = adw::ToolbarView::new();
@@ -453,6 +503,8 @@ fn setup_workspace_ui(
         let sb = status_bar.clone();
         let win = window_rc.clone();
         let sa = save_action.clone();
+        let sync_bar_rc = sync_bar_rc.clone();
+        let sync_entry = sync_entry.clone();
         controller.connect_key_pressed(move |_ctrl, key, _code, modifiers| {
             let ctrl = modifiers.contains(gdk::ModifierType::CONTROL_MASK);
             let shift = modifiers.contains(gdk::ModifierType::SHIFT_MASK);
@@ -488,6 +540,22 @@ fn setup_workspace_ui(
                             sb.borrow().set_message("Panel closed");
                         }
                         update_dirty_ui(&ws, &win, &sa);
+                        return glib::Propagation::Stop;
+                    }
+                    gdk::Key::S => {
+                        if let Some((panel_id, is_synced)) = ws.borrow_mut().toggle_sync_focused() {
+                            let count = ws.borrow().sync_count();
+                            if is_synced {
+                                sb.borrow().set_message(&format!("Sync ON: {} ({} panels)", panel_id, count));
+                            } else {
+                                sb.borrow().set_message(&format!("Sync OFF: {} ({} panels)", panel_id, count));
+                            }
+                            sync_bar_rc.set_visible(ws.borrow().has_sync());
+                            if ws.borrow().has_sync() {
+                                // Focus the sync entry when enabling
+                                sync_entry.grab_focus();
+                            }
+                        }
                         return glib::Propagation::Stop;
                     }
                     gdk::Key::C | gdk::Key::V => {
