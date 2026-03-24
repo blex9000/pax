@@ -494,13 +494,20 @@ impl WorkspaceView {
     /// Rebuild the GTK widget tree from the workspace layout model.
     /// Reuses existing PanelHost widgets (backends stay alive).
     fn rebuild_layout(&mut self) {
+        tracing::debug!("rebuild_layout: {} hosts, action_cb={}, type_chosen={}",
+            self.hosts.len(), self.action_cb.is_some(), self.on_type_chosen.is_some());
         // Remove everything from root_box
         while let Some(child) = self.root_box.first_child() {
             self.root_box.remove(&child);
         }
-        // Detach all hosts from any parents
+        // Detach all hosts from any parents (must succeed or layout breaks)
         for host in self.hosts.values() {
             detach_widget(host.widget());
+            // Safety: if detach_widget didn't fully remove it, force unparent
+            if host.widget().parent().is_some() {
+                tracing::warn!("rebuild_layout: force unparent for {}", host.panel_id());
+                host.widget().unparent();
+            }
         }
         // Rebuild from model (passing action_cb so tab labels get close buttons)
         let root_widget = build_layout_widget_inner(
@@ -1002,6 +1009,13 @@ fn detach_widget(widget: &gtk4::Widget) {
             notebook.remove_page(page);
         } else if let Some(bx) = parent.downcast_ref::<gtk4::Box>() {
             bx.remove(widget);
+        } else if let Some(notebook) = find_notebook_ancestor(widget) {
+            // GTK4 notebook wraps children in internal containers
+            let page = notebook.page_num(widget);
+            notebook.remove_page(page);
+        } else {
+            // Generic: try widget.unparent() as last resort
+            widget.unparent();
         }
     }
 }
