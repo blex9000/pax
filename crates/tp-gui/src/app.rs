@@ -525,6 +525,18 @@ fn setup_workspace_ui(
                         do_open(&ws, &sb, &win, &sa);
                         return glib::Propagation::Stop;
                     }
+                    gdk::Key::z => {
+                        ws.borrow_mut().toggle_zoom();
+                        let zoomed = ws.borrow().is_zoomed();
+                        if zoomed {
+                            if let Some(id) = ws.borrow().focused_panel_id() {
+                                sb.borrow().set_message(&format!("Zoom: {}", id));
+                            }
+                        } else {
+                            sb.borrow().set_message("Zoom off");
+                        }
+                        return glib::Propagation::Stop;
+                    }
                     _ => {}
                 }
             }

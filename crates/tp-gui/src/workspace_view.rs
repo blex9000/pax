@@ -25,6 +25,8 @@ pub struct WorkspaceView {
     registry: PanelRegistry,
     on_type_chosen: Option<OnTypeChosen>,
     dirty: bool,
+    /// When a panel is zoomed (fullscreen), store which panel and hidden siblings.
+    zoomed_panel: Option<String>,
 }
 
 impl WorkspaceView {
@@ -93,6 +95,7 @@ impl WorkspaceView {
             registry,
             on_type_chosen: None,
             dirty: false,
+            zoomed_panel: None,
         };
 
         // Focus first panel
@@ -451,6 +454,34 @@ impl WorkspaceView {
 
     pub fn hosts(&self) -> &HashMap<String, PanelHost> {
         &self.hosts
+    }
+
+    // ── Zoom (fullscreen single panel) ──────────────────────────────────
+
+    pub fn is_zoomed(&self) -> bool {
+        self.zoomed_panel.is_some()
+    }
+
+    /// Toggle zoom: hide all panels except the focused one, or restore.
+    pub fn toggle_zoom(&mut self) {
+        if let Some(_zoomed_id) = self.zoomed_panel.take() {
+            // Unzoom: show all hosts
+            for host in self.hosts.values() {
+                host.widget().set_visible(true);
+            }
+            // Also show all intermediate containers (Paned separators etc.)
+            show_all_children_recursive(&self.root_widget);
+        } else {
+            // Zoom: hide everything except the focused panel
+            let focused_id = match self.focus.focused_panel_id() {
+                Some(id) => id.to_string(),
+                None => return,
+            };
+            for (id, host) in &self.hosts {
+                host.widget().set_visible(*id == focused_id);
+            }
+            self.zoomed_panel = Some(focused_id);
+        }
     }
 
     // ── Split / Tab / Close ──────────────────────────────────────────────
@@ -1097,6 +1128,16 @@ pub fn find_notebook_ancestor(widget: &gtk4::Widget) -> Option<gtk4::Notebook> {
         current = w.parent();
     }
     None
+}
+
+/// Make all children in a widget tree visible (used for unzoom).
+fn show_all_children_recursive(widget: &gtk4::Widget) {
+    widget.set_visible(true);
+    let mut child = widget.first_child();
+    while let Some(c) = child {
+        show_all_children_recursive(&c);
+        child = c.next_sibling();
+    }
 }
 
 // ── Backend creation ─────────────────────────────────────────────────────────
