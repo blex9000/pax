@@ -597,7 +597,7 @@ impl WorkspaceView {
         let new_id = self.alloc_panel_id();
         let new_name = format!("New Panel {}", &new_id[1..]);
 
-        // 1. Create new panel
+        // 1. Create new panel config + host
         let new_cfg = PanelConfig {
             id: new_id.clone(),
             name: new_name.clone(),
@@ -618,93 +618,19 @@ impl WorkspaceView {
         let backend = self.create_chooser_backend(&new_id);
         host.set_backend(backend);
 
-        // 2. Reparent in widget tree
-        let focused_widget = self.hosts.get(&focused_id)?.widget().clone();
-        let parent = focused_widget.parent()?;
-
-        let new_paned = gtk4::Paned::new(orientation);
-        let (fw, fh) = focused_widget.size_request();
-        new_paned.set_shrink_start_child(!(fw > 0 || fh > 0));
-        new_paned.set_shrink_end_child(true); // new panel has no min-size yet
-
-        let new_host_widget = host.widget().clone();
-        new_host_widget.set_vexpand(true);
-        new_host_widget.set_hexpand(true);
-
-        // Remove focused from parent, insert paned, put both in paned
-        if let Some(paned) = parent.downcast_ref::<gtk4::Paned>() {
-            let is_start = paned
-                .start_child()
-                .map(|w| w == focused_widget)
-                .unwrap_or(false);
-
-            if is_start {
-                paned.set_start_child(gtk4::Widget::NONE);
-                new_paned.set_start_child(Some(&focused_widget));
-                new_paned.set_end_child(Some(&new_host_widget));
-                paned.set_start_child(Some(new_paned.upcast_ref::<gtk4::Widget>()));
-            } else {
-                paned.set_end_child(gtk4::Widget::NONE);
-                new_paned.set_start_child(Some(&focused_widget));
-                new_paned.set_end_child(Some(&new_host_widget));
-                paned.set_end_child(Some(new_paned.upcast_ref::<gtk4::Widget>()));
-            }
-        } else if let Some(notebook) = parent.downcast_ref::<gtk4::Notebook>() {
-            let page_num = notebook.page_num(&focused_widget);
-            let tab_label_widget = notebook.tab_label(&focused_widget);
-            notebook.remove_page(page_num);
-            new_paned.set_start_child(Some(&focused_widget));
-            new_paned.set_end_child(Some(&new_host_widget));
-            let paned_widget = new_paned.clone().upcast::<gtk4::Widget>();
-            notebook.insert_page(&paned_widget, tab_label_widget.as_ref(), page_num);
-            notebook.set_current_page(page_num);
-        } else if let Some(notebook) = find_notebook_ancestor(&focused_widget) {
-            // Panel is inside a Notebook but parent is a GTK internal wrapper
-            let page_num = notebook.page_num(&focused_widget);
-            let tab_label_widget = notebook.tab_label(&focused_widget);
-            notebook.remove_page(page_num);
-            new_paned.set_start_child(Some(&focused_widget));
-            new_paned.set_end_child(Some(&new_host_widget));
-            let paned_widget = new_paned.clone().upcast::<gtk4::Widget>();
-            notebook.insert_page(&paned_widget, tab_label_widget.as_ref(), page_num);
-            notebook.set_current_page(page_num);
-        } else if let Some(bx) = parent.downcast_ref::<gtk4::Box>() {
-            // Root box
-            bx.remove(&focused_widget);
-            new_paned.set_start_child(Some(&focused_widget));
-            new_paned.set_end_child(Some(&new_host_widget));
-            let paned_widget = new_paned.clone().upcast::<gtk4::Widget>();
-            paned_widget.set_vexpand(true);
-            paned_widget.set_hexpand(true);
-            bx.prepend(&paned_widget);
-            self.root_widget = paned_widget;
-        } else {
-            return None;
-        }
-
-        // Set 50/50 split after realize
-        new_paned.connect_realize(move |paned| {
-            let alloc = paned.allocation();
-            let total = match orientation {
-                gtk4::Orientation::Horizontal => alloc.width(),
-                _ => alloc.height(),
-            };
-            paned.set_position(total / 2);
-        });
-
-        // 3. Update model
+        // 2. Update model
         self.update_layout_split(&focused_id, &new_id, orientation);
         self.workspace.panels.push(new_cfg);
-
-        // 4. Update focus order and hosts
         self.hosts.insert(new_id.clone(), host);
+
+        // 3. Rebuild widget tree from model
+        self.rebuild_layout();
         self.rebuild_focus_order();
 
         Some(new_id)
     }
 
     /// Wrap the focused panel in a new TabSplit (Notebook) with a second tab.
-    /// The Notebook gets a "+" button in the tab bar to add more tabs.
     pub fn add_tab_focused(&mut self) -> Option<String> {
         let focused_id = self.focused_panel_id()?.to_string();
         let new_id = self.alloc_panel_id();
@@ -715,80 +641,7 @@ impl WorkspaceView {
         let backend = self.create_chooser_backend(&new_id);
         host.set_backend(backend);
 
-        let focused_widget = self.hosts.get(&focused_id)?.widget().clone();
-        let parent = focused_widget.parent()?;
-        let new_host_widget = host.widget().clone();
-        new_host_widget.set_vexpand(true);
-        new_host_widget.set_hexpand(true);
-
-        // Always create a new Notebook (TabSplit)
-        let notebook = gtk4::Notebook::new();
-        notebook.set_show_tabs(true);
-        notebook.set_scrollable(true);
-        style_notebook(&notebook);
-
-        let focused_name = self.workspace
-            .panel(&focused_id)
-            .map(|p| p.name.clone())
-            .unwrap_or_else(|| focused_id.clone());
-
-        // Detach focused widget from parent, wrap in notebook
-        if let Some(paned) = parent.downcast_ref::<gtk4::Paned>() {
-            let is_start = paned.start_child().map(|w| w == focused_widget).unwrap_or(false);
-            if is_start {
-                paned.set_start_child(gtk4::Widget::NONE);
-            } else {
-                paned.set_end_child(gtk4::Widget::NONE);
-            }
-
-            let label1 = build_tab_label(&focused_name, &self.action_cb, &focused_widget);
-            notebook.append_page(&focused_widget, Some(&label1));
-            let label2 = build_tab_label(&new_name, &self.action_cb, &new_host_widget);
-            notebook.append_page(&new_host_widget, Some(&label2));
-
-            let nb_widget = notebook.clone().upcast::<gtk4::Widget>();
-            if is_start {
-                paned.set_start_child(Some(&nb_widget));
-            } else {
-                paned.set_end_child(Some(&nb_widget));
-            }
-        } else if let Some(bx) = parent.downcast_ref::<gtk4::Box>() {
-            bx.remove(&focused_widget);
-
-            let label1 = build_tab_label(&focused_name, &self.action_cb, &focused_widget);
-            notebook.append_page(&focused_widget, Some(&label1));
-            let label2 = build_tab_label(&new_name, &self.action_cb, &new_host_widget);
-            notebook.append_page(&new_host_widget, Some(&label2));
-
-            let nb_widget = notebook.clone().upcast::<gtk4::Widget>();
-            nb_widget.set_vexpand(true);
-            nb_widget.set_hexpand(true);
-            bx.prepend(&nb_widget);
-            self.root_widget = nb_widget.clone();
-        } else if let Some(parent_nb) = find_notebook_ancestor(&focused_widget) {
-            // Panel is inside another Notebook tab — replace the tab content
-            let page_num = parent_nb.page_num(&focused_widget);
-            let old_tab_label = parent_nb.tab_label(&focused_widget);
-            parent_nb.remove_page(page_num);
-
-            let label1 = build_tab_label(&focused_name, &self.action_cb, &focused_widget);
-            notebook.append_page(&focused_widget, Some(&label1));
-            let label2 = build_tab_label(&new_name, &self.action_cb, &new_host_widget);
-            notebook.append_page(&new_host_widget, Some(&label2));
-
-            let nb_widget = notebook.clone().upcast::<gtk4::Widget>();
-            parent_nb.insert_page(&nb_widget, old_tab_label.as_ref(), page_num);
-            parent_nb.set_current_page(page_num);
-        } else {
-            return None;
-        }
-
-        // Add ⋮ menu to notebook tab bar
-        self.setup_notebook_menu(&notebook);
-
-        notebook.set_current_page(Some(1));
-
-        // Update model
+        // Update model: wrap focused panel in Tabs node
         let existing_label = self.workspace
             .panel(&focused_id)
             .map(|p| p.name.clone())
@@ -806,6 +659,9 @@ impl WorkspaceView {
         );
         self.workspace.panels.push(new_cfg);
         self.hosts.insert(new_id.clone(), host);
+
+        // Rebuild widget tree
+        self.rebuild_layout();
         self.rebuild_focus_order();
 
         Some(new_id)
@@ -826,27 +682,16 @@ impl WorkspaceView {
         let backend = self.create_chooser_backend(&new_id);
         host.set_backend(backend);
 
-        let new_widget = host.widget().clone();
-        new_widget.set_vexpand(true);
-        new_widget.set_hexpand(true);
-
-        let label = build_tab_label(&new_name, &self.action_cb, &new_widget);
-        notebook.append_page(&new_widget, Some(&label));
-        let new_page = notebook.n_pages() - 1;
-        notebook.set_current_page(Some(new_page));
-
-        // Update model — append to the Tabs node containing sibling_id
+        // Update model
         add_to_existing_tabs(&mut self.workspace.layout, &sibling_id, &new_id, &new_name);
         self.workspace.panels.push(new_cfg);
         self.hosts.insert(new_id.clone(), host);
+
+        // Rebuild widget tree
+        self.rebuild_layout();
         self.rebuild_focus_order();
 
         Some(new_id)
-    }
-
-    /// Set up the ⋮ menu button in a Notebook's tab bar area.
-    fn setup_notebook_menu(&self, notebook: &gtk4::Notebook) {
-        setup_notebook_menu_widget(notebook, self.action_cb.clone());
     }
 
     fn find_panel_id_in_widget(&self, widget: &gtk4::Widget) -> Option<String> {
@@ -882,7 +727,7 @@ impl WorkspaceView {
         Box::new(ChooserPanel::new(panel_id, &self.registry, self.on_type_chosen.clone()))
     }
 
-    /// Close the focused panel.
+    /// Close the focused panel. Uses model update + layout rebuild for reliability.
     pub fn close_focused(&mut self) -> bool {
         if self.focus.order.len() <= 1 {
             return false; // Don't close the last panel
@@ -896,110 +741,20 @@ impl WorkspaceView {
         // Run before_close script
         self.run_before_close(&focused_id);
 
-        let focused_widget = match self.hosts.get(&focused_id) {
-            Some(h) => h.widget().clone(),
-            None => return false,
-        };
-
-        let parent = match focused_widget.parent() {
-            Some(p) => p,
-            None => return false,
-        };
-
-        // Remove from widget tree
-        if let Some(paned) = parent.downcast_ref::<gtk4::Paned>() {
-            let is_start = paned
-                .start_child()
-                .map(|w| w == focused_widget)
-                .unwrap_or(false);
-
-            // Get the sibling (the one that stays)
-            let sibling = if is_start {
-                paned.end_child()
-            } else {
-                paned.start_child()
-            };
-
-            if let Some(sibling) = sibling {
-                // Remove both children from paned
-                paned.set_start_child(gtk4::Widget::NONE);
-                paned.set_end_child(gtk4::Widget::NONE);
-
-                // Replace paned with sibling in paned's parent
-                let grandparent = paned.parent();
-                if let Some(gp) = grandparent {
-                    let paned_widget = paned.clone().upcast::<gtk4::Widget>();
-                    if let Some(gp_paned) = gp.downcast_ref::<gtk4::Paned>() {
-                        let is_gp_start = gp_paned
-                            .start_child()
-                            .map(|w| w == paned_widget)
-                            .unwrap_or(false);
-                        if is_gp_start {
-                            gp_paned.set_start_child(gtk4::Widget::NONE);
-                            gp_paned.set_start_child(Some(&sibling));
-                        } else {
-                            gp_paned.set_end_child(gtk4::Widget::NONE);
-                            gp_paned.set_end_child(Some(&sibling));
-                        }
-                    } else if let Some(gp_nb) = gp.downcast_ref::<gtk4::Notebook>() {
-                        let page_num = gp_nb.page_num(&paned_widget);
-                        let tab_label = gp_nb.tab_label(&paned_widget);
-                        gp_nb.remove_page(page_num);
-                        gp_nb.insert_page(&sibling, tab_label.as_ref(), page_num);
-                    } else if let Some(gp_box) = gp.downcast_ref::<gtk4::Box>() {
-                        gp_box.remove(&paned_widget);
-                        sibling.set_vexpand(true);
-                        sibling.set_hexpand(true);
-                        gp_box.prepend(&sibling);
-                        self.root_widget = sibling;
-                    }
-                }
-            }
-        } else if let Some(notebook) = parent.downcast_ref::<gtk4::Notebook>()
-            .cloned()
-            .or_else(|| find_notebook_ancestor(&focused_widget))
-        {
-            let page_num = notebook.page_num(&focused_widget);
-            notebook.remove_page(page_num);
-
-            // If only 1 tab left, unwrap the notebook
-            if notebook.n_pages() == 1 {
-                if let Some(remaining) = notebook.nth_page(Some(0)) {
-                    notebook.remove_page(Some(0));
-                    let nb_widget = notebook.clone().upcast::<gtk4::Widget>();
-                    let nb_parent = nb_widget.parent();
-                    if let Some(nbp) = nb_parent {
-                        if let Some(p) = nbp.downcast_ref::<gtk4::Paned>() {
-                            let is_start = p
-                                .start_child()
-                                .map(|w| w == nb_widget)
-                                .unwrap_or(false);
-                            if is_start {
-                                p.set_start_child(gtk4::Widget::NONE);
-                                p.set_start_child(Some(&remaining));
-                            } else {
-                                p.set_end_child(gtk4::Widget::NONE);
-                                p.set_end_child(Some(&remaining));
-                            }
-                        } else if let Some(bx) = nbp.downcast_ref::<gtk4::Box>() {
-                            bx.remove(&nb_widget);
-                            remaining.set_vexpand(true);
-                            remaining.set_hexpand(true);
-                            bx.prepend(&remaining);
-                            self.root_widget = remaining;
-                        }
-                    }
-                }
-            }
-        }
-
-        // Update model
+        // 1. Update model: remove panel from layout tree and panels list
         self.update_layout_remove(&focused_id);
         self.workspace.panels.retain(|p| p.id != focused_id);
-        self.hosts.remove(&focused_id);
+
+        // 2. Detach the closing panel's widget and drop the host
+        if let Some(host) = self.hosts.remove(&focused_id) {
+            detach_widget(host.widget());
+        }
+
+        // 3. Rebuild the widget tree from the updated model
+        self.rebuild_layout();
         self.rebuild_focus_order();
 
-        // Focus next available
+        // 4. Focus next available
         if self.focus.index >= self.focus.order.len() {
             self.focus.index = 0;
         }
@@ -1373,18 +1128,13 @@ fn build_layout_widget(
                     .get(i)
                     .cloned()
                     .unwrap_or_else(|| format!("Tab {}", i + 1));
-                let label = gtk4::Label::new(Some(&label_text));
+                let label = build_tab_label(&label_text, &None, &child_widget);
                 notebook.append_page(&child_widget, Some(&label));
             }
 
             notebook.upcast::<gtk4::Widget>()
         }
     }
-}
-
-/// Style a notebook to match the app theme (remove default bg overlay).
-fn style_notebook(_notebook: &gtk4::Notebook) {
-    // Using default libadwaita styling
 }
 
 /// Set paned position based on ratio, deferred until widget has real size.
