@@ -41,6 +41,8 @@ pub struct PanelHost {
     panel_id: String,
     backend: RefCell<Option<Box<dyn PanelBackend>>>,
     focused: RefCell<bool>,
+    /// Shared callback ref — updated by set_action_callback, read by button handlers.
+    action_cb_ref: Rc<RefCell<Option<PanelActionCallback>>>,
 }
 
 impl std::fmt::Debug for PanelHost {
@@ -54,11 +56,11 @@ impl std::fmt::Debug for PanelHost {
 impl PanelHost {
     pub fn new(panel_id: &str, name: &str, action_cb: Option<PanelActionCallback>) -> Self {
         let container = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
+        let action_cb_ref: Rc<RefCell<Option<PanelActionCallback>>> = Rc::new(RefCell::new(action_cb.clone()));
 
         // Title bar
         let title_bar = gtk4::Box::new(gtk4::Orientation::Horizontal, 4);
         title_bar.add_css_class("panel-title-bar");
-
 
         let title_label = gtk4::Label::new(Some(name));
         title_label.add_css_class("panel-title");
@@ -72,11 +74,11 @@ impl PanelHost {
         sync_button.add_css_class("panel-action-btn");
         sync_button.set_tooltip_text(Some("Toggle sync input (Ctrl+Shift+S)"));
         {
-            let cb = action_cb.clone();
+            let cb_ref = action_cb_ref.clone();
             let pid = panel_id.to_string();
             sync_button.connect_clicked(move |_| {
-                if let Some(ref callback) = cb {
-                    callback(&pid, PanelAction::Sync);
+                if let Some(ref cb) = *cb_ref.borrow() {
+                    cb(&pid, PanelAction::Sync);
                 }
             });
         }
@@ -88,11 +90,11 @@ impl PanelHost {
         zoom_button.add_css_class("panel-action-btn");
         zoom_button.set_tooltip_text(Some("Toggle zoom (Ctrl+Z)"));
         {
-            let cb = action_cb.clone();
+            let cb_ref = action_cb_ref.clone();
             let pid = panel_id.to_string();
             zoom_button.connect_clicked(move |_| {
-                if let Some(ref callback) = cb {
-                    callback(&pid, PanelAction::Zoom);
+                if let Some(ref cb) = *cb_ref.borrow() {
+                    cb(&pid, PanelAction::Zoom);
                 }
             });
         }
@@ -149,11 +151,13 @@ impl PanelHost {
             panel_id: panel_id.to_string(),
             backend: RefCell::new(None),
             focused: RefCell::new(false),
+            action_cb_ref,
         }
     }
 
-    /// Update the action callback (rebuilds the popover menu).
+    /// Update the action callback (rebuilds the popover menu; buttons use shared ref automatically).
     pub fn set_action_callback(&self, cb: PanelActionCallback) {
+        *self.action_cb_ref.borrow_mut() = Some(cb.clone());
         let popover = build_panel_menu(&self.panel_id, Some(cb));
         self.menu_button.set_popover(Some(&popover));
     }
