@@ -505,16 +505,35 @@ impl WorkspaceView {
         for host in self.hosts.values() {
             detach_widget(host.widget());
         }
-        // Rebuild from model
-        let root_widget = build_layout_widget(&self.workspace.layout, &self.hosts, &self.workspace.panels);
+        // Rebuild from model (passing action_cb so tab labels get close buttons)
+        let root_widget = build_layout_widget_inner(
+            &self.workspace.layout, &self.hosts, &self.workspace.panels, &self.action_cb,
+        );
         root_widget.set_vexpand(true);
         root_widget.set_hexpand(true);
         self.root_box.prepend(&root_widget);
         self.root_widget = root_widget;
 
-        // Re-add + buttons to notebooks
+        // Reconnect all callbacks on all hosts + notebooks
         if let Some(ref cb) = self.action_cb {
+            for host in self.hosts.values() {
+                host.set_action_callback(cb.clone());
+            }
             add_plus_buttons_recursive(&self.root_widget, cb);
+        }
+
+        // Reconnect type chooser callbacks on chooser panels
+        if let Some(ref tc) = self.on_type_chosen {
+            let chooser_ids: Vec<String> = self.workspace.panels.iter()
+                .filter(|p| p.effective_type() == PanelType::Empty)
+                .map(|p| p.id.clone())
+                .collect();
+            for id in chooser_ids {
+                if let Some(host) = self.hosts.get(&id) {
+                    let chooser = ChooserPanel::new(&id, &self.registry, Some(tc.clone()));
+                    host.set_backend(Box::new(chooser));
+                }
+            }
         }
     }
 
@@ -1102,6 +1121,15 @@ fn build_layout_widget(
     hosts: &HashMap<String, PanelHost>,
     panels: &[PanelConfig],
 ) -> gtk4::Widget {
+    build_layout_widget_inner(node, hosts, panels, &None)
+}
+
+fn build_layout_widget_inner(
+    node: &LayoutNode,
+    hosts: &HashMap<String, PanelHost>,
+    panels: &[PanelConfig],
+    action_cb: &Option<PanelActionCallback>,
+) -> gtk4::Widget {
     match node {
         LayoutNode::Panel { id } => {
             if let Some(host) = hosts.get(id) {
@@ -1112,10 +1140,10 @@ fn build_layout_widget(
             }
         }
         LayoutNode::Hsplit { children, ratios } => {
-            build_paned(children, ratios, hosts, panels, gtk4::Orientation::Horizontal)
+            build_paned(children, ratios, hosts, panels, action_cb, gtk4::Orientation::Horizontal)
         }
         LayoutNode::Vsplit { children, ratios } => {
-            build_paned(children, ratios, hosts, panels, gtk4::Orientation::Vertical)
+            build_paned(children, ratios, hosts, panels, action_cb, gtk4::Orientation::Vertical)
         }
         LayoutNode::Tabs { children, labels } => {
             let notebook = gtk4::Notebook::new();
@@ -1123,12 +1151,12 @@ fn build_layout_widget(
             notebook.set_scrollable(true);
 
             for (i, child) in children.iter().enumerate() {
-                let child_widget = build_layout_widget(child, hosts, panels);
+                let child_widget = build_layout_widget_inner(child, hosts, panels, action_cb);
                 let label_text = labels
                     .get(i)
                     .cloned()
                     .unwrap_or_else(|| format!("Tab {}", i + 1));
-                let label = build_tab_label(&label_text, &None, &child_widget);
+                let label = build_tab_label(&label_text, action_cb, &child_widget);
                 notebook.append_page(&child_widget, Some(&label));
             }
 
@@ -1164,13 +1192,14 @@ fn build_paned(
     ratios: &[f64],
     hosts: &HashMap<String, PanelHost>,
     panels: &[PanelConfig],
+    action_cb: &Option<PanelActionCallback>,
     orientation: gtk4::Orientation,
 ) -> gtk4::Widget {
     if children.is_empty() {
         return gtk4::Box::new(orientation, 0).upcast::<gtk4::Widget>();
     }
     if children.len() == 1 {
-        return build_layout_widget(&children[0], hosts, panels);
+        return build_layout_widget_inner(&children[0], hosts, panels, action_cb);
     }
 
     let sum: f64 = ratios.iter().take(children.len()).sum();
@@ -1186,8 +1215,8 @@ fn build_paned(
 
     if children.len() == 2 {
         let paned = gtk4::Paned::new(orientation);
-        let w1 = build_layout_widget(&children[0], hosts, panels);
-        let w2 = build_layout_widget(&children[1], hosts, panels);
+        let w1 = build_layout_widget_inner(&children[0], hosts, panels, action_cb);
+        let w2 = build_layout_widget_inner(&children[1], hosts, panels, action_cb);
         let c1_fixed = subtree_has_min_size(&children[0], panels);
         let c2_fixed = subtree_has_min_size(&children[1], panels);
         paned.set_start_child(Some(&w1));
@@ -1202,9 +1231,9 @@ fn build_paned(
     }
 
     let paned = gtk4::Paned::new(orientation);
-    let w1 = build_layout_widget(&children[0], hosts, panels);
+    let w1 = build_layout_widget_inner(&children[0], hosts, panels, action_cb);
     let rest_nodes = &children[1..];
-    let rest = build_paned(rest_nodes, &ratios[1..], hosts, panels, orientation);
+    let rest = build_paned(rest_nodes, &ratios[1..], hosts, panels, action_cb, orientation);
     let c1_fixed = subtree_has_min_size(&children[0], panels);
     let rest_fixed = rest_nodes.iter().any(|n| subtree_has_min_size(n, panels));
     paned.set_start_child(Some(&w1));
