@@ -69,7 +69,7 @@ impl PanelHost {
 
         // Sync button
         let sync_button = gtk4::Button::new();
-        sync_button.set_icon_name("chain-link-symbolic");
+        sync_button.set_icon_name("media-playlist-consecutive-symbolic");
         sync_button.add_css_class("flat");
         sync_button.add_css_class("panel-action-btn");
         sync_button.set_tooltip_text(Some("Toggle sync input (Ctrl+Shift+S)"));
@@ -77,8 +77,10 @@ impl PanelHost {
             let cb_ref = action_cb_ref.clone();
             let pid = panel_id.to_string();
             sync_button.connect_clicked(move |_| {
-                if let Some(ref cb) = *cb_ref.borrow() {
-                    cb(&pid, PanelAction::Sync);
+                if let Ok(borrowed) = cb_ref.try_borrow() {
+                    if let Some(ref cb) = *borrowed {
+                        cb(&pid, PanelAction::Sync);
+                    }
                 }
             });
         }
@@ -93,8 +95,10 @@ impl PanelHost {
             let cb_ref = action_cb_ref.clone();
             let pid = panel_id.to_string();
             zoom_button.connect_clicked(move |_| {
-                if let Some(ref cb) = *cb_ref.borrow() {
-                    cb(&pid, PanelAction::Zoom);
+                if let Ok(borrowed) = cb_ref.try_borrow() {
+                    if let Some(ref cb) = *borrowed {
+                        cb(&pid, PanelAction::Zoom);
+                    }
                 }
             });
         }
@@ -343,7 +347,7 @@ fn build_panel_menu(panel_id: &str, action_cb: Option<PanelActionCallback>) -> g
             PanelAction::AddTabToNotebook => "tab-new-symbolic",
             PanelAction::RemoveTab => "window-close-symbolic",
             PanelAction::Zoom => "view-fullscreen-symbolic",
-            PanelAction::Sync => "chain-link-symbolic",
+            PanelAction::Sync => "media-playlist-consecutive-symbolic",
         };
         let icon = gtk4::Image::from_icon_name(icon_name);
         let lbl = gtk4::Label::new(Some(label));

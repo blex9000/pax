@@ -341,28 +341,21 @@ fn setup_workspace_ui(
                     );
                 }
                 PanelAction::Zoom => {
-                    // Focus the panel first, then toggle zoom
-                    {
-                        let view = ws_for_cb.borrow();
-                        if let Some(idx) = view.focus_order_index(panel_id) {
-                            drop(view);
-                            ws_for_cb.borrow_mut().set_focus_index(idx);
-                        }
+                    let idx = ws_for_cb.borrow().focus_order_index(panel_id);
+                    if let Some(idx) = idx {
+                        ws_for_cb.borrow_mut().set_focus_index(idx);
                     }
                     ws_for_cb.borrow_mut().toggle_zoom();
                     let zoomed = ws_for_cb.borrow().is_zoomed();
                     sb_for_cb.borrow().set_message(if zoomed { "Zoom ON" } else { "Zoom OFF" });
                 }
                 PanelAction::Sync => {
-                    // Focus the panel first, then toggle sync
-                    {
-                        let view = ws_for_cb.borrow();
-                        if let Some(idx) = view.focus_order_index(panel_id) {
-                            drop(view);
-                            ws_for_cb.borrow_mut().set_focus_index(idx);
-                        }
+                    let idx = ws_for_cb.borrow().focus_order_index(panel_id);
+                    if let Some(idx) = idx {
+                        ws_for_cb.borrow_mut().set_focus_index(idx);
                     }
-                    if let Some((pid, is_synced)) = ws_for_cb.borrow_mut().toggle_sync_focused() {
+                    let result = ws_for_cb.borrow_mut().toggle_sync_focused();
+                    if let Some((pid, is_synced)) = result {
                         let count = ws_for_cb.borrow().sync_count();
                         if is_synced {
                             sb_for_cb.borrow().set_message(&format!("Sync ON: {} ({} panels)", pid, count));
