@@ -406,14 +406,11 @@ impl WorkspaceView {
     }
 
     /// Set the action callback for panel menus. Must be called after wrapping in Rc<RefCell<>>.
-    /// Propagates to all existing panel hosts and adds "+" buttons to existing notebooks.
+    /// Rebuilds the layout so tab labels get close buttons with the callback.
     pub fn set_action_callback(&mut self, cb: PanelActionCallback) {
-        for host in self.hosts.values() {
-            host.set_action_callback(cb.clone());
-        }
-        // Add "+" buttons to any existing notebooks in the widget tree
-        add_plus_buttons_recursive(&self.root_widget, &cb);
         self.action_cb = Some(cb);
+        // Rebuild layout to propagate callback to all hosts, tab labels, and + buttons
+        self.rebuild_layout();
     }
 
     pub fn widget(&self) -> &gtk4::ScrolledWindow {
