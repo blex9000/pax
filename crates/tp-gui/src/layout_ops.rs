@@ -33,66 +33,76 @@ pub fn replace_in_layout(
     }
 }
 
-/// Remove a panel from the layout tree, collapsing empty containers.
+/// Check if a node has any panels left after removal.
+fn has_panels(node: &LayoutNode) -> bool {
+    match node {
+        LayoutNode::Panel { .. } => true,
+        LayoutNode::Hsplit { children, .. }
+        | LayoutNode::Vsplit { children, .. }
+        | LayoutNode::Tabs { children, .. } => {
+            children.iter().any(|c| has_panels(c))
+        }
+    }
+}
+
+/// Remove a panel from the layout tree, collapsing containers that become
+/// empty or have only one child. Works correctly for deeply nested panels.
 pub fn remove_from_layout(node: &LayoutNode, panel_id: &str) -> LayoutNode {
     match node {
-        LayoutNode::Panel { id } if id == panel_id => node.clone(),
+        LayoutNode::Panel { id } if id == panel_id => {
+            // This node is the one to remove — caller will filter it out
+            node.clone()
+        }
         LayoutNode::Panel { .. } => node.clone(),
         LayoutNode::Hsplit { children, ratios } => {
-            let filtered: Vec<LayoutNode> = children
-                .iter()
-                .filter(|c| !is_panel_with_id(c, panel_id))
-                .map(|c| remove_from_layout(c, panel_id))
-                .collect();
-            let new_ratios: Vec<f64> = children
-                .iter()
-                .zip(ratios.iter())
-                .filter(|(c, _)| !is_panel_with_id(c, panel_id))
-                .map(|(_, r)| *r)
-                .collect();
-            if filtered.len() == 1 {
-                filtered.into_iter().next().unwrap()
-            } else {
-                LayoutNode::Hsplit {
-                    children: filtered,
-                    ratios: new_ratios,
+            // Recurse into all children, then filter out empty ones
+            let mut new_children = Vec::new();
+            let mut new_ratios = Vec::new();
+            for (i, child) in children.iter().enumerate() {
+                if is_panel_with_id(child, panel_id) {
+                    continue; // Direct match — skip
+                }
+                let processed = remove_from_layout(child, panel_id);
+                if has_panels(&processed) {
+                    new_children.push(processed);
+                    new_ratios.push(ratios.get(i).copied().unwrap_or(1.0));
                 }
             }
+            collapse_split(new_children, new_ratios, true)
         }
         LayoutNode::Vsplit { children, ratios } => {
-            let filtered: Vec<LayoutNode> = children
-                .iter()
-                .filter(|c| !is_panel_with_id(c, panel_id))
-                .map(|c| remove_from_layout(c, panel_id))
-                .collect();
-            let new_ratios: Vec<f64> = children
-                .iter()
-                .zip(ratios.iter())
-                .filter(|(c, _)| !is_panel_with_id(c, panel_id))
-                .map(|(_, r)| *r)
-                .collect();
-            if filtered.len() == 1 {
-                filtered.into_iter().next().unwrap()
-            } else {
-                LayoutNode::Vsplit {
-                    children: filtered,
-                    ratios: new_ratios,
+            let mut new_children = Vec::new();
+            let mut new_ratios = Vec::new();
+            for (i, child) in children.iter().enumerate() {
+                if is_panel_with_id(child, panel_id) {
+                    continue;
+                }
+                let processed = remove_from_layout(child, panel_id);
+                if has_panels(&processed) {
+                    new_children.push(processed);
+                    new_ratios.push(ratios.get(i).copied().unwrap_or(1.0));
                 }
             }
+            collapse_split(new_children, new_ratios, false)
         }
         LayoutNode::Tabs { children, labels } => {
             let mut new_children = Vec::new();
             let mut new_labels = Vec::new();
             for (i, child) in children.iter().enumerate() {
-                if !is_panel_with_id(child, panel_id) {
-                    new_children.push(remove_from_layout(child, panel_id));
-                    if let Some(l) = labels.get(i) {
-                        new_labels.push(l.clone());
-                    }
+                if is_panel_with_id(child, panel_id) {
+                    continue;
+                }
+                let processed = remove_from_layout(child, panel_id);
+                if has_panels(&processed) {
+                    new_children.push(processed);
+                    new_labels.push(labels.get(i).cloned().unwrap_or_else(|| format!("Tab {}", i + 1)));
                 }
             }
             if new_children.len() == 1 {
                 new_children.into_iter().next().unwrap()
+            } else if new_children.is_empty() {
+                // Should not happen if caller checks, but safety
+                node.clone()
             } else {
                 LayoutNode::Tabs {
                     children: new_children,
@@ -100,6 +110,17 @@ pub fn remove_from_layout(node: &LayoutNode, panel_id: &str) -> LayoutNode {
                 }
             }
         }
+    }
+}
+
+/// Collapse a split node: if 0 children → panic safety, 1 child → unwrap, else keep split.
+fn collapse_split(children: Vec<LayoutNode>, ratios: Vec<f64>, is_hsplit: bool) -> LayoutNode {
+    if children.len() == 1 {
+        children.into_iter().next().unwrap()
+    } else if is_hsplit {
+        LayoutNode::Hsplit { children, ratios }
+    } else {
+        LayoutNode::Vsplit { children, ratios }
     }
 }
 
