@@ -465,25 +465,56 @@ impl WorkspaceView {
         self.zoomed_panel.is_some()
     }
 
-    /// Toggle zoom: hide all panels except the focused one, or restore.
+    /// Toggle zoom: focused panel takes the entire workspace area, or restore.
+    /// Uses layout rebuild for reliability — no fragile reparenting.
     pub fn toggle_zoom(&mut self) {
         if let Some(_zoomed_id) = self.zoomed_panel.take() {
-            // Unzoom: show all hosts
-            for host in self.hosts.values() {
-                host.widget().set_visible(true);
-            }
-            // Also show all intermediate containers (Paned separators etc.)
-            show_all_children_recursive(&self.root_widget);
+            // Unzoom: rebuild the full layout from the model
+            self.rebuild_layout();
         } else {
-            // Zoom: hide everything except the focused panel
+            // Zoom: show only the focused panel
             let focused_id = match self.focus.focused_panel_id() {
                 Some(id) => id.to_string(),
                 None => return,
             };
-            for (id, host) in &self.hosts {
-                host.widget().set_visible(*id == focused_id);
+            // Remove current layout tree
+            self.root_box.remove(&self.root_widget);
+            // Detach all panel hosts from their parents
+            for host in self.hosts.values() {
+                detach_widget(host.widget());
+            }
+            // Put focused panel directly in root_box
+            if let Some(host) = self.hosts.get(&focused_id) {
+                let w = host.widget().clone();
+                w.set_vexpand(true);
+                w.set_hexpand(true);
+                self.root_box.prepend(&w);
             }
             self.zoomed_panel = Some(focused_id);
+        }
+    }
+
+    /// Rebuild the GTK widget tree from the workspace layout model.
+    /// Reuses existing PanelHost widgets (backends stay alive).
+    fn rebuild_layout(&mut self) {
+        // Remove everything from root_box
+        while let Some(child) = self.root_box.first_child() {
+            self.root_box.remove(&child);
+        }
+        // Detach all hosts from any parents
+        for host in self.hosts.values() {
+            detach_widget(host.widget());
+        }
+        // Rebuild from model
+        let root_widget = build_layout_widget(&self.workspace.layout, &self.hosts, &self.workspace.panels);
+        root_widget.set_vexpand(true);
+        root_widget.set_hexpand(true);
+        self.root_box.prepend(&root_widget);
+        self.root_widget = root_widget;
+
+        // Re-add + buttons to notebooks
+        if let Some(ref cb) = self.action_cb {
+            add_plus_buttons_recursive(&self.root_widget, cb);
         }
     }
 
@@ -1185,13 +1216,22 @@ pub fn find_notebook_ancestor(widget: &gtk4::Widget) -> Option<gtk4::Notebook> {
     None
 }
 
-/// Make all children in a widget tree visible (used for unzoom).
-fn show_all_children_recursive(widget: &gtk4::Widget) {
-    widget.set_visible(true);
-    let mut child = widget.first_child();
-    while let Some(c) = child {
-        show_all_children_recursive(&c);
-        child = c.next_sibling();
+/// Detach a widget from its current parent (Paned, Notebook, Box, etc.).
+fn detach_widget(widget: &gtk4::Widget) {
+    if let Some(parent) = widget.parent() {
+        if let Some(paned) = parent.downcast_ref::<gtk4::Paned>() {
+            let is_start = paned.start_child().map(|w| w == *widget).unwrap_or(false);
+            if is_start {
+                paned.set_start_child(gtk4::Widget::NONE);
+            } else {
+                paned.set_end_child(gtk4::Widget::NONE);
+            }
+        } else if let Some(notebook) = parent.downcast_ref::<gtk4::Notebook>() {
+            let page = notebook.page_num(widget);
+            notebook.remove_page(page);
+        } else if let Some(bx) = parent.downcast_ref::<gtk4::Box>() {
+            bx.remove(widget);
+        }
     }
 }
 
