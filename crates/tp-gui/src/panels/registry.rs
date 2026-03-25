@@ -184,10 +184,17 @@ pub fn build_default_registry() -> PanelRegistry {
             );
             if let Some(host) = config.extra.get("host") {
                 let user = config.extra.get("user");
-                let cmd = if let Some(u) = user {
-                    format!("ssh {}@{}", u, host)
+                let password = config.extra.get("password");
+                let ssh_target = if let Some(u) = user {
+                    format!("{}@{}", u, host)
                 } else {
-                    format!("ssh {}", host)
+                    host.clone()
+                };
+                let cmd = if let Some(pw) = password {
+                    // Use sshpass to pass password non-interactively
+                    format!("sshpass -p '{}' ssh -o StrictHostKeyChecking=accept-new {}", pw.replace('\'', "'\\''"), ssh_target)
+                } else {
+                    format!("ssh {}", ssh_target)
                 };
                 terminal.send_commands(&[cmd]);
             }

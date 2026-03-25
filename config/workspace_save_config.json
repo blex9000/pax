@@ -33,7 +33,7 @@
             ],
             "labels": [
               "Terminale xxx",
-              "aassaaa",
+              "ssh anas",
               "New Panel 8",
               "New Panel 9",
               "New Panel 10"
@@ -45,8 +45,8 @@
           }
         ],
         "ratios": [
-          0.6683333333333333,
-          0.33166666666666667
+          0.6678947368421052,
+          0.3321052631578948
         ]
       },
       {
@@ -162,12 +162,13 @@
     },
     {
       "id": "p6",
-      "name": "aassaaallllllll",
+      "name": "ssh anas",
       "panel_type": {
         "type": "ssh",
-        "host": "localhost",
+        "host": "192.168.17.21",
         "port": 22,
-        "user": null,
+        "user": "root",
+        "password": "abc123!",
         "identity_file": null
       },
       "target": {

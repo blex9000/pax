@@ -1159,9 +1159,10 @@ fn panel_type_to_id(pt: &PanelType) -> &'static str {
 fn panel_type_to_create_config(pt: &PanelType, default_shell: &str, workspace_dir: Option<&str>) -> PanelCreateConfig {
     let mut extra = HashMap::new();
     match pt {
-        PanelType::Ssh { host, user, .. } => {
+        PanelType::Ssh { host, user, password, .. } => {
             extra.insert("host".to_string(), host.clone());
             if let Some(u) = user { extra.insert("user".to_string(), u.clone()); }
+            if let Some(p) = password { extra.insert("password".to_string(), p.clone()); }
         }
         PanelType::RemoteTmux { host, session, user } => {
             extra.insert("host".to_string(), host.clone());
@@ -1198,11 +1199,14 @@ fn create_backend_from_registry(
     let (type_id, mut extra) = match &effective {
         PanelType::Empty => ("__empty__", HashMap::new()),
         PanelType::Terminal => ("terminal", HashMap::new()),
-        PanelType::Ssh { host, user, .. } => {
+        PanelType::Ssh { host, user, password, .. } => {
             let mut extra = HashMap::new();
             extra.insert("host".to_string(), host.clone());
             if let Some(u) = user {
                 extra.insert("user".to_string(), u.clone());
+            }
+            if let Some(p) = password {
+                extra.insert("password".to_string(), p.clone());
             }
             ("ssh", extra)
         }
