@@ -33,6 +33,8 @@ pub type PanelActionCallback = Rc<dyn Fn(&str, PanelAction)>;
 pub struct PanelHost {
     outer: gtk4::Box,
     container: gtk4::Box,
+    title_bar: gtk4::Box,
+    type_icon: gtk4::Image,
     title_label: gtk4::Label,
     sync_button: gtk4::Button,
     zoom_button: gtk4::Button,
@@ -63,6 +65,10 @@ impl PanelHost {
         // Title bar
         let title_bar = gtk4::Box::new(gtk4::Orientation::Horizontal, 4);
         title_bar.add_css_class("panel-title-bar");
+
+        // Panel type icon
+        let type_icon = gtk4::Image::from_icon_name("radio-symbolic"); // default: empty/chooser dot
+        type_icon.add_css_class("panel-type-icon");
 
         // Title: stack with label (view) and entry (edit), double-click to rename
         let title_stack = gtk4::Stack::new();
@@ -181,6 +187,7 @@ impl PanelHost {
         let popover = build_panel_menu(panel_id, action_cb);
         menu_button.set_popover(Some(&popover));
 
+        title_bar.append(&type_icon);
         title_bar.append(&title_stack);
         title_bar.append(&sync_button);
         title_bar.append(&zoom_button);
@@ -212,6 +219,8 @@ impl PanelHost {
         Self {
             outer,
             container,
+            title_bar,
+            type_icon,
             title_label,
             sync_button,
             zoom_button,
@@ -303,6 +312,24 @@ impl PanelHost {
 
     pub fn set_title(&self, title: &str) {
         self.title_label.set_text(title);
+    }
+
+    /// Hide the title bar (when panel is inside a tab — the tab label shows the name).
+    pub fn set_title_bar_visible(&self, visible: bool) {
+        self.title_bar.set_visible(visible);
+    }
+
+    /// Update the panel type icon.
+    pub fn set_type_icon(&self, panel_type: &str) {
+        let icon_name = match panel_type {
+            "terminal" => "utilities-terminal-symbolic",
+            "ssh" => "network-server-symbolic",
+            "remote_tmux" => "network-workgroup-symbolic",
+            "markdown" => "document-properties-symbolic",
+            "browser" => "web-browser-symbolic",
+            _ => "radio-symbolic", // Empty/chooser — dot
+        };
+        self.type_icon.set_icon_name(Some(icon_name));
     }
 
     /// Update zoom button visual state and icon.

@@ -955,8 +955,21 @@ fn add_plus_buttons_recursive(widget: &gtk4::Widget, action_cb: &PanelActionCall
 }
 
 /// Build a tab label widget: "name [x]" — the X button closes the tab.
-fn build_tab_label(name: &str, action_cb: &Option<PanelActionCallback>, child_widget: &gtk4::Widget) -> gtk4::Widget {
+fn build_tab_label(name: &str, panel_type_id: &str, action_cb: &Option<PanelActionCallback>, child_widget: &gtk4::Widget) -> gtk4::Widget {
     let hbox = gtk4::Box::new(gtk4::Orientation::Horizontal, 4);
+
+    // Type icon
+    let icon_name = match panel_type_id {
+        "terminal" => "utilities-terminal-symbolic",
+        "ssh" => "network-server-symbolic",
+        "remote_tmux" => "network-workgroup-symbolic",
+        "markdown" => "document-properties-symbolic",
+        "browser" => "web-browser-symbolic",
+        _ => "radio-symbolic",
+    };
+    let type_icon = gtk4::Image::from_icon_name(icon_name);
+    type_icon.add_css_class("panel-type-icon");
+    hbox.append(&type_icon);
 
     // Stack: label (view) / entry (edit) — double-click to rename
     let stack = gtk4::Stack::new();
@@ -1126,7 +1139,7 @@ fn detach_widget(widget: &gtk4::Widget) {
 
 // ── Backend creation ─────────────────────────────────────────────────────────
 
-fn panel_type_to_id(pt: &PanelType) -> &str {
+fn panel_type_to_id(pt: &PanelType) -> &'static str {
     match pt {
         PanelType::Empty => "__empty__",
         PanelType::Terminal => "terminal",
@@ -1231,6 +1244,20 @@ fn create_backend_from_registry(
 // ── Layout widget building ───────────────────────────────────────────────────
 
 /// Recursively build GTK widgets from a LayoutNode tree.
+/// Get the panel type ID string for a layout node (for icons).
+fn get_panel_type_id(node: &LayoutNode, panels: &[PanelConfig]) -> &'static str {
+    if let LayoutNode::Panel { id } = node {
+        panels.iter().find(|p| p.id == *id)
+            .map(|p| {
+                let et = p.effective_type();
+                panel_type_to_id(&et)
+            })
+            .unwrap_or("__empty__")
+    } else {
+        "terminal"
+    }
+}
+
 fn build_layout_widget(
     node: &LayoutNode,
     hosts: &HashMap<String, PanelHost>,
@@ -1248,6 +1275,11 @@ fn build_layout_widget_inner(
     match node {
         LayoutNode::Panel { id } => {
             if let Some(host) = hosts.get(id) {
+                // Default: show title bar (hidden later if inside Tabs)
+                host.set_title_bar_visible(true);
+                // Set type icon
+                let type_id = get_panel_type_id(node, panels);
+                host.set_type_icon(type_id);
                 host.widget().clone()
             } else {
                 let label = gtk4::Label::new(Some(&format!("Missing panel: {}", id)));
@@ -1271,8 +1303,19 @@ fn build_layout_widget_inner(
                     .get(i)
                     .cloned()
                     .unwrap_or_else(|| format!("Tab {}", i + 1));
-                let label = build_tab_label(&label_text, action_cb, &child_widget);
+
+                // Get panel type for icon
+                let panel_type_id = get_panel_type_id(child, panels);
+
+                let label = build_tab_label(&label_text, panel_type_id, action_cb, &child_widget);
                 notebook.append_page(&child_widget, Some(&label));
+
+                // Hide title bar for direct panel children (tab label already shows the name)
+                if let LayoutNode::Panel { id } = child {
+                    if let Some(host) = hosts.get(id) {
+                        host.set_title_bar_visible(false);
+                    }
+                }
             }
 
             notebook.upcast::<gtk4::Widget>()
