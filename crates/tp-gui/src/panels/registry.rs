@@ -127,6 +127,8 @@ pub fn build_default_registry() -> PanelRegistry {
                 &config.env,
                 ws_dir,
             );
+            let is_ssh = config.extra.contains_key("ssh_host");
+
             // SSH connection if configured
             if let Some(host) = config.extra.get("ssh_host") {
                 let user = config.extra.get("ssh_user");
@@ -151,8 +153,20 @@ pub fn build_default_registry() -> PanelRegistry {
             }
             // Startup script commands
             if let Some(cmds_str) = config.extra.get("__startup_commands__") {
-                let cmds: Vec<String> = cmds_str.lines().map(|l| l.to_string()).collect();
-                panel.send_commands(&cmds);
+                if is_ssh {
+                    // For SSH: send each line as a direct command (no temp file — runs on remote)
+                    // Lines go into the PTY buffer after the SSH command; the remote shell
+                    // will read them once the connection is established.
+                    for line in cmds_str.lines() {
+                        let line = line.trim();
+                        if !line.is_empty() && !line.starts_with("#!") {
+                            panel.send_commands(&[line.to_string()]);
+                        }
+                    }
+                } else {
+                    let cmds: Vec<String> = cmds_str.lines().map(|l| l.to_string()).collect();
+                    panel.send_commands(&cmds);
+                }
             }
             Box::new(panel)
         },
