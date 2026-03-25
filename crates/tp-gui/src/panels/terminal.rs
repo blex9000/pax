@@ -180,6 +180,12 @@ mod backend {
                 return;
             }
 
+            // Simple command mode: single line without shebang → run directly
+            if !full_text.contains('\n') && !full_text.starts_with("#!") && !full_text.starts_with("file:") {
+                self.pending_commands.borrow_mut().push(full_text);
+                return;
+            }
+
             // File mode: "file:/bin/bash:/path/to/script.sh"
             if full_text.starts_with("file:") {
                 let rest = full_text.trim_start_matches("file:");
