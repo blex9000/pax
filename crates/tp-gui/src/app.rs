@@ -202,6 +202,31 @@ fn setup_workspace_ui(
         });
     }
 
+    // Sync entry: propagate Ctrl+C/D/Z/L and other control keys to synced panels
+    {
+        let ws = ws_view.clone();
+        let key_ctrl = gtk4::EventControllerKey::new();
+        key_ctrl.connect_key_pressed(move |_, key, _, modifiers| {
+            let ctrl = modifiers.contains(gdk::ModifierType::CONTROL_MASK);
+            if ctrl {
+                let byte: Option<u8> = match key {
+                    gdk::Key::c => Some(0x03), // SIGINT
+                    gdk::Key::d => Some(0x04), // EOF
+                    gdk::Key::z => Some(0x1a), // SIGTSTP
+                    gdk::Key::l => Some(0x0c), // clear
+                    gdk::Key::u => Some(0x15), // kill line
+                    _ => None,
+                };
+                if let Some(b) = byte {
+                    ws.borrow().write_to_synced(&[b]);
+                    return glib::Propagation::Stop;
+                }
+            }
+            glib::Propagation::Proceed
+        });
+        sync_entry.add_controller(key_ctrl);
+    }
+
     // Sync close button: clear all sync
     {
         let ws = ws_view.clone();
