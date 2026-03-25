@@ -403,10 +403,14 @@ impl WorkspaceView {
                 _ => PanelType::Terminal,
             };
             panel_cfg.name = format!("{}", type_id);
-            if let Some(host) = self.hosts.get(panel_id) {
-                host.set_title(type_id);
-            }
+            // Also update tab label in layout
+            crate::layout_ops::update_tab_label_in_layout(
+                &mut self.workspace.layout, panel_id, type_id,
+            );
         }
+
+        // Rebuild to update icons in title bar and tab labels
+        self.rebuild_layout();
     }
 
     /// Get a reference to the panel registry.
