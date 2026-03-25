@@ -33,7 +33,7 @@ pub struct PanelHost {
     container: gtk4::Box,
     title_label: gtk4::Label,
     sync_button: gtk4::Button,
-    _zoom_button: gtk4::Button,
+    zoom_button: gtk4::Button,
     menu_button: gtk4::MenuButton,
     footer_bar: gtk4::Box,
     footer_label: gtk4::Label,
@@ -147,7 +147,7 @@ impl PanelHost {
             container,
             title_label,
             sync_button,
-            _zoom_button: zoom_button,
+            zoom_button,
             menu_button,
             footer_bar,
             footer_label,
@@ -236,6 +236,17 @@ impl PanelHost {
 
     pub fn set_title(&self, title: &str) {
         self.title_label.set_text(title);
+    }
+
+    /// Update zoom button visual state and icon.
+    pub fn set_zoom_active(&self, active: bool) {
+        if active {
+            self.zoom_button.set_icon_name("view-restore-symbolic");
+            self.zoom_button.add_css_class("zoom-active");
+        } else {
+            self.zoom_button.set_icon_name("view-fullscreen-symbolic");
+            self.zoom_button.remove_css_class("zoom-active");
+        }
     }
 
     /// Update sync button visual state.

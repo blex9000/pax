@@ -470,8 +470,11 @@ impl WorkspaceView {
     /// Toggle zoom: focused panel takes the entire workspace area, or restore.
     /// Uses layout rebuild for reliability — no fragile reparenting.
     pub fn toggle_zoom(&mut self) {
-        if let Some(_zoomed_id) = self.zoomed_panel.take() {
-            // Unzoom: rebuild the full layout from the model
+        if let Some(zoomed_id) = self.zoomed_panel.take() {
+            // Unzoom: reset button state and rebuild
+            if let Some(host) = self.hosts.get(&zoomed_id) {
+                host.set_zoom_active(false);
+            }
             self.rebuild_layout();
         } else {
             // Zoom: show only the focused panel
@@ -487,6 +490,7 @@ impl WorkspaceView {
             }
             // Put focused panel directly in root_box
             if let Some(host) = self.hosts.get(&focused_id) {
+                host.set_zoom_active(true);
                 let w = host.widget().clone();
                 w.set_vexpand(true);
                 w.set_hexpand(true);

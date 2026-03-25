@@ -163,6 +163,7 @@ box.panel-title-bar { padding: 2px 6px; margin: 0; min-height: 20px; }
 .panel-action-btn { min-height: 16px; min-width: 16px; padding: 2px; opacity: 0.5; }
 .panel-action-btn:hover { opacity: 1.0; }
 .sync-active { opacity: 1.0; color: #e5a50a; }
+.zoom-active { opacity: 1.0; color: #5588ff; }
 .panel-focused { border: none; }
 .panel-unfocused { border: none; }
 .panel-type-btn { min-width: 120px; }
