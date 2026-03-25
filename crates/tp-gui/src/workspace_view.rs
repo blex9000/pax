@@ -404,14 +404,23 @@ impl WorkspaceView {
                 _ => PanelType::Terminal,
             };
             panel_cfg.name = format!("{}", type_id);
-            // Also update tab label in layout
+            // Update tab label in layout model
             crate::layout_ops::update_tab_label_in_layout(
                 &mut self.workspace.layout, panel_id, type_id,
             );
         }
 
-        // Rebuild to update icons in title bar and tab labels
-        self.rebuild_layout();
+        // Update host title and icon (no rebuild — would destroy the new backend)
+        if let Some(host) = self.hosts.get(panel_id) {
+            host.set_title(type_id);
+            host.set_type_icon(type_id);
+            // Update tab label in Notebook widget if inside one
+            let widget = host.widget().clone();
+            if let Some(notebook) = find_notebook_ancestor(&widget) {
+                let new_label = build_tab_label(type_id, type_id, &self.action_cb, &widget);
+                notebook.set_tab_label(&widget, Some(&new_label));
+            }
+        }
     }
 
     /// Get a reference to the panel registry.

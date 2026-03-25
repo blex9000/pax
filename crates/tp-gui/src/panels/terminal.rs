@@ -182,6 +182,7 @@ mod backend {
 
             // Simple command mode: single line without shebang → run directly
             if !full_text.contains('\n') && !full_text.starts_with("#!") && !full_text.starts_with("file:") {
+                tracing::info!("send_commands: direct command: {}", &full_text[..full_text.len().min(80)]);
                 self.pending_commands.borrow_mut().push(full_text);
                 return;
             }
