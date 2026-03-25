@@ -115,7 +115,7 @@ pub fn build_default_registry() -> PanelRegistry {
     reg.register(
         "terminal",
         "Terminal",
-        "Local shell terminal",
+        "Local or remote shell terminal",
         "utilities-terminal-symbolic",
         true,
         |config| {
@@ -127,6 +127,29 @@ pub fn build_default_registry() -> PanelRegistry {
                 &config.env,
                 ws_dir,
             );
+            // SSH connection if configured
+            if let Some(host) = config.extra.get("ssh_host") {
+                let user = config.extra.get("ssh_user");
+                let password = config.extra.get("ssh_password");
+                let tmux_session = config.extra.get("ssh_tmux_session");
+                let ssh_target = if let Some(u) = user {
+                    format!("{}@{}", u, host)
+                } else {
+                    host.clone()
+                };
+                let cmd = if let Some(session) = tmux_session {
+                    // Remote tmux
+                    format!("ssh -t {} 'tmux new-session -A -s {}'", ssh_target, session)
+                } else if let Some(pw) = password {
+                    // SSH with password via sshpass
+                    format!("sshpass -p '{}' ssh -o StrictHostKeyChecking=accept-new {}", pw.replace('\'', "'\\''"), ssh_target)
+                } else {
+                    // SSH with key auth
+                    format!("ssh {}", ssh_target)
+                };
+                panel.send_commands(&[cmd]);
+            }
+            // Startup script commands
             if let Some(cmds_str) = config.extra.get("__startup_commands__") {
                 let cmds: Vec<String> = cmds_str.lines().map(|l| l.to_string()).collect();
                 panel.send_commands(&cmds);
@@ -163,73 +186,6 @@ pub fn build_default_registry() -> PanelRegistry {
             Box::new(super::markdown::MarkdownPanel::new(
                 tmp.to_str().unwrap_or("/tmp/placeholder.md"),
             ))
-        },
-    );
-
-    // SSH Terminal
-    reg.register(
-        "ssh",
-        "SSH Terminal",
-        "Connect to remote host via SSH",
-        "network-server-symbolic",
-        true,
-        |config| {
-            let shell = if config.shell.is_empty() { "/bin/bash" } else { &config.shell };
-            let ws_dir = config.extra.get("__workspace_dir__").map(|s| s.as_str());
-            let terminal = super::terminal::TerminalPanel::new(
-                shell,
-                config.cwd.as_deref(),
-                &config.env,
-                ws_dir,
-            );
-            if let Some(host) = config.extra.get("host") {
-                let user = config.extra.get("user");
-                let password = config.extra.get("password");
-                let ssh_target = if let Some(u) = user {
-                    format!("{}@{}", u, host)
-                } else {
-                    host.clone()
-                };
-                let cmd = if let Some(pw) = password {
-                    // Use sshpass to pass password non-interactively
-                    format!("sshpass -p '{}' ssh -o StrictHostKeyChecking=accept-new {}", pw.replace('\'', "'\\''"), ssh_target)
-                } else {
-                    format!("ssh {}", ssh_target)
-                };
-                terminal.send_commands(&[cmd]);
-            }
-            Box::new(terminal)
-        },
-    );
-
-    // Remote Tmux
-    reg.register(
-        "remote_tmux",
-        "Remote Tmux",
-        "Attach to remote tmux session via SSH",
-        "network-workgroup-symbolic",
-        true,
-        |config| {
-            let shell = if config.shell.is_empty() { "/bin/bash" } else { &config.shell };
-            let ws_dir = config.extra.get("__workspace_dir__").map(|s| s.as_str());
-            let terminal = super::terminal::TerminalPanel::new(
-                shell,
-                config.cwd.as_deref(),
-                &config.env,
-                ws_dir,
-            );
-            if let Some(host) = config.extra.get("host") {
-                let session = config.extra.get("session").map(|s| s.as_str()).unwrap_or("main");
-                let user = config.extra.get("user");
-                let target = if let Some(u) = user {
-                    format!("{}@{}", u, host)
-                } else {
-                    host.clone()
-                };
-                let cmd = format!("ssh -t {} 'tmux new-session -A -s {}'", target, session);
-                terminal.send_commands(&[cmd]);
-            }
-            Box::new(terminal)
         },
     );
 

@@ -334,8 +334,6 @@ impl PanelHost {
     pub fn set_type_icon(&self, panel_type: &str) {
         let icon_name = match panel_type {
             "terminal" => "utilities-terminal-symbolic",
-            "ssh" => "network-server-symbolic",
-            "remote_tmux" => "network-workgroup-symbolic",
             "markdown" => "document-properties-symbolic",
             "browser" => "web-browser-symbolic",
             _ => "radio-symbolic", // Empty/chooser — dot

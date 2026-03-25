@@ -87,6 +87,9 @@ pub struct PanelConfig {
     /// Minimum height in pixels (0 = no minimum, panel shrinks freely).
     #[serde(default)]
     pub min_height: u32,
+    /// SSH/remote connection settings (only for Terminal panels).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ssh: Option<SshConfig>,
 }
 
 /// What kind of panel to create — determines the widget type.
@@ -95,10 +98,10 @@ pub struct PanelConfig {
 pub enum PanelType {
     /// Empty panel — shows type chooser
     Empty,
-    /// Local terminal (VTE)
+    /// Terminal (local, SSH, or remote tmux)
     #[default]
     Terminal,
-    /// SSH terminal (russh → VTE)
+    /// Legacy SSH — deserialized as Terminal + SshConnection
     Ssh {
         host: String,
         #[serde(default = "default_ssh_port")]
@@ -110,7 +113,7 @@ pub enum PanelType {
         #[serde(default)]
         identity_file: Option<String>,
     },
-    /// Remote tmux session via SSH
+    /// Legacy RemoteTmux — deserialized as Terminal + TmuxConnection
     RemoteTmux {
         host: String,
         session: String,
@@ -125,6 +128,23 @@ pub enum PanelType {
     Browser {
         url: String,
     },
+}
+
+/// SSH connection settings (stored in PanelConfig, not PanelType).
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
+pub struct SshConfig {
+    pub host: String,
+    #[serde(default = "default_ssh_port")]
+    pub port: u16,
+    #[serde(default)]
+    pub user: Option<String>,
+    #[serde(default)]
+    pub password: Option<String>,
+    #[serde(default)]
+    pub identity_file: Option<String>,
+    /// If set, attach/create this tmux session on the remote host.
+    #[serde(default)]
+    pub tmux_session: Option<String>,
 }
 
 /// Legacy panel target — for backward compat with old configs.
@@ -155,40 +175,58 @@ fn default_ssh_port() -> u16 {
 }
 
 impl PanelConfig {
-    /// Resolve the effective panel type, merging legacy `target` into `panel_type`.
+    /// Resolve the effective panel type.
+    /// Legacy Ssh/RemoteTmux types are treated as Terminal (ssh config is in self.ssh).
     pub fn effective_type(&self) -> PanelType {
-        // Empty is always empty (chooser)
-        if self.panel_type == PanelType::Empty {
-            return PanelType::Empty;
+        match &self.panel_type {
+            PanelType::Empty => PanelType::Empty,
+            PanelType::Ssh { .. } | PanelType::RemoteTmux { .. } | PanelType::Terminal => PanelType::Terminal,
+            other => other.clone(),
         }
-        // If panel_type is explicitly set to something other than Terminal, use it
-        if self.panel_type != PanelType::Terminal {
-            return self.panel_type.clone();
+    }
+
+    /// Get the effective SSH config, merging from legacy PanelType::Ssh/RemoteTmux
+    /// and legacy PanelTarget, into the modern PanelConfig.ssh field.
+    pub fn effective_ssh(&self) -> Option<SshConfig> {
+        // Modern field first
+        if self.ssh.is_some() {
+            return self.ssh.clone();
         }
-        // Otherwise, check legacy target field
+        // Legacy PanelType::Ssh
+        if let PanelType::Ssh { host, port, user, password, identity_file } = &self.panel_type {
+            return Some(SshConfig {
+                host: host.clone(), port: *port, user: user.clone(),
+                password: password.clone(), identity_file: identity_file.clone(),
+                tmux_session: None,
+            });
+        }
+        // Legacy PanelType::RemoteTmux
+        if let PanelType::RemoteTmux { host, session, user } = &self.panel_type {
+            return Some(SshConfig {
+                host: host.clone(), port: 22, user: user.clone(),
+                password: None, identity_file: None,
+                tmux_session: Some(session.clone()),
+            });
+        }
+        // Legacy PanelTarget
         match &self.target {
-            PanelTarget::Local => PanelType::Terminal,
-            PanelTarget::Ssh { host, port, user, identity_file } => PanelType::Ssh {
-                host: host.clone(),
-                port: *port,
-                user: user.clone(),
-                password: None,
-                identity_file: identity_file.clone(),
-            },
-            PanelTarget::RemoteTmux { host, session, user } => PanelType::RemoteTmux {
-                host: host.clone(),
-                session: session.clone(),
-                user: user.clone(),
-            },
+            PanelTarget::Ssh { host, port, user, identity_file } => Some(SshConfig {
+                host: host.clone(), port: *port, user: user.clone(),
+                password: None, identity_file: identity_file.clone(),
+                tmux_session: None,
+            }),
+            PanelTarget::RemoteTmux { host, session, user } => Some(SshConfig {
+                host: host.clone(), port: 22, user: user.clone(),
+                password: None, identity_file: None,
+                tmux_session: Some(session.clone()),
+            }),
+            PanelTarget::Local => None,
         }
     }
 
     /// Returns true if this panel type supports text input (terminal-like).
     pub fn accepts_input(&self) -> bool {
-        matches!(
-            self.effective_type(),
-            PanelType::Terminal | PanelType::Ssh { .. } | PanelType::RemoteTmux { .. }
-        ) && self.effective_type() != PanelType::Empty
+        self.effective_type() == PanelType::Terminal
     }
 }
 

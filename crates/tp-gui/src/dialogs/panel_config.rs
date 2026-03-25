@@ -19,11 +19,9 @@ pub fn show_panel_config_dialog(
 ) {
     match panel_type {
         PanelType::Terminal => show_terminal_config(parent, panel_name, cwd, startup_commands, before_close, min_width, min_height, on_done),
-        PanelType::Ssh { host, port, user, password, identity_file } => {
-            show_ssh_config(parent, panel_name, host, *port, user.as_deref(), password.as_deref(), identity_file.as_deref(), min_width, min_height, on_done)
-        }
-        PanelType::RemoteTmux { host, session, user } => {
-            show_tmux_config(parent, panel_name, host, session, user.as_deref(), min_width, min_height, on_done)
+        PanelType::Ssh { .. } | PanelType::RemoteTmux { .. } => {
+            // Legacy types — show terminal config (SSH settings are in PanelConfig.ssh)
+            show_terminal_config(parent, panel_name, cwd, startup_commands, before_close, min_width, min_height, on_done)
         }
         PanelType::Markdown { file } => show_markdown_config(parent, panel_name, file, min_width, min_height, on_done),
         PanelType::Browser { url } => show_browser_config(parent, panel_name, url, min_width, min_height, on_done),
@@ -512,106 +510,6 @@ fn show_terminal_config(
             };
             on_done(name, PanelType::Terminal, cwd, vec![script], before_close, mw, mh);
         }
-    });
-
-    dialog.set_child(Some(&vbox));
-    dialog.present();
-}
-
-fn show_ssh_config(
-    parent: &impl IsA<gtk4::Window>,
-    panel_name: &str,
-    host: &str,
-    port: u16,
-    user: Option<&str>,
-    password: Option<&str>,
-    identity_file: Option<&str>,
-    min_width: u32,
-    min_height: u32,
-    on_done: impl Fn(String, PanelType, Option<String>, Vec<String>, Option<String>, u32, u32) + 'static,
-) {
-    let dialog = make_dialog(parent, "SSH Configuration");
-    let vbox = gtk4::Box::new(gtk4::Orientation::Vertical, 8);
-    vbox.set_margin_top(16);
-    vbox.set_margin_bottom(16);
-    vbox.set_margin_start(16);
-    vbox.set_margin_end(16);
-
-    let name_entry = add_field(&vbox, "Name:", panel_name, "SSH Terminal");
-    let host_entry = add_field(&vbox, "Host:", host, "hostname or IP");
-    let port_entry = add_field(&vbox, "Port:", &port.to_string(), "22");
-    let user_entry = add_field(&vbox, "User:", user.unwrap_or(""), "username");
-
-    // Password field (hidden text)
-    let pw_hbox = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
-    let pw_lbl = gtk4::Label::new(Some("Password:"));
-    pw_lbl.set_width_chars(15);
-    pw_lbl.set_halign(gtk4::Align::Start);
-    let pw_entry = gtk4::PasswordEntry::new();
-    pw_entry.set_show_peek_icon(true);
-    pw_entry.set_hexpand(true);
-    if let Some(pw) = password {
-        pw_entry.set_text(pw);
-    }
-    pw_entry.set_placeholder_text(Some("(key auth if empty)"));
-    pw_hbox.append(&pw_lbl);
-    pw_hbox.append(&pw_entry);
-    vbox.append(&pw_hbox);
-
-    let id_entry = add_field(&vbox, "Identity file:", identity_file.unwrap_or(""), "~/.ssh/id_rsa");
-
-    let warn_label = gtk4::Label::new(Some("Password is stored in plain text in the workspace file."));
-    warn_label.add_css_class("dim-label");
-    warn_label.add_css_class("caption");
-    warn_label.set_halign(gtk4::Align::Start);
-    vbox.append(&warn_label);
-
-    let (mw_spin, mh_spin) = add_min_size_fields(&vbox, min_width, min_height);
-
-    add_buttons(&vbox, &dialog, move || {
-        let name = name_entry.text().to_string();
-        let host = host_entry.text().to_string();
-        let port = port_entry.text().parse::<u16>().unwrap_or(22);
-        let user = if user_entry.text().is_empty() { None } else { Some(user_entry.text().to_string()) };
-        let password = if pw_entry.text().is_empty() { None } else { Some(pw_entry.text().to_string()) };
-        let identity = if id_entry.text().is_empty() { None } else { Some(id_entry.text().to_string()) };
-        on_done(name, PanelType::Ssh { host, port, user, password, identity_file: identity }, None, vec![], None, mw_spin.value() as u32, mh_spin.value() as u32);
-    });
-
-    dialog.set_child(Some(&vbox));
-    dialog.present();
-}
-
-fn show_tmux_config(
-    parent: &impl IsA<gtk4::Window>,
-    panel_name: &str,
-    host: &str,
-    session: &str,
-    user: Option<&str>,
-    min_width: u32,
-    min_height: u32,
-    on_done: impl Fn(String, PanelType, Option<String>, Vec<String>, Option<String>, u32, u32) + 'static,
-) {
-    let dialog = make_dialog(parent, "Remote Tmux Configuration");
-    let vbox = gtk4::Box::new(gtk4::Orientation::Vertical, 8);
-    vbox.set_margin_top(16);
-    vbox.set_margin_bottom(16);
-    vbox.set_margin_start(16);
-    vbox.set_margin_end(16);
-
-    let name_entry = add_field(&vbox, "Name:", panel_name, "Remote Tmux");
-    let host_entry = add_field(&vbox, "Host:", host, "hostname or IP");
-    let session_entry = add_field(&vbox, "Session:", session, "main");
-    let user_entry = add_field(&vbox, "User:", user.unwrap_or(""), "username");
-
-    let (mw_spin, mh_spin) = add_min_size_fields(&vbox, min_width, min_height);
-
-    add_buttons(&vbox, &dialog, move || {
-        let name = name_entry.text().to_string();
-        let host = host_entry.text().to_string();
-        let session = session_entry.text().to_string();
-        let user = if user_entry.text().is_empty() { None } else { Some(user_entry.text().to_string()) };
-        on_done(name, PanelType::RemoteTmux { host, session, user }, None, vec![], None, mw_spin.value() as u32, mh_spin.value() as u32);
     });
 
     dialog.set_child(Some(&vbox));

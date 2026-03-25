@@ -236,6 +236,12 @@ impl WorkspaceView {
         // Recreate backend with startup commands queued
         let ws_dir = self.config_path.as_ref().and_then(|p| p.parent()).map(|p| p.to_string_lossy().to_string());
         let mut config = panel_type_to_create_config(&new_type, &self.workspace.settings.default_shell, ws_dir.as_deref());
+        // Pass SSH config if present
+        if let Some(panel_cfg) = self.workspace.panels.iter().find(|p| p.id == panel_id) {
+            if let Some(ref ssh) = panel_cfg.effective_ssh() {
+                insert_ssh_extra(&mut config.extra, ssh);
+            }
+        }
         // Pass startup commands via extra so the registry factory can queue them
         if !startup_commands.is_empty() {
             config.extra.insert("__startup_commands__".to_string(), startup_commands.join("\n"));
@@ -389,18 +395,6 @@ impl WorkspaceView {
                 "terminal" => PanelType::Terminal,
                 "markdown" => PanelType::Markdown { file: "README.md".to_string() },
                 "browser" => PanelType::Browser { url: "about:blank".to_string() },
-                "ssh" => PanelType::Ssh {
-                    host: "localhost".to_string(),
-                    port: 22,
-                    user: None,
-                    password: None,
-                    identity_file: None,
-                },
-                "remote_tmux" => PanelType::RemoteTmux {
-                    host: "localhost".to_string(),
-                    session: "main".to_string(),
-                    user: None,
-                },
                 _ => PanelType::Terminal,
             };
             panel_cfg.name = format!("{}", type_id);
@@ -709,6 +703,7 @@ impl WorkspaceView {
             before_close: None,
             min_width: 0,
             min_height: 0,
+            ssh: None,
         };
         let host = PanelHost::new(&new_id, &new_name, self.action_cb.clone());
         let backend = self.create_chooser_backend(&new_id);
@@ -816,6 +811,7 @@ impl WorkspaceView {
             before_close: None,
             min_width: 0,
             min_height: 0,
+            ssh: None,
         }
     }
 
@@ -993,8 +989,6 @@ fn build_tab_label(name: &str, panel_type_id: &str, action_cb: &Option<PanelActi
     // Type icon
     let icon_name = match panel_type_id {
         "terminal" => "utilities-terminal-symbolic",
-        "ssh" => "network-server-symbolic",
-        "remote_tmux" => "network-workgroup-symbolic",
         "markdown" => "document-properties-symbolic",
         "browser" => "web-browser-symbolic",
         _ => "radio-symbolic",
@@ -1209,9 +1203,7 @@ fn detach_widget(widget: &gtk4::Widget) {
 fn panel_type_to_id(pt: &PanelType) -> &'static str {
     match pt {
         PanelType::Empty => "__empty__",
-        PanelType::Terminal => "terminal",
-        PanelType::Ssh { .. } => "ssh",
-        PanelType::RemoteTmux { .. } => "remote_tmux",
+        PanelType::Terminal | PanelType::Ssh { .. } | PanelType::RemoteTmux { .. } => "terminal",
         PanelType::Markdown { .. } => "markdown",
         PanelType::Browser { .. } => "browser",
     }
@@ -1220,16 +1212,6 @@ fn panel_type_to_id(pt: &PanelType) -> &'static str {
 fn panel_type_to_create_config(pt: &PanelType, default_shell: &str, workspace_dir: Option<&str>) -> PanelCreateConfig {
     let mut extra = HashMap::new();
     match pt {
-        PanelType::Ssh { host, user, password, .. } => {
-            extra.insert("host".to_string(), host.clone());
-            if let Some(u) = user { extra.insert("user".to_string(), u.clone()); }
-            if let Some(p) = password { extra.insert("password".to_string(), p.clone()); }
-        }
-        PanelType::RemoteTmux { host, session, user } => {
-            extra.insert("host".to_string(), host.clone());
-            extra.insert("session".to_string(), session.clone());
-            if let Some(u) = user { extra.insert("user".to_string(), u.clone()); }
-        }
         PanelType::Markdown { file } => {
             extra.insert("file".to_string(), file.clone());
         }
@@ -1249,6 +1231,14 @@ fn panel_type_to_create_config(pt: &PanelType, default_shell: &str, workspace_di
     }
 }
 
+/// Insert SSH config fields into extra map for the terminal factory.
+fn insert_ssh_extra(extra: &mut HashMap<String, String>, ssh: &tp_core::workspace::SshConfig) {
+    extra.insert("ssh_host".to_string(), ssh.host.clone());
+    if let Some(ref u) = ssh.user { extra.insert("ssh_user".to_string(), u.clone()); }
+    if let Some(ref p) = ssh.password { extra.insert("ssh_password".to_string(), p.clone()); }
+    if let Some(ref s) = ssh.tmux_session { extra.insert("ssh_tmux_session".to_string(), s.clone()); }
+}
+
 /// Create a PanelBackend from a PanelConfig using the registry.
 fn create_backend_from_registry(
     panel_cfg: &PanelConfig,
@@ -1259,27 +1249,7 @@ fn create_backend_from_registry(
     let effective = panel_cfg.effective_type();
     let (type_id, mut extra) = match &effective {
         PanelType::Empty => ("__empty__", HashMap::new()),
-        PanelType::Terminal => ("terminal", HashMap::new()),
-        PanelType::Ssh { host, user, password, .. } => {
-            let mut extra = HashMap::new();
-            extra.insert("host".to_string(), host.clone());
-            if let Some(u) = user {
-                extra.insert("user".to_string(), u.clone());
-            }
-            if let Some(p) = password {
-                extra.insert("password".to_string(), p.clone());
-            }
-            ("ssh", extra)
-        }
-        PanelType::RemoteTmux { host, session, user } => {
-            let mut extra = HashMap::new();
-            extra.insert("host".to_string(), host.clone());
-            extra.insert("session".to_string(), session.clone());
-            if let Some(u) = user {
-                extra.insert("user".to_string(), u.clone());
-            }
-            ("remote_tmux", extra)
-        }
+        PanelType::Terminal | PanelType::Ssh { .. } | PanelType::RemoteTmux { .. } => ("terminal", HashMap::new()),
         PanelType::Markdown { file } => {
             let mut extra = HashMap::new();
             extra.insert("file".to_string(), file.clone());
@@ -1291,6 +1261,11 @@ fn create_backend_from_registry(
             ("browser", extra)
         }
     };
+
+    // Add SSH config if present
+    if let Some(ref ssh) = panel_cfg.effective_ssh() {
+        insert_ssh_extra(&mut extra, ssh);
+    }
 
     if !panel_cfg.startup_commands.is_empty() {
         extra.insert("__startup_commands__".to_string(), panel_cfg.startup_commands.join("\n"));
