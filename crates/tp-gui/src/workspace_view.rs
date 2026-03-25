@@ -992,6 +992,7 @@ fn build_tab_label(name: &str, panel_type_id: &str, action_cb: &Option<PanelActi
         let l = label.clone();
         let gesture = gtk4::GestureClick::new();
         gesture.set_button(1);
+        gesture.set_propagation_phase(gtk4::PropagationPhase::Bubble);
         gesture.connect_released(move |g, n_press, _, _| {
             if n_press == 2 {
                 e.set_text(&l.text());

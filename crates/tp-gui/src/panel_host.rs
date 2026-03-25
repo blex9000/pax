@@ -94,6 +94,7 @@ impl PanelHost {
             let label = title_label.clone();
             let gesture = gtk4::GestureClick::new();
             gesture.set_button(1);
+            gesture.set_propagation_phase(gtk4::PropagationPhase::Bubble);
             gesture.connect_released(move |g, n_press, _, _| {
                 if n_press == 2 {
                     entry.set_text(&label.text());
@@ -101,6 +102,7 @@ impl PanelHost {
                     entry.grab_focus();
                     g.set_state(gtk4::EventSequenceState::Claimed);
                 }
+                // Single clicks: don't claim — let them propagate to window (for fullscreen etc.)
             });
             title_stack.add_controller(gesture);
         }
