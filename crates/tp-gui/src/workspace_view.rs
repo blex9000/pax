@@ -429,11 +429,29 @@ impl WorkspaceView {
     }
 
     /// Set the action callback for panel menus. Must be called after wrapping in Rc<RefCell<>>.
-    /// Rebuilds the layout so tab labels get close buttons with the callback.
+    /// Propagates to all existing hosts and updates notebook widgets.
     pub fn set_action_callback(&mut self, cb: PanelActionCallback) {
-        self.action_cb = Some(cb);
-        // Rebuild layout to propagate callback to all hosts, tab labels, and + buttons
-        self.rebuild_layout();
+        self.action_cb = Some(cb.clone());
+        // Update all hosts
+        for host in self.hosts.values() {
+            host.set_action_callback(cb.clone());
+        }
+        // Update notebook tab labels with close buttons and + buttons
+        update_notebook_labels_recursive(&self.root_widget, &cb, &self.hosts, &self.workspace);
+        add_plus_buttons_recursive(&self.root_widget, &cb);
+        // Reconnect chooser callbacks
+        if let Some(ref tc) = self.on_type_chosen {
+            let chooser_ids: Vec<String> = self.workspace.panels.iter()
+                .filter(|p| p.effective_type() == PanelType::Empty)
+                .map(|p| p.id.clone())
+                .collect();
+            for id in chooser_ids {
+                if let Some(host) = self.hosts.get(&id) {
+                    let chooser = ChooserPanel::new(&id, &self.registry, Some(tc.clone()));
+                    host.set_backend(Box::new(chooser));
+                }
+            }
+        }
     }
 
     pub fn widget(&self) -> &gtk4::ScrolledWindow {
@@ -1070,6 +1088,40 @@ fn build_tab_label(name: &str, panel_type_id: &str, action_cb: &Option<PanelActi
 
     hbox.append(&close_btn);
     hbox.upcast::<gtk4::Widget>()
+}
+
+/// Walk widget tree and update tab labels in Notebooks with proper close buttons.
+fn update_notebook_labels_recursive(
+    widget: &gtk4::Widget,
+    action_cb: &PanelActionCallback,
+    hosts: &HashMap<String, PanelHost>,
+    workspace: &Workspace,
+) {
+    if let Ok(notebook) = widget.clone().downcast::<gtk4::Notebook>() {
+        for i in 0..notebook.n_pages() {
+            if let Some(page_widget) = notebook.nth_page(Some(i)) {
+                // Find the panel ID in this page
+                let panel_id_cell = std::cell::RefCell::new(None);
+                find_panel_id_recursive(&page_widget, &|pid| {
+                    *panel_id_cell.borrow_mut() = Some(pid.to_string());
+                });
+                let panel_id = panel_id_cell.into_inner();
+                if let Some(pid) = panel_id {
+                    let label_text = workspace.panel(&pid).map(|p| p.name.clone()).unwrap_or_else(|| format!("Tab {}", i + 1));
+                    let type_id = workspace.panel(&pid)
+                        .map(|p| panel_type_to_id(&p.effective_type()))
+                        .unwrap_or("__empty__");
+                    let label = build_tab_label(&label_text, type_id, &Some(action_cb.clone()), &page_widget);
+                    notebook.set_tab_label(&page_widget, Some(&label));
+                }
+            }
+        }
+    }
+    let mut child = widget.first_child();
+    while let Some(c) = child {
+        update_notebook_labels_recursive(&c, action_cb, hosts, workspace);
+        child = c.next_sibling();
+    }
 }
 
 /// Add a "+" button to a Notebook's tab bar to add new tabs.
