@@ -317,6 +317,14 @@ fn setup_workspace_ui(
                         }
                     }
                 }
+                PanelAction::Rename(new_name) => {
+                    if let Some(panel_cfg) = ws_for_cb.borrow_mut().workspace_mut()
+                        .panels.iter_mut().find(|p| p.id == panel_id)
+                    {
+                        panel_cfg.name = new_name;
+                    }
+                    sb_for_cb.borrow().set_message(&format!("Renamed: {}", panel_id));
+                }
                 PanelAction::AddTabToNotebook | PanelAction::RemoveTab => {}
             }
             update_dirty_ui(&ws_for_cb, &win_for_cb, &sa_for_cb);

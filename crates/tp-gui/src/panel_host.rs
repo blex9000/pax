@@ -6,7 +6,7 @@ use std::rc::Rc;
 use crate::panels::PanelBackend;
 
 /// Actions that can be triggered from panel/tab menus.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum PanelAction {
     SplitH,
     SplitV,
@@ -22,6 +22,8 @@ pub enum PanelAction {
     Zoom,
     /// Toggle sync input
     Sync,
+    /// Rename panel (carries new name)
+    Rename(String),
 }
 
 /// Callback type for panel menu actions.
@@ -62,10 +64,75 @@ impl PanelHost {
         let title_bar = gtk4::Box::new(gtk4::Orientation::Horizontal, 4);
         title_bar.add_css_class("panel-title-bar");
 
+        // Title: stack with label (view) and entry (edit), double-click to rename
+        let title_stack = gtk4::Stack::new();
+        title_stack.set_halign(gtk4::Align::Start);
+        title_stack.set_hexpand(true);
+
         let title_label = gtk4::Label::new(Some(name));
         title_label.add_css_class("panel-title");
         title_label.set_halign(gtk4::Align::Start);
-        title_label.set_hexpand(true);
+        title_stack.add_named(&title_label, Some("label"));
+
+        let title_entry = gtk4::Entry::new();
+        title_entry.set_text(name);
+        title_entry.add_css_class("panel-title-edit");
+        title_stack.add_named(&title_entry, Some("entry"));
+
+        title_stack.set_visible_child_name("label");
+
+        // Double-click on title label → switch to edit mode
+        {
+            let stack = title_stack.clone();
+            let entry = title_entry.clone();
+            let label = title_label.clone();
+            let gesture = gtk4::GestureClick::new();
+            gesture.set_button(1);
+            gesture.connect_released(move |g, n_press, _, _| {
+                if n_press == 2 {
+                    entry.set_text(&label.text());
+                    stack.set_visible_child_name("entry");
+                    entry.grab_focus();
+                    g.set_state(gtk4::EventSequenceState::Claimed);
+                }
+            });
+            title_stack.add_controller(gesture);
+        }
+
+        // Enter on entry → confirm rename
+        {
+            let stack = title_stack.clone();
+            let label = title_label.clone();
+            let cb_ref = action_cb_ref.clone();
+            let pid = panel_id.to_string();
+            title_entry.connect_activate(move |entry| {
+                let new_name = entry.text().to_string();
+                if !new_name.trim().is_empty() {
+                    label.set_text(&new_name);
+                    // Notify via action callback — use Configure with the new name
+                    if let Ok(borrowed) = cb_ref.try_borrow() {
+                        if let Some(ref cb) = *borrowed {
+                            cb(&pid, PanelAction::Rename(new_name));
+                        }
+                    }
+                }
+                stack.set_visible_child_name("label");
+            });
+        }
+
+        // Escape on entry → cancel
+        {
+            let stack = title_stack.clone();
+            let key_ctrl = gtk4::EventControllerKey::new();
+            key_ctrl.connect_key_pressed(move |_, key, _, _| {
+                if key == gtk4::gdk::Key::Escape {
+                    stack.set_visible_child_name("label");
+                    return glib::Propagation::Stop;
+                }
+                glib::Propagation::Proceed
+            });
+            title_entry.add_controller(key_ctrl);
+        }
 
         // Sync button
         let sync_button = gtk4::Button::new();
@@ -114,7 +181,7 @@ impl PanelHost {
         let popover = build_panel_menu(panel_id, action_cb);
         menu_button.set_popover(Some(&popover));
 
-        title_bar.append(&title_label);
+        title_bar.append(&title_stack);
         title_bar.append(&sync_button);
         title_bar.append(&zoom_button);
         title_bar.append(&menu_button);
@@ -394,6 +461,7 @@ fn build_panel_menu(panel_id: &str, action_cb: Option<PanelActionCallback>) -> g
             PanelAction::RemoveTab => "window-close-symbolic",
             PanelAction::Zoom => "view-fullscreen-symbolic",
             PanelAction::Sync => "media-playlist-consecutive-symbolic",
+            PanelAction::Rename(_) => "document-edit-symbolic",
         };
         let icon = gtk4::Image::from_icon_name(icon_name);
         let lbl = gtk4::Label::new(Some(label));
@@ -411,6 +479,7 @@ fn build_panel_menu(panel_id: &str, action_cb: Option<PanelActionCallback>) -> g
             PanelAction::RemoveTab => "",
             PanelAction::Zoom => "Ctrl+Z",
             PanelAction::Sync => "Ctrl+Shift+S",
+            PanelAction::Rename(_) => "Dbl-click",
         };
         let hint = gtk4::Label::new(Some(hint_text));
         hint.add_css_class("dim-label");
@@ -424,10 +493,11 @@ fn build_panel_menu(panel_id: &str, action_cb: Option<PanelActionCallback>) -> g
         let cb = action_cb.clone();
         let id = pid.clone();
         let pop = popover.clone();
+        let act = action.clone();
         btn.connect_clicked(move |_| {
             pop.popdown(); // Close menu first
             if let Some(ref callback) = cb {
-                callback(&id, action);
+                callback(&id, act.clone());
             }
         });
 
