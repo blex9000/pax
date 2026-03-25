@@ -393,6 +393,7 @@ impl WorkspaceView {
                     host: "localhost".to_string(),
                     port: 22,
                     user: None,
+                    password: None,
                     identity_file: None,
                 },
                 "remote_tmux" => PanelType::RemoteTmux {

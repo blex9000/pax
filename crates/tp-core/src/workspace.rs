@@ -106,6 +106,8 @@ pub enum PanelType {
         #[serde(default)]
         user: Option<String>,
         #[serde(default)]
+        password: Option<String>,
+        #[serde(default)]
         identity_file: Option<String>,
     },
     /// Remote tmux session via SSH
@@ -170,6 +172,7 @@ impl PanelConfig {
                 host: host.clone(),
                 port: *port,
                 user: user.clone(),
+                password: None,
                 identity_file: identity_file.clone(),
             },
             PanelTarget::RemoteTmux { host, session, user } => PanelType::RemoteTmux {
