@@ -29,6 +29,9 @@ pub struct WorkspaceView {
     zoomed_panel: Option<String>,
     /// Panel IDs that are in sync-input mode.
     sync_panels: std::collections::HashSet<String>,
+    /// Callback for VTE commit sync propagation.
+    #[cfg(feature = "vte")]
+    sync_commit_cb: Option<std::rc::Rc<dyn Fn(&str, &str)>>,
 }
 
 impl WorkspaceView {
@@ -99,6 +102,8 @@ impl WorkspaceView {
             dirty: false,
             zoomed_panel: None,
             sync_panels: std::collections::HashSet::new(),
+            #[cfg(feature = "vte")]
+            sync_commit_cb: None,
         };
 
         // Focus first panel
@@ -526,6 +531,14 @@ impl WorkspaceView {
             add_plus_buttons_recursive(&self.root_widget, cb);
         }
 
+        // Reconnect VTE sync commit callbacks
+        #[cfg(feature = "vte")]
+        if let Some(ref cb) = self.sync_commit_cb {
+            for host in self.hosts.values() {
+                host.set_sync_commit_callback(cb.clone());
+            }
+        }
+
         // Reconnect type chooser callbacks on chooser panels
         if let Some(ref tc) = self.on_type_chosen {
             let chooser_ids: Vec<String> = self.workspace.panels.iter()
@@ -564,12 +577,30 @@ impl WorkspaceView {
         Some((focused_id, is_synced))
     }
 
-    /// Write input to all synced panels (called from the sync input bar).
-    pub fn write_to_synced(&self, data: &[u8]) {
+    /// Write input to all synced panels except the sender.
+    pub fn write_to_synced(&self, data: &[u8], except: &str) {
         for panel_id in &self.sync_panels {
-            if let Some(host) = self.hosts.get(panel_id) {
-                host.write_input(data);
+            if panel_id != except {
+                if let Some(host) = self.hosts.get(panel_id) {
+                    host.write_input(data);
+                }
             }
+        }
+    }
+
+    /// Check if a panel is in sync mode.
+    pub fn is_panel_synced(&self, panel_id: &str) -> bool {
+        self.sync_panels.contains(panel_id)
+    }
+
+    /// Connect VTE commit handlers on all panel hosts for sync propagation.
+    /// The callback is called with (source_panel_id, text) whenever a synced
+    /// terminal receives input — the caller should forward to other synced panels.
+    #[cfg(feature = "vte")]
+    pub fn setup_sync_callbacks(&mut self, cb: std::rc::Rc<dyn Fn(&str, &str)>) {
+        self.sync_commit_cb = Some(cb.clone());
+        for host in self.hosts.values() {
+            host.set_sync_commit_callback(cb.clone());
         }
     }
 

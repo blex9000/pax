@@ -174,9 +174,6 @@ box.panel-title-bar { padding: 2px 6px; margin: 0; min-height: 20px; }
 .tab-close-btn { min-height: 14px; min-width: 14px; padding: 1px; }
 paned > separator { min-width: 1px; min-height: 1px; }
 .dirty-indicator { color: #ff8c00; }
-.sync-bar { padding: 4px 8px; border-top: 1px solid alpha(@borders, 0.4); }
-.sync-label { font-weight: bold; font-size: 11px; color: #e5a50a; padding: 0 6px; }
-.sync-entry { font-family: monospace; }
 ";
 
 const CATPPUCCIN_MOCHA_CSS: &str = "\

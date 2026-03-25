@@ -247,6 +247,26 @@ impl PanelHost {
         }
     }
 
+    /// Connect a VTE commit handler for sync input propagation.
+    /// The callback receives (panel_id, committed_text).
+    #[cfg(feature = "vte")]
+    pub fn set_sync_commit_callback(&self, cb: Rc<dyn Fn(&str, &str)>) {
+        use vte4::prelude::*;
+        // Find VTE widget inside our container
+        let panel_widget = {
+            let backend = self.backend.borrow();
+            backend.as_ref().map(|b| b.widget().clone())
+        };
+        if let Some(widget) = panel_widget {
+            if let Ok(vte) = widget.clone().downcast::<vte4::Terminal>() {
+                let pid = self.panel_id.clone();
+                vte.connect_commit(move |_vte, text, _size| {
+                    cb(&pid, text);
+                });
+            }
+        }
+    }
+
     /// Set footer text (e.g. user@host:directory). Empty string hides the footer.
     pub fn set_footer(&self, text: &str) {
         if text.is_empty() {

@@ -170,77 +170,6 @@ fn setup_workspace_ui(
     let save_action = gtk4::gio::SimpleAction::new("save", None);
     let window_rc = window.clone();
 
-    // Sync input bar (created early so callbacks can reference it)
-    let sync_bar = gtk4::Box::new(gtk4::Orientation::Horizontal, 6);
-    sync_bar.add_css_class("sync-bar");
-    sync_bar.set_visible(false);
-    let sync_label = gtk4::Label::new(Some("SYNC"));
-    sync_label.add_css_class("sync-label");
-    sync_bar.append(&sync_label);
-    let sync_entry = gtk4::Entry::new();
-    sync_entry.set_hexpand(true);
-    sync_entry.set_placeholder_text(Some("Type here to send to all synced panels..."));
-    sync_entry.add_css_class("sync-entry");
-    sync_bar.append(&sync_entry);
-    let sync_close_btn = gtk4::Button::new();
-    sync_close_btn.set_icon_name("window-close-symbolic");
-    sync_close_btn.add_css_class("flat");
-    sync_close_btn.set_tooltip_text(Some("Close sync mode"));
-    sync_bar.append(&sync_close_btn);
-
-    // Sync entry: on activate (Enter), send to synced panels + clear
-    {
-        let ws = ws_view.clone();
-        let entry = sync_entry.clone();
-        sync_entry.connect_activate(move |_| {
-            let text = entry.text().to_string();
-            if !text.is_empty() {
-                let cmd = format!("{}\n", text);
-                ws.borrow().write_to_synced(cmd.as_bytes());
-                entry.set_text("");
-            }
-        });
-    }
-
-    // Sync entry: propagate Ctrl+C/D/Z/L and other control keys to synced panels
-    {
-        let ws = ws_view.clone();
-        let key_ctrl = gtk4::EventControllerKey::new();
-        key_ctrl.connect_key_pressed(move |_, key, _, modifiers| {
-            let ctrl = modifiers.contains(gdk::ModifierType::CONTROL_MASK);
-            if ctrl {
-                let byte: Option<u8> = match key {
-                    gdk::Key::c => Some(0x03), // SIGINT
-                    gdk::Key::d => Some(0x04), // EOF
-                    gdk::Key::z => Some(0x1a), // SIGTSTP
-                    gdk::Key::l => Some(0x0c), // clear
-                    gdk::Key::u => Some(0x15), // kill line
-                    _ => None,
-                };
-                if let Some(b) = byte {
-                    ws.borrow().write_to_synced(&[b]);
-                    return glib::Propagation::Stop;
-                }
-            }
-            glib::Propagation::Proceed
-        });
-        sync_entry.add_controller(key_ctrl);
-    }
-
-    // Sync close button: clear all sync
-    {
-        let ws = ws_view.clone();
-        let bar = sync_bar.clone();
-        let sb2 = status_bar.clone();
-        sync_close_btn.connect_clicked(move |_| {
-            ws.borrow_mut().clear_sync();
-            bar.set_visible(false);
-            sb2.borrow().set_message("Sync off");
-        });
-    }
-
-    let sync_bar_rc = Rc::new(sync_bar.clone());
-
     // Wire up type chooser callback
     {
         let ws = ws_view.clone();
@@ -261,7 +190,6 @@ fn setup_workspace_ui(
         let sb_for_cb = status_bar.clone();
         let win_for_cb = window_rc.clone();
         let sa_for_cb = save_action.clone();
-        let sync_bar_for_cb = sync_bar_rc.clone();
         let cb: crate::panel_host::PanelActionCallback = Rc::new(move |panel_id, action| {
             // "nb:<panel_id>" means action on notebook
             if let Some(real_id) = panel_id.strip_prefix("nb:") {
@@ -387,7 +315,6 @@ fn setup_workspace_ui(
                         } else {
                             sb_for_cb.borrow().set_message(&format!("Sync OFF: {} ({} panels)", pid, count));
                         }
-                        sync_bar_for_cb.set_visible(ws_for_cb.borrow().has_sync());
                     }
                 }
                 PanelAction::AddTabToNotebook | PanelAction::RemoveTab => {}
@@ -395,6 +322,19 @@ fn setup_workspace_ui(
             update_dirty_ui(&ws_for_cb, &win_for_cb, &sa_for_cb);
         });
         ws_view.borrow_mut().set_action_callback(cb);
+    }
+
+    // Setup sync input propagation: when a synced terminal gets input,
+    // forward it to all other synced terminals
+    {
+        let ws = ws_view.clone();
+        let sync_cb: Rc<dyn Fn(&str, &str)> = Rc::new(move |source_panel_id, text| {
+            let view = ws.borrow();
+            if view.is_panel_synced(source_panel_id) {
+                view.write_to_synced(text.as_bytes(), source_panel_id);
+            }
+        });
+        ws_view.borrow_mut().setup_sync_callbacks(sync_cb);
     }
 
     // Register GIO actions
@@ -534,7 +474,6 @@ fn setup_workspace_ui(
     ws_widget.set_vexpand(true);
     ws_widget.set_hexpand(true);
     content_box.append(&ws_widget);
-    content_box.append(&sync_bar);
     content_box.append(status_bar.borrow().widget());
 
     let toolbar_view = adw::ToolbarView::new();
@@ -551,8 +490,6 @@ fn setup_workspace_ui(
         let sb = status_bar.clone();
         let win = window_rc.clone();
         let sa = save_action.clone();
-        let sync_bar_rc = sync_bar_rc.clone();
-        let sync_entry = sync_entry.clone();
         controller.connect_key_pressed(move |_ctrl, key, _code, modifiers| {
             let ctrl = modifiers.contains(gdk::ModifierType::CONTROL_MASK);
             let shift = modifiers.contains(gdk::ModifierType::SHIFT_MASK);
@@ -597,11 +534,6 @@ fn setup_workspace_ui(
                                 sb.borrow().set_message(&format!("Sync ON: {} ({} panels)", panel_id, count));
                             } else {
                                 sb.borrow().set_message(&format!("Sync OFF: {} ({} panels)", panel_id, count));
-                            }
-                            sync_bar_rc.set_visible(ws.borrow().has_sync());
-                            if ws.borrow().has_sync() {
-                                // Focus the sync entry when enabling
-                                sync_entry.grab_focus();
                             }
                         }
                         return glib::Propagation::Stop;
