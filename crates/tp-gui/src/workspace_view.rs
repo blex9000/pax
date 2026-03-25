@@ -227,7 +227,8 @@ impl WorkspaceView {
             panel_cfg.min_height = min_height;
         }
 
-        // Update title
+        // Update title + tab label
+        crate::layout_ops::update_tab_label_in_layout(&mut self.workspace.layout, panel_id, &new_name);
         if let Some(host) = self.hosts.get(panel_id) {
             host.set_title(&new_name);
         }
@@ -253,6 +254,9 @@ impl WorkspaceView {
         }
 
         self.dirty = true;
+
+        // Rebuild layout so tab labels reflect the new name
+        self.rebuild_layout();
     }
 
     /// Get cwd for a panel.

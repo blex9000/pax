@@ -33,7 +33,7 @@
             ],
             "labels": [
               "Terminale xxx",
-              "New Panel 6",
+              "aassaaa",
               "New Panel 8",
               "New Panel 9",
               "New Panel 10"
@@ -45,8 +45,8 @@
           }
         ],
         "ratios": [
-          0.6678947368421052,
-          0.3321052631578948
+          0.6683333333333333,
+          0.33166666666666667
         ]
       },
       {
@@ -162,7 +162,7 @@
     },
     {
       "id": "p6",
-      "name": "ssh",
+      "name": "aassaaallllllll",
       "panel_type": {
         "type": "ssh",
         "host": "localhost",
