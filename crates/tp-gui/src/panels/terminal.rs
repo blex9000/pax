@@ -236,6 +236,10 @@ mod backend {
             }
         }
 
+        pub fn queue_raw(&self, text: &str) {
+            self.pending_commands.borrow_mut().push(text.to_string());
+        }
+
         pub fn write_input(&self, data: &[u8]) -> bool {
             self.vte.feed_child(data);
             true
@@ -452,6 +456,12 @@ impl TerminalPanel {
 
     pub fn send_commands(&self, commands: &[String]) {
         self.inner.send_commands(commands);
+    }
+
+    /// Queue raw text to be sent to the terminal after spawn.
+    /// No processing — text is sent as-is via feed_child.
+    pub fn queue_raw(&self, text: &str) {
+        self.inner.queue_raw(text);
     }
 }
 

@@ -154,14 +154,19 @@ pub fn build_default_registry() -> PanelRegistry {
             // Startup script commands
             if let Some(cmds_str) = config.extra.get("__startup_commands__") {
                 if is_ssh {
-                    // For SSH: send each line as a direct command (no temp file — runs on remote)
-                    // Lines go into the PTY buffer after the SSH command; the remote shell
-                    // will read them once the connection is established.
-                    for line in cmds_str.lines() {
-                        let line = line.trim();
-                        if !line.is_empty() && !line.starts_with("#!") {
-                            panel.send_commands(&[line.to_string()]);
-                        }
+                    // For SSH: wrap script in a heredoc so it runs on the remote host.
+                    // Strip shebang — the heredoc pipes to bash directly.
+                    // Use queue_raw to avoid temp file processing.
+                    let script_body: String = cmds_str.lines()
+                        .filter(|l| !l.starts_with("#!"))
+                        .collect::<Vec<_>>()
+                        .join("\n");
+                    if !script_body.trim().is_empty() {
+                        let heredoc = format!(
+                            "cat << 'MYTERMS_SCRIPT_EOF' | bash\n{}\nMYTERMS_SCRIPT_EOF",
+                            script_body
+                        );
+                        panel.queue_raw(&heredoc);
                     }
                 } else {
                     let cmds: Vec<String> = cmds_str.lines().map(|l| l.to_string()).collect();
