@@ -249,10 +249,11 @@ impl PanelHost {
 
     /// Connect a VTE commit handler for sync input propagation.
     /// The callback receives (panel_id, committed_text).
+    /// Uses a shared propagating flag to prevent infinite recursion
+    /// (A types → commit → propagate to B → B's write_input → B's commit → ...).
     #[cfg(feature = "vte")]
-    pub fn set_sync_commit_callback(&self, cb: Rc<dyn Fn(&str, &str)>) {
+    pub fn set_sync_commit_callback(&self, cb: Rc<dyn Fn(&str, &str)>, propagating: Rc<std::cell::Cell<bool>>) {
         use vte4::prelude::*;
-        // Find VTE widget inside our container
         let panel_widget = {
             let backend = self.backend.borrow();
             backend.as_ref().map(|b| b.widget().clone())
@@ -260,8 +261,14 @@ impl PanelHost {
         if let Some(widget) = panel_widget {
             if let Ok(vte) = widget.clone().downcast::<vte4::Terminal>() {
                 let pid = self.panel_id.clone();
+                let flag = propagating;
                 vte.connect_commit(move |_vte, text, _size| {
+                    if flag.get() {
+                        return; // Already propagating — don't recurse
+                    }
+                    flag.set(true);
                     cb(&pid, text);
+                    flag.set(false);
                 });
             }
         }

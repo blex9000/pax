@@ -534,8 +534,9 @@ impl WorkspaceView {
         // Reconnect VTE sync commit callbacks
         #[cfg(feature = "vte")]
         if let Some(ref cb) = self.sync_commit_cb {
+            let propagating = std::rc::Rc::new(std::cell::Cell::new(false));
             for host in self.hosts.values() {
-                host.set_sync_commit_callback(cb.clone());
+                host.set_sync_commit_callback(cb.clone(), propagating.clone());
             }
         }
 
@@ -599,8 +600,9 @@ impl WorkspaceView {
     #[cfg(feature = "vte")]
     pub fn setup_sync_callbacks(&mut self, cb: std::rc::Rc<dyn Fn(&str, &str)>) {
         self.sync_commit_cb = Some(cb.clone());
+        let propagating = std::rc::Rc::new(std::cell::Cell::new(false));
         for host in self.hosts.values() {
-            host.set_sync_commit_callback(cb.clone());
+            host.set_sync_commit_callback(cb.clone(), propagating.clone());
         }
     }
 
