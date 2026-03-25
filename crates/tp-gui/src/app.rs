@@ -10,6 +10,7 @@ use std::rc::Rc;
 
 use tp_core::workspace::Workspace;
 
+use crate::layout_ops::update_tab_label_in_layout;
 use crate::panel_host::PanelAction;
 use crate::theme::Theme;
 use crate::workspace_view::WorkspaceView;
@@ -318,11 +319,20 @@ fn setup_workspace_ui(
                     }
                 }
                 PanelAction::Rename(new_name) => {
-                    if let Some(panel_cfg) = ws_for_cb.borrow_mut().workspace_mut()
+                    let mut view = ws_for_cb.borrow_mut();
+                    // Update panel config name
+                    if let Some(panel_cfg) = view.workspace_mut()
                         .panels.iter_mut().find(|p| p.id == panel_id)
                     {
-                        panel_cfg.name = new_name;
+                        panel_cfg.name = new_name.clone();
                     }
+                    // Update tab label in layout tree
+                    update_tab_label_in_layout(&mut view.workspace_mut().layout, panel_id, &new_name);
+                    // Update host title bar
+                    if let Some(host) = view.host(panel_id) {
+                        host.set_title(&new_name);
+                    }
+                    drop(view);
                     sb_for_cb.borrow().set_message(&format!("Renamed: {}", panel_id));
                 }
                 PanelAction::AddTabToNotebook | PanelAction::RemoveTab => {}

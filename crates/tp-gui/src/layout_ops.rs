@@ -156,3 +156,29 @@ pub fn add_to_existing_tabs(node: &mut LayoutNode, panel_id: &str, new_id: &str,
 pub fn is_panel_with_id(node: &LayoutNode, panel_id: &str) -> bool {
     matches!(node, LayoutNode::Panel { id } if id == panel_id)
 }
+
+/// Update a tab label in the layout tree for the given panel ID.
+pub fn update_tab_label_in_layout(node: &mut LayoutNode, panel_id: &str, new_label: &str) {
+    match node {
+        LayoutNode::Tabs { children, labels } => {
+            for (i, child) in children.iter().enumerate() {
+                if is_panel_with_id(child, panel_id) {
+                    if let Some(l) = labels.get_mut(i) {
+                        *l = new_label.to_string();
+                    }
+                    return;
+                }
+            }
+            // Recurse into children
+            for child in children.iter_mut() {
+                update_tab_label_in_layout(child, panel_id, new_label);
+            }
+        }
+        LayoutNode::Hsplit { children, .. } | LayoutNode::Vsplit { children, .. } => {
+            for child in children.iter_mut() {
+                update_tab_label_in_layout(child, panel_id, new_label);
+            }
+        }
+        LayoutNode::Panel { .. } => {}
+    }
+}

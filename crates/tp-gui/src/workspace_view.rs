@@ -953,9 +953,72 @@ fn add_plus_buttons_recursive(widget: &gtk4::Widget, action_cb: &PanelActionCall
 /// Build a tab label widget: "name [x]" — the X button closes the tab.
 fn build_tab_label(name: &str, action_cb: &Option<PanelActionCallback>, child_widget: &gtk4::Widget) -> gtk4::Widget {
     let hbox = gtk4::Box::new(gtk4::Orientation::Horizontal, 4);
-    let label = gtk4::Label::new(Some(name));
-    hbox.append(&label);
 
+    // Stack: label (view) / entry (edit) — double-click to rename
+    let stack = gtk4::Stack::new();
+    let label = gtk4::Label::new(Some(name));
+    stack.add_named(&label, Some("label"));
+    let entry = gtk4::Entry::new();
+    entry.set_text(name);
+    entry.set_width_chars(12);
+    stack.add_named(&entry, Some("entry"));
+    stack.set_visible_child_name("label");
+
+    // Double-click on label → edit
+    {
+        let s = stack.clone();
+        let e = entry.clone();
+        let l = label.clone();
+        let gesture = gtk4::GestureClick::new();
+        gesture.set_button(1);
+        gesture.connect_released(move |g, n_press, _, _| {
+            if n_press == 2 {
+                e.set_text(&l.text());
+                s.set_visible_child_name("entry");
+                e.grab_focus();
+                g.set_state(gtk4::EventSequenceState::Claimed);
+            }
+        });
+        stack.add_controller(gesture);
+    }
+
+    // Enter → confirm rename
+    {
+        let s = stack.clone();
+        let l = label.clone();
+        let cb = action_cb.clone();
+        let w = child_widget.clone();
+        entry.connect_activate(move |entry| {
+            let new_name = entry.text().to_string();
+            if !new_name.trim().is_empty() {
+                l.set_text(&new_name);
+                if let Some(ref cb) = cb {
+                    find_panel_id_recursive(&w, &|panel_id| {
+                        cb(panel_id, PanelAction::Rename(new_name.clone()));
+                    });
+                }
+            }
+            s.set_visible_child_name("label");
+        });
+    }
+
+    // Escape → cancel
+    {
+        let s = stack.clone();
+        let key_ctrl = gtk4::EventControllerKey::new();
+        key_ctrl.connect_key_pressed(move |_, key, _, _| {
+            if key == gtk4::gdk::Key::Escape {
+                s.set_visible_child_name("label");
+                return gtk4::glib::Propagation::Stop;
+            }
+            gtk4::glib::Propagation::Proceed
+        });
+        entry.add_controller(key_ctrl);
+    }
+
+    hbox.append(&stack);
+
+    // Close button
     let close_btn = gtk4::Button::new();
     close_btn.set_icon_name("window-close-symbolic");
     close_btn.add_css_class("flat");
