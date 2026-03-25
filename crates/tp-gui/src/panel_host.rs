@@ -189,6 +189,10 @@ impl PanelHost {
 
         title_bar.append(&type_icon);
         title_bar.append(&title_stack);
+        // Spacer pushes buttons to the right (even when title is hidden)
+        let spacer = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
+        spacer.set_hexpand(true);
+        title_bar.append(&spacer);
         title_bar.append(&sync_button);
         title_bar.append(&zoom_button);
         title_bar.append(&menu_button);
