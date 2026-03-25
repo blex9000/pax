@@ -213,14 +213,15 @@ impl WorkspaceView {
 
     /// Update panel config after Configure dialog.
     /// Recreates the backend with the new type/settings and runs startup commands.
-    pub fn apply_panel_config(&mut self, panel_id: &str, new_name: String, new_type: PanelType, cwd: Option<String>, startup_commands: Vec<String>, before_close: Option<String>, min_width: u32, min_height: u32) {
-        tracing::info!("Configuring panel {}: name={}, type={:?}, cwd={:?}, cmds={}, before_close={}",
-            panel_id, new_name, new_type, cwd, startup_commands.len(), before_close.is_some());
+    pub fn apply_panel_config(&mut self, panel_id: &str, new_name: String, new_type: PanelType, cwd: Option<String>, ssh: Option<tp_core::workspace::SshConfig>, startup_commands: Vec<String>, before_close: Option<String>, min_width: u32, min_height: u32) {
+        tracing::info!("Configuring panel {}: name={}, type={:?}, cwd={:?}, ssh={}, cmds={}, before_close={}",
+            panel_id, new_name, new_type, cwd, ssh.is_some(), startup_commands.len(), before_close.is_some());
         // Update model
         if let Some(panel_cfg) = self.workspace.panels.iter_mut().find(|p| p.id == panel_id) {
             panel_cfg.name = new_name.clone();
             panel_cfg.panel_type = new_type.clone();
             panel_cfg.cwd = cwd.clone();
+            panel_cfg.ssh = ssh;
             panel_cfg.startup_commands = startup_commands.clone();
             panel_cfg.before_close = before_close;
             panel_cfg.min_width = min_width;
@@ -263,6 +264,13 @@ impl WorkspaceView {
 
         // Rebuild layout so tab labels reflect the new name
         self.rebuild_layout();
+    }
+
+    /// Get effective SSH config for a panel.
+    pub fn panel_ssh(&self, panel_id: &str) -> Option<tp_core::workspace::SshConfig> {
+        self.workspace.panels.iter()
+            .find(|p| p.id == panel_id)
+            .and_then(|p| p.effective_ssh())
     }
 
     /// Get cwd for a panel.

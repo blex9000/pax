@@ -263,12 +263,13 @@ fn setup_workspace_ui(
                     }
                 }
                 PanelAction::Configure => {
-                    let (pname, ptype, pcwd, pcmds, pclose, pmw, pmh) = {
+                    let (pname, ptype, pcwd, pssh, pcmds, pclose, pmw, pmh) = {
                         let view = ws_for_cb.borrow();
                         (
                             view.panel_name(panel_id).unwrap_or_default(),
                             view.panel_type(panel_id).unwrap_or(tp_core::workspace::PanelType::Terminal),
                             view.panel_cwd(panel_id),
+                            view.panel_ssh(panel_id),
                             view.panel_startup_commands(panel_id),
                             view.panel_before_close(panel_id),
                             view.panel_min_width(panel_id),
@@ -284,12 +285,13 @@ fn setup_workspace_ui(
                         &pname,
                         &ptype,
                         pcwd.as_deref(),
+                        pssh.as_ref(),
                         &pcmds,
                         pclose.as_deref(),
                         pmw,
                         pmh,
-                        move |new_name, new_type, new_cwd, new_cmds, new_close, new_mw, new_mh| {
-                            ws2.borrow_mut().apply_panel_config(&pid, new_name, new_type, new_cwd, new_cmds, new_close, new_mw, new_mh);
+                        move |new_name, new_type, new_cwd, new_ssh, new_cmds, new_close, new_mw, new_mh| {
+                            ws2.borrow_mut().apply_panel_config(&pid, new_name, new_type, new_cwd, new_ssh, new_cmds, new_close, new_mw, new_mh);
                             update_dirty_ui(&ws2, &win2, &sa2);
                         },
                     );

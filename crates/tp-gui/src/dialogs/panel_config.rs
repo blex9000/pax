@@ -1,9 +1,9 @@
 use gtk4::prelude::*;
 
-use tp_core::workspace::PanelType;
+use tp_core::workspace::{PanelType, SshConfig};
 
-/// Callback: (name, panel_type, cwd, startup_commands, before_close, min_width, min_height)
-pub type ConfigDoneCallback = dyn Fn(String, PanelType, Option<String>, Vec<String>, Option<String>, u32, u32) + 'static;
+/// Callback: (name, panel_type, cwd, ssh, startup_commands, before_close, min_width, min_height)
+pub type ConfigDoneCallback = dyn Fn(String, PanelType, Option<String>, Option<SshConfig>, Vec<String>, Option<String>, u32, u32) + 'static;
 
 /// Show a configuration dialog for the given panel type.
 pub fn show_panel_config_dialog(
@@ -11,17 +11,16 @@ pub fn show_panel_config_dialog(
     panel_name: &str,
     panel_type: &PanelType,
     cwd: Option<&str>,
+    ssh: Option<&SshConfig>,
     startup_commands: &[String],
     before_close: Option<&str>,
     min_width: u32,
     min_height: u32,
-    on_done: impl Fn(String, PanelType, Option<String>, Vec<String>, Option<String>, u32, u32) + 'static,
+    on_done: impl Fn(String, PanelType, Option<String>, Option<SshConfig>, Vec<String>, Option<String>, u32, u32) + 'static,
 ) {
     match panel_type {
-        PanelType::Terminal => show_terminal_config(parent, panel_name, cwd, startup_commands, before_close, min_width, min_height, on_done),
-        PanelType::Ssh { .. } | PanelType::RemoteTmux { .. } => {
-            // Legacy types — show terminal config (SSH settings are in PanelConfig.ssh)
-            show_terminal_config(parent, panel_name, cwd, startup_commands, before_close, min_width, min_height, on_done)
+        PanelType::Terminal | PanelType::Ssh { .. } | PanelType::RemoteTmux { .. } => {
+            show_terminal_config(parent, panel_name, cwd, ssh, startup_commands, before_close, min_width, min_height, on_done)
         }
         PanelType::Markdown { file } => show_markdown_config(parent, panel_name, file, min_width, min_height, on_done),
         PanelType::Browser { url } => show_browser_config(parent, panel_name, url, min_width, min_height, on_done),
@@ -277,11 +276,12 @@ fn show_terminal_config(
     parent: &impl IsA<gtk4::Window>,
     panel_name: &str,
     cwd: Option<&str>,
+    ssh: Option<&SshConfig>,
     startup_commands: &[String],
     before_close: Option<&str>,
     min_width: u32,
     min_height: u32,
-    on_done: impl Fn(String, PanelType, Option<String>, Vec<String>, Option<String>, u32, u32) + 'static,
+    on_done: impl Fn(String, PanelType, Option<String>, Option<SshConfig>, Vec<String>, Option<String>, u32, u32) + 'static,
 ) {
     let dialog = make_dialog(parent, "Terminal Configuration");
     let vbox = gtk4::Box::new(gtk4::Orientation::Vertical, 8);
@@ -318,6 +318,59 @@ fn show_terminal_config(
     cwd_box.append(&cwd_entry);
     cwd_box.append(&cwd_browse);
     vbox.append(&cwd_box);
+
+    // ── SSH connection (optional) ────────────────────────────────────
+    let ssh_sep = gtk4::Separator::new(gtk4::Orientation::Horizontal);
+    ssh_sep.set_margin_top(4);
+    ssh_sep.set_margin_bottom(2);
+    vbox.append(&ssh_sep);
+
+    let ssh_enabled = ssh.is_some();
+    let ssh_check = gtk4::CheckButton::with_label("SSH connection");
+    ssh_check.set_active(ssh_enabled);
+    vbox.append(&ssh_check);
+
+    let ssh_container = gtk4::Box::new(gtk4::Orientation::Vertical, 4);
+    let ssh_host_entry = add_field(&ssh_container, "Host:", ssh.map(|s| s.host.as_str()).unwrap_or(""), "hostname or IP");
+    let ssh_port_entry = add_field(&ssh_container, "Port:", &ssh.map(|s| s.port).unwrap_or(22).to_string(), "22");
+    let ssh_user_entry = add_field(&ssh_container, "User:", ssh.and_then(|s| s.user.as_deref()).unwrap_or(""), "username");
+
+    // Password field
+    let ssh_pw_hbox = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
+    let ssh_pw_lbl = gtk4::Label::new(Some("Password:"));
+    ssh_pw_lbl.set_width_chars(15);
+    ssh_pw_lbl.set_halign(gtk4::Align::Start);
+    let ssh_pw_entry = gtk4::PasswordEntry::new();
+    ssh_pw_entry.set_show_peek_icon(true);
+    ssh_pw_entry.set_hexpand(true);
+    if let Some(pw) = ssh.and_then(|s| s.password.as_deref()) {
+        ssh_pw_entry.set_text(pw);
+    }
+    ssh_pw_entry.set_placeholder_text(Some("(key auth if empty)"));
+    ssh_pw_hbox.append(&ssh_pw_lbl);
+    ssh_pw_hbox.append(&ssh_pw_entry);
+    ssh_container.append(&ssh_pw_hbox);
+
+    let ssh_id_entry = add_field(&ssh_container, "Identity file:", ssh.and_then(|s| s.identity_file.as_deref()).unwrap_or(""), "~/.ssh/id_rsa");
+    let ssh_tmux_entry = add_field(&ssh_container, "Tmux session:", ssh.and_then(|s| s.tmux_session.as_deref()).unwrap_or(""), "(optional)");
+
+    let ssh_warn = gtk4::Label::new(Some("Password stored in plain text in workspace file."));
+    ssh_warn.add_css_class("dim-label");
+    ssh_warn.add_css_class("caption");
+    ssh_warn.set_halign(gtk4::Align::Start);
+    ssh_container.append(&ssh_warn);
+
+    ssh_container.set_sensitive(ssh_enabled);
+    vbox.append(&ssh_container);
+    {
+        let sc = ssh_container.clone();
+        ssh_check.connect_toggled(move |btn| { sc.set_sensitive(btn.is_active()); });
+    }
+
+    let ssh_sep2 = gtk4::Separator::new(gtk4::Orientation::Horizontal);
+    ssh_sep2.set_margin_top(4);
+    ssh_sep2.set_margin_bottom(2);
+    vbox.append(&ssh_sep2);
 
     // Interpreter selector
     let interp_box = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
@@ -461,6 +514,13 @@ fn show_terminal_config(
     let cfe = close_file_entry.clone();
     let sc = startup_check.clone();
     let cc = close_check.clone();
+    let ssh_chk = ssh_check.clone();
+    let ssh_h = ssh_host_entry.clone();
+    let ssh_p = ssh_port_entry.clone();
+    let ssh_u = ssh_user_entry.clone();
+    let ssh_pw = ssh_pw_entry.clone();
+    let ssh_id = ssh_id_entry.clone();
+    let ssh_tmux = ssh_tmux_entry.clone();
     add_buttons(&vbox, &dialog, move || {
         let name = ne.text().to_string();
         let cwd_text = ce.text().to_string();
@@ -469,6 +529,25 @@ fn show_terminal_config(
         let interpreter = interps.get(selected).cloned().unwrap_or_else(|| "/bin/bash".to_string());
         let mw = mw_spin.value() as u32;
         let mh = mh_spin.value() as u32;
+
+        // SSH config (only if enabled)
+        let ssh_config = if ssh_chk.is_active() {
+            let host = ssh_h.text().to_string();
+            if host.trim().is_empty() {
+                None
+            } else {
+                Some(SshConfig {
+                    host,
+                    port: ssh_p.text().parse().unwrap_or(22),
+                    user: if ssh_u.text().is_empty() { None } else { Some(ssh_u.text().to_string()) },
+                    password: if ssh_pw.text().is_empty() { None } else { Some(ssh_pw.text().to_string()) },
+                    identity_file: if ssh_id.text().is_empty() { None } else { Some(ssh_id.text().to_string()) },
+                    tmux_session: if ssh_tmux.text().is_empty() { None } else { Some(ssh_tmux.text().to_string()) },
+                })
+            }
+        } else {
+            None
+        };
 
         // Before close (only if enabled)
         let before_close = if cc.is_active() {
@@ -486,13 +565,13 @@ fn show_terminal_config(
 
         // Startup script (only if enabled)
         if !sc.is_active() {
-            on_done(name, PanelType::Terminal, cwd, vec![], before_close, mw, mh);
+            on_done(name, PanelType::Terminal, cwd, ssh_config, vec![], before_close, mw, mh);
             return;
         }
 
         let cmds = script_editor.get_script();
         if cmds.is_empty() {
-            on_done(name, PanelType::Terminal, cwd, vec![], before_close, mw, mh);
+            on_done(name, PanelType::Terminal, cwd, ssh_config, vec![], before_close, mw, mh);
             return;
         }
 
@@ -500,7 +579,7 @@ fn show_terminal_config(
         let first = &cmds[0];
         if first.starts_with("file:") {
             let path = first.trim_start_matches("file:");
-            on_done(name, PanelType::Terminal, cwd, vec![format!("file:{}:{}", interpreter, path)], before_close, mw, mh);
+            on_done(name, PanelType::Terminal, cwd, ssh_config, vec![format!("file:{}:{}", interpreter, path)], before_close, mw, mh);
         } else {
             let script = if first.starts_with("#!") {
                 let rest = first.lines().skip(1).collect::<Vec<_>>().join("\n");
@@ -508,7 +587,7 @@ fn show_terminal_config(
             } else {
                 format!("#!{}\n{}", interpreter, first.clone())
             };
-            on_done(name, PanelType::Terminal, cwd, vec![script], before_close, mw, mh);
+            on_done(name, PanelType::Terminal, cwd, ssh_config, vec![script], before_close, mw, mh);
         }
     });
 
@@ -522,7 +601,7 @@ fn show_markdown_config(
     file: &str,
     min_width: u32,
     min_height: u32,
-    on_done: impl Fn(String, PanelType, Option<String>, Vec<String>, Option<String>, u32, u32) + 'static,
+    on_done: impl Fn(String, PanelType, Option<String>, Option<SshConfig>, Vec<String>, Option<String>, u32, u32) + 'static,
 ) {
     let dialog = make_dialog(parent, "Markdown Configuration");
     let vbox = gtk4::Box::new(gtk4::Orientation::Vertical, 8);
@@ -568,7 +647,7 @@ fn show_markdown_config(
     add_buttons(&vbox, &dialog, move || {
         let name = name_entry.text().to_string();
         let file = file_entry.text().to_string();
-        on_done(name, PanelType::Markdown { file }, None, vec![], None, mw_spin.value() as u32, mh_spin.value() as u32);
+        on_done(name, PanelType::Markdown { file }, None, None, vec![], None, mw_spin.value() as u32, mh_spin.value() as u32);
     });
 
     dialog.set_child(Some(&vbox));
@@ -581,7 +660,7 @@ fn show_browser_config(
     url: &str,
     min_width: u32,
     min_height: u32,
-    on_done: impl Fn(String, PanelType, Option<String>, Vec<String>, Option<String>, u32, u32) + 'static,
+    on_done: impl Fn(String, PanelType, Option<String>, Option<SshConfig>, Vec<String>, Option<String>, u32, u32) + 'static,
 ) {
     let dialog = make_dialog(parent, "Browser Configuration");
     let vbox = gtk4::Box::new(gtk4::Orientation::Vertical, 8);
@@ -598,7 +677,7 @@ fn show_browser_config(
     add_buttons(&vbox, &dialog, move || {
         let name = name_entry.text().to_string();
         let url = url_entry.text().to_string();
-        on_done(name, PanelType::Browser { url }, None, vec![], None, mw_spin.value() as u32, mh_spin.value() as u32);
+        on_done(name, PanelType::Browser { url }, None, None, vec![], None, mw_spin.value() as u32, mh_spin.value() as u32);
     });
 
     dialog.set_child(Some(&vbox));
