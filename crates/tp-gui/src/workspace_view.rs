@@ -1280,7 +1280,7 @@ fn build_layout_widget_inner(
         LayoutNode::Panel { id } => {
             if let Some(host) = hosts.get(id) {
                 // Default: show title bar (hidden later if inside Tabs)
-                host.set_title_bar_visible(true);
+                host.set_title_visible(true);
                 // Set type icon
                 let type_id = get_panel_type_id(node, panels);
                 host.set_type_icon(type_id);
@@ -1317,7 +1317,7 @@ fn build_layout_widget_inner(
                 // Hide title bar for direct panel children (tab label already shows the name)
                 if let LayoutNode::Panel { id } = child {
                     if let Some(host) = hosts.get(id) {
-                        host.set_title_bar_visible(false);
+                        host.set_title_visible(false);
                     }
                 }
             }

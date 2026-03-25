@@ -33,7 +33,7 @@ pub type PanelActionCallback = Rc<dyn Fn(&str, PanelAction)>;
 pub struct PanelHost {
     outer: gtk4::Box,
     container: gtk4::Box,
-    title_bar: gtk4::Box,
+    _title_bar: gtk4::Box,
     type_icon: gtk4::Image,
     title_label: gtk4::Label,
     sync_button: gtk4::Button,
@@ -219,7 +219,7 @@ impl PanelHost {
         Self {
             outer,
             container,
-            title_bar,
+            _title_bar: title_bar,
             type_icon,
             title_label,
             sync_button,
@@ -314,9 +314,14 @@ impl PanelHost {
         self.title_label.set_text(title);
     }
 
-    /// Hide the title bar (when panel is inside a tab — the tab label shows the name).
-    pub fn set_title_bar_visible(&self, visible: bool) {
-        self.title_bar.set_visible(visible);
+    /// Hide/show the title name and icon (when panel is inside a tab — already shown there).
+    /// Keeps the action buttons (sync, zoom, menu) visible.
+    pub fn set_title_visible(&self, visible: bool) {
+        self.type_icon.set_visible(visible);
+        // Hide the title stack (contains label + entry)
+        if let Some(parent) = self.title_label.parent() {
+            parent.set_visible(visible);
+        }
     }
 
     /// Update the panel type icon.
