@@ -5,10 +5,10 @@
     "type": "vsplit",
     "children": [
       {
-        "type": "tabs",
+        "type": "hsplit",
         "children": [
           {
-            "type": "hsplit",
+            "type": "tabs",
             "children": [
               {
                 "type": "panel",
@@ -16,22 +16,37 @@
               },
               {
                 "type": "panel",
-                "id": "p4"
+                "id": "p6"
+              },
+              {
+                "type": "panel",
+                "id": "p8"
+              },
+              {
+                "type": "panel",
+                "id": "p9"
+              },
+              {
+                "type": "panel",
+                "id": "p10"
               }
             ],
-            "ratios": [
-              0.6680716543730242,
-              0.3319283456269758
+            "labels": [
+              "Terminale xxx",
+              "New Panel 6",
+              "New Panel 8",
+              "New Panel 9",
+              "New Panel 10"
             ]
           },
           {
             "type": "panel",
-            "id": "p3"
+            "id": "p4"
           }
         ],
-        "labels": [
-          "Terminale xxx",
-          "New Panel 3"
+        "ratios": [
+          0.6678947368421052,
+          0.3321052631578948
         ]
       },
       {
@@ -53,8 +68,8 @@
       }
     ],
     "ratios": [
-      0.40193885160328113,
-      0.5980611483967189
+      0.38402457757296465,
+      0.6159754224270353
     ]
   },
   "panels": [
@@ -103,26 +118,6 @@
       "min_height": 400
     },
     {
-      "id": "p3",
-      "name": "terminal",
-      "panel_type": {
-        "type": "terminal"
-      },
-      "target": {
-        "type": "local"
-      },
-      "startup_commands": [],
-      "groups": [],
-      "record_output": false,
-      "cwd": null,
-      "env": {},
-      "pre_script": null,
-      "post_script": null,
-      "before_close": null,
-      "min_width": 0,
-      "min_height": 0
-    },
-    {
       "id": "p4",
       "name": "browser",
       "panel_type": {
@@ -164,6 +159,93 @@
       "before_close": null,
       "min_width": 0,
       "min_height": 400
+    },
+    {
+      "id": "p6",
+      "name": "ssh",
+      "panel_type": {
+        "type": "ssh",
+        "host": "localhost",
+        "port": 22,
+        "user": null,
+        "identity_file": null
+      },
+      "target": {
+        "type": "local"
+      },
+      "startup_commands": [],
+      "groups": [],
+      "record_output": false,
+      "cwd": null,
+      "env": {},
+      "pre_script": null,
+      "post_script": null,
+      "before_close": null,
+      "min_width": 0,
+      "min_height": 0
+    },
+    {
+      "id": "p8",
+      "name": "remote_tmux",
+      "panel_type": {
+        "type": "remote_tmux",
+        "host": "localhost",
+        "session": "main",
+        "user": null
+      },
+      "target": {
+        "type": "local"
+      },
+      "startup_commands": [],
+      "groups": [],
+      "record_output": false,
+      "cwd": null,
+      "env": {},
+      "pre_script": null,
+      "post_script": null,
+      "before_close": null,
+      "min_width": 0,
+      "min_height": 0
+    },
+    {
+      "id": "p9",
+      "name": "New Panel 9",
+      "panel_type": {
+        "type": "empty"
+      },
+      "target": {
+        "type": "local"
+      },
+      "startup_commands": [],
+      "groups": [],
+      "record_output": false,
+      "cwd": null,
+      "env": {},
+      "pre_script": null,
+      "post_script": null,
+      "before_close": null,
+      "min_width": 0,
+      "min_height": 0
+    },
+    {
+      "id": "p10",
+      "name": "New Panel 10",
+      "panel_type": {
+        "type": "empty"
+      },
+      "target": {
+        "type": "local"
+      },
+      "startup_commands": [],
+      "groups": [],
+      "record_output": false,
+      "cwd": null,
+      "env": {},
+      "pre_script": null,
+      "post_script": null,
+      "before_close": null,
+      "min_width": 0,
+      "min_height": 0
     }
   ],
   "groups": [],

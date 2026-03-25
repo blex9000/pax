@@ -161,7 +161,10 @@ impl PanelHost {
 
     /// Update the action callback (rebuilds the popover menu; buttons use shared ref automatically).
     pub fn set_action_callback(&self, cb: PanelActionCallback) {
-        *self.action_cb_ref.borrow_mut() = Some(cb.clone());
+        // Use try_borrow_mut to avoid panic if called during a button click handler
+        if let Ok(mut r) = self.action_cb_ref.try_borrow_mut() {
+            *r = Some(cb.clone());
+        }
         let popover = build_panel_menu(&self.panel_id, Some(cb));
         self.menu_button.set_popover(Some(&popover));
     }
@@ -170,9 +173,14 @@ impl PanelHost {
     /// If a backend is already set, removes the old widget first.
     pub fn set_backend(&self, backend: Box<dyn PanelBackend>) {
         // Remove old backend widget if present
-        if let Some(ref old) = *self.backend.borrow() {
-            let old_widget = old.widget().clone();
-            self.container.remove(&old_widget);
+        {
+            if let Ok(current) = self.backend.try_borrow() {
+                if let Some(ref old) = *current {
+                    let old_widget = old.widget().clone();
+                    drop(current); // Release borrow before remove
+                    self.container.remove(&old_widget);
+                }
+            }
         }
         self.footer_bar.set_visible(false);
 
