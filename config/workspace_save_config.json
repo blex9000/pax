@@ -36,7 +36,7 @@
               "ssh anas",
               "New Panel 8",
               "New Panel 9",
-              "New Panel 10"
+              "markdown"
             ]
           },
           {
@@ -45,8 +45,8 @@
           }
         ],
         "ratios": [
-          0.6678947368421052,
-          0.3321052631578948
+          0.6684210526315789,
+          0.3315789473684211
         ]
       },
       {
@@ -230,9 +230,10 @@
     },
     {
       "id": "p10",
-      "name": "New Panel 10",
+      "name": "markdown",
       "panel_type": {
-        "type": "empty"
+        "type": "markdown",
+        "file": "README.md"
       },
       "target": {
         "type": "local"

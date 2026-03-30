@@ -1,0 +1,88 @@
+use std::collections::HashMap;
+
+use tp_core::workspace::{PanelConfig, PanelType, SshConfig};
+
+use crate::panels::markdown::MarkdownPanel;
+use crate::panels::registry::{PanelCreateConfig, PanelRegistry};
+
+pub fn panel_type_to_id(pt: &PanelType) -> &'static str {
+    match pt {
+        PanelType::Empty => "__empty__",
+        PanelType::Terminal | PanelType::Ssh { .. } | PanelType::RemoteTmux { .. } => "terminal",
+        PanelType::Markdown { .. } => "markdown",
+        PanelType::Browser { .. } => "browser",
+    }
+}
+
+pub fn panel_type_to_create_config(pt: &PanelType, default_shell: &str, workspace_dir: Option<&str>) -> PanelCreateConfig {
+    let mut extra = HashMap::new();
+    match pt {
+        PanelType::Markdown { file } => {
+            extra.insert("file".to_string(), file.clone());
+        }
+        PanelType::Browser { url } => {
+            extra.insert("url".to_string(), url.clone());
+        }
+        _ => {}
+    }
+    if let Some(dir) = workspace_dir {
+        extra.insert("__workspace_dir__".to_string(), dir.to_string());
+    }
+    PanelCreateConfig {
+        shell: default_shell.to_string(),
+        cwd: None,
+        env: vec![],
+        extra,
+    }
+}
+
+pub fn insert_ssh_extra(extra: &mut HashMap<String, String>, ssh: &SshConfig) {
+    extra.insert("ssh_host".to_string(), ssh.host.clone());
+    if let Some(ref u) = ssh.user { extra.insert("ssh_user".to_string(), u.clone()); }
+    if let Some(ref p) = ssh.password { extra.insert("ssh_password".to_string(), p.clone()); }
+    if let Some(ref s) = ssh.tmux_session { extra.insert("ssh_tmux_session".to_string(), s.clone()); }
+}
+
+pub fn create_backend_from_registry(
+    panel_cfg: &PanelConfig,
+    default_shell: &str,
+    registry: &PanelRegistry,
+    workspace_dir: Option<&str>,
+) -> Box<dyn crate::panels::PanelBackend> {
+    let effective = panel_cfg.effective_type();
+    let (type_id, mut extra) = match &effective {
+        PanelType::Empty => ("__empty__", HashMap::new()),
+        PanelType::Terminal | PanelType::Ssh { .. } | PanelType::RemoteTmux { .. } => ("terminal", HashMap::new()),
+        PanelType::Markdown { file } => {
+            let mut extra = HashMap::new();
+            extra.insert("file".to_string(), file.clone());
+            ("markdown", extra)
+        }
+        PanelType::Browser { url } => {
+            let mut extra = HashMap::new();
+            extra.insert("url".to_string(), url.clone());
+            ("browser", extra)
+        }
+    };
+
+    if let Some(ref ssh) = panel_cfg.effective_ssh() {
+        insert_ssh_extra(&mut extra, ssh);
+    }
+
+    if !panel_cfg.startup_commands.is_empty() {
+        extra.insert("__startup_commands__".to_string(), panel_cfg.startup_commands.join("\n"));
+    }
+    if let Some(dir) = workspace_dir {
+        extra.insert("__workspace_dir__".to_string(), dir.to_string());
+    }
+
+    let config = PanelCreateConfig {
+        shell: default_shell.to_string(),
+        cwd: panel_cfg.cwd.clone(),
+        env: panel_cfg.env.iter().map(|(k, v)| (k.clone(), v.clone())).collect(),
+        extra,
+    };
+
+    registry.create(type_id, &config)
+        .unwrap_or_else(|| Box::new(MarkdownPanel::new("/dev/null")))
+}
