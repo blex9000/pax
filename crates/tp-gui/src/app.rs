@@ -143,6 +143,7 @@ fn setup_workspace_ui(
     menu.append_section(None, &file_section);
     let settings_section = gtk4::gio::Menu::new();
     settings_section.append(Some("Settings…"), Some("app.settings"));
+    settings_section.append(Some("Keyboard Shortcuts"), Some("app.shortcuts"));
     menu.append_section(None, &settings_section);
     menu.append(Some("Quit"), Some("app.quit"));
     menu_btn.set_menu_model(Some(&menu));
@@ -484,6 +485,16 @@ fn setup_workspace_ui(
         action_group.add_action(&action);
     }
 
+    // Keyboard shortcuts dialog
+    {
+        let action = gtk4::gio::SimpleAction::new("shortcuts", None);
+        let win = window_rc.clone();
+        action.connect_activate(move |_, _| {
+            show_shortcuts_dialog(&win);
+        });
+        action_group.add_action(&action);
+    }
+
     window.insert_action_group("app", Some(&action_group));
 
     // Window close request
@@ -600,6 +611,17 @@ fn setup_workspace_ui(
                         actions::do_open(&ws, &sb, &win, &sa);
                         return glib::Propagation::Stop;
                     }
+                    gdk::Key::r => {
+                        if let Some((panel_id, is_synced)) = ws.borrow_mut().toggle_sync_focused() {
+                            let count = ws.borrow().sync_count();
+                            if is_synced {
+                                sb.borrow().set_message(&format!("Sync ON: {} ({} panels)", panel_id, count));
+                            } else {
+                                sb.borrow().set_message(&format!("Sync OFF: {} ({} panels)", panel_id, count));
+                            }
+                        }
+                        return glib::Propagation::Stop;
+                    }
                     gdk::Key::z => {
                         ws.borrow_mut().toggle_zoom();
                         let zoomed = ws.borrow().is_zoomed();
@@ -680,4 +702,86 @@ fn apply_theme(theme: Theme) {
     THEME_PROVIDER.with(|cell| {
         cell.borrow_mut().replace(provider);
     });
+}
+
+fn show_shortcuts_dialog(window: &Rc<adw::ApplicationWindow>) {
+    let dialog = gtk4::Window::builder()
+        .title("Keyboard Shortcuts")
+        .transient_for(window.as_ref())
+        .modal(true)
+        .default_width(450)
+        .default_height(500)
+        .build();
+
+    let vbox = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
+    vbox.set_margin_top(16);
+    vbox.set_margin_bottom(16);
+    vbox.set_margin_start(20);
+    vbox.set_margin_end(20);
+
+    let title = gtk4::Label::new(Some("Keyboard Shortcuts"));
+    title.add_css_class("title-3");
+    title.set_halign(gtk4::Align::Start);
+    title.set_margin_bottom(12);
+    vbox.append(&title);
+
+    let shortcuts = [
+        ("General", vec![
+            ("Ctrl+S", "Save workspace"),
+            ("Ctrl+O", "Open workspace"),
+            ("Ctrl+Q", "Quit"),
+        ]),
+        ("Panels", vec![
+            ("Ctrl+N", "Focus next panel"),
+            ("Ctrl+P", "Focus previous panel"),
+            ("Ctrl+Z", "Zoom/unzoom focused panel"),
+            ("Ctrl+R", "Toggle sync on focused panel"),
+        ]),
+        ("Layout", vec![
+            ("Ctrl+Shift+H", "Split horizontal (below)"),
+            ("Ctrl+Shift+J", "Split vertical (right)"),
+            ("Ctrl+Shift+T", "New tab"),
+            ("Ctrl+Shift+W", "Close panel"),
+            ("Ctrl+Shift+S", "Toggle sync (alt)"),
+        ]),
+        ("Panel Header", vec![
+            ("Double-click title", "Rename panel"),
+            ("Double-click tab", "Rename tab"),
+        ]),
+    ];
+
+    for (section, items) in &shortcuts {
+        let section_label = gtk4::Label::new(Some(section));
+        section_label.add_css_class("heading");
+        section_label.set_halign(gtk4::Align::Start);
+        section_label.set_margin_top(12);
+        section_label.set_margin_bottom(4);
+        vbox.append(&section_label);
+
+        for (key, desc) in items {
+            let row = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
+            row.set_margin_top(2);
+            row.set_margin_bottom(2);
+
+            let key_label = gtk4::Label::new(Some(key));
+            key_label.set_width_chars(22);
+            key_label.set_halign(gtk4::Align::Start);
+            key_label.add_css_class("monospace");
+            key_label.set_opacity(0.7);
+
+            let desc_label = gtk4::Label::new(Some(desc));
+            desc_label.set_halign(gtk4::Align::Start);
+            desc_label.set_hexpand(true);
+
+            row.append(&key_label);
+            row.append(&desc_label);
+            vbox.append(&row);
+        }
+    }
+
+    let scrolled = gtk4::ScrolledWindow::new();
+    scrolled.set_child(Some(&vbox));
+
+    dialog.set_child(Some(&scrolled));
+    dialog.present();
 }
