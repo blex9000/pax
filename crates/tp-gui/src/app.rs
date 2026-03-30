@@ -635,6 +635,30 @@ fn setup_workspace_ui(
                         }
                         return glib::Propagation::Stop;
                     }
+                    gdk::Key::Up | gdk::Key::Down | gdk::Key::Left | gdk::Key::Right => {
+                        let ws_widget = ws.borrow().widget().clone();
+                        let step = 80.0;
+                        match key {
+                            gdk::Key::Up => {
+                                let adj = ws_widget.vadjustment();
+                                adj.set_value(adj.value() - step);
+                            }
+                            gdk::Key::Down => {
+                                let adj = ws_widget.vadjustment();
+                                adj.set_value(adj.value() + step);
+                            }
+                            gdk::Key::Left => {
+                                let adj = ws_widget.hadjustment();
+                                adj.set_value(adj.value() - step);
+                            }
+                            gdk::Key::Right => {
+                                let adj = ws_widget.hadjustment();
+                                adj.set_value(adj.value() + step);
+                            }
+                            _ => {}
+                        }
+                        return glib::Propagation::Stop;
+                    }
                     _ => {}
                 }
             }
@@ -648,15 +672,17 @@ fn setup_workspace_ui(
     // Ctrl+Scroll: scroll the entire workspace (bypasses VTE scroll capture)
     {
         let scroll_ctrl = gtk4::EventControllerScroll::new(
-            gtk4::EventControllerScrollFlags::VERTICAL,
+            gtk4::EventControllerScrollFlags::VERTICAL | gtk4::EventControllerScrollFlags::HORIZONTAL,
         );
         scroll_ctrl.set_propagation_phase(gtk4::PropagationPhase::Capture);
         let ws_widget = ws_view.borrow().widget().clone();
-        scroll_ctrl.connect_scroll(move |ctrl, _dx, dy| {
+        scroll_ctrl.connect_scroll(move |ctrl, dx, dy| {
             let mods = ctrl.current_event_state();
             if mods.contains(gdk::ModifierType::CONTROL_MASK) {
-                let adj = ws_widget.vadjustment();
-                adj.set_value(adj.value() + dy * 50.0);
+                let vadj = ws_widget.vadjustment();
+                vadj.set_value(vadj.value() + dy * 50.0);
+                let hadj = ws_widget.hadjustment();
+                hadj.set_value(hadj.value() + dx * 50.0);
                 return glib::Propagation::Stop;
             }
             glib::Propagation::Proceed
@@ -756,6 +782,8 @@ fn show_shortcuts_dialog(window: &Rc<adw::ApplicationWindow>) {
             ("Ctrl+P", "Focus previous panel"),
             ("Ctrl+Z", "Zoom/unzoom focused panel"),
             ("Ctrl+R", "Toggle sync on focused panel"),
+            ("Ctrl+Arrow", "Scroll workspace"),
+            ("Ctrl+Scroll", "Scroll workspace (mouse)"),
         ]),
         ("Layout", vec![
             ("Ctrl+Shift+H", "Split horizontal (below)"),
