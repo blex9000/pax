@@ -110,7 +110,6 @@ fn setup_welcome_ui(window: &Rc<adw::ApplicationWindow>) {
 
     toolbar_view.set_content(Some(&welcome));
     window.set_content(Some(&toolbar_view));
-    window.set_default_size(700, 550);
 }
 
 /// Setup the full workspace UI in the window (replaces any existing content).
@@ -121,12 +120,6 @@ fn setup_workspace_ui(
 ) {
     let ws_name = workspace.name.clone();
     window.set_title(Some(&format!("MyTerms — {}", ws_name)));
-    // If the window was maximized (e.g. from welcome screen), re-maximize
-    // after setting content. Otherwise use a reasonable default.
-    let was_maximized = window.is_maximized() || window.is_fullscreen();
-    if !was_maximized {
-        window.set_default_size(1200, 800);
-    }
 
     // Apply saved theme
     apply_theme(Theme::from_id(&workspace.settings.theme));
@@ -627,13 +620,6 @@ fn setup_workspace_ui(
     actions::update_dirty_ui(&ws_view, &window_rc, &save_action);
     actions::update_status_bar_path(&ws_view, &status_bar);
 
-    // Re-maximize if the window was maximized before (e.g. from welcome)
-    if was_maximized {
-        let win = window.clone();
-        glib::idle_add_local_once(move || {
-            win.maximize();
-        });
-    }
 }
 
 thread_local! {
