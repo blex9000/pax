@@ -221,6 +221,7 @@ impl MarkdownPanel {
                 tv.set_editable(false);
                 tv.set_cursor_visible(false);
                 fb.set_visible(false);
+                tv.buffer().set_enable_undo(false);
                 ub.set_sensitive(false);
                 rb.set_sensitive(false);
                 render_markdown_to_view(&tv, &ct.borrow());
@@ -241,14 +242,16 @@ impl MarkdownPanel {
                 tv.set_editable(true);
                 tv.set_cursor_visible(true);
                 fb.set_visible(true);
+                tv.buffer().set_enable_undo(false); // disable before set_text to not record it
                 tv.buffer().set_text(&ct.borrow());
+                tv.buffer().set_enable_undo(true);  // re-enable for user edits
                 ub.set_sensitive(false);
                 rb.set_sensitive(false);
             });
         }
 
-        // Enable undo on the text buffer
-        text_view.buffer().set_enable_undo(true);
+        // Undo starts disabled — enabled only in edit mode
+        text_view.buffer().set_enable_undo(false);
 
         // ── Undo/Redo buttons ────────────────────────────────────────────
         {
@@ -275,14 +278,16 @@ impl MarkdownPanel {
         // ── Track modifications + undo/redo state via notify signals ─────
         {
             let ub = undo_btn.clone();
+            let m = mode.clone();
             text_view.buffer().connect_notify_local(Some("can-undo"), move |buf, _| {
-                ub.set_sensitive(buf.can_undo());
+                ub.set_sensitive(m.get() == Mode::Edit && buf.can_undo());
             });
         }
         {
             let rb = redo_btn.clone();
+            let m = mode.clone();
             text_view.buffer().connect_notify_local(Some("can-redo"), move |buf, _| {
-                rb.set_sensitive(buf.can_redo());
+                rb.set_sensitive(m.get() == Mode::Edit && buf.can_redo());
             });
         }
         {
