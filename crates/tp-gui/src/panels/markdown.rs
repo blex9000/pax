@@ -61,7 +61,6 @@ impl MarkdownPanel {
         save_indicator.set_visible(false);
         save_indicator.set_tooltip_text(Some("Save"));
         save_indicator.add_css_class("flat");
-        save_indicator.add_css_class("dirty-indicator");
 
         let reload_btn = gtk4::Button::new();
         reload_btn.set_icon_name("view-refresh-symbolic");
@@ -296,7 +295,6 @@ impl MarkdownPanel {
             let m = mode.clone();
             text_view.buffer().connect_changed(move |_| {
                 if m.get() == Mode::Edit && !mod_flag.get() {
-                    tracing::info!("markdown: buffer changed in edit mode — marking modified");
                     mod_flag.set(true);
                     si.set_visible(true);
                 }
@@ -367,20 +365,11 @@ impl MarkdownPanel {
             });
         }
 
-        // Ensure clean state after construction — deferred to catch any
-        // signal handlers that fire during initial widget setup
-        {
-            let si = save_indicator.clone();
-            let ub = undo_btn.clone();
-            let rb = redo_btn.clone();
-            let mf = modified.clone();
-            glib::idle_add_local_once(move || {
-                mf.set(false);
-                si.set_visible(false);
-                ub.set_sensitive(false);
-                rb.set_sensitive(false);
-            });
-        }
+        // Ensure clean state
+        modified.set(false);
+        save_indicator.set_visible(false);
+        undo_btn.set_sensitive(false);
+        redo_btn.set_sensitive(false);
 
         Self { widget, text_view, file_path: file_path.to_string() }
     }
