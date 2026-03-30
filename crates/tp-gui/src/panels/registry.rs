@@ -139,17 +139,27 @@ pub fn build_default_registry() -> PanelRegistry {
                 } else {
                     host.clone()
                 };
+                // Set SSHPASS env var if password is configured (hidden from terminal)
+                if let Some(pw) = password {
+                    panel.queue_raw(&format!("export SSHPASS='{}'", pw.replace('\'', "'\\''")));
+                }
                 let cmd = if let Some(session) = tmux_session {
-                    // Remote tmux
-                    format!("ssh -t {} 'tmux new-session -A -s {}'", ssh_target, session)
-                } else if let Some(pw) = password {
-                    // SSH with password via sshpass
-                    format!("sshpass -p '{}' ssh -o StrictHostKeyChecking=accept-new {}", pw.replace('\'', "'\\''"), ssh_target)
+                    if password.is_some() {
+                        format!("sshpass -e ssh -o StrictHostKeyChecking=accept-new -t {} 'tmux new-session -A -s {}'", ssh_target, session)
+                    } else {
+                        format!("ssh -t {} 'tmux new-session -A -s {}'", ssh_target, session)
+                    }
+                } else if password.is_some() {
+                    // SSH with password via sshpass -e (reads from SSHPASS env var)
+                    format!("sshpass -e ssh -o StrictHostKeyChecking=accept-new {}", ssh_target)
                 } else {
-                    // SSH with key auth
                     format!("ssh {}", ssh_target)
                 };
                 panel.send_commands(&[cmd]);
+                // Clear SSHPASS from env after connection
+                if password.is_some() {
+                    panel.queue_raw("unset SSHPASS");
+                }
             }
             // Startup script commands
             if let Some(cmds_str) = config.extra.get("__startup_commands__") {
