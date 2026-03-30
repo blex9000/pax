@@ -266,15 +266,17 @@ fn setup_workspace_ui(
                 PanelAction::Configure => {
                     let (pname, ptype, pcwd, pssh, pcmds, pclose, pmw, pmh) = {
                         let view = ws_for_cb.borrow();
+                        let ws = view.workspace();
+                        let pcfg = ws.panel(panel_id);
                         (
-                            view.panel_name(panel_id).unwrap_or_default(),
-                            view.panel_type(panel_id).unwrap_or(tp_core::workspace::PanelType::Terminal),
-                            view.panel_cwd(panel_id),
-                            view.panel_ssh(panel_id),
-                            view.panel_startup_commands(panel_id),
-                            view.panel_before_close(panel_id),
-                            view.panel_min_width(panel_id),
-                            view.panel_min_height(panel_id),
+                            pcfg.map(|p| p.name.clone()).unwrap_or_default(),
+                            pcfg.map(|p| p.effective_type()).unwrap_or(tp_core::workspace::PanelType::Terminal),
+                            pcfg.and_then(|p| p.cwd.clone()),
+                            pcfg.and_then(|p| p.effective_ssh()),
+                            pcfg.map(|p| p.startup_commands.clone()).unwrap_or_default(),
+                            pcfg.and_then(|p| p.before_close.clone()),
+                            pcfg.map(|p| p.min_width).unwrap_or(0),
+                            pcfg.map(|p| p.min_height).unwrap_or(0),
                         )
                     };
                     let pid = panel_id.to_string();

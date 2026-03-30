@@ -183,35 +183,6 @@ impl WorkspaceView {
     }
 
     /// Get the current panel type for a panel.
-    pub fn panel_type(&self, panel_id: &str) -> Option<PanelType> {
-        self.workspace.panels.iter()
-            .find(|p| p.id == panel_id)
-            .map(|p| p.effective_type())
-    }
-
-    /// Get the panel name.
-    pub fn panel_name(&self, panel_id: &str) -> Option<String> {
-        self.workspace.panels.iter()
-            .find(|p| p.id == panel_id)
-            .map(|p| p.name.clone())
-    }
-
-    /// Get min_width for a panel.
-    pub fn panel_min_width(&self, panel_id: &str) -> u32 {
-        self.workspace.panels.iter()
-            .find(|p| p.id == panel_id)
-            .map(|p| p.min_width)
-            .unwrap_or(0)
-    }
-
-    /// Get min_height for a panel.
-    pub fn panel_min_height(&self, panel_id: &str) -> u32 {
-        self.workspace.panels.iter()
-            .find(|p| p.id == panel_id)
-            .map(|p| p.min_height)
-            .unwrap_or(0)
-    }
-
     /// Update panel config after Configure dialog.
     /// Recreates the backend with the new type/settings and runs startup commands.
     pub fn apply_panel_config(&mut self, panel_id: &str, new_name: String, new_type: PanelType, cwd: Option<String>, ssh: Option<tp_core::workspace::SshConfig>, startup_commands: Vec<String>, before_close: Option<String>, min_width: u32, min_height: u32) {
@@ -267,38 +238,9 @@ impl WorkspaceView {
         self.rebuild_layout();
     }
 
-    /// Get effective SSH config for a panel.
-    pub fn panel_ssh(&self, panel_id: &str) -> Option<tp_core::workspace::SshConfig> {
-        self.workspace.panels.iter()
-            .find(|p| p.id == panel_id)
-            .and_then(|p| p.effective_ssh())
-    }
-
-    /// Get cwd for a panel.
-    pub fn panel_cwd(&self, panel_id: &str) -> Option<String> {
-        self.workspace.panels.iter()
-            .find(|p| p.id == panel_id)
-            .and_then(|p| p.cwd.clone())
-    }
-
-    /// Get startup commands for a panel.
-    pub fn panel_startup_commands(&self, panel_id: &str) -> Vec<String> {
-        self.workspace.panels.iter()
-            .find(|p| p.id == panel_id)
-            .map(|p| p.startup_commands.clone())
-            .unwrap_or_default()
-    }
-
-    /// Get before_close script for a panel.
-    pub fn panel_before_close(&self, panel_id: &str) -> Option<String> {
-        self.workspace.panels.iter()
-            .find(|p| p.id == panel_id)
-            .and_then(|p| p.before_close.clone())
-    }
-
     /// Execute before_close script for a panel.
     fn run_before_close(&self, panel_id: &str) {
-        if let Some(script) = self.panel_before_close(panel_id) {
+        if let Some(script) = self.workspace.panel(panel_id).and_then(|p| p.before_close.clone()) {
             self.execute_close_script(panel_id, &script);
         }
     }
