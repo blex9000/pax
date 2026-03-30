@@ -4,8 +4,9 @@ version.workspace = true
 edition.workspace = true
 
 [features]
-default = ["vte"]
+default = ["vte", "sourceview"]
 vte = ["dep:vte4"]
+sourceview = ["dep:sourceview5"]
 
 [dependencies]
 tp-core = { workspace = true }
@@ -22,4 +23,4 @@ vte4 = { version = "0.8", optional = true }
 vt100 = "0.15"
 portable-pty = "0.8"
 fuzzy-matcher = "0.3"
-sourceview5 = "0.9"
+sourceview5 = { version = "0.9", optional = true }
