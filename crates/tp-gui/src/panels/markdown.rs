@@ -44,6 +44,18 @@ impl MarkdownPanel {
         edit_btn.set_tooltip_text(Some("Edit mode"));
         edit_btn.set_group(Some(&render_btn));
 
+        let undo_btn = gtk4::Button::new();
+        undo_btn.set_icon_name("edit-undo-symbolic");
+        undo_btn.add_css_class("flat");
+        undo_btn.set_tooltip_text(Some("Undo"));
+        undo_btn.set_sensitive(false);
+
+        let redo_btn = gtk4::Button::new();
+        redo_btn.set_icon_name("edit-redo-symbolic");
+        redo_btn.add_css_class("flat");
+        redo_btn.set_tooltip_text(Some("Redo"));
+        redo_btn.set_sensitive(false);
+
         let save_indicator = gtk4::Button::new();
         save_indicator.set_icon_name("media-floppy-symbolic");
         save_indicator.set_visible(false);
@@ -65,6 +77,9 @@ impl MarkdownPanel {
 
         toolbar.append(&render_btn);
         toolbar.append(&edit_btn);
+        toolbar.append(&gtk4::Separator::new(gtk4::Orientation::Vertical));
+        toolbar.append(&undo_btn);
+        toolbar.append(&redo_btn);
         toolbar.append(&gtk4::Separator::new(gtk4::Orientation::Vertical));
         toolbar.append(&save_indicator);
         toolbar.append(&reload_btn);
@@ -186,6 +201,8 @@ impl MarkdownPanel {
             let mod_flag = modified.clone();
             let fp = file_path.to_string();
             let si = save_indicator.clone();
+            let ub = undo_btn.clone();
+            let rb = redo_btn.clone();
             render_btn.connect_toggled(move |btn| {
                 if !btn.is_active() { return; }
                 // If coming from edit, save content from buffer
@@ -204,6 +221,8 @@ impl MarkdownPanel {
                 tv.set_editable(false);
                 tv.set_cursor_visible(false);
                 fb.set_visible(false);
+                ub.set_sensitive(false);
+                rb.set_sensitive(false);
                 render_markdown_to_view(&tv, &ct.borrow());
             });
         }
@@ -214,6 +233,8 @@ impl MarkdownPanel {
             let ct = content.clone();
             let m = mode.clone();
             let fb = fmt_bar.clone();
+            let ub = undo_btn.clone();
+            let rb = redo_btn.clone();
             edit_btn.connect_toggled(move |btn| {
                 if !btn.is_active() { return; }
                 m.set(Mode::Edit);
@@ -221,18 +242,39 @@ impl MarkdownPanel {
                 tv.set_cursor_visible(true);
                 fb.set_visible(true);
                 tv.buffer().set_text(&ct.borrow());
+                ub.set_sensitive(false);
+                rb.set_sensitive(false);
             });
         }
 
-        // ── Track modifications in edit mode ─────────────────────────────
+        // Enable undo on the text buffer
+        text_view.buffer().set_enable_undo(true);
+
+        // ── Undo/Redo buttons ────────────────────────────────────────────
+        {
+            let tv = text_view.clone();
+            undo_btn.connect_clicked(move |_| { tv.buffer().undo(); });
+        }
+        {
+            let tv = text_view.clone();
+            redo_btn.connect_clicked(move |_| { tv.buffer().redo(); });
+        }
+
+        // ── Track modifications in edit mode + update undo/redo state ────
         {
             let mod_flag = modified.clone();
             let si = save_indicator.clone();
             let m = mode.clone();
-            text_view.buffer().connect_changed(move |_| {
-                if m.get() == Mode::Edit && !mod_flag.get() {
-                    mod_flag.set(true);
-                    si.set_visible(true);
+            let ub = undo_btn.clone();
+            let rb = redo_btn.clone();
+            text_view.buffer().connect_changed(move |buf| {
+                if m.get() == Mode::Edit {
+                    if !mod_flag.get() {
+                        mod_flag.set(true);
+                        si.set_visible(true);
+                    }
+                    ub.set_sensitive(buf.can_undo());
+                    rb.set_sensitive(buf.can_redo());
                 }
             });
         }
