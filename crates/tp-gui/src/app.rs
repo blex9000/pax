@@ -121,8 +121,10 @@ fn setup_workspace_ui(
 ) {
     let ws_name = workspace.name.clone();
     window.set_title(Some(&format!("MyTerms — {}", ws_name)));
-    // Preserve maximized state, otherwise set a reasonable default
-    if !window.is_maximized() {
+    // If the window was maximized (e.g. from welcome screen), re-maximize
+    // after setting content. Otherwise use a reasonable default.
+    let was_maximized = window.is_maximized() || window.is_fullscreen();
+    if !was_maximized {
         window.set_default_size(1200, 800);
     }
 
@@ -624,6 +626,11 @@ fn setup_workspace_ui(
     // Initial UI state
     actions::update_dirty_ui(&ws_view, &window_rc, &save_action);
     actions::update_status_bar_path(&ws_view, &status_bar);
+
+    // Re-maximize if the window was maximized before (e.g. from welcome)
+    if was_maximized {
+        window.maximize();
+    }
 }
 
 thread_local! {
