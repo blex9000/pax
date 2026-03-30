@@ -275,21 +275,12 @@ impl MarkdownPanel {
         }
 
         // ── Track modifications + undo/redo state via notify signals ─────
-        // Track undo/redo/save state — all driven by can-undo notify
-        // (fires only when actual undoable user edits happen in edit mode)
+        // Track undo/redo state
         {
             let ub = undo_btn.clone();
-            let sb = save_btn.clone();
             let m = mode.clone();
-            let mod_flag = modified.clone();
             text_view.buffer().connect_notify_local(Some("can-undo"), move |buf, _| {
-                let editing = m.get() == Mode::Edit;
-                ub.set_sensitive(editing && buf.can_undo());
-                // If can_undo just became true in edit mode, we have unsaved changes
-                if editing && buf.can_undo() && !mod_flag.get() {
-                    mod_flag.set(true);
-                    sb.set_sensitive(true);
-                }
+                ub.set_sensitive(m.get() == Mode::Edit && buf.can_undo());
             });
         }
         {
@@ -297,6 +288,20 @@ impl MarkdownPanel {
             let m = mode.clone();
             text_view.buffer().connect_notify_local(Some("can-redo"), move |buf, _| {
                 rb.set_sensitive(m.get() == Mode::Edit && buf.can_redo());
+            });
+        }
+        // Track save state: compare buffer content with saved content
+        {
+            let sb = save_btn.clone();
+            let ct = content.clone();
+            let m = mode.clone();
+            let mod_flag = modified.clone();
+            text_view.buffer().connect_changed(move |buf| {
+                if m.get() != Mode::Edit { return; }
+                let current = buf.text(&buf.start_iter(), &buf.end_iter(), false).to_string();
+                let dirty = current != *ct.borrow();
+                mod_flag.set(dirty);
+                sb.set_sensitive(dirty);
             });
         }
 
