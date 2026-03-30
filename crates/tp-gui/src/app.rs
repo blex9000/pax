@@ -121,7 +121,10 @@ fn setup_workspace_ui(
 ) {
     let ws_name = workspace.name.clone();
     window.set_title(Some(&format!("MyTerms — {}", ws_name)));
-    window.set_default_size(1200, 800);
+    // Preserve maximized state, otherwise set a reasonable default
+    if !window.is_maximized() {
+        window.set_default_size(1200, 800);
+    }
 
     // Apply saved theme
     apply_theme(Theme::from_id(&workspace.settings.theme));
