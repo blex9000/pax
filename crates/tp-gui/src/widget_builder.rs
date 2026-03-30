@@ -24,7 +24,7 @@ pub fn build_tab_label(name: &str, panel_type_id: &str, action_cb: &Option<Panel
 
     let icon_name = match panel_type_id {
         "terminal" => "utilities-terminal-symbolic",
-        "markdown" => "document-properties-symbolic",
+        "markdown" => "text-x-generic-symbolic",
         "browser" => "web-browser-symbolic",
         _ => "radio-symbolic",
     };

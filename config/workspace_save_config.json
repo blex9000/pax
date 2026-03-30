@@ -20,17 +20,12 @@
               },
               {
                 "type": "panel",
-                "id": "p8"
-              },
-              {
-                "type": "panel",
                 "id": "p9"
               }
             ],
             "labels": [
               "Terminale xxx",
               "ssh anas",
-              "New Panel 8",
               "markdown"
             ]
           },
@@ -40,8 +35,8 @@
           }
         ],
         "ratios": [
-          0.6682291666666667,
-          0.33177083333333335
+          0.6683333333333333,
+          0.33166666666666667
         ]
       },
       {
@@ -165,29 +160,6 @@
         "user": "root",
         "password": "abc123!",
         "identity_file": null
-      },
-      "target": {
-        "type": "local"
-      },
-      "startup_commands": [],
-      "groups": [],
-      "record_output": false,
-      "cwd": null,
-      "env": {},
-      "pre_script": null,
-      "post_script": null,
-      "before_close": null,
-      "min_width": 0,
-      "min_height": 0
-    },
-    {
-      "id": "p8",
-      "name": "remote_tmux",
-      "panel_type": {
-        "type": "remote_tmux",
-        "host": "localhost",
-        "session": "main",
-        "user": null
       },
       "target": {
         "type": "local"
