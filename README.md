@@ -1,5 +1,5 @@
 MyTerms — Workspace Manager con Pannelli Eterogenei
-
+aaa aaa vvv
 Workspace manager GUI cross-platform in Rust (GTK4 + VTE), stile Tilix, con pannelli di tipi diversi: terminale, SSH, tmux remoto, markdown viewer, browser embed.
 
 Piattaforme: Linux (primario), macOS (supportato).
