@@ -57,7 +57,7 @@ impl MarkdownPanel {
         redo_btn.set_sensitive(false);
 
         let save_btn = gtk4::Button::new();
-        save_btn.set_icon_name("document-save-symbolic");
+        save_btn.set_icon_name("media-floppy-symbolic");
         save_btn.set_sensitive(false);
         save_btn.set_tooltip_text(Some("Save"));
         save_btn.add_css_class("flat");
@@ -275,11 +275,21 @@ impl MarkdownPanel {
         }
 
         // ── Track modifications + undo/redo state via notify signals ─────
+        // Track undo/redo/save state — all driven by can-undo notify
+        // (fires only when actual undoable user edits happen in edit mode)
         {
             let ub = undo_btn.clone();
+            let sb = save_btn.clone();
             let m = mode.clone();
+            let mod_flag = modified.clone();
             text_view.buffer().connect_notify_local(Some("can-undo"), move |buf, _| {
-                ub.set_sensitive(m.get() == Mode::Edit && buf.can_undo());
+                let editing = m.get() == Mode::Edit;
+                ub.set_sensitive(editing && buf.can_undo());
+                // If can_undo just became true in edit mode, we have unsaved changes
+                if editing && buf.can_undo() && !mod_flag.get() {
+                    mod_flag.set(true);
+                    sb.set_sensitive(true);
+                }
             });
         }
         {
@@ -287,17 +297,6 @@ impl MarkdownPanel {
             let m = mode.clone();
             text_view.buffer().connect_notify_local(Some("can-redo"), move |buf, _| {
                 rb.set_sensitive(m.get() == Mode::Edit && buf.can_redo());
-            });
-        }
-        {
-            let mod_flag = modified.clone();
-            let si = save_btn.clone();
-            let m = mode.clone();
-            text_view.buffer().connect_changed(move |_| {
-                if m.get() == Mode::Edit && !mod_flag.get() {
-                    mod_flag.set(true);
-                    si.set_sensitive(true);
-                }
             });
         }
 
