@@ -645,6 +645,25 @@ fn setup_workspace_ui(
 
     window.add_controller(controller);
 
+    // Ctrl+Scroll: scroll the entire workspace (bypasses VTE scroll capture)
+    {
+        let scroll_ctrl = gtk4::EventControllerScroll::new(
+            gtk4::EventControllerScrollFlags::VERTICAL,
+        );
+        scroll_ctrl.set_propagation_phase(gtk4::PropagationPhase::Capture);
+        let ws_widget = ws_view.borrow().widget().clone();
+        scroll_ctrl.connect_scroll(move |ctrl, _dx, dy| {
+            let mods = ctrl.current_event_state();
+            if mods.contains(gdk::ModifierType::CONTROL_MASK) {
+                let adj = ws_widget.vadjustment();
+                adj.set_value(adj.value() + dy * 50.0);
+                return glib::Propagation::Stop;
+            }
+            glib::Propagation::Proceed
+        });
+        window.add_controller(scroll_ctrl);
+    }
+
     // Initial UI state
     actions::update_dirty_ui(&ws_view, &window_rc, &save_action);
     actions::update_status_bar_path(&ws_view, &status_bar);
