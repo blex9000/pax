@@ -629,7 +629,10 @@ fn setup_workspace_ui(
 
     // Re-maximize if the window was maximized before (e.g. from welcome)
     if was_maximized {
-        window.maximize();
+        let win = window.clone();
+        glib::idle_add_local_once(move || {
+            win.maximize();
+        });
     }
 }
 
