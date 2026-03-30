@@ -173,6 +173,7 @@ box.panel-title-bar { padding: 2px 6px; margin: 0; min-height: 20px; }
 .status-bar { padding: 2px 8px; min-height: 22px; }
 .status-mode { font-weight: bold; padding: 0 6px; }
 .markdown-panel { font-family: sans-serif; font-size: 12px; }
+.markdown-toolbar { border-bottom: 1px solid alpha(@borders, 0.3); }
 .tab-close-btn { min-height: 14px; min-width: 14px; padding: 1px; }
 paned > separator { min-width: 1px; min-height: 1px; }
 .dirty-indicator { color: #ff8c00; }
