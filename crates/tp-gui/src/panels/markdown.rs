@@ -241,9 +241,10 @@ impl MarkdownPanel {
                 tv.set_editable(true);
                 tv.set_cursor_visible(true);
                 fb.set_visible(true);
-                tv.buffer().set_enable_undo(false); // disable before set_text to not record it
+                tv.buffer().set_enable_undo(false);
                 tv.buffer().set_text(&ct.borrow());
-                tv.buffer().set_enable_undo(true);  // re-enable for user edits
+                highlight_markdown_source(&tv);
+                tv.buffer().set_enable_undo(true);
                 ub.set_sensitive(false);
                 rb.set_sensitive(false);
             });
@@ -290,18 +291,29 @@ impl MarkdownPanel {
                 rb.set_sensitive(m.get() == Mode::Edit && buf.can_redo());
             });
         }
-        // Track save state: compare buffer content with saved content
+        // Track save state + syntax highlight in edit mode
         {
             let sb = save_btn.clone();
             let ct = content.clone();
             let m = mode.clone();
             let mod_flag = modified.clone();
+            let tv = text_view.clone();
+            let highlighting = Rc::new(Cell::new(false));
             text_view.buffer().connect_changed(move |buf| {
                 if m.get() != Mode::Edit { return; }
+                if highlighting.get() { return; } // avoid recursion from tag changes
                 let current = buf.text(&buf.start_iter(), &buf.end_iter(), false).to_string();
                 let dirty = current != *ct.borrow();
                 mod_flag.set(dirty);
                 sb.set_sensitive(dirty);
+                // Deferred highlight to not interfere with current edit
+                let h = highlighting.clone();
+                let tv2 = tv.clone();
+                glib::idle_add_local_once(move || {
+                    h.set(true);
+                    highlight_markdown_source(&tv2);
+                    h.set(false);
+                });
             });
         }
 
@@ -389,6 +401,176 @@ impl PanelBackend for MarkdownPanel {
     fn panel_type(&self) -> &str { "markdown" }
     fn widget(&self) -> &gtk4::Widget { &self.widget }
     fn on_focus(&self) { self.text_view.grab_focus(); }
+}
+
+// ── Syntax highlighting for edit mode ─────────────────────────────────────────
+
+fn highlight_markdown_source(tv: &gtk4::TextView) {
+    let buf = tv.buffer();
+    let tag_table = buf.tag_table();
+
+    // Ensure highlight tags exist (prefixed with "hl_" to avoid collision with render tags)
+    let ensure_hl_tag = |name: &str, setup: &dyn Fn(&gtk4::TextTag)| {
+        if tag_table.lookup(name).is_none() {
+            let tag = gtk4::TextTag::new(Some(name));
+            setup(&tag);
+            tag_table.add(&tag);
+        }
+    };
+
+    ensure_hl_tag("hl_heading", &|t| { t.set_foreground(Some("#e5a50a")); t.set_weight(700); });
+    ensure_hl_tag("hl_bold_marker", &|t| { t.set_foreground(Some("#888888")); });
+    ensure_hl_tag("hl_bold_text", &|t| { t.set_weight(700); });
+    ensure_hl_tag("hl_italic_marker", &|t| { t.set_foreground(Some("#888888")); });
+    ensure_hl_tag("hl_italic_text", &|t| { t.set_style(gtk4::pango::Style::Italic); });
+    ensure_hl_tag("hl_code", &|t| { t.set_foreground(Some("#33cc33")); t.set_family(Some("monospace")); });
+    ensure_hl_tag("hl_code_fence", &|t| { t.set_foreground(Some("#666666")); });
+    ensure_hl_tag("hl_link", &|t| { t.set_foreground(Some("#5588ff")); });
+    ensure_hl_tag("hl_link_url", &|t| { t.set_foreground(Some("#666666")); });
+    ensure_hl_tag("hl_list", &|t| { t.set_foreground(Some("#e5a50a")); });
+    ensure_hl_tag("hl_blockquote", &|t| { t.set_foreground(Some("#888888")); t.set_style(gtk4::pango::Style::Italic); });
+    ensure_hl_tag("hl_hr", &|t| { t.set_foreground(Some("#666666")); });
+
+    // Remove all highlight tags
+    let start = buf.start_iter();
+    let end = buf.end_iter();
+    for name in &["hl_heading", "hl_bold_marker", "hl_bold_text", "hl_italic_marker",
+                   "hl_italic_text", "hl_code", "hl_code_fence", "hl_link", "hl_link_url",
+                   "hl_list", "hl_blockquote", "hl_hr"] {
+        buf.remove_tag_by_name(name, &start, &end);
+    }
+
+    let text = buf.text(&start, &end, false).to_string();
+    let mut in_code_block = false;
+
+    for (line_idx, line) in text.lines().enumerate() {
+        let line_start = buf.iter_at_line(line_idx as i32);
+        if line_start.is_none() { continue; }
+        let ls = line_start.unwrap();
+        let mut le = ls.clone();
+        le.forward_to_line_end();
+
+        // Code fences
+        if line.starts_with("```") {
+            buf.apply_tag_by_name("hl_code_fence", &ls, &le);
+            in_code_block = !in_code_block;
+            continue;
+        }
+        if in_code_block {
+            buf.apply_tag_by_name("hl_code", &ls, &le);
+            continue;
+        }
+
+        // Headings
+        if line.starts_with('#') {
+            buf.apply_tag_by_name("hl_heading", &ls, &le);
+            continue;
+        }
+        // Horizontal rule
+        if line.starts_with("---") || line.starts_with("***") || line.starts_with("___") {
+            buf.apply_tag_by_name("hl_hr", &ls, &le);
+            continue;
+        }
+        // Blockquote
+        if line.starts_with("> ") {
+            buf.apply_tag_by_name("hl_blockquote", &ls, &le);
+            continue;
+        }
+        // List markers
+        if line.starts_with("- ") || line.starts_with("* ") || (line.len() > 2 && line.chars().next().map(|c| c.is_ascii_digit()).unwrap_or(false) && line.contains(". ")) {
+            let mut marker_end = ls.clone();
+            marker_end.forward_chars(2);
+            buf.apply_tag_by_name("hl_list", &ls, &marker_end);
+        }
+
+        // Inline: scan for **bold**, *italic*, `code`, [link](url)
+        let line_offset = ls.offset();
+        let chars: Vec<char> = line.chars().collect();
+        let len = chars.len();
+        let mut i = 0;
+
+        while i < len {
+            // `code`
+            if chars[i] == '`' {
+                let start_i = i;
+                i += 1;
+                while i < len && chars[i] != '`' { i += 1; }
+                if i < len {
+                    let s = buf.iter_at_offset(line_offset + start_i as i32);
+                    let e = buf.iter_at_offset(line_offset + i as i32 + 1);
+                    buf.apply_tag_by_name("hl_code", &s, &e);
+                    i += 1;
+                }
+            }
+            // **bold**
+            else if i + 1 < len && chars[i] == '*' && chars[i + 1] == '*' {
+                let start_i = i;
+                i += 2;
+                while i + 1 < len && !(chars[i] == '*' && chars[i + 1] == '*') { i += 1; }
+                if i + 1 < len {
+                    // Markers
+                    let ms = buf.iter_at_offset(line_offset + start_i as i32);
+                    let me = buf.iter_at_offset(line_offset + start_i as i32 + 2);
+                    buf.apply_tag_by_name("hl_bold_marker", &ms, &me);
+                    // Text
+                    let ts = buf.iter_at_offset(line_offset + start_i as i32 + 2);
+                    let te = buf.iter_at_offset(line_offset + i as i32);
+                    buf.apply_tag_by_name("hl_bold_text", &ts, &te);
+                    // Closing markers
+                    let cs = buf.iter_at_offset(line_offset + i as i32);
+                    let ce = buf.iter_at_offset(line_offset + i as i32 + 2);
+                    buf.apply_tag_by_name("hl_bold_marker", &cs, &ce);
+                    i += 2;
+                }
+            }
+            // *italic*
+            else if chars[i] == '*' {
+                let start_i = i;
+                i += 1;
+                while i < len && chars[i] != '*' { i += 1; }
+                if i < len {
+                    let ms = buf.iter_at_offset(line_offset + start_i as i32);
+                    let me = buf.iter_at_offset(line_offset + start_i as i32 + 1);
+                    buf.apply_tag_by_name("hl_italic_marker", &ms, &me);
+                    let ts = buf.iter_at_offset(line_offset + start_i as i32 + 1);
+                    let te = buf.iter_at_offset(line_offset + i as i32);
+                    buf.apply_tag_by_name("hl_italic_text", &ts, &te);
+                    let cs = buf.iter_at_offset(line_offset + i as i32);
+                    let ce = buf.iter_at_offset(line_offset + i as i32 + 1);
+                    buf.apply_tag_by_name("hl_italic_marker", &cs, &ce);
+                    i += 1;
+                }
+            }
+            // [link](url)
+            else if chars[i] == '[' {
+                let start_i = i;
+                i += 1;
+                while i < len && chars[i] != ']' { i += 1; }
+                if i + 1 < len && chars[i] == ']' && chars[i + 1] == '(' {
+                    let link_end = i;
+                    i += 2;
+                    let _url_start = i;
+                    while i < len && chars[i] != ')' { i += 1; }
+                    if i < len {
+                        // [text]
+                        let ls = buf.iter_at_offset(line_offset + start_i as i32);
+                        let le = buf.iter_at_offset(line_offset + link_end as i32 + 1);
+                        buf.apply_tag_by_name("hl_link", &ls, &le);
+                        // (url)
+                        let us = buf.iter_at_offset(line_offset + link_end as i32 + 1);
+                        let ue = buf.iter_at_offset(line_offset + i as i32 + 1);
+                        buf.apply_tag_by_name("hl_link_url", &us, &ue);
+                        i += 1;
+                    }
+                } else {
+                    i += 1;
+                }
+            }
+            else {
+                i += 1;
+            }
+        }
+    }
 }
 
 // ── Formatting helpers ───────────────────────────────────────────────────────
