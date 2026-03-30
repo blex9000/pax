@@ -22,3 +22,4 @@ vte4 = { version = "0.8", optional = true }
 vt100 = "0.15"
 portable-pty = "0.8"
 fuzzy-matcher = "0.3"
+sourceview5 = "0.9"
