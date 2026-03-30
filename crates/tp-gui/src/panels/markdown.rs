@@ -44,9 +44,11 @@ impl MarkdownPanel {
         edit_btn.set_tooltip_text(Some("Edit mode"));
         edit_btn.set_group(Some(&render_btn));
 
-        let save_indicator = gtk4::Image::from_icon_name("media-floppy-symbolic");
+        let save_indicator = gtk4::Button::new();
+        save_indicator.set_icon_name("media-floppy-symbolic");
         save_indicator.set_visible(false);
-        save_indicator.set_tooltip_text(Some("Unsaved changes"));
+        save_indicator.set_tooltip_text(Some("Save (unsaved changes)"));
+        save_indicator.add_css_class("flat");
         save_indicator.add_css_class("dirty-indicator");
 
         let reload_btn = gtk4::Button::new();
@@ -235,6 +237,23 @@ impl MarkdownPanel {
             });
         }
 
+        // ── Save button (the floppy indicator is clickable) ──────────────
+        {
+            let fp = file_path.to_string();
+            let ct = content.clone();
+            let tv = text_view.clone();
+            let mod_flag = modified.clone();
+            let si = save_indicator.clone();
+            save_indicator.connect_clicked(move |_| {
+                let buf = tv.buffer();
+                let text = buf.text(&buf.start_iter(), &buf.end_iter(), false).to_string();
+                *ct.borrow_mut() = text.clone();
+                let _ = std::fs::write(&fp, &text);
+                mod_flag.set(false);
+                si.set_visible(false);
+            });
+        }
+
         // ── Reload button ────────────────────────────────────────────────
         {
             let fp = file_path.to_string();
@@ -265,7 +284,7 @@ impl MarkdownPanel {
             let m = mode.clone();
             let last_mtime = Rc::new(Cell::new(get_mtime(file_path)));
 
-            glib::timeout_add_local(std::time::Duration::from_secs(2), move || {
+            glib::timeout_add_local(std::time::Duration::from_millis(500), move || {
                 if m.get() == Mode::Edit { return glib::ControlFlow::Continue; }
                 let mtime = get_mtime(&fp);
                 if mtime != last_mtime.get() {
