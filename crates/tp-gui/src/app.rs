@@ -197,7 +197,7 @@ fn setup_workspace_ui(
                 let view = ws_for_cb.borrow();
                 if let Some(host) = view.host(real_id) {
                     let widget = host.widget().clone();
-                    if let Some(nb) = crate::workspace_view::find_notebook_ancestor(&widget) {
+                    if let Some(nb) = crate::widget_builder::find_notebook_ancestor(&widget) {
                         drop(view);
                         match action {
                             PanelAction::AddTabToNotebook => {
