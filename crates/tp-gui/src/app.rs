@@ -612,7 +612,8 @@ fn setup_workspace_ui(
                         return glib::Propagation::Stop;
                     }
                     gdk::Key::r => {
-                        if let Some((panel_id, is_synced)) = ws.borrow_mut().toggle_sync_focused() {
+                        let result = ws.borrow_mut().toggle_sync_focused();
+                        if let Some((panel_id, is_synced)) = result {
                             let count = ws.borrow().sync_count();
                             if is_synced {
                                 sb.borrow().set_message(&format!("Sync ON: {} ({} panels)", panel_id, count));
