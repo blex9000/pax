@@ -295,6 +295,7 @@ impl MarkdownPanel {
             let m = mode.clone();
             text_view.buffer().connect_changed(move |_| {
                 if m.get() == Mode::Edit && !mod_flag.get() {
+                    tracing::info!("markdown: buffer changed in edit mode — marking modified");
                     mod_flag.set(true);
                     si.set_sensitive(true);
                 }
