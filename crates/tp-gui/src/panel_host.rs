@@ -36,7 +36,7 @@ pub struct PanelHost {
     outer: gtk4::Box,
     container: gtk4::Box,
     _title_bar: gtk4::Box,
-    focus_dot: gtk4::Box,
+    title_bar_ref: gtk4::Box,
     type_icon: gtk4::Image,
     title_label: gtk4::Label,
     sync_button: gtk4::Button,
@@ -68,11 +68,6 @@ impl PanelHost {
         // Title bar
         let title_bar = gtk4::Box::new(gtk4::Orientation::Horizontal, 4);
         title_bar.add_css_class("panel-title-bar");
-
-        // Focus indicator bar (vertical colored strip on the left)
-        let focus_dot = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
-        focus_dot.set_width_request(4);
-        focus_dot.add_css_class("panel-focus-bar");
 
         // Panel type icon
         let type_icon = gtk4::Image::from_icon_name("radio-symbolic"); // default: empty/chooser dot
@@ -241,16 +236,9 @@ impl PanelHost {
         footer_bar.append(&footer_label);
         footer_bar.set_visible(false); // Hidden until content is set
 
-        // Inner vertical box: title bar + content + footer
-        let inner_vbox = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
-        inner_vbox.append(&container);
-        inner_vbox.append(&footer_bar);
-        inner_vbox.set_hexpand(true);
-
-        // Outer horizontal: focus bar (left) + inner content (right)
-        let outer = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
-        outer.append(&focus_dot);
-        outer.append(&inner_vbox);
+        let outer = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
+        outer.append(&container);
+        outer.append(&footer_bar);
         outer.add_css_class("panel-frame");
         outer.set_widget_name(panel_id);
         outer.set_size_request(80, 60);
@@ -278,8 +266,8 @@ impl PanelHost {
         Self {
             outer,
             container,
-            _title_bar: title_bar,
-            focus_dot,
+            _title_bar: title_bar.clone(),
+            title_bar_ref: title_bar,
             type_icon,
             title_label,
             sync_button,
@@ -345,14 +333,14 @@ impl PanelHost {
         if focused {
             self.outer.add_css_class("panel-focused");
             self.outer.remove_css_class("panel-unfocused");
-            self.focus_dot.add_css_class("panel-focus-bar-active");
+            self.title_bar_ref.add_css_class("panel-header-focused");
             if let Some(ref backend) = *self.backend.borrow() {
                 backend.on_focus();
             }
         } else {
             self.outer.remove_css_class("panel-focused");
             self.outer.add_css_class("panel-unfocused");
-            self.focus_dot.remove_css_class("panel-focus-bar-active");
+            self.title_bar_ref.remove_css_class("panel-header-focused");
             if let Some(ref backend) = *self.backend.borrow() {
                 backend.on_blur();
             }
