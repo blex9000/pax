@@ -25,17 +25,12 @@
               {
                 "type": "panel",
                 "id": "p9"
-              },
-              {
-                "type": "panel",
-                "id": "p10"
               }
             ],
             "labels": [
               "Terminale xxx",
               "ssh anas",
               "New Panel 8",
-              "markdown",
               "markdown"
             ]
           },
@@ -45,8 +40,8 @@
           }
         ],
         "ratios": [
-          0.6683333333333333,
-          0.33166666666666667
+          0.6682291666666667,
+          0.33177083333333335
         ]
       },
       {
@@ -210,27 +205,6 @@
     },
     {
       "id": "p9",
-      "name": "markdown",
-      "panel_type": {
-        "type": "markdown",
-        "file": "README.md"
-      },
-      "target": {
-        "type": "local"
-      },
-      "startup_commands": [],
-      "groups": [],
-      "record_output": false,
-      "cwd": null,
-      "env": {},
-      "pre_script": null,
-      "post_script": null,
-      "before_close": null,
-      "min_width": 0,
-      "min_height": 0
-    },
-    {
-      "id": "p10",
       "name": "markdown",
       "panel_type": {
         "type": "markdown",

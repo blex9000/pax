@@ -58,10 +58,9 @@ impl MarkdownPanel {
 
         let save_indicator = gtk4::Button::new();
         save_indicator.set_icon_name("media-floppy-symbolic");
-        save_indicator.set_visible(false);
-        save_indicator.set_tooltip_text(Some("Save (unsaved changes)"));
+        save_indicator.set_sensitive(false);
+        save_indicator.set_tooltip_text(Some("Save"));
         save_indicator.add_css_class("flat");
-        save_indicator.add_css_class("dirty-indicator");
 
         let reload_btn = gtk4::Button::new();
         reload_btn.set_icon_name("view-refresh-symbolic");
@@ -214,7 +213,7 @@ impl MarkdownPanel {
                     if mod_flag.get() {
                         let _ = std::fs::write(&fp, &text);
                         mod_flag.set(false);
-                        si.set_visible(false);
+                        si.set_sensitive(false);
                     }
                 }
                 m.set(Mode::Render);
@@ -297,7 +296,7 @@ impl MarkdownPanel {
             text_view.buffer().connect_changed(move |_| {
                 if m.get() == Mode::Edit && !mod_flag.get() {
                     mod_flag.set(true);
-                    si.set_visible(true);
+                    si.set_sensitive(true);
                 }
             });
         }
@@ -315,7 +314,7 @@ impl MarkdownPanel {
                 *ct.borrow_mut() = text.clone();
                 let _ = std::fs::write(&fp, &text);
                 mod_flag.set(false);
-                si.set_visible(false);
+                si.set_sensitive(false);
             });
         }
 
@@ -331,7 +330,7 @@ impl MarkdownPanel {
                 if let Ok(text) = std::fs::read_to_string(&fp) {
                     *ct.borrow_mut() = text.clone();
                     mod_flag.set(false);
-                    si.set_visible(false);
+                    si.set_sensitive(false);
                     if m.get() == Mode::Render {
                         render_markdown_to_view(&tv, &text);
                     } else {
@@ -355,13 +354,21 @@ impl MarkdownPanel {
                 if mtime != last_mtime.get() {
                     last_mtime.set(mtime);
                     if let Ok(text) = std::fs::read_to_string(&fp) {
-                        *ct.borrow_mut() = text.clone();
-                        render_markdown_to_view(&tv, &text);
+                        // Only reload if content actually changed
+                        if text != *ct.borrow() {
+                            *ct.borrow_mut() = text.clone();
+                            render_markdown_to_view(&tv, &text);
+                        }
                     }
                 }
                 glib::ControlFlow::Continue
             });
         }
+
+        // Ensure clean state after construction
+        save_indicator.set_sensitive(false);
+        undo_btn.set_sensitive(false);
+        redo_btn.set_sensitive(false);
 
         Self { widget, text_view, file_path: file_path.to_string() }
     }
