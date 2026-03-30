@@ -49,6 +49,11 @@ pub struct PanelHost {
     focused: RefCell<bool>,
     /// Shared callback ref — updated by set_action_callback, read by button handlers.
     action_cb_ref: Rc<RefCell<Option<PanelActionCallback>>>,
+    /// Shared sync commit callback — updated by set_sync_commit_callback, read by VTE commit handler.
+    #[cfg(feature = "vte")]
+    sync_cb_ref: Rc<RefCell<Option<Rc<dyn Fn(&str, &str)>>>>,
+    #[cfg(feature = "vte")]
+    sync_connected: std::cell::Cell<bool>,
 }
 
 impl std::fmt::Debug for PanelHost {
@@ -278,6 +283,10 @@ impl PanelHost {
             backend: RefCell::new(None),
             focused: RefCell::new(false),
             action_cb_ref,
+            #[cfg(feature = "vte")]
+            sync_cb_ref: Rc::new(RefCell::new(None)),
+            #[cfg(feature = "vte")]
+            sync_connected: std::cell::Cell::new(false),
         }
     }
 
@@ -402,12 +411,18 @@ impl PanelHost {
         }
     }
 
-    /// Connect a VTE commit handler for sync input propagation.
-    /// The callback receives (panel_id, committed_text).
-    /// Uses a shared propagating flag to prevent infinite recursion
-    /// (A types → commit → propagate to B → B's write_input → B's commit → ...).
+    /// Set the sync commit callback. The VTE commit handler is connected only once;
+    /// subsequent calls just update the shared callback ref.
     #[cfg(feature = "vte")]
     pub fn set_sync_commit_callback(&self, cb: Rc<dyn Fn(&str, &str)>, propagating: Rc<std::cell::Cell<bool>>) {
+        // Update the shared callback
+        *self.sync_cb_ref.borrow_mut() = Some(cb);
+
+        // Connect the VTE handler only once
+        if self.sync_connected.get() {
+            return;
+        }
+
         use vte4::prelude::*;
         let panel_widget = {
             let backend = self.backend.borrow();
@@ -417,14 +432,20 @@ impl PanelHost {
             if let Ok(vte) = widget.clone().downcast::<vte4::Terminal>() {
                 let pid = self.panel_id.clone();
                 let flag = propagating;
+                let cb_ref = self.sync_cb_ref.clone();
                 vte.connect_commit(move |_vte, text, _size| {
                     if flag.get() {
-                        return; // Already propagating — don't recurse
+                        return;
                     }
-                    flag.set(true);
-                    cb(&pid, text);
-                    flag.set(false);
+                    if let Ok(borrowed) = cb_ref.try_borrow() {
+                        if let Some(ref cb) = *borrowed {
+                            flag.set(true);
+                            cb(&pid, text);
+                            flag.set(false);
+                        }
+                    }
                 });
+                self.sync_connected.set(true);
             }
         }
     }
