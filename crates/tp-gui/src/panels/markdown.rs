@@ -365,10 +365,20 @@ impl MarkdownPanel {
             });
         }
 
-        // Ensure clean state after construction
-        save_indicator.set_sensitive(false);
-        undo_btn.set_sensitive(false);
-        redo_btn.set_sensitive(false);
+        // Ensure clean state after construction — deferred to catch any
+        // signal handlers that fire during initial widget setup
+        {
+            let si = save_indicator.clone();
+            let ub = undo_btn.clone();
+            let rb = redo_btn.clone();
+            let mf = modified.clone();
+            glib::idle_add_local_once(move || {
+                mf.set(false);
+                si.set_sensitive(false);
+                ub.set_sensitive(false);
+                rb.set_sensitive(false);
+            });
+        }
 
         Self { widget, text_view, file_path: file_path.to_string() }
     }
