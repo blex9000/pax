@@ -253,28 +253,46 @@ impl MarkdownPanel {
         // ── Undo/Redo buttons ────────────────────────────────────────────
         {
             let tv = text_view.clone();
-            undo_btn.connect_clicked(move |_| { tv.buffer().undo(); });
+            let ub = undo_btn.clone();
+            let rb = redo_btn.clone();
+            undo_btn.connect_clicked(move |_| {
+                tv.buffer().undo();
+                ub.set_sensitive(tv.buffer().can_undo());
+                rb.set_sensitive(tv.buffer().can_redo());
+            });
         }
         {
             let tv = text_view.clone();
-            redo_btn.connect_clicked(move |_| { tv.buffer().redo(); });
+            let ub = undo_btn.clone();
+            let rb = redo_btn.clone();
+            redo_btn.connect_clicked(move |_| {
+                tv.buffer().redo();
+                ub.set_sensitive(tv.buffer().can_undo());
+                rb.set_sensitive(tv.buffer().can_redo());
+            });
         }
 
-        // ── Track modifications in edit mode + update undo/redo state ────
+        // ── Track modifications + undo/redo state via notify signals ─────
+        {
+            let ub = undo_btn.clone();
+            text_view.buffer().connect_notify_local(Some("can-undo"), move |buf, _| {
+                ub.set_sensitive(buf.can_undo());
+            });
+        }
+        {
+            let rb = redo_btn.clone();
+            text_view.buffer().connect_notify_local(Some("can-redo"), move |buf, _| {
+                rb.set_sensitive(buf.can_redo());
+            });
+        }
         {
             let mod_flag = modified.clone();
             let si = save_indicator.clone();
             let m = mode.clone();
-            let ub = undo_btn.clone();
-            let rb = redo_btn.clone();
-            text_view.buffer().connect_changed(move |buf| {
-                if m.get() == Mode::Edit {
-                    if !mod_flag.get() {
-                        mod_flag.set(true);
-                        si.set_visible(true);
-                    }
-                    ub.set_sensitive(buf.can_undo());
-                    rb.set_sensitive(buf.can_redo());
+            text_view.buffer().connect_changed(move |_| {
+                if m.get() == Mode::Edit && !mod_flag.get() {
+                    mod_flag.set(true);
+                    si.set_visible(true);
                 }
             });
         }
