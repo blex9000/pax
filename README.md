@@ -1,30 +1,30 @@
-# MyTerms — Workspace Manager con Pannelli Eterogenei
+MyTerms — Workspace Manager con Pannelli Eterogenei
 
 Workspace manager GUI cross-platform in Rust (GTK4 + VTE), stile Tilix, con pannelli di tipi diversi: terminale, SSH, tmux remoto, markdown viewer, browser embed.
 
-**Piattaforme**: Linux (primario), macOS (supportato).
+Piattaforme: Linux (primario), macOS (supportato).
 
-## Stato
+Stato
 
-**In sviluppo** — Fase 0, 1, 2 completate + gran parte di Fase 6 (UX polish).
+In sviluppo — Fase 0, 1, 2 completate + gran parte di Fase 6 (UX polish).
 
 Funzionalità principali:
-- Layout multi-pannello con split, tab e tipi eterogenei
-- PanelRegistry plugin system per registrazione tipi pannello
-- PanelType::Empty con chooser, menu ⋮ per split/tab/close dinamici
-- Save/Open workspace con FileDialog, dirty tracking con indicatore floppy
-- **Sync ratios**: le posizioni dei separatori vengono salvate nel JSON
-- **Terminal migliorato**: prompt minimale (`$:` verde), footer con `user@host:directory` colorato, directory tracking via OSC 7, colori `ls` personalizzati
-- **Panel config**: working directory, startup script (con toggle), before_close script (con toggle), min width/height
-- **Temi**: System, Catppuccin Mocha/Latte, Solarized Dark/Light, Nord, Dracula, Gruvbox, Tokyo Night — tema persistito tra sessioni
-- **Welcome page**: carica il tema dall'ultimo workspace usato
-- **Recent workspaces**: dialog con lista workspace recenti da DB SQLite
+  • Layout multi-pannello con split, tab e tipi eterogenei
+  • PanelRegistry plugin system per registrazione tipi pannello
+  • PanelType::Empty con chooser, menu ⋮ per split/tab/close dinamici
+  • Save/Open workspace con FileDialog, dirty tracking con indicatore floppy
+  • **Sync ratios**: le posizioni dei separatori vengono salvate nel JSON
+  • **Terminal migliorato**: prompt minimale (`$:` verde), footer con `user@host:directory` colorato, directory tracking via OSC 7, colori `ls` personalizzati
+  • **Panel config**: working directory, startup script (con toggle), before_close script (con toggle), min width/height
+  • **Temi**: System, Catppuccin Mocha/Latte, Solarized Dark/Light, Nord, Dracula, Gruvbox, Tokyo Night — tema persistito tra sessioni
+  • **Welcome page**: carica il tema dall'ultimo workspace usato
+  • **Recent workspaces**: dialog con lista workspace recenti da DB SQLite
 
-## Installazione
+Installazione
 
-### Linux (Ubuntu/Debian)
+Linux (Ubuntu/Debian)
 
-```bash
+─── bash ───
 # Rust
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
 
@@ -40,21 +40,21 @@ gsettings set org.gtk.Settings.Debug enable-inspector-keybinding true
 
 # Build
 cargo build --release
-```
+───────
 
-### macOS (Homebrew)
+macOS (Homebrew)
 
-```bash
+─── bash ───
 # Dipendenze
 brew install gtk4 libadwaita pkg-config
 
 # Build (senza VTE — usa backend fallback PTY+vt100)
 cargo build --release --no-default-features
-```
+───────
 
-## Uso rapido
+Uso rapido
 
-```bash
+─── bash ───
 # Genera workspace di esempio
 myterms init workspace.json
 
@@ -66,31 +66,31 @@ myterms list
 
 # Cerca in history e output
 myterms search "ERROR"
-```
+───────
 
-## Tipi di pannello
+Tipi di pannello
 
 | Tipo | Descrizione | Linux | macOS |
 |------|-------------|-------|-------|
-| `terminal` | Shell locale (VTE4 nativo) | VTE4 completo | PTY + vt100 fallback |
-| `ssh` | Terminale connesso via SSH | Sì | Sì |
-| `remote_tmux` | Sessione tmux remota | Sì | Sì |
-| `markdown` | Viewer per note .md | Sì | Sì |
-| `browser` | WebView per dashboard, docs | WebKitGTK | Non disponibile |
+| terminal | Shell locale (VTE4 nativo) | VTE4 completo | PTY + vt100 fallback |
+| ssh | Terminale connesso via SSH | Sì | Sì |
+| remote_tmux | Sessione tmux remota | Sì | Sì |
+| markdown | Viewer per note .md | Sì | Sì |
+| browser | WebView per dashboard, docs | WebKitGTK | Non disponibile |
 
-## Tipi di layout
+Tipi di layout
 
 | Tipo | Descrizione |
 |------|-------------|
-| `hsplit` | Split orizzontale — pannelli affiancati da sinistra a destra |
-| `vsplit` | Split verticale — pannelli impilati dall'alto in basso |
-| `tabs` | Schede — un pannello visibile alla volta con tab bar |
+| hsplit | Split orizzontale — pannelli affiancati da sinistra a destra |
+| vsplit | Split verticale — pannelli impilati dall'alto in basso |
+| tabs | Schede — un pannello visibile alla volta con tab bar |
 
 I layout sono annidabili: tabs dentro split, split dentro tabs, ecc.
 
-## Esempio workspace JSON
+Esempio workspace JSON
 
-```json
+─── json ───
 {
     "name": "dev-workspace",
     "layout": {
@@ -143,26 +143,25 @@ I layout sono annidabili: tabs dentro split, split dentro tabs, ecc.
         }
     ]
 }
-```
+───────
 
-## Scorciatoie
+Scorciatoie
 
 | Tasto | Azione |
 |-------|--------|
-| `Ctrl+Q` | Esci |
-| `Ctrl+N/P` | Focus pannello successivo/precedente |
-| `Ctrl+O` | Apri workspace da file |
-| `Ctrl+S` | Salva workspace |
-| `Ctrl+Shift+H` | Split orizzontale (nuovo pannello sotto) |
-| `Ctrl+Shift+J` | Split verticale (nuovo pannello a destra) |
-| `Ctrl+Shift+T` | Nuovo tab |
-| `Ctrl+Shift+W` | Chiudi pannello |
+| Ctrl+Q | Esci |
+| Ctrl+N/P | Focus pannello successivo/precedente |
+| Ctrl+O | Apri workspace da file |
+| Ctrl+S | Salva workspace |
+| Ctrl+Shift+H | Split orizzontale (nuovo pannello sotto) |
+| Ctrl+Shift+J | Split verticale (nuovo pannello a destra) |
+| Ctrl+Shift+T | Nuovo tab |
+| Ctrl+Shift+W | Chiudi pannello |
 | Menu ⋮ | Configure, Split H/V, Add Tab, Close |
 | Hamburger ☰ | New, Open, Recent, Save, Save As, Settings, Quit |
 
-## Architettura
+Architettura
 
-```
 myterms/
 ├── crates/
 │   ├── tp-core/    # Modelli, config JSON, alert, safety, SSH parser
@@ -174,31 +173,31 @@ myterms/
 │   ├── default_workspace.json   # 3 terminali in split
 │   ├── mixed_workspace.json     # Terminal + markdown + browser
 │   └── tabs_workspace.json      # Split + tabs annidati
-```
+───────
 
-Vedi [ROADMAP.md](ROADMAP.md) per architettura dettagliata e piano di implementazione.
+Vedi ROADMAP.md per architettura dettagliata e piano di implementazione.
 
-## Log
+Log
 
-I log vengono scritti in `~/.local/share/myterms/myterms.log`. Per monitorarli in tempo reale:
+I log vengono scritti in ~/.local/share/myterms/myterms.log. Per monitorarli in tempo reale:
 
-```bash
+─── bash ───
 tail -f ~/.local/share/myterms/myterms.log
-```
+───────
 
 Il livello di log è configurabile via variabile d'ambiente:
 
-```bash
+─── bash ───
 RUST_LOG=tp_gui=debug myterms
-```
+───────
 
-## Dati persistenti
+Dati persistenti
 
 | File | Contenuto |
 |------|-----------|
-| `~/.local/share/myterms/myterms.db` | Database SQLite — workspace recenti, history comandi, output salvato |
-| `~/.local/share/myterms/myterms.log` | Log applicazione |
+| ~/.local/share/myterms/myterms.db | Database SQLite — workspace recenti, history comandi, output salvato |
+| ~/.local/share/myterms/myterms.log | Log applicazione |
 
-## Licenza
+Licenza
 
 MIT
