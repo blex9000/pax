@@ -24,6 +24,8 @@ pub enum PanelAction {
     Sync,
     /// Rename panel (carries new name)
     Rename(String),
+    /// Focus this panel
+    Focus,
 }
 
 /// Callback type for panel menu actions.
@@ -34,6 +36,7 @@ pub struct PanelHost {
     outer: gtk4::Box,
     container: gtk4::Box,
     _title_bar: gtk4::Box,
+    focus_dot: gtk4::Image,
     type_icon: gtk4::Image,
     title_label: gtk4::Label,
     sync_button: gtk4::Button,
@@ -65,6 +68,10 @@ impl PanelHost {
         // Title bar
         let title_bar = gtk4::Box::new(gtk4::Orientation::Horizontal, 4);
         title_bar.add_css_class("panel-title-bar");
+
+        // Focus indicator dot (radio-symbolic: empty circle, colored when focused)
+        let focus_dot = gtk4::Image::from_icon_name("radio-symbolic");
+        focus_dot.add_css_class("panel-focus-dot");
 
         // Panel type icon
         let type_icon = gtk4::Image::from_icon_name("radio-symbolic"); // default: empty/chooser dot
@@ -189,6 +196,7 @@ impl PanelHost {
         let popover = build_panel_menu(panel_id, action_cb);
         menu_button.set_popover(Some(&popover));
 
+        title_bar.append(&focus_dot);
         title_bar.append(&type_icon);
         title_bar.append(&title_stack);
         // Spacer pushes buttons to the right (even when title is hidden)
@@ -198,6 +206,26 @@ impl PanelHost {
         title_bar.append(&sync_button);
         title_bar.append(&zoom_button);
         title_bar.append(&menu_button);
+
+        // Click on title bar → focus this panel
+        {
+            let cb_ref = action_cb_ref.clone();
+            let pid = panel_id.to_string();
+            let gesture = gtk4::GestureClick::new();
+            gesture.set_button(1);
+            gesture.set_propagation_phase(gtk4::PropagationPhase::Bubble);
+            gesture.connect_released(move |_, n_press, _, _| {
+                if n_press == 1 {
+                    if let Ok(borrowed) = cb_ref.try_borrow() {
+                        if let Some(ref cb) = *borrowed {
+                            cb(&pid, PanelAction::Focus);
+                        }
+                    }
+                }
+            });
+            title_bar.add_controller(gesture);
+        }
+
         container.append(&title_bar);
 
         // Footer bar
@@ -220,12 +248,31 @@ impl PanelHost {
         outer.set_widget_name(panel_id);
         outer.set_size_request(80, 60);
 
+        // Click anywhere in the panel → focus it
+        {
+            let cb_ref = action_cb_ref.clone();
+            let pid = panel_id.to_string();
+            let gesture = gtk4::GestureClick::new();
+            gesture.set_button(1);
+            gesture.set_propagation_phase(gtk4::PropagationPhase::Capture);
+            gesture.connect_pressed(move |_, _, _, _| {
+                if let Ok(borrowed) = cb_ref.try_borrow() {
+                    if let Some(ref cb) = *borrowed {
+                        cb(&pid, PanelAction::Focus);
+                    }
+                }
+                // Don't claim — let the click propagate to the content (VTE, TextView, etc.)
+            });
+            outer.add_controller(gesture);
+        }
+
         let widget = outer.clone().upcast::<gtk4::Widget>();
 
         Self {
             outer,
             container,
             _title_bar: title_bar,
+            focus_dot,
             type_icon,
             title_label,
             sync_button,
@@ -291,12 +338,14 @@ impl PanelHost {
         if focused {
             self.outer.add_css_class("panel-focused");
             self.outer.remove_css_class("panel-unfocused");
+            self.focus_dot.add_css_class("panel-focus-dot-active");
             if let Some(ref backend) = *self.backend.borrow() {
                 backend.on_focus();
             }
         } else {
             self.outer.remove_css_class("panel-focused");
             self.outer.add_css_class("panel-unfocused");
+            self.focus_dot.remove_css_class("panel-focus-dot-active");
             if let Some(ref backend) = *self.backend.borrow() {
                 backend.on_blur();
             }
@@ -498,6 +547,7 @@ fn build_panel_menu(panel_id: &str, action_cb: Option<PanelActionCallback>) -> g
             PanelAction::Zoom => "view-fullscreen-symbolic",
             PanelAction::Sync => "media-playlist-consecutive-symbolic",
             PanelAction::Rename(_) => "document-edit-symbolic",
+            PanelAction::Focus => "radio-symbolic",
         };
         let icon = gtk4::Image::from_icon_name(icon_name);
         let lbl = gtk4::Label::new(Some(label));
@@ -516,6 +566,7 @@ fn build_panel_menu(panel_id: &str, action_cb: Option<PanelActionCallback>) -> g
             PanelAction::Zoom => "Ctrl+Z",
             PanelAction::Sync => "Ctrl+Shift+S",
             PanelAction::Rename(_) => "Dbl-click",
+            PanelAction::Focus => "",
         };
         let hint = gtk4::Label::new(Some(hint_text));
         hint.add_css_class("dim-label");

@@ -338,6 +338,12 @@ fn setup_workspace_ui(
                     drop(view);
                     sb_for_cb.borrow().set_message(&format!("Renamed: {}", panel_id));
                 }
+                PanelAction::Focus => {
+                    let idx = ws_for_cb.borrow().focus_order_index(panel_id);
+                    if let Some(idx) = idx {
+                        ws_for_cb.borrow_mut().set_focus_index(idx);
+                    }
+                }
                 PanelAction::AddTabToNotebook | PanelAction::RemoveTab => {}
             }
             actions::update_dirty_ui(&ws_for_cb, &win_for_cb, &sa_for_cb);
