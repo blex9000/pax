@@ -36,7 +36,6 @@ pub struct PanelHost {
     outer: gtk4::Box,
     container: gtk4::Box,
     _title_bar: gtk4::Box,
-    title_bar_ref: gtk4::Box,
     type_icon: gtk4::Image,
     title_label: gtk4::Label,
     sync_button: gtk4::Button,
@@ -266,8 +265,7 @@ impl PanelHost {
         Self {
             outer,
             container,
-            _title_bar: title_bar.clone(),
-            title_bar_ref: title_bar,
+            _title_bar: title_bar,
             type_icon,
             title_label,
             sync_button,
@@ -333,14 +331,13 @@ impl PanelHost {
         if focused {
             self.outer.add_css_class("panel-focused");
             self.outer.remove_css_class("panel-unfocused");
-            self.title_bar_ref.add_css_class("panel-header-focused");
+            // Visual focus indicator removed — keeping it clean
             if let Some(ref backend) = *self.backend.borrow() {
                 backend.on_focus();
             }
         } else {
             self.outer.remove_css_class("panel-focused");
             self.outer.add_css_class("panel-unfocused");
-            self.title_bar_ref.remove_css_class("panel-header-focused");
             if let Some(ref backend) = *self.backend.borrow() {
                 backend.on_blur();
             }
