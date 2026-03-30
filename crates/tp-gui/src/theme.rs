@@ -159,8 +159,8 @@ box.panel-frame { border: none; border-radius: 0; margin: 0; padding: 0; }
 box.panel-frame > box { margin: 0; padding: 0; }
 box.panel-title-bar { padding: 2px 6px; margin: 0; min-height: 20px; }
 .panel-title { font-size: 11px; font-weight: bold; }
-.panel-focus-dot { min-height: 10px; min-width: 10px; opacity: 0.3; }
-.panel-focus-dot-active { opacity: 1.0; color: @accent_color; }
+.panel-focus-bar { background-color: transparent; min-width: 4px; }
+.panel-focus-bar-active { background-color: @accent_color; }
 .panel-type-icon { min-height: 14px; min-width: 14px; opacity: 0.6; margin-end: 2px; }
 .panel-menu-btn { min-height: 16px; min-width: 16px; padding: 2px; }
 .panel-action-btn { min-height: 16px; min-width: 16px; padding: 2px; opacity: 0.5; }
