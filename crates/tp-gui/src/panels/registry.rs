@@ -121,10 +121,15 @@ pub fn build_default_registry() -> PanelRegistry {
         |config| {
             let shell = if config.shell.is_empty() { "/bin/bash" } else { &config.shell };
             let ws_dir = config.extra.get("__workspace_dir__").map(|s| s.as_str());
+            // Add SSHPASS to env if password configured (never visible in terminal)
+            let mut env = config.env.clone();
+            if let Some(pw) = config.extra.get("ssh_password") {
+                env.push(("SSHPASS".to_string(), pw.clone()));
+            }
             let panel = super::terminal::TerminalPanel::new(
                 shell,
                 config.cwd.as_deref(),
-                &config.env,
+                &env,
                 ws_dir,
             );
             let is_ssh = config.extra.contains_key("ssh_host");
@@ -132,34 +137,25 @@ pub fn build_default_registry() -> PanelRegistry {
             // SSH connection if configured
             if let Some(host) = config.extra.get("ssh_host") {
                 let user = config.extra.get("ssh_user");
-                let password = config.extra.get("ssh_password");
+                let has_password = config.extra.contains_key("ssh_password");
                 let tmux_session = config.extra.get("ssh_tmux_session");
                 let ssh_target = if let Some(u) = user {
                     format!("{}@{}", u, host)
                 } else {
                     host.clone()
                 };
-                // Set SSHPASS env var if password is configured (hidden from terminal)
-                if let Some(pw) = password {
-                    panel.queue_raw(&format!("export SSHPASS='{}'", pw.replace('\'', "'\\''")));
-                }
                 let cmd = if let Some(session) = tmux_session {
-                    if password.is_some() {
+                    if has_password {
                         format!("sshpass -e ssh -o StrictHostKeyChecking=accept-new -t {} 'tmux new-session -A -s {}'", ssh_target, session)
                     } else {
                         format!("ssh -t {} 'tmux new-session -A -s {}'", ssh_target, session)
                     }
-                } else if password.is_some() {
-                    // SSH with password via sshpass -e (reads from SSHPASS env var)
+                } else if has_password {
                     format!("sshpass -e ssh -o StrictHostKeyChecking=accept-new {}", ssh_target)
                 } else {
                     format!("ssh {}", ssh_target)
                 };
                 panel.send_commands(&[cmd]);
-                // Clear SSHPASS from env after connection
-                if password.is_some() {
-                    panel.queue_raw("unset SSHPASS");
-                }
             }
             // Startup script commands
             if let Some(cmds_str) = config.extra.get("__startup_commands__") {
