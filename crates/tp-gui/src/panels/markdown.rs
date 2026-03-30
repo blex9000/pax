@@ -56,11 +56,11 @@ impl MarkdownPanel {
         redo_btn.set_tooltip_text(Some("Redo"));
         redo_btn.set_sensitive(false);
 
-        let save_indicator = gtk4::Button::new();
-        save_indicator.set_icon_name("media-floppy-symbolic");
-        save_indicator.set_visible(false);
-        save_indicator.set_tooltip_text(Some("Save"));
-        save_indicator.add_css_class("flat");
+        let save_btn = gtk4::Button::new();
+        save_btn.set_icon_name("document-save-symbolic");
+        save_btn.set_sensitive(false);
+        save_btn.set_tooltip_text(Some("Save"));
+        save_btn.add_css_class("flat");
 
         let reload_btn = gtk4::Button::new();
         reload_btn.set_icon_name("view-refresh-symbolic");
@@ -80,7 +80,7 @@ impl MarkdownPanel {
         toolbar.append(&undo_btn);
         toolbar.append(&redo_btn);
         toolbar.append(&gtk4::Separator::new(gtk4::Orientation::Vertical));
-        toolbar.append(&save_indicator);
+        toolbar.append(&save_btn);
         toolbar.append(&reload_btn);
         toolbar.append(&file_label);
         container.append(&toolbar);
@@ -199,7 +199,7 @@ impl MarkdownPanel {
             let fb = fmt_bar.clone();
             let mod_flag = modified.clone();
             let fp = file_path.to_string();
-            let si = save_indicator.clone();
+            let si = save_btn.clone();
             let ub = undo_btn.clone();
             let rb = redo_btn.clone();
             render_btn.connect_toggled(move |btn| {
@@ -213,7 +213,7 @@ impl MarkdownPanel {
                     if mod_flag.get() {
                         let _ = std::fs::write(&fp, &text);
                         mod_flag.set(false);
-                        si.set_visible(false);
+                        si.set_sensitive(false);
                     }
                 }
                 m.set(Mode::Render);
@@ -291,12 +291,12 @@ impl MarkdownPanel {
         }
         {
             let mod_flag = modified.clone();
-            let si = save_indicator.clone();
+            let si = save_btn.clone();
             let m = mode.clone();
             text_view.buffer().connect_changed(move |_| {
                 if m.get() == Mode::Edit && !mod_flag.get() {
                     mod_flag.set(true);
-                    si.set_visible(true);
+                    si.set_sensitive(true);
                 }
             });
         }
@@ -307,14 +307,14 @@ impl MarkdownPanel {
             let ct = content.clone();
             let tv = text_view.clone();
             let mod_flag = modified.clone();
-            let si = save_indicator.clone();
-            save_indicator.connect_clicked(move |_| {
+            let si = save_btn.clone();
+            save_btn.connect_clicked(move |_| {
                 let buf = tv.buffer();
                 let text = buf.text(&buf.start_iter(), &buf.end_iter(), false).to_string();
                 *ct.borrow_mut() = text.clone();
                 let _ = std::fs::write(&fp, &text);
                 mod_flag.set(false);
-                si.set_visible(false);
+                si.set_sensitive(false);
             });
         }
 
@@ -325,12 +325,12 @@ impl MarkdownPanel {
             let tv = text_view.clone();
             let m = mode.clone();
             let mod_flag = modified.clone();
-            let si = save_indicator.clone();
+            let si = save_btn.clone();
             reload_btn.connect_clicked(move |_| {
                 if let Ok(text) = std::fs::read_to_string(&fp) {
                     *ct.borrow_mut() = text.clone();
                     mod_flag.set(false);
-                    si.set_visible(false);
+                    si.set_sensitive(false);
                     if m.get() == Mode::Render {
                         render_markdown_to_view(&tv, &text);
                     } else {
@@ -367,7 +367,7 @@ impl MarkdownPanel {
 
         // Ensure clean state
         modified.set(false);
-        save_indicator.set_visible(false);
+        save_btn.set_sensitive(false);
         undo_btn.set_sensitive(false);
         redo_btn.set_sensitive(false);
 
