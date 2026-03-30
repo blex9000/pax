@@ -457,6 +457,13 @@ impl WorkspaceView {
                 host.set_zoom_active(false);
             }
             self.rebuild_layout();
+            // Restore the active tab to the one that was zoomed
+            if let Some(host) = self.hosts.get(&zoomed_id) {
+                if let Some(notebook) = find_notebook_ancestor(host.widget()) {
+                    let page = notebook.page_num(host.widget());
+                    notebook.set_current_page(page);
+                }
+            }
         } else {
             // Zoom: show only the focused panel
             let focused_id = match self.focus.focused_panel_id() {
