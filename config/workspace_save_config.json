@@ -58,26 +58,26 @@
         ]
       },
       {
-        "type": "vsplit",
+        "type": "hsplit",
         "children": [
           {
             "type": "panel",
-            "id": "p2"
+            "id": "p5"
           },
           {
             "type": "panel",
-            "id": "p5"
+            "id": "p16"
           }
         ],
         "ratios": [
-          0.23473282442748092,
-          0.7652671755725191
+          0.44583333333333336,
+          0.5541666666666667
         ]
       }
     ],
     "ratios": [
-      0.45764462809917356,
-      0.5423553719008265
+      0.4989669421487603,
+      0.5010330578512396
     ]
   },
   "panels": [
@@ -102,28 +102,6 @@
       "before_close": "echo \"byebye\"",
       "min_width": 800,
       "min_height": 400
-    },
-    {
-      "id": "p2",
-      "name": "New Panel 2",
-      "panel_type": {
-        "type": "terminal"
-      },
-      "target": {
-        "type": "local"
-      },
-      "startup_commands": [
-        "#!/bin/bash\necho \"Hello World\""
-      ],
-      "groups": [],
-      "record_output": false,
-      "cwd": "/home/xb/Downloads",
-      "env": {},
-      "pre_script": null,
-      "post_script": null,
-      "before_close": null,
-      "min_width": 0,
-      "min_height": 0
     },
     {
       "id": "p5",
@@ -237,6 +215,26 @@
       "panel_type": {
         "type": "code_editor",
         "root_dir": "/home/xb/dev/sinelec/me/myterms"
+      },
+      "target": {
+        "type": "local"
+      },
+      "startup_commands": [],
+      "groups": [],
+      "record_output": false,
+      "cwd": null,
+      "env": {},
+      "pre_script": null,
+      "post_script": null,
+      "before_close": null,
+      "min_width": 0,
+      "min_height": 0
+    },
+    {
+      "id": "p16",
+      "name": "terminal",
+      "panel_type": {
+        "type": "terminal"
       },
       "target": {
         "type": "local"
