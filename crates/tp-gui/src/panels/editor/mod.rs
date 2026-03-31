@@ -65,18 +65,11 @@ impl CodeEditorPanel {
         let tabs = editor_tabs::EditorTabs::new(state.clone());
         let tabs_rc = Rc::new(tabs);
 
-        // Right side: info bar + notebook + status bar
+        // Right side: info bar + notebook (tab bar) + content stack + status bar
         let editor_area = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
         editor_area.append(&tabs_rc.info_bar_container);
-
-        // The SourceView goes in a scrolled window below the notebook
-        let source_scroll = gtk4::ScrolledWindow::new();
-        source_scroll.set_child(Some(&tabs_rc.source_view));
-        source_scroll.set_vexpand(true);
-        source_scroll.set_hexpand(true);
-
         editor_area.append(&tabs_rc.notebook);
-        editor_area.append(&source_scroll);
+        editor_area.append(&tabs_rc.content_stack);
         editor_area.append(&tabs_rc.status_bar);
 
         // Sidebar: activity bar + file tree
@@ -203,8 +196,7 @@ impl CodeEditorPanel {
                                 if count > 0 {
                                     let next = (idx + 1) % count;
                                     drop(st);
-                                    tabs_ref.notebook.set_current_page(Some((next + 1) as u32));
-                                    // connect_switch_page will handle buffer switch and state update
+                                    tabs_ref.notebook.set_current_page(Some(next as u32));
                                 }
                             }
                             return gtk4::glib::Propagation::Stop;

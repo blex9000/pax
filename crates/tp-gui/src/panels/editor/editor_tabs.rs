@@ -7,9 +7,13 @@ use std::rc::Rc;
 use super::EditorState;
 
 /// Manages the Notebook tabs and SourceView buffers.
+/// The notebook is used ONLY as a tab bar — its page content is always empty.
+/// Actual content (welcome message or source code) lives in `content_stack`.
 pub struct EditorTabs {
     pub notebook: gtk4::Notebook,
     pub source_view: sourceview5::View,
+    /// Stack switching between "welcome" and "editor" content.
+    pub content_stack: gtk4::Stack,
     pub status_bar: gtk4::Box,
     pub info_bar_container: gtk4::Box,
     status_lang: gtk4::Label,
@@ -21,9 +25,11 @@ pub struct EditorTabs {
 impl EditorTabs {
     pub fn new(state: Rc<RefCell<EditorState>>) -> Self {
         let notebook = gtk4::Notebook::new();
-        notebook.set_scrollable(true);
         notebook.set_show_border(false);
         notebook.add_css_class("editor-tabs");
+        notebook.set_show_tabs(false);
+        // Hide the notebook page content area — we only want the tab bar
+        notebook.set_vexpand(false);
 
         // Single SourceView that switches buffers
         let source_view = sourceview5::View::new();
@@ -97,44 +103,48 @@ impl EditorTabs {
             });
         }
 
-        // Switch page: update SourceView buffer and status bar when tab changes
+        // Switch page: update SourceView buffer and status bar when tab changes.
+        // Uses try_borrow_mut to avoid panic when triggered by remove_page/set_current_page
+        // while another closure already holds a borrow.
         {
             let state_c = state.clone();
             let sv = source_view.clone();
             let lang_l = status_lang.clone();
             let mod_l = status_modified.clone();
             notebook.connect_switch_page(move |_nb, _page, page_num| {
-                if page_num == 0 { return; } // welcome page
-                let idx = (page_num - 1) as usize;
-                let mut st = state_c.borrow_mut();
-                if let Some(open_file) = st.open_files.get(idx) {
-                    sv.set_buffer(Some(&open_file.buffer));
-                    if let Some(l) = open_file.buffer.language() {
-                        lang_l.set_text(&l.name());
-                    } else {
-                        lang_l.set_text("Plain Text");
+                let idx = page_num as usize;
+                if let Ok(mut st) = state_c.try_borrow_mut() {
+                    if let Some(open_file) = st.open_files.get(idx) {
+                        sv.set_buffer(Some(&open_file.buffer));
+                        if let Some(l) = open_file.buffer.language() {
+                            lang_l.set_text(&l.name());
+                        } else {
+                            lang_l.set_text("Plain Text");
+                        }
+                        mod_l.set_text(if open_file.modified { "\u{25CF} Modified" } else { "" });
                     }
-                    mod_l.set_text(if open_file.modified { "\u{25CF} Modified" } else { "" });
+                    st.active_tab = Some(idx);
                 }
-                st.active_tab = Some(idx);
             });
         }
 
-        // Welcome label shown when no file is open
+        // Content stack: welcome vs source_scroll
+        let content_stack = gtk4::Stack::new();
+        content_stack.set_vexpand(true);
+        content_stack.set_hexpand(true);
+
         let welcome = gtk4::Label::new(Some("Open a file from the sidebar\nor press Ctrl+P to search"));
         welcome.add_css_class("dim-label");
         welcome.set_vexpand(true);
         welcome.set_valign(gtk4::Align::Center);
-
-        // Use a Stack to switch between welcome and editor
-        // Notebook page 0 is the welcome, actual files are added as pages
-        notebook.append_page(&welcome, Some(&gtk4::Label::new(Some("Welcome"))));
-        notebook.set_tab_label_text(&welcome, "");
-        notebook.set_show_tabs(false);
+        content_stack.add_named(&welcome, Some("welcome"));
+        content_stack.add_named(&source_scroll, Some("editor"));
+        content_stack.set_visible_child_name("welcome");
 
         Self {
             notebook,
             source_view,
+            content_stack,
             status_bar,
             info_bar_container,
             status_lang,
@@ -150,7 +160,7 @@ impl EditorTabs {
         {
             let st = state.borrow();
             if let Some(idx) = st.open_files.iter().position(|f| f.path == path) {
-                self.notebook.set_current_page(Some((idx + 1) as u32)); // +1 for welcome page
+                self.notebook.set_current_page(Some(idx as u32));
                 self.switch_to_buffer(idx, state);
                 return Some(idx);
             }
@@ -208,10 +218,12 @@ impl EditorTabs {
         tab_box.append(&label);
         tab_box.append(&close_btn);
 
-        // Placeholder widget for the notebook page (actual display is via the single SourceView)
+        // Empty placeholder widget for the notebook page (content is in content_stack)
         let page_widget = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
+        page_widget.set_height_request(0);
         let _page_idx = self.notebook.append_page(&page_widget, Some(&tab_box));
         self.notebook.set_show_tabs(true);
+        self.content_stack.set_visible_child_name("editor");
 
         // Add to state
         let idx = {
@@ -233,15 +245,15 @@ impl EditorTabs {
             let mod_label = self.status_modified.clone();
             let path_for_dirty = path.to_path_buf();
             buf.connect_changed(move |buf| {
-                let mut st = state_c.borrow_mut();
-                if let Some(file_idx) = st.open_files.iter().position(|f| f.path == path_for_dirty) {
-                    let was_modified = st.open_files[file_idx].modified;
-                    // We consider it modified if undo is available
-                    let is_modified = buf.can_undo();
-                    st.open_files[file_idx].modified = is_modified;
-                    if is_modified != was_modified {
-                        dot_c.set_text(if is_modified { "\u{25CF} " } else { "" });
-                        mod_label.set_text(if is_modified { "\u{25CF} Modified" } else { "" });
+                if let Ok(mut st) = state_c.try_borrow_mut() {
+                    if let Some(file_idx) = st.open_files.iter().position(|f| f.path == path_for_dirty) {
+                        let was_modified = st.open_files[file_idx].modified;
+                        let is_modified = buf.can_undo();
+                        st.open_files[file_idx].modified = is_modified;
+                        if is_modified != was_modified {
+                            dot_c.set_text(if is_modified { "\u{25CF} " } else { "" });
+                            mod_label.set_text(if is_modified { "\u{25CF} Modified" } else { "" });
+                        }
                     }
                 }
             });
@@ -251,19 +263,29 @@ impl EditorTabs {
         {
             let state_c = state.clone();
             let nb = self.notebook.clone();
+            let cs = self.content_stack.clone();
             let path_for_close = path.to_path_buf();
             close_btn.connect_clicked(move |_| {
-                let mut st = state_c.borrow_mut();
-                if let Some(idx) = st.open_files.iter().position(|f| f.path == path_for_close) {
-                    st.open_files.remove(idx);
-                    nb.remove_page(Some((idx + 1) as u32)); // +1 for welcome
-                    if st.open_files.is_empty() {
-                        st.active_tab = None;
-                        nb.set_show_tabs(false);
-                        nb.set_current_page(Some(0)); // show welcome
-                    } else {
-                        let new_idx = idx.min(st.open_files.len() - 1);
-                        st.active_tab = Some(new_idx);
+                let (empty_after, new_idx);
+                {
+                    let mut st = state_c.borrow_mut();
+                    if let Some(idx) = st.open_files.iter().position(|f| f.path == path_for_close) {
+                        st.open_files.remove(idx);
+                        empty_after = st.open_files.is_empty();
+                        new_idx = if empty_after { 0 } else { idx.min(st.open_files.len() - 1) };
+                        if empty_after {
+                            st.active_tab = None;
+                        } else {
+                            st.active_tab = Some(new_idx);
+                        }
+                        drop(st);
+                        nb.remove_page(Some(idx as u32));
+                        if empty_after {
+                            nb.set_show_tabs(false);
+                            cs.set_visible_child_name("welcome");
+                        } else {
+                            nb.set_current_page(Some(new_idx as u32));
+                        }
                     }
                 }
             });
@@ -273,22 +295,31 @@ impl EditorTabs {
         {
             let state_c = state.clone();
             let nb = self.notebook.clone();
+            let cs = self.content_stack.clone();
             let path_for_middle = path.to_path_buf();
             let gesture = gtk4::GestureClick::new();
-            gesture.set_button(2); // middle button
+            gesture.set_button(2);
             gesture.connect_released(move |_, _, _, _| {
-                let mut st = state_c.borrow_mut();
-                if let Some(idx) = st.open_files.iter().position(|f| f.path == path_for_middle) {
-                    st.open_files.remove(idx);
-                    nb.remove_page(Some((idx + 1) as u32));
-                    if st.open_files.is_empty() {
-                        st.active_tab = None;
-                        nb.set_show_tabs(false);
-                        nb.set_current_page(Some(0));
-                    } else {
-                        let new_idx = idx.min(st.open_files.len() - 1);
-                        st.active_tab = Some(new_idx);
-                        nb.set_current_page(Some((new_idx + 1) as u32));
+                let (empty_after, new_idx);
+                {
+                    let mut st = state_c.borrow_mut();
+                    if let Some(idx) = st.open_files.iter().position(|f| f.path == path_for_middle) {
+                        st.open_files.remove(idx);
+                        empty_after = st.open_files.is_empty();
+                        new_idx = if empty_after { 0 } else { idx.min(st.open_files.len() - 1) };
+                        if empty_after {
+                            st.active_tab = None;
+                        } else {
+                            st.active_tab = Some(new_idx);
+                        }
+                        drop(st);
+                        nb.remove_page(Some(idx as u32));
+                        if empty_after {
+                            nb.set_show_tabs(false);
+                            cs.set_visible_child_name("welcome");
+                        } else {
+                            nb.set_current_page(Some(new_idx as u32));
+                        }
                     }
                 }
             });
@@ -297,7 +328,7 @@ impl EditorTabs {
 
         // Switch to this buffer
         self.switch_to_buffer(idx, state);
-        self.notebook.set_current_page(Some((idx + 1) as u32));
+        self.notebook.set_current_page(Some(idx as u32));
 
         Some(idx)
     }
@@ -307,7 +338,6 @@ impl EditorTabs {
         let st = state.borrow();
         if let Some(open_file) = st.open_files.get(idx) {
             self.source_view.set_buffer(Some(&open_file.buffer));
-            // Update status bar language
             if let Some(lang) = open_file.buffer.language() {
                 self.status_lang.set_text(&lang.name());
             } else {
@@ -318,12 +348,8 @@ impl EditorTabs {
     }
 
     /// Show a side-by-side diff view for the given file.
+    /// The diff replaces the content_stack view. Close button goes back to editor.
     pub fn show_diff(&self, root: &Path, file_path: &Path) {
-        use super::git_status::compute_diff;
-
-        let _hunks = compute_diff(root, file_path);
-
-        // Get HEAD version
         let rel = file_path.strip_prefix(root).unwrap_or(file_path);
         let old_content = std::process::Command::new("git")
             .args(["show", &format!("HEAD:{}", rel.to_string_lossy())])
@@ -335,7 +361,6 @@ impl EditorTabs {
             .unwrap_or_default();
         let new_content = std::fs::read_to_string(file_path).unwrap_or_default();
 
-        // Create two read-only SourceViews
         let old_buf = sourceview5::Buffer::new(None::<&gtk4::TextTagTable>);
         old_buf.set_text(&old_content);
         old_buf.set_highlight_syntax(true);
@@ -343,7 +368,6 @@ impl EditorTabs {
         new_buf.set_text(&new_content);
         new_buf.set_highlight_syntax(true);
 
-        // Detect language and apply to both
         let lang_manager = sourceview5::LanguageManager::default();
         if let Some(lang) = lang_manager.guess_language(Some(file_path), None::<&str>) {
             old_buf.set_language(Some(&lang));
@@ -360,12 +384,68 @@ impl EditorTabs {
             new_buf.set_style_scheme(Some(&scheme));
         }
 
-        let make_view = |buf: &sourceview5::Buffer| -> gtk4::ScrolledWindow {
+        // Highlight changed lines using similar
+        {
+            let diff = similar::TextDiff::from_lines(&old_content, &new_content);
+
+            // Create tags for highlighting
+            let ensure_diff_tags = |buf: &sourceview5::Buffer| {
+                let tt = buf.tag_table();
+                if tt.lookup("diff-del").is_none() {
+                    let tag = gtk4::TextTag::new(Some("diff-del"));
+                    tag.set_paragraph_background(Some("rgba(220, 50, 47, 0.25)"));
+                    tt.add(&tag);
+                }
+                if tt.lookup("diff-add").is_none() {
+                    let tag = gtk4::TextTag::new(Some("diff-add"));
+                    tag.set_paragraph_background(Some("rgba(40, 180, 60, 0.25)"));
+                    tt.add(&tag);
+                }
+            };
+            ensure_diff_tags(&old_buf);
+            ensure_diff_tags(&new_buf);
+
+            let mut old_line = 0i32;
+            let mut new_line = 0i32;
+            for change in diff.iter_all_changes() {
+                match change.tag() {
+                    similar::ChangeTag::Equal => {
+                        old_line += 1;
+                        new_line += 1;
+                    }
+                    similar::ChangeTag::Delete => {
+                        if let Some(start) = old_buf.iter_at_line(old_line) {
+                            let mut end = start.clone();
+                            end.forward_to_line_end();
+                            // Include the newline
+                            end.forward_char();
+                            old_buf.apply_tag_by_name("diff-del", &start, &end);
+                        }
+                        old_line += 1;
+                    }
+                    similar::ChangeTag::Insert => {
+                        if let Some(start) = new_buf.iter_at_line(new_line) {
+                            let mut end = start.clone();
+                            end.forward_to_line_end();
+                            end.forward_char();
+                            new_buf.apply_tag_by_name("diff-add", &start, &end);
+                        }
+                        new_line += 1;
+                    }
+                }
+            }
+        }
+
+        let make_sv = |buf: &sourceview5::Buffer, editable: bool| -> gtk4::ScrolledWindow {
             let view = sourceview5::View::with_buffer(buf);
-            view.set_editable(false);
+            view.set_editable(editable);
             view.set_show_line_numbers(true);
             view.set_monospace(true);
             view.set_left_margin(4);
+            if editable {
+                view.set_auto_indent(true);
+                view.set_tab_width(4);
+            }
             let scroll = gtk4::ScrolledWindow::new();
             scroll.set_child(Some(&view));
             scroll.set_vexpand(true);
@@ -373,43 +453,42 @@ impl EditorTabs {
             scroll
         };
 
-        let old_scroll = make_view(&old_buf);
-        let new_scroll = make_view(&new_buf);
+        // Left: HEAD version (read-only), Right: working version (editable)
+        let old_scroll = make_sv(&old_buf, false);
+        let new_scroll = make_sv(&new_buf, true);
 
-        // Sync scrolling with guard to prevent infinite feedback loop
+        // Sync scrolling between old and new
         let syncing = Rc::new(std::cell::Cell::new(false));
         {
             let ns = new_scroll.clone();
             let s = syncing.clone();
             old_scroll.vadjustment().connect_value_changed(move |adj| {
-                if !s.get() {
-                    s.set(true);
-                    ns.vadjustment().set_value(adj.value());
-                    s.set(false);
-                }
+                if !s.get() { s.set(true); ns.vadjustment().set_value(adj.value()); s.set(false); }
             });
         }
         {
             let os = old_scroll.clone();
             let s = syncing.clone();
             new_scroll.vadjustment().connect_value_changed(move |adj| {
-                if !s.get() {
-                    s.set(true);
-                    os.vadjustment().set_value(adj.value());
-                    s.set(false);
-                }
+                if !s.get() { s.set(true); os.vadjustment().set_value(adj.value()); s.set(false); }
             });
         }
 
-        // Layout
+        // Build diff UI
         let diff_box = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
+        diff_box.set_vexpand(true);
 
-        // Header with file name and actions
+        // Header: back button + file name + revert all
         let header = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
         header.set_margin_start(8);
         header.set_margin_end(8);
         header.set_margin_top(4);
         header.set_margin_bottom(4);
+
+        let back_btn = gtk4::Button::from_icon_name("go-previous-symbolic");
+        back_btn.add_css_class("flat");
+        back_btn.set_tooltip_text(Some("Back to editor"));
+        header.append(&back_btn);
 
         let file_label = gtk4::Label::new(Some(&format!("Diff: {}", rel.to_string_lossy())));
         file_label.add_css_class("heading");
@@ -417,24 +496,26 @@ impl EditorTabs {
         file_label.set_halign(gtk4::Align::Start);
         header.append(&file_label);
 
-        let revert_all_btn = gtk4::Button::with_label("Revert All");
-        revert_all_btn.add_css_class("destructive-action");
+        let revert_all_btn = gtk4::Button::from_icon_name("edit-undo-symbolic");
+        revert_all_btn.add_css_class("flat");
+        revert_all_btn.set_tooltip_text(Some("Revert all changes"));
         {
             let fp = file_path.to_path_buf();
             let root_c = root.to_path_buf();
+            let cs = self.content_stack.clone();
             revert_all_btn.connect_clicked(move |_| {
                 let rel = fp.strip_prefix(&root_c).unwrap_or(&fp);
                 let _ = std::process::Command::new("git")
                     .args(["checkout", "--", &rel.to_string_lossy()])
                     .current_dir(&root_c)
                     .output();
+                cs.set_visible_child_name("editor");
             });
         }
         header.append(&revert_all_btn);
-
         diff_box.append(&header);
 
-        // Labels
+        // Column labels
         let labels = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
         let old_label = gtk4::Label::new(Some(&format!("{} (HEAD)", rel.to_string_lossy())));
         old_label.add_css_class("dim-label");
@@ -448,37 +529,42 @@ impl EditorTabs {
         labels.append(&new_label);
         diff_box.append(&labels);
 
+        // Paned: HEAD (read-only) | working (editable)
         let paned = gtk4::Paned::new(gtk4::Orientation::Horizontal);
+        paned.set_vexpand(true);
         paned.set_start_child(Some(&old_scroll));
         paned.set_end_child(Some(&new_scroll));
-        paned.set_vexpand(true);
         diff_box.append(&paned);
 
-        // Add as a notebook tab
-        let file_name = file_path.file_name()
-            .map(|n| n.to_string_lossy().to_string())
-            .unwrap_or_else(|| "diff".to_string());
-
-        let tab_box = gtk4::Box::new(gtk4::Orientation::Horizontal, 4);
-        let label = gtk4::Label::new(Some(&format!("Diff: {}", file_name)));
-        let close_btn = gtk4::Button::from_icon_name("window-close-symbolic");
-        close_btn.add_css_class("flat");
-        close_btn.add_css_class("tab-close-btn");
-        tab_box.append(&label);
-        tab_box.append(&close_btn);
-
-        let page_idx = self.notebook.append_page(&diff_box, Some(&tab_box));
-        self.notebook.set_show_tabs(true);
-        self.notebook.set_current_page(Some(page_idx));
-
-        // Close button removes the diff tab
+        // Save working side on Ctrl+S (via key controller on the diff_box)
         {
-            let nb = self.notebook.clone();
-            let diff_widget = diff_box.clone();
-            close_btn.connect_clicked(move |_| {
-                if let Some(page) = nb.page_num(&diff_widget) {
-                    nb.remove_page(Some(page));
+            let fp = file_path.to_path_buf();
+            let nb = new_buf.clone();
+            let key_ctrl = gtk4::EventControllerKey::new();
+            key_ctrl.connect_key_pressed(move |_, key, _, modifier| {
+                if modifier.contains(gtk4::gdk::ModifierType::CONTROL_MASK) && key == gtk4::gdk::Key::s {
+                    let text = nb.text(&nb.start_iter(), &nb.end_iter(), false).to_string();
+                    let _ = std::fs::write(&fp, &text);
+                    tracing::info!("Diff: saved working copy");
+                    return gtk4::glib::Propagation::Stop;
                 }
+                gtk4::glib::Propagation::Proceed
+            });
+            diff_box.add_controller(key_ctrl);
+        }
+
+        // Remove previous diff child if any, then add new one
+        if let Some(old_diff) = self.content_stack.child_by_name("diff") {
+            self.content_stack.remove(&old_diff);
+        }
+        self.content_stack.add_named(&diff_box, Some("diff"));
+        self.content_stack.set_visible_child_name("diff");
+
+        // Back button returns to editor view
+        {
+            let cs = self.content_stack.clone();
+            back_btn.connect_clicked(move |_| {
+                cs.set_visible_child_name("editor");
             });
         }
     }
@@ -497,13 +583,11 @@ impl EditorTabs {
                     }
                     open_file.modified = false;
                     open_file.last_disk_mtime = get_mtime(&open_file.path);
-                    // Reset undo stack as the new baseline
                     buf.set_enable_undo(false);
                     buf.set_enable_undo(true);
                 }
             }
         }
-        // Update gutter marks after save
         self.update_gutter_marks(root, state);
     }
 
@@ -526,21 +610,28 @@ impl EditorTabs {
 
     /// Remove the tab at the given index from the notebook and state.
     pub fn remove_tab(&self, idx: usize, state: &Rc<RefCell<EditorState>>) {
-        let mut st = state.borrow_mut();
-        if idx < st.open_files.len() {
+        let empty_after;
+        let new_idx;
+        {
+            let mut st = state.borrow_mut();
+            if idx >= st.open_files.len() { return; }
             st.open_files.remove(idx);
-            self.notebook.remove_page(Some((idx + 1) as u32));
-            if st.open_files.is_empty() {
+            empty_after = st.open_files.is_empty();
+            new_idx = if empty_after { 0 } else { idx.min(st.open_files.len() - 1) };
+            if empty_after {
                 st.active_tab = None;
-                self.notebook.set_show_tabs(false);
-                self.notebook.set_current_page(Some(0));
             } else {
-                let new_idx = idx.min(st.open_files.len() - 1);
                 st.active_tab = Some(new_idx);
-                self.notebook.set_current_page(Some((new_idx + 1) as u32));
-                drop(st);
-                self.switch_to_buffer(new_idx, state);
             }
+        }
+        // Borrow is dropped — safe to call notebook methods that trigger switch_page
+        self.notebook.remove_page(Some(idx as u32));
+        if empty_after {
+            self.notebook.set_show_tabs(false);
+            self.content_stack.set_visible_child_name("welcome");
+        } else {
+            self.notebook.set_current_page(Some(new_idx as u32));
+            self.switch_to_buffer(new_idx, state);
         }
     }
 
@@ -560,7 +651,6 @@ impl EditorTabs {
 
         let buf = &open_file.buffer;
 
-        // Ensure tag table has our diff tags
         let tt = buf.tag_table();
         let ensure_tag = |name: &str, bg: &str| {
             if tt.lookup(name).is_none() {
@@ -573,7 +663,6 @@ impl EditorTabs {
         ensure_tag("diff-removed", "rgba(220, 0, 0, 0.15)");
         ensure_tag("diff-modified", "rgba(0, 120, 255, 0.15)");
 
-        // Clear existing diff tags
         let (start, end) = (buf.start_iter(), buf.end_iter());
         buf.remove_tag_by_name("diff-added", &start, &end);
         buf.remove_tag_by_name("diff-removed", &start, &end);
@@ -601,7 +690,6 @@ impl EditorTabs {
                 _ => continue,
             };
 
-            // Apply tag to new lines in the working copy
             let mut line_num = hunk.new_start.saturating_sub(1);
             for line in &hunk.new_lines {
                 if line.starts_with('+') {
