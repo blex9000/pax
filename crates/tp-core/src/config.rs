@@ -148,4 +148,26 @@ mod tests {
         assert_eq!(ws.name, ws2.name);
         assert_eq!(ws.panels.len(), ws2.panels.len());
     }
+
+    #[test]
+    fn test_code_editor_roundtrip() {
+        let json = r#"{
+            "name": "editor-test",
+            "layout": { "type": "panel", "id": "ed1" },
+            "panels": [
+                {
+                    "id": "ed1",
+                    "name": "Code",
+                    "panel_type": { "type": "code_editor", "root_dir": "/tmp/project" }
+                }
+            ]
+        }"#;
+        let ws: crate::workspace::Workspace = serde_json::from_str(json).unwrap();
+        assert_eq!(ws.panels[0].effective_type(), crate::workspace::PanelType::CodeEditor { root_dir: "/tmp/project".to_string() });
+
+        // Roundtrip
+        let serialized = serde_json::to_string_pretty(&ws).unwrap();
+        let ws2: crate::workspace::Workspace = serde_json::from_str(&serialized).unwrap();
+        assert_eq!(ws2.panels[0].effective_type(), ws.panels[0].effective_type());
+    }
 }
