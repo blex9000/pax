@@ -70,13 +70,23 @@ impl FileTree {
             label.set_halign(gtk4::Align::Start);
             label.set_margin_start(4);
             label.set_xalign(0.0);
+            label.set_ellipsize(gtk4::pango::EllipsizeMode::End);
             item.set_child(Some(&label));
         });
-        factory.connect_bind(|_, item| {
+        let root_for_tooltip = root_dir.to_path_buf();
+        let entries_for_tooltip = entries.clone();
+        factory.connect_bind(move |_, item| {
             let item = item.downcast_ref::<gtk4::ListItem>().unwrap();
             let label = item.child().and_downcast::<gtk4::Label>().unwrap();
             let str_obj = item.item().and_downcast::<gtk4::StringObject>().unwrap();
             label.set_text(&str_obj.string());
+            // Set tooltip to relative path
+            let pos = item.position() as usize;
+            let entries = entries_for_tooltip.borrow();
+            if let Some(entry) = entries.get(pos) {
+                let rel = entry.path.strip_prefix(&root_for_tooltip).unwrap_or(&entry.path);
+                label.set_tooltip_text(Some(&rel.to_string_lossy()));
+            }
         });
 
         let list_view = gtk4::ListView::new(Some(selection.clone()), Some(factory));
