@@ -8,6 +8,7 @@ use crate::widgets::status_bar::StatusBar;
 
 thread_local! {
     pub static DIRTY_INDICATOR: RefCell<Option<(gtk4::Image, gtk4::Separator)>> = RefCell::new(None);
+    pub static HEADER_WS_LABEL: RefCell<Option<gtk4::Label>> = RefCell::new(None);
 }
 
 pub fn update_dirty_ui(
@@ -20,6 +21,11 @@ pub fn update_dirty_ui(
     let name = &view.workspace().name;
     window.set_title(Some(&format!("Pax — {}", name)));
     save_action.set_enabled(dirty || !view.has_config_path());
+    HEADER_WS_LABEL.with(|cell| {
+        if let Some(ref label) = *cell.borrow() {
+            label.set_text(name);
+        }
+    });
     DIRTY_INDICATOR.with(|cell| {
         if let Some((ref icon, ref sep)) = *cell.borrow() {
             icon.set_visible(dirty);

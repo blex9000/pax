@@ -10,7 +10,7 @@ use std::rc::Rc;
 
 use pax_core::workspace::Workspace;
 
-use crate::actions::{self, DIRTY_INDICATOR};
+use crate::actions::{self, DIRTY_INDICATOR, HEADER_WS_LABEL};
 use crate::layout_ops::update_tab_label_in_layout;
 use crate::panel_host::PanelAction;
 use crate::theme::Theme;
@@ -173,6 +173,9 @@ fn setup_workspace_ui(
     ws_label.add_css_class("dim-label");
     title_box.append(&ws_label);
     header.set_title_widget(Some(&title_box));
+    HEADER_WS_LABEL.with(|cell| {
+        cell.borrow_mut().replace(ws_label.clone());
+    });
 
     let menu_btn = gtk4::MenuButton::new();
     menu_btn.set_icon_name("open-menu-symbolic");
@@ -411,9 +414,12 @@ fn setup_workspace_ui(
     {
         let ws = ws_view.clone();
         let sync_cb: Rc<dyn Fn(&str, &str)> = Rc::new(move |source_panel_id, text| {
-            let view = ws.borrow();
-            if view.is_panel_synced(source_panel_id) {
-                view.write_to_synced(text.as_bytes(), source_panel_id);
+            // try_borrow: the RefCell may already be mutably borrowed (e.g.
+            // during focus changes that trigger VTE commit signals).
+            if let Ok(view) = ws.try_borrow() {
+                if view.is_panel_synced(source_panel_id) {
+                    view.write_to_synced(text.as_bytes(), source_panel_id);
+                }
             }
         });
         ws_view.borrow_mut().setup_sync_callbacks(sync_cb);
