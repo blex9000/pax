@@ -4,13 +4,13 @@ use std::cell::RefCell;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
-/// Callback when a file is double-clicked in the tree.
+/// Callback when a file is opened in the tree.
 pub type OnFileOpen = Rc<dyn Fn(&Path)>;
 
-/// File tree widget with gitignore-aware traversal and lazy loading.
+/// File tree widget with gitignore-aware traversal and expand/collapse.
 pub struct FileTree {
     pub widget: gtk4::Box,
-    list_view: gtk4::ListView,
+    list_box: gtk4::ListBox,
     root_dir: PathBuf,
     #[allow(dead_code)]
     on_file_open: Option<OnFileOpen>,
@@ -54,53 +54,27 @@ impl FileTree {
         let entries = Rc::new(RefCell::new(Vec::new()));
         build_file_entries(root_dir, root_dir, &mut entries.borrow_mut(), &mut file_index.borrow_mut(), 0);
 
-        let model = build_string_model(&entries.borrow());
+        let list_box = gtk4::ListBox::new();
+        list_box.set_selection_mode(gtk4::SelectionMode::Single);
+        list_box.add_css_class("navigation-sidebar");
 
-        let selection = gtk4::SingleSelection::new(Some(model.clone()));
-        let factory = gtk4::SignalListItemFactory::new();
-        factory.connect_setup(|_, item| {
-            let item = item.downcast_ref::<gtk4::ListItem>().unwrap();
-            let label = gtk4::Label::new(None);
-            label.set_halign(gtk4::Align::Start);
-            label.set_margin_start(4);
-            label.set_xalign(0.0);
-            label.set_ellipsize(gtk4::pango::EllipsizeMode::End);
-            item.set_child(Some(&label));
-        });
-        let root_for_tooltip = root_dir.to_path_buf();
-        let entries_for_tooltip = entries.clone();
-        factory.connect_bind(move |_, item| {
-            let item = item.downcast_ref::<gtk4::ListItem>().unwrap();
-            let label = item.child().and_downcast::<gtk4::Label>().unwrap();
-            let str_obj = item.item().and_downcast::<gtk4::StringObject>().unwrap();
-            label.set_text(&str_obj.string());
-            // Set tooltip to relative path
-            let pos = item.position() as usize;
-            let entries = entries_for_tooltip.borrow();
-            if let Some(entry) = entries.get(pos) {
-                let rel = entry.path.strip_prefix(&root_for_tooltip).unwrap_or(&entry.path);
-                label.set_tooltip_text(Some(&rel.to_string_lossy()));
-            }
-        });
-
-        let list_view = gtk4::ListView::new(Some(selection.clone()), Some(factory));
-        list_view.add_css_class("navigation-sidebar");
+        populate_list_box(&list_box, &entries.borrow(), root_dir);
 
         let scroll = gtk4::ScrolledWindow::new();
-        scroll.set_child(Some(&list_view));
+        scroll.set_child(Some(&list_box));
         scroll.set_vexpand(true);
 
         container.append(&scroll);
         container.append(&actions_bar);
 
-        // Click to expand/collapse dirs, double-click to open files
+        // Single click: expand/collapse dirs, open files
         {
             let entries_c = entries.clone();
             let on_open = on_file_open.clone();
             let fi = file_index.clone();
             let root = root_dir.to_path_buf();
-            list_view.connect_activate(move |lv, pos| {
-                let idx = pos as usize;
+            list_box.connect_row_activated(move |lb, row| {
+                let idx = row.index() as usize;
                 let is_dir;
                 let expanded;
                 let path;
@@ -115,7 +89,7 @@ impl FileTree {
                 }
                 if is_dir {
                     toggle_dir(&entries_c, &fi, &root, idx, depth, expanded, &path);
-                    rebuild_model(lv, &entries_c.borrow());
+                    populate_list_box(lb, &entries_c.borrow(), &root);
                 } else {
                     on_open(&path);
                 }
@@ -150,7 +124,7 @@ impl FileTree {
 
         Self {
             widget: container,
-            list_view,
+            list_box,
             root_dir: root_dir.to_path_buf(),
             on_file_open: Some(on_file_open),
             file_index,
@@ -176,7 +150,79 @@ impl FileTree {
         *self.file_index.borrow_mut() = index;
         *self.entries.borrow_mut() = entries;
 
-        rebuild_model(&self.list_view, &self.entries.borrow());
+        populate_list_box(&self.list_box, &self.entries.borrow(), &self.root_dir);
+    }
+}
+
+/// Build a single row widget for a file entry.
+fn build_row_widget(entry: &FileEntry, root: &Path) -> gtk4::Box {
+    let row = gtk4::Box::new(gtk4::Orientation::Horizontal, 4);
+    row.set_margin_start(4 + entry.depth as i32 * 16);
+    row.set_margin_top(1);
+    row.set_margin_bottom(1);
+
+    if entry.is_dir {
+        // +/- expander
+        let expander_label = if entry.expanded { "\u{2212}" } else { "+" };
+        let expander = gtk4::Label::new(Some(expander_label));
+        expander.set_width_request(14);
+        expander.add_css_class("dim-label");
+        row.append(&expander);
+
+        // Folder icon (symbolic, matches app theme)
+        let icon_name = if entry.expanded {
+            "folder-open-symbolic"
+        } else {
+            "folder-symbolic"
+        };
+        let icon = gtk4::Image::from_icon_name(icon_name);
+        icon.set_pixel_size(16);
+        row.append(&icon);
+    } else {
+        // Spacer to align with dirs (expander + icon width)
+        let spacer = gtk4::Label::new(None);
+        spacer.set_width_request(14);
+        row.append(&spacer);
+
+        let icon = gtk4::Image::from_icon_name(file_icon_name(&entry.name));
+        icon.set_pixel_size(16);
+        row.append(&icon);
+    }
+
+    let label = gtk4::Label::new(Some(&entry.name));
+    label.set_halign(gtk4::Align::Start);
+    label.set_hexpand(true);
+    label.set_ellipsize(gtk4::pango::EllipsizeMode::End);
+    let rel = entry.path.strip_prefix(root).unwrap_or(&entry.path);
+    label.set_tooltip_text(Some(&rel.to_string_lossy()));
+    row.append(&label);
+
+    row
+}
+
+/// Pick an appropriate symbolic icon for a file based on its extension.
+fn file_icon_name(name: &str) -> &'static str {
+    match name.rsplit('.').next().unwrap_or("") {
+        "rs" | "py" | "js" | "ts" | "c" | "cpp" | "h" | "go" | "java"
+        | "rb" | "sh" | "bash" | "zsh" | "lua" | "zig" => "text-x-script-symbolic",
+        "json" | "toml" | "yaml" | "yml" | "xml" | "ini" | "conf" => "text-x-generic-symbolic",
+        "md" | "txt" | "rst" | "org" => "text-x-generic-symbolic",
+        "png" | "jpg" | "jpeg" | "gif" | "svg" | "webp" | "ico" => "image-x-generic-symbolic",
+        "css" | "scss" | "html" | "htm" => "text-html-symbolic",
+        "lock" => "changes-prevent-symbolic",
+        _ => "text-x-generic-symbolic",
+    }
+}
+
+/// Populate the ListBox from entries.
+fn populate_list_box(list_box: &gtk4::ListBox, entries: &[FileEntry], root: &Path) {
+    // Remove all existing rows
+    while let Some(child) = list_box.first_child() {
+        list_box.remove(&child);
+    }
+    for entry in entries {
+        let row_widget = build_row_widget(entry, root);
+        list_box.append(&row_widget);
     }
 }
 
@@ -193,15 +239,13 @@ fn toggle_dir(
     let mut ents = entries.borrow_mut();
 
     if was_expanded {
-        // Collapse: remove all children (entries with depth > this one's depth,
-        // contiguous after this entry)
+        // Collapse: remove all children with depth > this entry's depth
         ents[idx].expanded = false;
         let remove_start = idx + 1;
         let mut remove_end = remove_start;
         while remove_end < ents.len() && ents[remove_end].depth > depth {
             remove_end += 1;
         }
-        // Remove collapsed file paths from file_index
         {
             let removed_paths: Vec<PathBuf> = ents[remove_start..remove_end]
                 .iter()
@@ -219,39 +263,10 @@ fn toggle_dir(
         let mut new_index = Vec::new();
         build_file_entries(root, dir_path, &mut new_entries, &mut new_index, depth + 1);
         file_index.borrow_mut().extend(new_index);
-        // Insert after current entry
         let insert_pos = idx + 1;
         for (i, entry) in new_entries.into_iter().enumerate() {
             ents.insert(insert_pos + i, entry);
         }
-    }
-}
-
-/// Build a StringList model from entries.
-fn build_string_model(entries: &[FileEntry]) -> gtk4::StringList {
-    let model = gtk4::StringList::new(&[]);
-    for entry in entries {
-        model.append(&format_entry(entry));
-    }
-    model
-}
-
-/// Format a single entry for display.
-fn format_entry(entry: &FileEntry) -> String {
-    let prefix = "  ".repeat(entry.depth as usize);
-    if entry.is_dir {
-        let arrow = if entry.expanded { "▼" } else { "▶" };
-        format!("{}{} \u{1F4C2} {}", prefix, arrow, entry.name)
-    } else {
-        format!("{}   {}", prefix, entry.name)
-    }
-}
-
-/// Rebuild the ListView model from entries.
-fn rebuild_model(list_view: &gtk4::ListView, entries: &[FileEntry]) {
-    if let Some(sel) = list_view.model().and_then(|m| m.downcast::<gtk4::SingleSelection>().ok()) {
-        let model = build_string_model(entries);
-        sel.set_model(Some(&model));
     }
 }
 
@@ -291,9 +306,7 @@ fn build_file_entries(
 ) {
     let walker = ignore::WalkBuilder::new(dir)
         .max_depth(Some(1))
-        .sort_by_file_name(|a, b| {
-            a.cmp(b)
-        })
+        .sort_by_file_name(|a, b| a.cmp(b))
         .build();
 
     let mut dirs = Vec::new();
