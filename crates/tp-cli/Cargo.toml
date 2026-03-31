@@ -1,16 +1,16 @@
 [package]
-name = "myterms"
+name = "pax"
 version.workspace = true
 edition.workspace = true
 
 [[bin]]
-name = "myterms"
+name = "pax"
 path = "src/main.rs"
 
 [dependencies]
-tp-core = { workspace = true }
-tp-gui = { workspace = true }
-tp-db = { workspace = true }
+pax-core = { workspace = true }
+pax-gui = { workspace = true }
+pax-db = { workspace = true }
 tokio = { workspace = true }
 anyhow = { workspace = true }
 clap = { version = "4", features = ["derive"] }

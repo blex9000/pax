@@ -2,7 +2,7 @@ use gtk4::prelude::*;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-use tp_core::workspace::{LayoutNode, PanelConfig, PanelType, Workspace};
+use pax_core::workspace::{LayoutNode, PanelConfig, PanelType, Workspace};
 
 use crate::backend_factory::{panel_type_to_id, panel_type_to_create_config, insert_ssh_extra, create_backend_from_registry};
 use crate::focus::FocusManager;
@@ -125,7 +125,7 @@ impl WorkspaceView {
     /// Reload from a workspace file, rebuilding the entire view.
     pub fn load_from_file(&mut self, path: &Path) -> Result<(), String> {
         tracing::info!("Loading workspace from {}", path.display());
-        let ws = tp_core::config::load_workspace(path)
+        let ws = pax_core::config::load_workspace(path)
             .map_err(|e| format!("Failed to load: {}", e))?;
         tracing::info!("Loaded workspace '{}' with {} panels", ws.name, ws.panels.len());
         self.config_path = Some(path.to_path_buf());
@@ -185,7 +185,7 @@ impl WorkspaceView {
     /// Get the current panel type for a panel.
     /// Update panel config after Configure dialog.
     /// Recreates the backend with the new type/settings and runs startup commands.
-    pub fn apply_panel_config(&mut self, panel_id: &str, new_name: String, new_type: PanelType, cwd: Option<String>, ssh: Option<tp_core::workspace::SshConfig>, startup_commands: Vec<String>, before_close: Option<String>, min_width: u32, min_height: u32) {
+    pub fn apply_panel_config(&mut self, panel_id: &str, new_name: String, new_type: PanelType, cwd: Option<String>, ssh: Option<pax_core::workspace::SshConfig>, startup_commands: Vec<String>, before_close: Option<String>, min_width: u32, min_height: u32) {
         tracing::info!("Configuring panel {}: name={}, type={:?}, cwd={:?}, ssh={}, cmds={}, before_close={}",
             panel_id, new_name, new_type, cwd, ssh.is_some(), startup_commands.len(), before_close.is_some());
         // Update model
@@ -829,7 +829,7 @@ impl WorkspaceView {
             .as_ref()
             .ok_or("No config path set")?
             .clone();
-        tp_core::config::save_workspace(&self.workspace, &path)
+        pax_core::config::save_workspace(&self.workspace, &path)
             .map_err(|e| format!("Save failed: {}", e))?;
         tracing::info!("Saved {} panels to {}", self.workspace.panels.len(), path.display());
         for p in &self.workspace.panels {
@@ -848,7 +848,7 @@ impl WorkspaceView {
     /// Save to a specific path.
     pub fn save_as(&mut self, path: &Path) -> Result<(), String> {
         self.sync_ratios_from_widgets();
-        tp_core::config::save_workspace(&self.workspace, path)
+        pax_core::config::save_workspace(&self.workspace, path)
             .map_err(|e| format!("Save failed: {}", e))?;
         self.config_path = Some(path.to_path_buf());
         self.dirty = false;
@@ -857,8 +857,8 @@ impl WorkspaceView {
     }
 
     fn record_in_db(&self) {
-        let db_path = tp_db::Database::default_path();
-        if let Ok(db) = tp_db::Database::open(&db_path) {
+        let db_path = pax_db::Database::default_path();
+        if let Ok(db) = pax_db::Database::open(&db_path) {
             let config_str = self.config_path.as_ref().map(|p| p.to_string_lossy().to_string());
             db.record_workspace_open(&self.workspace.name, config_str.as_deref()).ok();
         }

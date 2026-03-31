@@ -169,7 +169,7 @@ pub fn build_default_registry() -> PanelRegistry {
                         .join("\n");
                     if !script_body.trim().is_empty() {
                         let heredoc = format!(
-                            "cat << 'MYTERMS_SCRIPT_EOF' | bash\n{}\nMYTERMS_SCRIPT_EOF",
+                            "cat << 'PAX_SCRIPT_EOF' | bash\n{}\nPAX_SCRIPT_EOF",
                             script_body
                         );
                         panel.queue_raw(&heredoc);
@@ -206,7 +206,7 @@ pub fn build_default_registry() -> PanelRegistry {
         |config| {
             let url = config.extra.get("url").map(|s| s.as_str()).unwrap_or("about:blank");
             let content = format!("# Browser\n\nURL: {}\n\n(WebKitGTK integration pending)", url);
-            let tmp = std::env::temp_dir().join(format!("myterms_browser_{}.md", std::process::id()));
+            let tmp = std::env::temp_dir().join(format!("pax_browser_{}.md", std::process::id()));
             std::fs::write(&tmp, &content).ok();
             Box::new(super::markdown::MarkdownPanel::new(
                 tmp.to_str().unwrap_or("/tmp/placeholder.md"),

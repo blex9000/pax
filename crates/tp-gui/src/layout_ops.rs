@@ -1,4 +1,4 @@
-use tp_core::workspace::LayoutNode;
+use pax_core::workspace::LayoutNode;
 
 /// Replace a Panel node in the layout tree, returning a new tree.
 pub fn replace_in_layout(

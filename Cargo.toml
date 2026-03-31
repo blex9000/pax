@@ -14,9 +14,9 @@ license = "MIT"
 authors = ["xb"]
 
 [workspace.dependencies]
-tp-core = { path = "crates/tp-core" }
-tp-db = { path = "crates/tp-db" }
-tp-gui = { path = "crates/tp-gui" }
+pax-core = { path = "crates/tp-core" }
+pax-db = { path = "crates/tp-db" }
+pax-gui = { path = "crates/tp-gui" }
 
 tokio = { version = "1", features = ["full"] }
 serde = { version = "1", features = ["derive"] }

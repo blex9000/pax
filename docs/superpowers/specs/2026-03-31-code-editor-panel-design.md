@@ -2,7 +2,7 @@
 
 ## Overview
 
-A lightweight embedded code editor panel for MyTerms, providing a mini-IDE experience inside a panel. Built on GtkSourceView 5 for syntax highlighting and editing, with a file tree sidebar, tabbed file editing, and Git integration.
+A lightweight embedded code editor panel for Pax, providing a mini-IDE experience inside a panel. Built on GtkSourceView 5 for syntax highlighting and editing, with a file tree sidebar, tabbed file editing, and Git integration.
 
 ## Panel Type
 
@@ -48,7 +48,7 @@ enum SidebarMode { Files, Git }
 ### File Structure
 
 ```
-crates/tp-gui/src/panels/editor/
+crates/pax-gui/src/panels/editor/
   mod.rs          -- CodeEditorPanel, EditorState, PanelBackend impl
   file_tree.rs    -- FileTree widget, lazy loading, context menu
   editor_tabs.rs  -- Tab management, buffer switching, dirty tracking
@@ -205,12 +205,12 @@ Polling-based, same pattern as `MarkdownPanel` using `glib::timeout_add_local`.
 
 ### Modified Files
 
-- `tp-core/workspace.rs`: Add `CodeEditor { root_dir: String }` to `PanelType`
-- `tp-gui/panels/mod.rs`: Add `pub mod editor;`
-- `tp-gui/backend_factory.rs`: Add mapping for `PanelType::CodeEditor` in `panel_type_to_id` and `panel_type_to_create_config`
-- `tp-gui/panels/registry.rs`: Register `"code_editor"` in `build_default_registry`
+- `pax-core/workspace.rs`: Add `CodeEditor { root_dir: String }` to `PanelType`
+- `pax-gui/panels/mod.rs`: Add `pub mod editor;`
+- `pax-gui/backend_factory.rs`: Add mapping for `PanelType::CodeEditor` in `panel_type_to_id` and `panel_type_to_create_config`
+- `pax-gui/panels/registry.rs`: Register `"code_editor"` in `build_default_registry`
 
-### New Dependencies (tp-gui Cargo.toml)
+### New Dependencies (pax-gui Cargo.toml)
 
 - `ignore = "0.4"` — `.gitignore`-aware directory traversal
 - `similar = "2"` — Rust-native diffing

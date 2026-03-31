@@ -993,21 +993,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "myterms"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "clap",
- "dirs",
- "tokio",
- "tp-core",
- "tp-db",
- "tp-gui",
- "tracing",
- "tracing-subscriber",
-]
-
-[[package]]
 name = "nix"
 version = "0.25.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1102,6 +1087,70 @@ dependencies = [
  "redox_syscall",
  "smallvec",
  "windows-link",
+]
+
+[[package]]
+name = "pax"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "dirs",
+ "pax-core",
+ "pax-db",
+ "pax-gui",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
+name = "pax-core"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "dirs",
+ "regex",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "uuid",
+]
+
+[[package]]
+name = "pax-db"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "dirs",
+ "pax-core",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "tracing",
+]
+
+[[package]]
+name = "pax-gui"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "fuzzy-matcher",
+ "gtk4",
+ "ignore",
+ "libadwaita",
+ "pax-core",
+ "pax-db",
+ "portable-pty",
+ "serde",
+ "serde_json",
+ "similar",
+ "sourceview5",
+ "tokio",
+ "tracing",
+ "vt100",
+ "vte4",
 ]
 
 [[package]]
@@ -1690,55 +1739,6 @@ name = "toml_writer"
 version = "1.0.7+spec-1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f17aaa1c6e3dc22b1da4b6bba97d066e354c7945cac2f7852d4e4e7ca7a6b56d"
-
-[[package]]
-name = "tp-core"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "dirs",
- "regex",
- "serde",
- "serde_json",
- "tempfile",
- "uuid",
-]
-
-[[package]]
-name = "tp-db"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "chrono",
- "dirs",
- "rusqlite",
- "serde",
- "serde_json",
- "tp-core",
- "tracing",
-]
-
-[[package]]
-name = "tp-gui"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "fuzzy-matcher",
- "gtk4",
- "ignore",
- "libadwaita",
- "portable-pty",
- "serde",
- "serde_json",
- "similar",
- "sourceview5",
- "tokio",
- "tp-core",
- "tp-db",
- "tracing",
- "vt100",
- "vte4",
-]
 
 [[package]]
 name = "tracing"

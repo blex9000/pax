@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use tp_core::workspace::{PanelConfig, PanelType, SshConfig};
+use pax_core::workspace::{PanelConfig, PanelType, SshConfig};
 
 use crate::panels::markdown::MarkdownPanel;
 use crate::panels::registry::{PanelCreateConfig, PanelRegistry};

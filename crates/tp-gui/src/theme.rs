@@ -1,4 +1,4 @@
-/// MyTerms theme system — overrides libadwaita named colors via @define-color.
+/// Pax theme system — overrides libadwaita named colors via @define-color.
 
 use std::cell::RefCell;
 

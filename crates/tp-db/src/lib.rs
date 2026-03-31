@@ -31,13 +31,13 @@ impl Database {
         Ok(db)
     }
 
-    /// Default database path: ~/.local/share/myterms/myterms.db
+    /// Default database path: ~/.local/share/pax/pax.db
     pub fn default_path() -> PathBuf {
         let data_dir = dirs::data_local_dir()
             .unwrap_or_else(|| PathBuf::from("/tmp"))
-            .join("myterms");
+            .join("pax");
         std::fs::create_dir_all(&data_dir).ok();
-        data_dir.join("myterms.db")
+        data_dir.join("pax.db")
     }
 }
 

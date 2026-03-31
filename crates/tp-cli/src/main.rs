@@ -4,10 +4,10 @@ use std::path::PathBuf;
 
 #[derive(Parser)]
 #[command(
-    name = "myterms",
+    name = "pax",
     version,
     about = "Terminal Session Manager — Tilix-like workspace with heterogeneous panels",
-    long_about = "MyTerms is a GUI workspace manager with split/tab panels.\n\n\
+    long_about = "Pax is a GUI workspace manager with split/tab panels.\n\n\
         Run without arguments to open a new empty workspace.\n\
         Use Ctrl+Shift+H/J/T to add splits and tabs, Ctrl+S to save.\n\n\
         SHORTCUTS:\n  \
@@ -62,19 +62,19 @@ enum Commands {
 }
 
 fn main() -> Result<()> {
-    // Setup logging to file ~/.local/share/myterms/myterms.log
+    // Setup logging to file ~/.local/share/pax/pax.log
     let log_dir = dirs::data_local_dir()
         .unwrap_or_else(|| PathBuf::from("/tmp"))
-        .join("myterms");
+        .join("pax");
     std::fs::create_dir_all(&log_dir).ok();
     let log_file = std::fs::OpenOptions::new()
         .create(true)
         .append(true)
-        .open(log_dir.join("myterms.log"))
-        .unwrap_or_else(|_| std::fs::File::create("/tmp/myterms.log").unwrap());
+        .open(log_dir.join("pax.log"))
+        .unwrap_or_else(|_| std::fs::File::create("/tmp/pax.log").unwrap());
 
     tracing_subscriber::fmt()
-        .with_env_filter("myterms=debug,tp_gui=debug,tp_core=info")
+        .with_env_filter("pax=debug,pax_gui=debug,pax_core=info")
         .with_writer(std::sync::Mutex::new(log_file))
         .with_ansi(false)
         .init();
@@ -84,31 +84,31 @@ fn main() -> Result<()> {
     match cli.command {
         // No subcommand → show welcome screen
         None => {
-            tp_gui::app::run_app(None, None)?;
+            pax_gui::app::run_app(None, None)?;
         }
         // Explicit new → open empty workspace directly
         Some(Commands::New { name, output }) => {
-            let ws = tp_core::template::empty_workspace(&name);
-            tp_gui::app::run_app(Some(ws), output.as_deref())?;
+            let ws = pax_core::template::empty_workspace(&name);
+            pax_gui::app::run_app(Some(ws), output.as_deref())?;
         }
         Some(Commands::Launch { config }) => {
-            let ws = tp_core::config::load_workspace(&config)
+            let ws = pax_core::config::load_workspace(&config)
                 .with_context(|| format!("Failed to load {}", config.display()))?;
 
-            let db_path = tp_db::Database::default_path();
-            if let Ok(db) = tp_db::Database::open(&db_path) {
+            let db_path = pax_db::Database::default_path();
+            if let Ok(db) = pax_db::Database::open(&db_path) {
                 db.record_workspace_open(&ws.name, config.to_str()).ok();
             }
 
-            tp_gui::app::run_app(Some(ws), Some(&config))?;
+            pax_gui::app::run_app(Some(ws), Some(&config))?;
         }
         Some(Commands::List) => {
-            let db_path = tp_db::Database::default_path();
-            let db = tp_db::Database::open(&db_path)?;
+            let db_path = pax_db::Database::default_path();
+            let db = pax_db::Database::open(&db_path)?;
             let workspaces = db.list_workspaces()?;
 
             if workspaces.is_empty() {
-                println!("No workspaces found. Use 'myterms launch <config.json>' to start.");
+                println!("No workspaces found. Use 'pax launch <config.json>' to start.");
             } else {
                 println!("{:<20} {:<40} {:<20} {}", "Name", "Config", "Last Opened", "Opens");
                 println!("{}", "-".repeat(90));
@@ -124,8 +124,8 @@ fn main() -> Result<()> {
             }
         }
         Some(Commands::Search { query, limit }) => {
-            let db_path = tp_db::Database::default_path();
-            let db = tp_db::Database::open(&db_path)?;
+            let db_path = pax_db::Database::default_path();
+            let db = pax_db::Database::open(&db_path)?;
 
             println!("=== Commands ===");
             let cmds = db.search_commands(&query, limit)?;
@@ -159,10 +159,10 @@ fn main() -> Result<()> {
         }
         Some(Commands::Init { output, template }) => {
             let ws = match template.as_str() {
-                "grid" => tp_core::template::grid_2x2("my-workspace"),
-                _ => tp_core::template::simple_hsplit("my-workspace", 2),
+                "grid" => pax_core::template::grid_2x2("my-workspace"),
+                _ => pax_core::template::simple_hsplit("my-workspace", 2),
             };
-            tp_core::config::save_workspace(&ws, &output)?;
+            pax_core::config::save_workspace(&ws, &output)?;
             println!("Workspace config written to {}", output.display());
         }
     }

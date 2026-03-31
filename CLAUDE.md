@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-MyTerms is a Rust/GTK4 terminal workspace manager (Tilix-style) with multi-panel layouts, heterogeneous panel types, and persistent storage. Documentation (README.md, ROADMAP.md) is in Italian.
+Pax is a Rust/GTK4 terminal workspace manager (Tilix-style) with multi-panel layouts, heterogeneous panel types, and persistent storage. Documentation (README.md, ROADMAP.md) is in Italian.
 
 ## Build & Test Commands
 
@@ -17,7 +17,7 @@ cargo build --features sourceview              # With GtkSourceView5 syntax high
 
 # Test
 cargo test                         # All tests
-cargo test --package tp-core       # Single crate
+cargo test --package pax-core       # Single crate
 cargo test test_name               # Single test by name
 
 # Run
@@ -28,20 +28,20 @@ cargo run -- search "query"        # Search history/output
 cargo run -- init -t template      # Generate template config
 
 # Logging
-RUST_LOG=tp_gui=debug cargo run -- new "test"
+RUST_LOG=pax_gui=debug cargo run -- new "test"
 ```
 
 ## Workspace Architecture (4 crates)
 
 ```
 crates/
-├── tp-cli/    CLI entry point (clap). Routes subcommands to core/gui.
-├── tp-core/   Domain models & logic. Workspace/LayoutNode/PanelConfig structs,
+├── pax-cli/    CLI entry point (clap). Routes subcommands to core/gui.
+├── pax-core/   Domain models & logic. Workspace/LayoutNode/PanelConfig structs,
 │              JSON config loading, SSH config parsing, command safety blocklist,
 │              alert rules, workspace templates.
-├── tp-db/     SQLite persistence (rusqlite, bundled). Schema migrations, FTS5
+├── pax-db/     SQLite persistence (rusqlite, bundled). Schema migrations, FTS5
 │              full-text search on command history and saved output.
-└── tp-gui/    GTK4 + libadwaita UI. Application lifecycle, layout engine,
+└── pax-gui/    GTK4 + libadwaita UI. Application lifecycle, layout engine,
                panel system, themes, dialogs, keybindings.
 ```
 
@@ -49,11 +49,11 @@ crates/
 
 **Model-first UI**: All layout operations (split, tab, close, zoom) update the `LayoutNode` model tree first, then rebuild the GTK widget tree from the model. This ensures consistency and enables serialization.
 
-**LayoutNode enum** (tp-core/src/workspace.rs): Recursive tree with variants `Panel { id }`, `Hsplit { children, ratios }`, `Vsplit { children, ratios }`, `Tabs { children, labels }`.
+**LayoutNode enum** (pax-core/src/workspace.rs): Recursive tree with variants `Panel { id }`, `Hsplit { children, ratios }`, `Vsplit { children, ratios }`, `Tabs { children, labels }`.
 
-**PanelBackend trait** (tp-gui/src/panels/mod.rs): Plugin interface for panel types. Implementations: Terminal (VTE4/PTY), Markdown, Chooser. Each provides `widget()`, `on_focus()`, `write_input()`, `get_text_content()`.
+**PanelBackend trait** (pax-gui/src/panels/mod.rs): Plugin interface for panel types. Implementations: Terminal (VTE4/PTY), Markdown, Chooser. Each provides `widget()`, `on_focus()`, `write_input()`, `get_text_content()`.
 
-**Backend factory** (tp-gui/src/backend_factory.rs): Creates panel backends from `PanelConfig` enum variants.
+**Backend factory** (pax-gui/src/backend_factory.rs): Creates panel backends from `PanelConfig` enum variants.
 
 ## Conditional Compilation
 
@@ -62,8 +62,8 @@ crates/
 
 ## Data Storage
 
-- Database: `~/.local/share/myterms/myterms.db` (SQLite3 with FTS5)
-- Log file: `~/.local/share/myterms/myterms.log`
+- Database: `~/.local/share/pax/pax.db` (SQLite3 with FTS5)
+- Log file: `~/.local/share/pax/pax.log`
 - Migrations: `migrations/001_initial.sql`
 - Theme CSS: `resources/style.css`
 - Example configs: `config/*.json`

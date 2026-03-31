@@ -123,7 +123,7 @@ pub fn show_settings_dialog(
     vbox.append(&retention_row);
 
     // DB path (read-only info)
-    let db_path = tp_db::Database::default_path();
+    let db_path = pax_db::Database::default_path();
     let db_row = make_row("Database");
     let db_label = gtk4::Label::new(Some(&db_path.to_string_lossy()));
     db_label.add_css_class("dim-label");
@@ -136,7 +136,7 @@ pub fn show_settings_dialog(
     vbox.append(&db_row);
 
     // Log path (read-only info)
-    let log_path = db_path.parent().unwrap_or(std::path::Path::new("/tmp")).join("myterms.log");
+    let log_path = db_path.parent().unwrap_or(std::path::Path::new("/tmp")).join("pax.log");
     let log_row = make_row("Log file");
     let log_label = gtk4::Label::new(Some(&log_path.to_string_lossy()));
     log_label.add_css_class("dim-label");

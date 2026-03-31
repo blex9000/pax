@@ -18,7 +18,7 @@ pub fn update_dirty_ui(
     let view = ws.borrow();
     let dirty = view.is_dirty();
     let name = &view.workspace().name;
-    window.set_title(Some(&format!("MyTerms — {}", name)));
+    window.set_title(Some(&format!("Pax — {}", name)));
     save_action.set_enabled(dirty || !view.has_config_path());
     DIRTY_INDICATOR.with(|cell| {
         if let Some((ref icon, ref sep)) = *cell.borrow() {
@@ -152,8 +152,8 @@ pub fn show_recent_dialog(
     window: &Rc<adw::ApplicationWindow>,
     save_action: &gtk4::gio::SimpleAction,
 ) {
-    let db_path = tp_db::Database::default_path();
-    let workspaces = match tp_db::Database::open(&db_path) {
+    let db_path = pax_db::Database::default_path();
+    let workspaces = match pax_db::Database::open(&db_path) {
         Ok(db) => db.list_workspaces_limit(20).unwrap_or_default(),
         Err(_) => vec![],
     };

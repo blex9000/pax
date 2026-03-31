@@ -1,5 +1,5 @@
 [package]
-name = "tp-gui"
+name = "pax-gui"
 version.workspace = true
 edition.workspace = true
 
@@ -9,8 +9,8 @@ vte = ["dep:vte4"]
 sourceview = ["dep:sourceview5"]
 
 [dependencies]
-tp-core = { workspace = true }
-tp-db = { workspace = true }
+pax-core = { workspace = true }
+pax-db = { workspace = true }
 tokio = { workspace = true }
 anyhow = { workspace = true }
 tracing = { workspace = true }

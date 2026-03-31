@@ -1,10 +1,10 @@
 [package]
-name = "tp-db"
+name = "pax-db"
 version.workspace = true
 edition.workspace = true
 
 [dependencies]
-tp-core = { workspace = true }
+pax-core = { workspace = true }
 rusqlite = { version = "0.32", features = ["bundled"] }
 anyhow = { workspace = true }
 serde = { workspace = true }

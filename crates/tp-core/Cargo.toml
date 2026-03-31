@@ -1,5 +1,5 @@
 [package]
-name = "tp-core"
+name = "pax-core"
 version.workspace = true
 edition.workspace = true
 

@@ -1,7 +1,7 @@
 use gtk4::prelude::*;
 use std::collections::HashMap;
 
-use tp_core::workspace::{LayoutNode, PanelConfig, Workspace};
+use pax_core::workspace::{LayoutNode, PanelConfig, Workspace};
 
 use crate::backend_factory::panel_type_to_id;
 use crate::panel_host::{PanelAction, PanelActionCallback, PanelHost};

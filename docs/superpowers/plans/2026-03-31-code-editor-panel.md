@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Add an embedded code editor panel to MyTerms with file tree, tabbed editing via GtkSourceView 5, and Git integration (status, diff, stage, commit, revert per hunk).
+**Goal:** Add an embedded code editor panel to Pax with file tree, tabbed editing via GtkSourceView 5, and Git integration (status, diff, stage, commit, revert per hunk).
 
 **Architecture:** Single `CodeEditorPanel` struct implementing `PanelBackend`, composed of sub-widgets: file tree sidebar (toggleable), tabbed editor area with SourceView 5 buffers, and a git status/diff view. State centralized in `Rc<RefCell<EditorState>>`. Polling-based file watching using `glib::timeout_add_local`.
 
@@ -15,12 +15,12 @@
 ### Task 1: Add dependencies and PanelType variant
 
 **Files:**
-- Modify: `crates/tp-gui/Cargo.toml`
-- Modify: `crates/tp-core/src/workspace.rs:96-131` (PanelType enum)
-- Modify: `crates/tp-gui/src/backend_factory.rs:8-15` (panel_type_to_id)
-- Modify: `crates/tp-gui/src/backend_factory.rs:17-37` (panel_type_to_create_config)
+- Modify: `crates/pax-gui/Cargo.toml`
+- Modify: `crates/pax-core/src/workspace.rs:96-131` (PanelType enum)
+- Modify: `crates/pax-gui/src/backend_factory.rs:8-15` (panel_type_to_id)
+- Modify: `crates/pax-gui/src/backend_factory.rs:17-37` (panel_type_to_create_config)
 
-- [ ] **Step 1: Add `ignore` and `similar` to tp-gui/Cargo.toml**
+- [ ] **Step 1: Add `ignore` and `similar` to pax-gui/Cargo.toml**
 
 Add after the `sourceview5` line:
 
@@ -29,7 +29,7 @@ ignore = "0.4"
 similar = "2"
 ```
 
-- [ ] **Step 2: Add `CodeEditor` variant to `PanelType` in `crates/tp-core/src/workspace.rs`**
+- [ ] **Step 2: Add `CodeEditor` variant to `PanelType` in `crates/pax-core/src/workspace.rs`**
 
 Add after the `Browser` variant (line ~131):
 
@@ -40,7 +40,7 @@ Add after the `Browser` variant (line ~131):
     },
 ```
 
-- [ ] **Step 3: Update `PanelConfig::effective_type` in `crates/tp-core/src/workspace.rs`**
+- [ ] **Step 3: Update `PanelConfig::effective_type` in `crates/pax-core/src/workspace.rs`**
 
 In the `effective_type` method (~line 181), add a match arm before `other`:
 
@@ -50,7 +50,7 @@ In the `effective_type` method (~line 181), add a match arm before `other`:
 
 This is already covered by the existing `other => other.clone()` arm, so no change is actually needed. Verify this by reading the match.
 
-- [ ] **Step 4: Update `panel_type_to_id` in `crates/tp-gui/src/backend_factory.rs`**
+- [ ] **Step 4: Update `panel_type_to_id` in `crates/pax-gui/src/backend_factory.rs`**
 
 Add a new arm:
 
@@ -58,7 +58,7 @@ Add a new arm:
         PanelType::CodeEditor { .. } => "code_editor",
 ```
 
-- [ ] **Step 5: Update `panel_type_to_create_config` in `crates/tp-gui/src/backend_factory.rs`**
+- [ ] **Step 5: Update `panel_type_to_create_config` in `crates/pax-gui/src/backend_factory.rs`**
 
 Add a new match arm:
 
@@ -68,7 +68,7 @@ Add a new match arm:
         }
 ```
 
-- [ ] **Step 6: Update `create_backend_from_registry` in `crates/tp-gui/src/backend_factory.rs`**
+- [ ] **Step 6: Update `create_backend_from_registry` in `crates/pax-gui/src/backend_factory.rs`**
 
 Add a new arm in the `match &effective` block:
 
@@ -88,7 +88,7 @@ Expected: Compiles successfully (no code_editor registry entry yet, but types sh
 - [ ] **Step 8: Commit**
 
 ```bash
-git add crates/tp-gui/Cargo.toml crates/tp-core/src/workspace.rs crates/tp-gui/src/backend_factory.rs
+git add crates/pax-gui/Cargo.toml crates/pax-core/src/workspace.rs crates/pax-gui/src/backend_factory.rs
 git commit -m "feat(editor): add CodeEditor PanelType variant and dependencies"
 ```
 
@@ -97,12 +97,12 @@ git commit -m "feat(editor): add CodeEditor PanelType variant and dependencies"
 ### Task 2: Scaffold CodeEditorPanel with empty editor area
 
 **Files:**
-- Create: `crates/tp-gui/src/panels/editor/mod.rs`
-- Create: `crates/tp-gui/src/panels/editor/editor_tabs.rs`
-- Modify: `crates/tp-gui/src/panels/mod.rs`
-- Modify: `crates/tp-gui/src/panels/registry.rs:110-218` (build_default_registry)
+- Create: `crates/pax-gui/src/panels/editor/mod.rs`
+- Create: `crates/pax-gui/src/panels/editor/editor_tabs.rs`
+- Modify: `crates/pax-gui/src/panels/mod.rs`
+- Modify: `crates/pax-gui/src/panels/registry.rs:110-218` (build_default_registry)
 
-- [ ] **Step 1: Create `crates/tp-gui/src/panels/editor/editor_tabs.rs`**
+- [ ] **Step 1: Create `crates/pax-gui/src/panels/editor/editor_tabs.rs`**
 
 This module manages the tab bar and SourceView instances.
 
@@ -400,7 +400,7 @@ fn get_mtime(path: &Path) -> u64 {
 }
 ```
 
-- [ ] **Step 2: Create `crates/tp-gui/src/panels/editor/mod.rs`**
+- [ ] **Step 2: Create `crates/pax-gui/src/panels/editor/mod.rs`**
 
 ```rust
 #[cfg(feature = "sourceview")]
@@ -575,7 +575,7 @@ impl PanelBackend for CodeEditorPanel {
 }
 ```
 
-- [ ] **Step 3: Add `pub mod editor;` to `crates/tp-gui/src/panels/mod.rs`**
+- [ ] **Step 3: Add `pub mod editor;` to `crates/pax-gui/src/panels/mod.rs`**
 
 Add after `pub mod registry;`:
 
@@ -583,7 +583,7 @@ Add after `pub mod registry;`:
 pub mod editor;
 ```
 
-- [ ] **Step 4: Register `code_editor` in `build_default_registry` in `crates/tp-gui/src/panels/registry.rs`**
+- [ ] **Step 4: Register `code_editor` in `build_default_registry` in `crates/pax-gui/src/panels/registry.rs`**
 
 Add after the browser registration block (before the closing `reg`):
 
@@ -631,7 +631,7 @@ Expected: Window opens with the editor panel showing sidebar placeholder and emp
 - [ ] **Step 7: Commit**
 
 ```bash
-git add crates/tp-gui/src/panels/editor/ crates/tp-gui/src/panels/mod.rs crates/tp-gui/src/panels/registry.rs config/editor_test.json
+git add crates/pax-gui/src/panels/editor/ crates/pax-gui/src/panels/mod.rs crates/pax-gui/src/panels/registry.rs config/editor_test.json
 git commit -m "feat(editor): scaffold CodeEditorPanel with tabs and registry"
 ```
 
@@ -640,10 +640,10 @@ git commit -m "feat(editor): scaffold CodeEditorPanel with tabs and registry"
 ### Task 3: File Tree sidebar
 
 **Files:**
-- Create: `crates/tp-gui/src/panels/editor/file_tree.rs`
-- Modify: `crates/tp-gui/src/panels/editor/mod.rs` (replace sidebar placeholder)
+- Create: `crates/pax-gui/src/panels/editor/file_tree.rs`
+- Modify: `crates/pax-gui/src/panels/editor/mod.rs` (replace sidebar placeholder)
 
-- [ ] **Step 1: Create `crates/tp-gui/src/panels/editor/file_tree.rs`**
+- [ ] **Step 1: Create `crates/pax-gui/src/panels/editor/file_tree.rs`**
 
 ```rust
 use gtk4::prelude::*;
@@ -941,7 +941,7 @@ Expected: File tree sidebar shows files from the current directory. Double-click
 - [ ] **Step 5: Commit**
 
 ```bash
-git add crates/tp-gui/src/panels/editor/
+git add crates/pax-gui/src/panels/editor/
 git commit -m "feat(editor): add file tree sidebar with gitignore support"
 ```
 
@@ -950,10 +950,10 @@ git commit -m "feat(editor): add file tree sidebar with gitignore support"
 ### Task 4: Fuzzy Finder (Ctrl+P)
 
 **Files:**
-- Create: `crates/tp-gui/src/panels/editor/fuzzy_finder.rs`
-- Modify: `crates/tp-gui/src/panels/editor/mod.rs` (add Ctrl+P keybinding)
+- Create: `crates/pax-gui/src/panels/editor/fuzzy_finder.rs`
+- Modify: `crates/pax-gui/src/panels/editor/mod.rs` (add Ctrl+P keybinding)
 
-- [ ] **Step 1: Create `crates/tp-gui/src/panels/editor/fuzzy_finder.rs`**
+- [ ] **Step 1: Create `crates/pax-gui/src/panels/editor/fuzzy_finder.rs`**
 
 ```rust
 use gtk4::prelude::*;
@@ -1181,7 +1181,7 @@ Expected: Ctrl+P shows the fuzzy finder overlay. Typing filters files. Enter ope
 - [ ] **Step 4: Commit**
 
 ```bash
-git add crates/tp-gui/src/panels/editor/
+git add crates/pax-gui/src/panels/editor/
 git commit -m "feat(editor): add fuzzy finder with Ctrl+P"
 ```
 
@@ -1190,10 +1190,10 @@ git commit -m "feat(editor): add fuzzy finder with Ctrl+P"
 ### Task 5: File Watcher
 
 **Files:**
-- Create: `crates/tp-gui/src/panels/editor/file_watcher.rs`
-- Modify: `crates/tp-gui/src/panels/editor/mod.rs` (start watchers)
+- Create: `crates/pax-gui/src/panels/editor/file_watcher.rs`
+- Modify: `crates/pax-gui/src/panels/editor/mod.rs` (start watchers)
 
-- [ ] **Step 1: Create `crates/tp-gui/src/panels/editor/file_watcher.rs`**
+- [ ] **Step 1: Create `crates/pax-gui/src/panels/editor/file_watcher.rs`**
 
 ```rust
 use gtk4::prelude::*;
@@ -1385,7 +1385,7 @@ Manual test: Open a file in the editor, modify it externally from a terminal —
 - [ ] **Step 4: Commit**
 
 ```bash
-git add crates/tp-gui/src/panels/editor/
+git add crates/pax-gui/src/panels/editor/
 git commit -m "feat(editor): add file watcher for open files and tree"
 ```
 
@@ -1394,10 +1394,10 @@ git commit -m "feat(editor): add file watcher for open files and tree"
 ### Task 6: Git Status view with stage/unstage/commit
 
 **Files:**
-- Create: `crates/tp-gui/src/panels/editor/git_status.rs`
-- Modify: `crates/tp-gui/src/panels/editor/mod.rs` (wire git view into sidebar toggle)
+- Create: `crates/pax-gui/src/panels/editor/git_status.rs`
+- Modify: `crates/pax-gui/src/panels/editor/mod.rs` (wire git view into sidebar toggle)
 
-- [ ] **Step 1: Create `crates/tp-gui/src/panels/editor/git_status.rs`**
+- [ ] **Step 1: Create `crates/pax-gui/src/panels/editor/git_status.rs`**
 
 ```rust
 use gtk4::prelude::*;
@@ -1700,7 +1700,7 @@ Expected: Clicking the Git icon in the sidebar shows the list of changed files. 
 - [ ] **Step 4: Commit**
 
 ```bash
-git add crates/tp-gui/src/panels/editor/
+git add crates/pax-gui/src/panels/editor/
 git commit -m "feat(editor): add git status view with stage/unstage/commit"
 ```
 
@@ -1709,9 +1709,9 @@ git commit -m "feat(editor): add git status view with stage/unstage/commit"
 ### Task 7: Git Diff view with revert per hunk
 
 **Files:**
-- Modify: `crates/tp-gui/src/panels/editor/git_status.rs` (add diff view)
-- Modify: `crates/tp-gui/src/panels/editor/editor_tabs.rs` (add diff display method)
-- Modify: `crates/tp-gui/src/panels/editor/mod.rs` (wire diff opening)
+- Modify: `crates/pax-gui/src/panels/editor/git_status.rs` (add diff view)
+- Modify: `crates/pax-gui/src/panels/editor/editor_tabs.rs` (add diff display method)
+- Modify: `crates/pax-gui/src/panels/editor/mod.rs` (wire diff opening)
 
 - [ ] **Step 1: Add diff helper functions to `git_status.rs`**
 
@@ -2026,7 +2026,7 @@ Manual test: Modify a git-tracked file, switch to Git view, click the file. A si
 - [ ] **Step 5: Commit**
 
 ```bash
-git add crates/tp-gui/src/panels/editor/
+git add crates/pax-gui/src/panels/editor/
 git commit -m "feat(editor): add side-by-side diff view with revert"
 ```
 
@@ -2035,7 +2035,7 @@ git commit -m "feat(editor): add side-by-side diff view with revert"
 ### Task 8: Inline gutter diff indicators
 
 **Files:**
-- Modify: `crates/tp-gui/src/panels/editor/editor_tabs.rs` (add gutter rendering)
+- Modify: `crates/pax-gui/src/panels/editor/editor_tabs.rs` (add gutter rendering)
 
 - [ ] **Step 1: Add gutter diff marks after file save**
 
@@ -2136,7 +2136,7 @@ Manual test: Open a git-tracked file, make changes, save. Lines that differ from
 - [ ] **Step 4: Commit**
 
 ```bash
-git add crates/tp-gui/src/panels/editor/
+git add crates/pax-gui/src/panels/editor/
 git commit -m "feat(editor): add inline gutter diff indicators on save"
 ```
 
@@ -2145,8 +2145,8 @@ git commit -m "feat(editor): add inline gutter diff indicators on save"
 ### Task 9: Tab keybindings and close-with-save dialog
 
 **Files:**
-- Modify: `crates/tp-gui/src/panels/editor/mod.rs` (add remaining keybindings)
-- Modify: `crates/tp-gui/src/panels/editor/editor_tabs.rs` (add close-with-save dialog)
+- Modify: `crates/pax-gui/src/panels/editor/mod.rs` (add remaining keybindings)
+- Modify: `crates/pax-gui/src/panels/editor/editor_tabs.rs` (add close-with-save dialog)
 
 - [ ] **Step 1: Add Ctrl+W close tab with save dialog**
 
@@ -2331,7 +2331,7 @@ Manual test: Ctrl+W closes tabs (saves if modified). Ctrl+Tab cycles. Middle-cli
 - [ ] **Step 6: Commit**
 
 ```bash
-git add crates/tp-gui/src/panels/editor/
+git add crates/pax-gui/src/panels/editor/
 git commit -m "feat(editor): add tab keybindings, close-with-save, middle-click close"
 ```
 
@@ -2340,12 +2340,12 @@ git commit -m "feat(editor): add tab keybindings, close-with-save, middle-click 
 ### Task 10: CSS styling and theme integration
 
 **Files:**
-- Modify: `crates/tp-gui/src/theme.rs` (add sourceview scheme mapping)
-- Modify: `crates/tp-gui/src/panels/editor/editor_tabs.rs` (use theme mapping)
+- Modify: `crates/pax-gui/src/theme.rs` (add sourceview scheme mapping)
+- Modify: `crates/pax-gui/src/panels/editor/editor_tabs.rs` (use theme mapping)
 
 - [ ] **Step 1: Add sourceview scheme mapping to `Theme`**
 
-Add a method to `Theme` in `crates/tp-gui/src/theme.rs`:
+Add a method to `Theme` in `crates/pax-gui/src/theme.rs`:
 
 ```rust
     /// Returns the GtkSourceView 5 style scheme ID for this theme.
@@ -2402,7 +2402,7 @@ Expected: Compiles. Editor follows the workspace theme.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add crates/tp-gui/src/theme.rs crates/tp-gui/src/panels/editor/
+git add crates/pax-gui/src/theme.rs crates/pax-gui/src/panels/editor/
 git commit -m "feat(editor): integrate theme system with sourceview schemes"
 ```
 
@@ -2411,11 +2411,11 @@ git commit -m "feat(editor): integrate theme system with sourceview schemes"
 ### Task 11: Config serialization test
 
 **Files:**
-- Modify: `crates/tp-core/src/config.rs` (add test for CodeEditor PanelType)
+- Modify: `crates/pax-core/src/config.rs` (add test for CodeEditor PanelType)
 
 - [ ] **Step 1: Add a serialization roundtrip test**
 
-Add to the existing `#[cfg(test)]` module in `crates/tp-core/src/config.rs`:
+Add to the existing `#[cfg(test)]` module in `crates/pax-core/src/config.rs`:
 
 ```rust
     #[test]
@@ -2443,13 +2443,13 @@ Add to the existing `#[cfg(test)]` module in `crates/tp-core/src/config.rs`:
 
 - [ ] **Step 2: Run the test**
 
-Run: `cargo test --package tp-core test_code_editor_roundtrip -- --nocapture`
+Run: `cargo test --package pax-core test_code_editor_roundtrip -- --nocapture`
 Expected: PASS
 
 - [ ] **Step 3: Commit**
 
 ```bash
-git add crates/tp-core/src/config.rs
+git add crates/pax-core/src/config.rs
 git commit -m "test(core): add CodeEditor PanelType serialization roundtrip test"
 ```
 

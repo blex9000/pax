@@ -23,7 +23,7 @@ pub fn build_welcome(on_choice: WelcomeCallback) -> gtk4::Widget {
     container.set_width_request(600);
 
     // Title
-    let title = gtk4::Label::new(Some("MyTerms"));
+    let title = gtk4::Label::new(Some("Pax"));
     title.add_css_class("title-1");
     container.append(&title);
 
@@ -103,8 +103,8 @@ pub fn build_welcome(on_choice: WelcomeCallback) -> gtk4::Widget {
     container.append(&actions);
 
     // Recent workspaces section
-    let db_path = tp_db::Database::default_path();
-    let recents = tp_db::Database::open(&db_path)
+    let db_path = pax_db::Database::default_path();
+    let recents = pax_db::Database::open(&db_path)
         .ok()
         .and_then(|db| db.list_workspaces_limit(10).ok())
         .unwrap_or_default();

@@ -1,8 +1,8 @@
-# MyTerms — Roadmap
+# Pax — Roadmap
 
 ## Visione
 
-**MyTerms** è un workspace manager GUI in Rust, stile Tilix/Terminator, con pannelli di tipi eterogenei. Non è un terminale dentro un terminale: è una finestra nativa con pannelli separati che possono essere:
+**Pax** è un workspace manager GUI in Rust, stile Tilix/Terminator, con pannelli di tipi eterogenei. Non è un terminale dentro un terminale: è una finestra nativa con pannelli separati che possono essere:
 
 - **Terminale locale** — shell con emulatore VTE completo
 - **Terminale SSH** — connessione remota via russh
@@ -24,7 +24,7 @@ I pannelli sono organizzati in layout configurabili (hsplit, vsplit, tabs) e rag
 
 ### Compilazione condizionale
 
-Il crate `tp-gui` usa feature flags per gestire le differenze tra piattaforme:
+Il crate `pax-gui` usa feature flags per gestire le differenze tra piattaforme:
 
 | Feature | Default | Descrizione |
 |---------|---------|-------------|
@@ -80,9 +80,9 @@ brew install gtk4 libadwaita pkg-config
 
 ```
 ┌──────────────────────────────────────────────────────────────┐
-│                       myterms (GUI)                           │
+│                       pax (GUI)                           │
 │  ┌──────────────────────────────────────────────────────────┐ │
-│  │             tp-gui (GTK4 + libadwaita)                   │ │
+│  │             pax-gui (GTK4 + libadwaita)                   │ │
 │  │  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌────────────┐ │ │
 │  │  │ Terminal  │ │ Terminal │ │ Markdown │ │  Browser   │ │ │
 │  │  │ (VTE4 o  │ │ SSH      │ │ Viewer   │ │ (WebKit)   │ │ │
@@ -92,14 +92,14 @@ brew install gtk4 libadwaita pkg-config
 │  └──────────────────────────────────────────────────────────┘ │
 │           ▼                    ▼              ▼               │
 │   ┌────────────┐    ┌──────────────┐  ┌──────────┐          │
-│   │  tp-core   │    │   tp-pty     │  │  tp-db   │          │
+│   │  pax-core   │    │   pax-pty     │  │  pax-db   │          │
 │   │ modelli    │    │ PTY locale   │  │ rusqlite │          │
 │   │ config     │    │ SSH session  │  │ FTS5     │          │
 │   │ alert      │    │ broadcast    │  │ history  │          │
 │   │ safety     │    │ output buf   │  │          │          │
 │   └────────────┘    └──────────────┘  └──────────┘          │
 │                                                               │
-│   tp-cli: myterms launch / list / search / init / edit       │
+│   pax-cli: pax launch / list / search / init / edit       │
 └──────────────────────────────────────────────────────────────┘
 ```
 
@@ -137,27 +137,27 @@ Entrambi i backend espongono la stessa API pubblica (`TerminalPanel::new()`, `se
 ## Struttura progetto
 
 ```
-myterms/
+pax/
 ├── Cargo.toml                      # workspace root
 ├── crates/
-│   ├── tp-core/src/                # Modelli, config, alert, safety
+│   ├── pax-core/src/                # Modelli, config, alert, safety
 │   │   ├── workspace.rs            # Workspace, PanelConfig, PanelType, LayoutNode
 │   │   ├── config.rs               # Load/save/validate JSON
 │   │   ├── ssh.rs                  # Parser ~/.ssh/config
 │   │   ├── safety.rs               # Blocklist regex per gruppo
 │   │   ├── alert.rs                # Regex pattern matching su output
 │   │   └── template.rs             # Generatori workspace template
-│   ├── tp-pty/src/                 # PTY + SSH
+│   ├── pax-pty/src/                 # PTY + SSH
 │   │   ├── manager.rs              # Spawn, resize, kill PTY
 │   │   ├── multiplexer.rs          # Broadcast con safety check
 │   │   ├── output.rs               # Ring buffer + alert scan
 │   │   └── ssh.rs                  # (futuro) Sessioni SSH via russh
-│   ├── tp-db/src/                  # SQLite embedded
+│   ├── pax-db/src/                  # SQLite embedded
 │   │   ├── schema.rs               # Migrazioni SQL + FTS5
 │   │   ├── commands.rs             # History comandi
 │   │   ├── output.rs               # Output salvato
 │   │   └── workspaces.rs           # Metadata workspace
-│   ├── tp-gui/src/                 # GUI GTK4 (cross-platform)
+│   ├── pax-gui/src/                 # GUI GTK4 (cross-platform)
 │   │   ├── app.rs                  # AdwApplication, window, keybindings, theme loading
 │   │   ├── workspace_view.rs       # LayoutNode → GtkPaned/Notebook, crea backend, sync ratios
 │   │   ├── panel_host.rs           # Container con title bar + footer (user@host:dir) + focus/alert
@@ -174,7 +174,7 @@ myterms/
 │   │   └── dialogs/
 │   │       ├── panel_config.rs     # Dialog config pannello (CWD, script, min size)
 │   │       └── settings.rs         # Dialog impostazioni workspace
-│   └── tp-cli/src/main.rs          # Entry point CLI
+│   └── pax-cli/src/main.rs          # Entry point CLI
 ├── config/
 │   ├── default_workspace.json      # 3 terminali in split
 │   ├── mixed_workspace.json        # Terminal + markdown + browser
@@ -278,9 +278,9 @@ I layout sono annidabili arbitrariamente: tabs dentro split, split dentro tabs, 
 | Cattura output VTE | Callback su contenuto terminale per alert scan |
 | Alert → bordo colorato + notifica desktop | notify-rust (Linux), osascript (macOS) |
 | Toggle recording per pannello | Output → SQLite in batch |
-| CLI `myterms search` | FTS5 ricerca su comandi e output salvato |
+| CLI `pax search` | FTS5 ricerca su comandi e output salvato |
 
-**Verifica**: `echo ERROR` → bordo rosso, `myterms search ERROR` lo trova.
+**Verifica**: `echo ERROR` → bordo rosso, `pax search ERROR` lo trova.
 
 ### Fase 5: SSH + Tmux remoto — COMPLETATA
 
@@ -326,7 +326,7 @@ I layout sono annidabili arbitrariamente: tabs dentro split, split dentro tabs, 
 
 | Task | Dettagli |
 |------|----------|
-| `myterms edit` | GUI per creare/modificare workspace visivamente |
+| `pax edit` | GUI per creare/modificare workspace visivamente |
 | Drag & drop pannelli nel builder | Crea layout trascinando |
 | Form configurazione pannello | Tipo, nome, target, comandi, gruppi |
 | Export/import JSON | Da builder a JSON e viceversa |
@@ -334,7 +334,7 @@ I layout sono annidabili arbitrariamente: tabs dentro split, split dentro tabs, 
 | **macOS**: .app bundle / Homebrew formula | Distribuzione nativa macOS |
 | .desktop file (Linux) + Info.plist (macOS) | Integrazione desktop |
 
-**Verifica**: `myterms edit` apre builder, salva JSON valido.
+**Verifica**: `pax edit` apre builder, salva JSON valido.
 
 ---
 
@@ -356,7 +356,7 @@ I layout sono annidabili arbitrariamente: tabs dentro split, split dentro tabs, 
 ### Architettura attuale
 
 ```
-tp-gui/src/
+pax-gui/src/
 ├── app.rs              (936 LOC) — GTK app lifecycle, azioni, keybindings
 ├── workspace_view.rs   (980 LOC) — WorkspaceView: split/tab/close/zoom/sync/save
 ├── widget_builder.rs   (436 LOC) — Costruzione widget GTK (layout, tab labels, paned)
@@ -396,8 +396,8 @@ tp-gui/src/
 
 ### Refactoring completati
 
-1. ~~tp-tui rimosso~~ Done
-2. ~~tp-pty rimosso~~ Done
+1. ~~pax-tui rimosso~~ Done
+2. ~~pax-pty rimosso~~ Done
 3. ~~FocusManager estratto in focus.rs~~ Done
 4. ~~Layout ops estratti in layout_ops.rs~~ Done
 5. ~~Widget builder estratto in widget_builder.rs~~ Done
@@ -410,7 +410,7 @@ tp-gui/src/
 1. **Estrarre actions da app.rs** — refactoring in corso
 2. **Command palette (Ctrl+K)** — fuzzy search per azioni, pannelli, comandi
 3. **Browser panel** — WebKitGTK (Linux), alternativa futura: wry per cross-platform
-4. **Alert su output** — collegare tp-core/alert.rs a VTE output, bordo + notifica
+4. **Alert su output** — collegare pax-core/alert.rs a VTE output, bordo + notifica
 5. **Drag & drop** — riordinare pannelli/tab trascinando
 6. **Scorciatoie configurabili** — keybinding personalizzabili
 

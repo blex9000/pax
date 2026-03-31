@@ -1,4 +1,4 @@
-MyTerms — Workspace Manager con Pannelli Eterogenei
+Pax — Workspace Manager con Pannelli Eterogenei
 aaa aaa vvv
 Workspace manager GUI cross-platform in Rust (GTK4 + VTE), stile Tilix, con pannelli di tipi diversi: terminale, SSH, tmux remoto, markdown viewer, browser embed.
 
@@ -56,16 +56,16 @@ Uso rapido
 
 ─── bash ───
 # Genera workspace di esempio
-myterms init workspace.json
+pax init workspace.json
 
 # Lancia workspace
-myterms launch workspace.json
+pax launch workspace.json
 
 # Lista workspace recenti
-myterms list
+pax list
 
 # Cerca in history e output
-myterms search "ERROR"
+pax search "ERROR"
 ───────
 
 Tipi di pannello
@@ -162,13 +162,13 @@ Scorciatoie
 
 Architettura
 
-myterms/
+pax/
 ├── crates/
-│   ├── tp-core/    # Modelli, config JSON, alert, safety, SSH parser
-│   ├── tp-pty/     # PTY locale + SSH sessions + broadcast
-│   ├── tp-db/      # SQLite + FTS5 (history, output, workspaces)
-│   ├── tp-gui/     # GTK4 + VTE/fallback (UI principale, cross-platform)
-│   └── tp-cli/     # Entry point CLI (clap)
+│   ├── pax-core/    # Modelli, config JSON, alert, safety, SSH parser
+│   ├── pax-pty/     # PTY locale + SSH sessions + broadcast
+│   ├── pax-db/      # SQLite + FTS5 (history, output, workspaces)
+│   ├── pax-gui/     # GTK4 + VTE/fallback (UI principale, cross-platform)
+│   └── pax-cli/     # Entry point CLI (clap)
 ├── config/
 │   ├── default_workspace.json   # 3 terminali in split
 │   ├── mixed_workspace.json     # Terminal + markdown + browser
@@ -179,24 +179,24 @@ Vedi ROADMAP.md per architettura dettagliata e piano di implementazione.
 
 Log
 
-I log vengono scritti in ~/.local/share/myterms/myterms.log. Per monitorarli in tempo reale:
+I log vengono scritti in ~/.local/share/pax/pax.log. Per monitorarli in tempo reale:
 
 ─── bash ───
-tail -f ~/.local/share/myterms/myterms.log
+tail -f ~/.local/share/pax/pax.log
 ───────
 
 Il livello di log è configurabile via variabile d'ambiente:
 
 ─── bash ───
-RUST_LOG=tp_gui=debug myterms
+RUST_LOG=pax_gui=debug pax
 ───────
 
 Dati persistenti
 
 | File | Contenuto |
 |------|-----------|
-| ~/.local/share/myterms/myterms.db | Database SQLite — workspace recenti, history comandi, output salvato |
-| ~/.local/share/myterms/myterms.log | Log applicazione |
+| ~/.local/share/pax/pax.db | Database SQLite — workspace recenti, history comandi, output salvato |
+| ~/.local/share/pax/pax.log | Log applicazione |
 
 Licenza
 

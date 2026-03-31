@@ -8,7 +8,7 @@ use std::cell::RefCell;
 use std::path::Path;
 use std::rc::Rc;
 
-use tp_core::workspace::Workspace;
+use pax_core::workspace::Workspace;
 
 use crate::actions::{self, DIRTY_INDICATOR};
 use crate::layout_ops::update_tab_label_in_layout;
@@ -20,7 +20,7 @@ use crate::widgets::status_bar::StatusBar;
 /// Single entry point — shows welcome if no workspace, or workspace directly.
 pub fn run_app(workspace: Option<Workspace>, config_path: Option<&Path>) -> Result<()> {
     let app = adw::Application::builder()
-        .application_id("com.sinelec.myterms")
+        .application_id("com.sinelec.pax")
         .build();
 
     let ws = workspace;
@@ -50,7 +50,7 @@ pub fn run_app(workspace: Option<Workspace>, config_path: Option<&Path>) -> Resu
 
         let window = adw::ApplicationWindow::builder()
             .application(app)
-            .title("MyTerms")
+            .title("Pax")
             .default_width(1200)
             .default_height(800)
             .build();
@@ -91,7 +91,7 @@ fn setup_welcome_ui(window: &Rc<adw::ApplicationWindow>) {
         use crate::widgets::welcome::WelcomeChoice;
         match choice {
             WelcomeChoice::NewWorkspace => {
-                let ws = tp_core::template::empty_workspace("untitled");
+                let ws = pax_core::template::empty_workspace("untitled");
                 setup_workspace_ui(&win, ws, None);
             }
             WelcomeChoice::OpenFile => {
@@ -111,7 +111,7 @@ fn setup_welcome_ui(window: &Rc<adw::ApplicationWindow>) {
                 dialog.open(Some(win2.as_ref()), gtk4::gio::Cancellable::NONE, move |result| {
                     if let Ok(file) = result {
                         if let Some(path) = file.path() {
-                            if let Ok(ws) = tp_core::config::load_workspace(&path) {
+                            if let Ok(ws) = pax_core::config::load_workspace(&path) {
                                 setup_workspace_ui(&win3, ws, Some(&path));
                             }
                         }
@@ -120,7 +120,7 @@ fn setup_welcome_ui(window: &Rc<adw::ApplicationWindow>) {
             }
             WelcomeChoice::OpenRecent(path) => {
                 let p = std::path::PathBuf::from(&path);
-                if let Ok(ws) = tp_core::config::load_workspace(&p) {
+                if let Ok(ws) = pax_core::config::load_workspace(&p) {
                     setup_workspace_ui(&win, ws, Some(&p));
                 }
             }
@@ -138,7 +138,7 @@ fn setup_workspace_ui(
     config_path: Option<&Path>,
 ) {
     let ws_name = workspace.name.clone();
-    window.set_title(Some(&format!("MyTerms — {}", ws_name)));
+    window.set_title(Some(&format!("Pax — {}", ws_name)));
 
     // Apply saved theme
     apply_theme(Theme::from_id(&workspace.settings.theme));
@@ -288,7 +288,7 @@ fn setup_workspace_ui(
                         let pcfg = ws.panel(panel_id);
                         (
                             pcfg.map(|p| p.name.clone()).unwrap_or_default(),
-                            pcfg.map(|p| p.effective_type()).unwrap_or(tp_core::workspace::PanelType::Terminal),
+                            pcfg.map(|p| p.effective_type()).unwrap_or(pax_core::workspace::PanelType::Terminal),
                             pcfg.and_then(|p| p.cwd.clone()),
                             pcfg.and_then(|p| p.effective_ssh()),
                             pcfg.map(|p| p.startup_commands.clone()).unwrap_or_default(),
@@ -404,7 +404,7 @@ fn setup_workspace_ui(
         let sa = save_action.clone();
         let sb = status_bar.clone();
         action.connect_activate(move |_, _| {
-            let empty = tp_core::template::empty_workspace("untitled");
+            let empty = pax_core::template::empty_workspace("untitled");
             if let Err(e) = ws.borrow_mut().load_workspace(empty, None) {
                 sb.borrow().set_message(&format!("Error: {}", e));
             }
@@ -736,12 +736,12 @@ fn load_css() {
 
 /// Load the theme from the most recently opened workspace.
 fn load_last_theme() -> Option<Theme> {
-    let db_path = tp_db::Database::default_path();
-    let db = tp_db::Database::open(&db_path).ok()?;
+    let db_path = pax_db::Database::default_path();
+    let db = pax_db::Database::open(&db_path).ok()?;
     let workspaces = db.list_workspaces_limit(1).ok()?;
     let record = workspaces.first()?;
     let path = record.config_path.as_ref()?;
-    let ws = tp_core::config::load_workspace(std::path::Path::new(path)).ok()?;
+    let ws = pax_core::config::load_workspace(std::path::Path::new(path)).ok()?;
     Some(Theme::from_id(&ws.settings.theme))
 }
 

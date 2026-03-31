@@ -1,6 +1,6 @@
 use gtk4::prelude::*;
 
-use tp_core::workspace::{PanelType, SshConfig};
+use pax_core::workspace::{PanelType, SshConfig};
 
 /// Callback: (name, panel_type, cwd, ssh, startup_commands, before_close, min_width, min_height)
 pub type ConfigDoneCallback = dyn Fn(String, PanelType, Option<String>, Option<SshConfig>, Vec<String>, Option<String>, u32, u32) + 'static;
