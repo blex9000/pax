@@ -412,21 +412,99 @@ impl EditorTabs {
     }
 
     /// Save the currently active file.
-    pub fn save_active(&self, state: &Rc<RefCell<EditorState>>) {
-        let mut st = state.borrow_mut();
-        if let Some(idx) = st.active_tab {
-            if let Some(open_file) = st.open_files.get_mut(idx) {
-                let buf = &open_file.buffer;
-                let text = buf.text(&buf.start_iter(), &buf.end_iter(), false).to_string();
-                if let Err(e) = std::fs::write(&open_file.path, &text) {
-                    tracing::error!("Failed to save {}: {}", open_file.path.display(), e);
-                    return;
+    pub fn save_active(&self, state: &Rc<RefCell<EditorState>>, root: &Path) {
+        {
+            let mut st = state.borrow_mut();
+            if let Some(idx) = st.active_tab {
+                if let Some(open_file) = st.open_files.get_mut(idx) {
+                    let buf = &open_file.buffer;
+                    let text = buf.text(&buf.start_iter(), &buf.end_iter(), false).to_string();
+                    if let Err(e) = std::fs::write(&open_file.path, &text) {
+                        tracing::error!("Failed to save {}: {}", open_file.path.display(), e);
+                        return;
+                    }
+                    open_file.modified = false;
+                    open_file.last_disk_mtime = get_mtime(&open_file.path);
+                    // Reset undo stack as the new baseline
+                    buf.set_enable_undo(false);
+                    buf.set_enable_undo(true);
                 }
-                open_file.modified = false;
-                open_file.last_disk_mtime = get_mtime(&open_file.path);
-                // Reset undo stack as the new baseline
-                buf.set_enable_undo(false);
-                buf.set_enable_undo(true);
+            }
+        }
+        // Update gutter marks after save
+        self.update_gutter_marks(root, state);
+    }
+
+    /// Update gutter diff indicators for the active file.
+    pub fn update_gutter_marks(&self, root: &Path, state: &Rc<RefCell<EditorState>>) {
+        use super::git_status::compute_diff;
+
+        let st = state.borrow();
+        let idx = match st.active_tab {
+            Some(i) => i,
+            None => return,
+        };
+        let open_file = match st.open_files.get(idx) {
+            Some(f) => f,
+            None => return,
+        };
+
+        let buf = &open_file.buffer;
+
+        // Ensure tag table has our diff tags
+        let tt = buf.tag_table();
+        let ensure_tag = |name: &str, bg: &str| {
+            if tt.lookup(name).is_none() {
+                let tag = gtk4::TextTag::new(Some(name));
+                tag.set_paragraph_background(Some(bg));
+                tt.add(&tag);
+            }
+        };
+        ensure_tag("diff-added", "rgba(0, 180, 0, 0.15)");
+        ensure_tag("diff-removed", "rgba(220, 0, 0, 0.15)");
+        ensure_tag("diff-modified", "rgba(0, 120, 255, 0.15)");
+
+        // Clear existing diff tags
+        let (start, end) = (buf.start_iter(), buf.end_iter());
+        buf.remove_tag_by_name("diff-added", &start, &end);
+        buf.remove_tag_by_name("diff-removed", &start, &end);
+        buf.remove_tag_by_name("diff-modified", &start, &end);
+
+        let file_path = open_file.path.clone();
+        drop(st);
+
+        let hunks = compute_diff(root, &file_path);
+        let st = state.borrow();
+        let open_file = match st.open_files.get(idx) {
+            Some(f) => f,
+            None => return,
+        };
+        let buf = &open_file.buffer;
+
+        for hunk in &hunks {
+            let has_old = hunk.old_lines.iter().any(|l| l.starts_with('-'));
+            let has_new = hunk.new_lines.iter().any(|l| l.starts_with('+'));
+
+            let tag_name = match (has_old, has_new) {
+                (true, true) => "diff-modified",
+                (false, true) => "diff-added",
+                (true, false) => "diff-removed",
+                _ => continue,
+            };
+
+            // Apply tag to new lines in the working copy
+            for line in &hunk.new_lines {
+                if line.starts_with('+') || line.starts_with(' ') {
+                    let line_num = hunk.new_start.saturating_sub(1);
+                    if line_num < buf.line_count() as usize {
+                        let start = buf.iter_at_line(line_num as i32).unwrap_or(buf.start_iter());
+                        let mut end = start.clone();
+                        end.forward_to_line_end();
+                        if line.starts_with('+') {
+                            buf.apply_tag_by_name(tag_name, &start, &end);
+                        }
+                    }
+                }
             }
         }
     }

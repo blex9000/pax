@@ -187,7 +187,8 @@ impl CodeEditorPanel {
                 if modifier.contains(gtk4::gdk::ModifierType::CONTROL_MASK) {
                     match key {
                         gtk4::gdk::Key::s => {
-                            tabs_save.save_active(&state_c);
+                            let root = state_c.borrow().root_dir.clone();
+                            tabs_save.save_active(&state_c, &root);
                             return gtk4::glib::Propagation::Stop;
                         }
                         gtk4::gdk::Key::b => {
