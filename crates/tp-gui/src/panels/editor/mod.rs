@@ -63,36 +63,60 @@ impl CodeEditorPanel {
         }));
 
         let tabs = editor_tabs::EditorTabs::new(state.clone());
+        let tabs_rc = Rc::new(tabs);
 
         // Right side: info bar + notebook + status bar
         let editor_area = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
-        editor_area.append(&tabs.info_bar_container);
+        editor_area.append(&tabs_rc.info_bar_container);
 
         // The SourceView goes in a scrolled window below the notebook
         let source_scroll = gtk4::ScrolledWindow::new();
-        source_scroll.set_child(Some(&tabs.source_view));
+        source_scroll.set_child(Some(&tabs_rc.source_view));
         source_scroll.set_vexpand(true);
         source_scroll.set_hexpand(true);
 
-        editor_area.append(&tabs.notebook);
+        editor_area.append(&tabs_rc.notebook);
         editor_area.append(&source_scroll);
-        editor_area.append(&tabs.status_bar);
+        editor_area.append(&tabs_rc.status_bar);
 
-        // Sidebar placeholder (file tree comes in Task 3)
+        // Sidebar: activity bar + file tree
         let sidebar = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
         sidebar.set_width_request(200);
 
-        let sidebar_label = gtk4::Label::new(Some("Files"));
-        sidebar_label.add_css_class("dim-label");
-        sidebar_label.set_margin_top(16);
-        sidebar.append(&sidebar_label);
+        // Activity bar: Files / Git toggle
+        let activity_bar = gtk4::Box::new(gtk4::Orientation::Horizontal, 2);
+        activity_bar.set_margin_start(4);
+        activity_bar.set_margin_end(4);
+        activity_bar.set_margin_top(2);
+        activity_bar.set_margin_bottom(2);
 
-        let dir_label = gtk4::Label::new(Some(root_dir));
-        dir_label.add_css_class("dim-label");
-        dir_label.add_css_class("caption");
-        dir_label.set_ellipsize(gtk4::pango::EllipsizeMode::Start);
-        dir_label.set_margin_top(4);
-        sidebar.append(&dir_label);
+        let files_btn = gtk4::ToggleButton::new();
+        files_btn.set_icon_name("folder-symbolic");
+        files_btn.set_active(true);
+        files_btn.add_css_class("flat");
+        files_btn.set_tooltip_text(Some("Files"));
+
+        let git_btn = gtk4::ToggleButton::new();
+        git_btn.set_icon_name("emblem-shared-symbolic");
+        git_btn.add_css_class("flat");
+        git_btn.set_tooltip_text(Some("Git"));
+        git_btn.set_group(Some(&files_btn));
+
+        activity_bar.append(&files_btn);
+        activity_bar.append(&git_btn);
+        sidebar.append(&activity_bar);
+        sidebar.append(&gtk4::Separator::new(gtk4::Orientation::Horizontal));
+
+        // File tree
+        let state_for_open = state.clone();
+        let tabs_for_open = tabs_rc.clone();
+        let file_tree = file_tree::FileTree::new(
+            &PathBuf::from(root_dir),
+            Rc::new(move |path| {
+                tabs_for_open.open_file(path, &state_for_open);
+            }),
+        );
+        sidebar.append(&file_tree.widget);
 
         // Paned: sidebar | editor
         let paned = gtk4::Paned::new(gtk4::Orientation::Horizontal);
@@ -104,17 +128,23 @@ impl CodeEditorPanel {
 
         let widget = paned.upcast::<gtk4::Widget>();
 
-        // Keybindings: Ctrl+S to save
+        // Keybindings: Ctrl+S to save, Ctrl+B to toggle sidebar
         {
             let state_c = state.clone();
             let key_ctrl = gtk4::EventControllerKey::new();
-            let tabs_rc = Rc::new(tabs);
             let tabs_save = tabs_rc.clone();
+            let sidebar_ref = sidebar.clone();
             key_ctrl.connect_key_pressed(move |_, key, _, modifier| {
                 if modifier.contains(gtk4::gdk::ModifierType::CONTROL_MASK) {
                     match key {
                         gtk4::gdk::Key::s => {
                             tabs_save.save_active(&state_c);
+                            return gtk4::glib::Propagation::Stop;
+                        }
+                        gtk4::gdk::Key::b => {
+                            let mut st = state_c.borrow_mut();
+                            st.sidebar_visible = !st.sidebar_visible;
+                            sidebar_ref.set_visible(st.sidebar_visible);
                             return gtk4::glib::Propagation::Stop;
                         }
                         _ => {}
