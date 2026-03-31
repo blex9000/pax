@@ -209,6 +209,11 @@ impl WorkspaceView {
         // Recreate backend with startup commands queued
         let ws_dir = self.config_path.as_ref().and_then(|p| p.parent()).map(|p| p.to_string_lossy().to_string());
         let mut config = panel_type_to_create_config(&new_type, &self.workspace.settings.default_shell, ws_dir.as_deref());
+        // Pass cwd and env from panel config
+        config.cwd = cwd;
+        if let Some(panel_cfg) = self.workspace.panels.iter().find(|p| p.id == panel_id) {
+            config.env = panel_cfg.env.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
+        }
         // Pass SSH config if present
         if let Some(panel_cfg) = self.workspace.panels.iter().find(|p| p.id == panel_id) {
             if let Some(ref ssh) = panel_cfg.effective_ssh() {
