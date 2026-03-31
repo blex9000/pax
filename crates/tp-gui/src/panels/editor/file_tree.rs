@@ -154,12 +154,70 @@ impl FileTree {
     }
 }
 
+/// Indent step in pixels per depth level.
+const INDENT_PX: i32 = 16;
+/// Width of each guide column.
+const GUIDE_W: f64 = 16.0;
+/// Height assumed for drawing (actual is allocated at render time).
+const ROW_H: f64 = 24.0;
+
 /// Build a single row widget for a file entry.
-fn build_row_widget(entry: &FileEntry, root: &Path) -> gtk4::Box {
-    let row = gtk4::Box::new(gtk4::Orientation::Horizontal, 4);
-    row.set_margin_start(4 + entry.depth as i32 * 16);
-    row.set_margin_top(1);
-    row.set_margin_bottom(1);
+/// `guides` is a bool per depth level (0..depth): true = draw a vertical continuation line.
+/// `is_last` is true if this entry is the last sibling at its depth.
+fn build_row_widget(entry: &FileEntry, root: &Path, guides: &[bool], is_last: bool) -> gtk4::Box {
+    let row = gtk4::Box::new(gtk4::Orientation::Horizontal, 2);
+    row.set_margin_start(4);
+    row.set_margin_top(0);
+    row.set_margin_bottom(0);
+
+    // Draw tree guide lines via a DrawingArea
+    if entry.depth > 0 {
+        let depth = entry.depth as usize;
+        let width = depth as i32 * INDENT_PX as i32;
+        let guides_owned: Vec<bool> = guides.to_vec();
+        let is_last_owned = is_last;
+
+        let drawing = gtk4::DrawingArea::new();
+        drawing.set_content_width(width);
+        drawing.set_content_height(ROW_H as i32);
+        drawing.set_size_request(width, -1);
+
+        drawing.set_draw_func(move |_da, cr, w, h| {
+            let _ = (w, h);
+            let h = h as f64;
+            let mid_y = h / 2.0;
+
+            // Use a subtle color for the lines
+            cr.set_source_rgba(0.5, 0.5, 0.5, 0.35);
+            cr.set_line_width(1.0);
+
+            // Draw vertical continuation lines for ancestor levels
+            for (level, &has_sibling) in guides_owned.iter().enumerate() {
+                if !has_sibling { continue; }
+                let x = level as f64 * GUIDE_W + GUIDE_W / 2.0;
+                cr.move_to(x + 0.5, 0.0);
+                cr.line_to(x + 0.5, h);
+            }
+
+            // Draw the connector for this entry's own level (last column)
+            let last_level = depth - 1;
+            let x = last_level as f64 * GUIDE_W + GUIDE_W / 2.0;
+            // Vertical line: from top to mid (or full height if not last)
+            cr.move_to(x + 0.5, 0.0);
+            if is_last_owned {
+                cr.line_to(x + 0.5, mid_y);   // └
+            } else {
+                cr.line_to(x + 0.5, h);       // ├
+            }
+            // Horizontal line: from vertical to the right edge
+            cr.move_to(x + 0.5, mid_y + 0.5);
+            cr.line_to(depth as f64 * GUIDE_W, mid_y + 0.5);
+
+            let _ = cr.stroke();
+        });
+
+        row.append(&drawing);
+    }
 
     if entry.is_dir {
         // +/- expander
@@ -179,7 +237,7 @@ fn build_row_widget(entry: &FileEntry, root: &Path) -> gtk4::Box {
         icon.set_pixel_size(16);
         row.append(&icon);
     } else {
-        // Spacer to align with dirs (expander + icon width)
+        // Spacer to align with dirs (expander width)
         let spacer = gtk4::Label::new(None);
         spacer.set_width_request(14);
         row.append(&spacer);
@@ -214,15 +272,60 @@ fn file_icon_name(name: &str) -> &'static str {
     }
 }
 
+/// Check if entry at `idx` has a following sibling at the same depth
+/// (i.e., there's a later entry at the same depth before we go back to a shallower depth).
+fn has_next_sibling(entries: &[FileEntry], idx: usize) -> bool {
+    let depth = entries[idx].depth;
+    for e in &entries[idx + 1..] {
+        if e.depth == depth { return true; }
+        if e.depth < depth { return false; }
+    }
+    false
+}
+
 /// Populate the ListBox from entries.
 fn populate_list_box(list_box: &gtk4::ListBox, entries: &[FileEntry], root: &Path) {
     // Remove all existing rows
     while let Some(child) = list_box.first_child() {
         list_box.remove(&child);
     }
-    for entry in entries {
-        let row_widget = build_row_widget(entry, root);
+
+    // For each entry, compute guide lines and is_last status.
+    // `active_guides[d]` = true means there's a continuation line at depth d
+    // (i.e., the parent at that depth still has more siblings below).
+    let mut active_guides: Vec<bool> = Vec::new();
+
+    for (i, entry) in entries.iter().enumerate() {
+        let depth = entry.depth as usize;
+
+        // Ensure active_guides has enough levels
+        active_guides.resize(depth, false);
+        active_guides.truncate(depth);
+
+        let is_last = !has_next_sibling(entries, i);
+
+        // Guides for this row: for levels 0..depth-1, use the active state.
+        // The last level (depth-1) is drawn as the connector (├ or └), not as
+        // a continuation guide — so we pass active_guides[0..depth-1] and let
+        // build_row_widget draw the connector separately.
+        let guides: Vec<bool> = if depth > 0 {
+            active_guides[..depth - 1].to_vec()
+        } else {
+            vec![]
+        };
+
+        let row_widget = build_row_widget(entry, root, &guides, is_last);
         list_box.append(&row_widget);
+
+        // Update active_guides: if this entry has a next sibling at its depth,
+        // mark its depth level as active (for children to draw │).
+        if depth > 0 {
+            // Set the parent guide for this depth
+            if active_guides.len() < depth {
+                active_guides.resize(depth, false);
+            }
+            active_guides[depth - 1] = !is_last;
+        }
     }
 }
 
