@@ -11,6 +11,7 @@ pub type OnFileOpen = Rc<dyn Fn(&Path)>;
 pub struct FileTree {
     pub widget: gtk4::Box,
     list_box: gtk4::ListBox,
+    scroll: gtk4::ScrolledWindow,
     root_dir: PathBuf,
     #[allow(dead_code)]
     on_file_open: Option<OnFileOpen>,
@@ -73,6 +74,7 @@ impl FileTree {
             let on_open = on_file_open.clone();
             let fi = file_index.clone();
             let root = root_dir.to_path_buf();
+            let sw = scroll.clone();
             list_box.connect_row_activated(move |lb, row| {
                 let idx = row.index() as usize;
                 let is_dir;
@@ -88,8 +90,13 @@ impl FileTree {
                     depth = entry.depth;
                 }
                 if is_dir {
+                    // Save scroll position before rebuilding
+                    let vadj = sw.vadjustment();
+                    let scroll_pos = vadj.value();
                     toggle_dir(&entries_c, &fi, &root, idx, depth, expanded, &path);
                     populate_list_box(lb, &entries_c.borrow(), &root);
+                    // Restore scroll position after rebuild
+                    vadj.set_value(scroll_pos);
                 } else {
                     on_open(&path);
                 }
@@ -125,6 +132,7 @@ impl FileTree {
         Self {
             widget: container,
             list_box,
+            scroll,
             root_dir: root_dir.to_path_buf(),
             on_file_open: Some(on_file_open),
             file_index,
@@ -150,7 +158,10 @@ impl FileTree {
         *self.file_index.borrow_mut() = index;
         *self.entries.borrow_mut() = entries;
 
+        let vadj = self.scroll.vadjustment();
+        let scroll_pos = vadj.value();
         populate_list_box(&self.list_box, &self.entries.borrow(), &self.root_dir);
+        vadj.set_value(scroll_pos);
     }
 }
 
