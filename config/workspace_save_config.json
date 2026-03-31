@@ -20,23 +20,18 @@
               }
             ],
             "ratios": [
-              0.4306569343065693,
-              0.5693430656934306
+              0.4171011470281543,
+              0.5828988529718457
             ]
           },
           {
             "type": "panel",
             "id": "p9"
-          },
-          {
-            "type": "panel",
-            "id": "p10"
           }
         ],
         "labels": [
           "Terminale xxx",
-          "markdown",
-          "code_editor"
+          "markdown"
         ]
       },
       {
@@ -52,14 +47,14 @@
           }
         ],
         "ratios": [
-          0.4453125,
-          0.5546875
+          0.18541666666666667,
+          0.8145833333333333
         ]
       }
     ],
     "ratios": [
-      0.609504132231405,
-      0.390495867768595
+      0.503099173553719,
+      0.496900826446281
     ]
   },
   "panels": [
@@ -129,32 +124,11 @@
       "min_height": 0
     },
     {
-      "id": "p10",
-      "name": "code_editor",
-      "panel_type": {
-        "type": "code_editor",
-        "root_dir": "."
-      },
-      "target": {
-        "type": "local"
-      },
-      "startup_commands": [],
-      "groups": [],
-      "record_output": false,
-      "cwd": null,
-      "env": {},
-      "pre_script": null,
-      "post_script": null,
-      "before_close": null,
-      "min_width": 0,
-      "min_height": 0
-    },
-    {
       "id": "p15",
       "name": "code_editor 2",
       "panel_type": {
         "type": "code_editor",
-        "root_dir": "/home/xb/dev/sinelec/me/myterms"
+        "root_dir": "/home/xb/dev/me/pax"
       },
       "target": {
         "type": "local"
@@ -199,6 +173,6 @@
     "default_shell": "/bin/bash",
     "scrollback_lines": 10000,
     "output_retention_days": null,
-    "theme": "nord"
+    "theme": "dracula"
   }
 }
