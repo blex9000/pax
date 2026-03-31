@@ -1,1 +1,0 @@
-- [macOS RAM usage](project_macos_ram.md) — Status bar RAM indicator is Linux-only, needs mach_task_info for macOS

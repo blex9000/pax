@@ -158,10 +158,10 @@ fn setup_workspace_ui(
     header.set_show_start_title_buttons(true);
 
     // Pax icon + workspace name centered in header
-    let title_box = gtk4::Box::new(gtk4::Orientation::Horizontal, 6);
+    let title_box = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
     title_box.set_halign(gtk4::Align::Center);
     let title_icon = gtk4::Image::from_icon_name("pax");
-    title_icon.set_pixel_size(18);
+    title_icon.set_pixel_size(22);
     title_box.append(&title_icon);
     let title_label = gtk4::Label::new(Some(&ws_name));
     title_label.add_css_class("heading");
