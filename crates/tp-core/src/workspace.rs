@@ -128,6 +128,10 @@ pub enum PanelType {
     Browser {
         url: String,
     },
+    /// Embedded code editor
+    CodeEditor {
+        root_dir: String,
+    },
 }
 
 /// SSH connection settings (stored in PanelConfig, not PanelType).

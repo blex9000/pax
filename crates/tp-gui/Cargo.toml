@@ -24,3 +24,5 @@ vt100 = "0.15"
 portable-pty = "0.8"
 fuzzy-matcher = "0.3"
 sourceview5 = { version = "0.9", optional = true }
+ignore = "0.4"
+similar = "2"

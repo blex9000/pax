@@ -11,6 +11,7 @@ pub fn panel_type_to_id(pt: &PanelType) -> &'static str {
         PanelType::Terminal | PanelType::Ssh { .. } | PanelType::RemoteTmux { .. } => "terminal",
         PanelType::Markdown { .. } => "markdown",
         PanelType::Browser { .. } => "browser",
+        PanelType::CodeEditor { .. } => "code_editor",
     }
 }
 
@@ -22,6 +23,9 @@ pub fn panel_type_to_create_config(pt: &PanelType, default_shell: &str, workspac
         }
         PanelType::Browser { url } => {
             extra.insert("url".to_string(), url.clone());
+        }
+        PanelType::CodeEditor { root_dir } => {
+            extra.insert("root_dir".to_string(), root_dir.clone());
         }
         _ => {}
     }
@@ -62,6 +66,11 @@ pub fn create_backend_from_registry(
             let mut extra = HashMap::new();
             extra.insert("url".to_string(), url.clone());
             ("browser", extra)
+        }
+        PanelType::CodeEditor { root_dir } => {
+            let mut extra = HashMap::new();
+            extra.insert("root_dir".to_string(), root_dir.clone());
+            ("code_editor", extra)
         }
     };
 
