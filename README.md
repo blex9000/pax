@@ -1,5 +1,5 @@
 Pax — Workspace Manager con Pannelli Eterogenei
-aaa aaa vvv
+
 Workspace manager GUI cross-platform in Rust (GTK4 + VTE), stile Tilix, con pannelli di tipi diversi: terminale, SSH, tmux remoto, markdown viewer, browser embed.
 
 Piattaforme: Linux (primario), macOS (supportato).
@@ -28,8 +28,8 @@ Linux (Ubuntu/Debian)
 # Rust
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
 
-# Dipendenze GTK4
-sudo apt install libgtk-4-dev libadwaita-1-dev libvte-2.91-gtk4-dev
+# Dipendenze GTK4 + SourceView
+sudo apt install libgtk-4-dev libadwaita-1-dev libvte-2.91-gtk4-dev libgtksourceview-5-dev
 
 # Opzionale (pannello browser)
 sudo apt install libwebkitgtk-6.0-dev
@@ -37,20 +37,41 @@ sudo apt install libwebkitgtk-6.0-dev
 # Debug: GTK Inspector
 gsettings set org.gtk.Settings.Debug enable-inspector-keybinding true
 # Poi Ctrl+Shift+D nella finestra per aprire l'inspector
-
-# Build
-cargo build --release
 ───────
 
 macOS (Homebrew)
 
 ─── bash ───
-# Dipendenze
-brew install gtk4 libadwaita pkg-config
-
-# Build (senza VTE — usa backend fallback PTY+vt100)
-cargo build --release --no-default-features
+brew install gtk4 libadwaita gtksourceview5 pkg-config
 ───────
+
+Build
+
+─── bash ───
+# Linux — build completa (VTE4 + SourceView — default)
+cargo build
+
+# Linux — release ottimizzata
+cargo build --release
+
+# macOS — senza VTE (usa PTY+vt100 fallback), con SourceView
+cargo build --no-default-features --features sourceview
+
+# macOS — minimale senza VTE ne SourceView
+cargo build --no-default-features
+
+# Solo per development/debug veloce
+cargo run
+───────
+
+Le feature flag disponibili:
+
+| Feature | Default | Descrizione |
+|---------|---------|-------------|
+| `vte` | Si | Terminale VTE4 nativo (Linux). Su macOS usa fallback PTY+vt100 |
+| `sourceview` | Si | GtkSourceView 5 per syntax highlighting nel code editor e markdown. Senza, il code editor mostra un placeholder |
+
+`cargo build` include entrambe. Su macOS usa `--no-default-features --features sourceview` per disabilitare solo VTE.
 
 Uso rapido
 
@@ -75,7 +96,8 @@ Tipi di pannello
 | terminal | Shell locale (VTE4 nativo) | VTE4 completo | PTY + vt100 fallback |
 | ssh | Terminale connesso via SSH | Sì | Sì |
 | remote_tmux | Sessione tmux remota | Sì | Sì |
-| markdown | Viewer per note .md | Sì | Sì |
+| markdown | Viewer/editor per note .md | Sì | Sì |
+| code_editor | Editor codice con file tree, git, search/replace | Sì (richiede sourceview) | Sì (richiede sourceview) |
 | browser | WebView per dashboard, docs | WebKitGTK | Non disponibile |
 
 Tipi di layout
