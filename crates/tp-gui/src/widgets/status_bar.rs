@@ -1,4 +1,5 @@
 use gtk4::prelude::*;
+use gtk4::glib;
 
 /// Status bar at the bottom of the window.
 #[derive(Debug)]
@@ -6,6 +7,8 @@ pub struct StatusBar {
     container: gtk4::Box,
     path_label: gtk4::Label,
     message_label: gtk4::Label,
+    #[allow(dead_code)]
+    ram_label: gtk4::Label,
 }
 
 impl StatusBar {
@@ -27,10 +30,28 @@ impl StatusBar {
         message_label.add_css_class("caption");
         container.append(&message_label);
 
+        let ram_label = gtk4::Label::new(None);
+        ram_label.set_halign(gtk4::Align::End);
+        ram_label.set_opacity(0.5);
+        ram_label.add_css_class("caption");
+        container.append(&ram_label);
+
+        // Update RAM usage every 2 seconds
+        {
+            let label = ram_label.clone();
+            // Set initial value
+            label.set_text(&format_ram_usage());
+            glib::timeout_add_local(std::time::Duration::from_secs(2), move || {
+                label.set_text(&format_ram_usage());
+                glib::ControlFlow::Continue
+            });
+        }
+
         Self {
             container,
             path_label,
             message_label,
+            ram_label,
         }
     }
 
@@ -53,4 +74,23 @@ impl StatusBar {
 
     // Keep for compatibility
     pub fn set_panel(&self, _panel_id: &str) {}
+}
+
+/// Read RSS (Resident Set Size) from /proc/self/status and format as MB.
+fn format_ram_usage() -> String {
+    if let Ok(status) = std::fs::read_to_string("/proc/self/status") {
+        for line in status.lines() {
+            if line.starts_with("VmRSS:") {
+                // Format: "VmRSS:    12345 kB"
+                let parts: Vec<&str> = line.split_whitespace().collect();
+                if let Some(kb_str) = parts.get(1) {
+                    if let Ok(kb) = kb_str.parse::<f64>() {
+                        let mb = kb / 1024.0;
+                        return format!("{:.1} MB", mb);
+                    }
+                }
+            }
+        }
+    }
+    String::new()
 }

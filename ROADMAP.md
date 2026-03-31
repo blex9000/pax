@@ -420,6 +420,7 @@ tp-gui/src/
 
 | Feature | Descrizione |
 |---------|-------------|
+| **RAM usage macOS** | Status bar mostra RSS via `/proc/self/status` (solo Linux). Su macOS serve `mach_task_basic_info` / `task_info()` con `#[cfg(target_os)]` |
 | **Plugin system** | Nuovi tipi pannello via plugin (WASM o .so/dylib) |
 | **Pannello log viewer** | Viewer specializzato per log strutturati |
 | **Pannello monitor** | Grafici CPU/RAM/disco integrati |

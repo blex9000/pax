@@ -5,10 +5,10 @@
     "type": "vsplit",
     "children": [
       {
-        "type": "hsplit",
+        "type": "tabs",
         "children": [
           {
-            "type": "tabs",
+            "type": "hsplit",
             "children": [
               {
                 "type": "panel",
@@ -16,27 +16,50 @@
               },
               {
                 "type": "panel",
-                "id": "p6"
-              },
-              {
-                "type": "panel",
-                "id": "p9"
+                "id": "p15"
               }
             ],
-            "labels": [
-              "Terminale xxx",
-              "ssh anas",
-              "markdown"
+            "ratios": [
+              0.5,
+              0.5
             ]
           },
           {
             "type": "panel",
-            "id": "p4"
+            "id": "p9"
+          },
+          {
+            "type": "panel",
+            "id": "p10"
+          },
+          {
+            "type": "panel",
+            "id": "p11"
+          },
+          {
+            "type": "hsplit",
+            "children": [
+              {
+                "type": "panel",
+                "id": "p13"
+              },
+              {
+                "type": "panel",
+                "id": "p14"
+              }
+            ],
+            "ratios": [
+              0.5,
+              0.5
+            ]
           }
         ],
-        "ratios": [
-          0.6683333333333333,
-          0.33166666666666667
+        "labels": [
+          "Terminale xxx",
+          "markdown",
+          "code_editor",
+          "code_editor",
+          "browser"
         ]
       },
       {
@@ -58,8 +81,8 @@
       }
     ],
     "ratios": [
-      0.38402457757296465,
-      0.6159754224270353
+      0.35582329317269074,
+      0.6441767068273092
     ]
   },
   "panels": [
@@ -108,27 +131,6 @@
       "min_height": 400
     },
     {
-      "id": "p4",
-      "name": "browser",
-      "panel_type": {
-        "type": "browser",
-        "url": "about:blank"
-      },
-      "target": {
-        "type": "local"
-      },
-      "startup_commands": [],
-      "groups": [],
-      "record_output": false,
-      "cwd": null,
-      "env": {},
-      "pre_script": null,
-      "post_script": null,
-      "before_close": null,
-      "min_width": 0,
-      "min_height": 500
-    },
-    {
       "id": "p5",
       "name": "New Panel 5",
       "panel_type": {
@@ -151,15 +153,11 @@
       "min_height": 400
     },
     {
-      "id": "p6",
-      "name": "ssh anas",
+      "id": "p9",
+      "name": "markdown",
       "panel_type": {
-        "type": "ssh",
-        "host": "192.168.17.21",
-        "port": 22,
-        "user": "root",
-        "password": "abc123!",
-        "identity_file": null
+        "type": "markdown",
+        "file": "README.md"
       },
       "target": {
         "type": "local"
@@ -176,11 +174,91 @@
       "min_height": 0
     },
     {
-      "id": "p9",
-      "name": "markdown",
+      "id": "p10",
+      "name": "code_editor",
       "panel_type": {
-        "type": "markdown",
-        "file": "README.md"
+        "type": "terminal"
+      },
+      "target": {
+        "type": "local"
+      },
+      "startup_commands": [],
+      "groups": [],
+      "record_output": false,
+      "cwd": null,
+      "env": {},
+      "pre_script": null,
+      "post_script": null,
+      "before_close": null,
+      "min_width": 0,
+      "min_height": 0
+    },
+    {
+      "id": "p11",
+      "name": "code_editor",
+      "panel_type": {
+        "type": "terminal"
+      },
+      "target": {
+        "type": "local"
+      },
+      "startup_commands": [],
+      "groups": [],
+      "record_output": false,
+      "cwd": null,
+      "env": {},
+      "pre_script": null,
+      "post_script": null,
+      "before_close": null,
+      "min_width": 0,
+      "min_height": 0
+    },
+    {
+      "id": "p13",
+      "name": "browser",
+      "panel_type": {
+        "type": "browser",
+        "url": "about:blank"
+      },
+      "target": {
+        "type": "local"
+      },
+      "startup_commands": [],
+      "groups": [],
+      "record_output": false,
+      "cwd": null,
+      "env": {},
+      "pre_script": null,
+      "post_script": null,
+      "before_close": null,
+      "min_width": 0,
+      "min_height": 0
+    },
+    {
+      "id": "p14",
+      "name": "New Panel 14",
+      "panel_type": {
+        "type": "empty"
+      },
+      "target": {
+        "type": "local"
+      },
+      "startup_commands": [],
+      "groups": [],
+      "record_output": false,
+      "cwd": null,
+      "env": {},
+      "pre_script": null,
+      "post_script": null,
+      "before_close": null,
+      "min_width": 0,
+      "min_height": 0
+    },
+    {
+      "id": "p15",
+      "name": "New Panel 15",
+      "panel_type": {
+        "type": "empty"
       },
       "target": {
         "type": "local"
