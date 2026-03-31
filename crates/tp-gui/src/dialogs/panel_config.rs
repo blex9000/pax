@@ -701,30 +701,43 @@ fn show_code_editor_config(
     vbox.set_margin_end(16);
 
     let name_entry = add_field(&vbox, "Name:", panel_name, "Code Editor");
-    let dir_entry = add_field(&vbox, "Project dir:", root_dir, "/path/to/project");
 
-    // Browse button for directory
-    let browse_btn = gtk4::Button::with_label("Browse...");
+    // Project dir with inline browse button
+    let dir_row = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
+    let dir_label = gtk4::Label::new(Some("Project dir:"));
+    dir_label.set_width_chars(15);
+    dir_label.set_halign(gtk4::Align::Start);
+    let dir_entry = gtk4::Entry::new();
+    dir_entry.set_text(root_dir);
+    dir_entry.set_placeholder_text(Some("/path/to/project"));
+    dir_entry.set_hexpand(true);
+    let browse_btn = gtk4::Button::from_icon_name("folder-open-symbolic");
     browse_btn.add_css_class("flat");
-    browse_btn.set_halign(gtk4::Align::Start);
-    let de = dir_entry.clone();
-    let d = dialog.clone();
-    browse_btn.connect_clicked(move |_| {
-        let file_dialog = gtk4::FileDialog::builder()
-            .title("Select Project Directory")
-            .modal(true)
-            .build();
+    browse_btn.set_tooltip_text(Some("Browse..."));
+    dir_row.append(&dir_label);
+    dir_row.append(&dir_entry);
+    dir_row.append(&browse_btn);
+    vbox.append(&dir_row);
 
-        let de2 = de.clone();
-        file_dialog.select_folder(Some(&d), gtk4::gio::Cancellable::NONE, move |result| {
-            if let Ok(file) = result {
-                if let Some(path) = file.path() {
-                    de2.set_text(&path.to_string_lossy());
+    {
+        let de = dir_entry.clone();
+        let d = dialog.clone();
+        browse_btn.connect_clicked(move |_| {
+            let file_dialog = gtk4::FileDialog::builder()
+                .title("Select Project Directory")
+                .modal(true)
+                .build();
+
+            let de2 = de.clone();
+            file_dialog.select_folder(Some(&d), gtk4::gio::Cancellable::NONE, move |result| {
+                if let Ok(file) = result {
+                    if let Some(path) = file.path() {
+                        de2.set_text(&path.to_string_lossy());
+                    }
                 }
-            }
+            });
         });
-    });
-    vbox.append(&browse_btn);
+    }
 
     let (mw_spin, mh_spin) = add_min_size_fields(&vbox, min_width, min_height);
 

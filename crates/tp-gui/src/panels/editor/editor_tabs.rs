@@ -22,10 +22,10 @@ pub struct EditorTabs {
     #[allow(dead_code)]
     status_pos: gtk4::Label,
     status_modified: gtk4::Label,
-    search_entry: gtk4::SearchEntry,
+    pub search_entry: gtk4::SearchEntry,
     #[allow(dead_code)]
-    replace_entry: gtk4::Entry,
-    replace_row: gtk4::Box,
+    pub replace_entry: gtk4::Entry,
+    pub replace_row: gtk4::Box,
     #[allow(dead_code)]
     search_settings: sourceview5::SearchSettings,
 }
@@ -34,6 +34,7 @@ impl EditorTabs {
     pub fn new(state: Rc<RefCell<EditorState>>) -> Self {
         let notebook = gtk4::Notebook::new();
         notebook.set_show_border(false);
+        notebook.set_scrollable(true);
         notebook.add_css_class("editor-tabs");
         notebook.set_show_tabs(false);
         // Hide the notebook page content area — we only want the tab bar
@@ -779,13 +780,18 @@ impl EditorTabs {
             let fp = file_path.to_path_buf();
             let root_c = root.to_path_buf();
             let cs = self.content_stack.clone();
+            let nb = self.notebook.clone();
             revert_all_btn.connect_clicked(move |_| {
                 let rel = fp.strip_prefix(&root_c).unwrap_or(&fp);
                 let _ = std::process::Command::new("git")
                     .args(["checkout", "--", &rel.to_string_lossy()])
                     .current_dir(&root_c)
                     .output();
-                cs.set_visible_child_name("editor");
+                if nb.n_pages() > 0 {
+                    cs.set_visible_child_name("editor");
+                } else {
+                    cs.set_visible_child_name("welcome");
+                }
             });
         }
         header.append(&revert_all_btn);
@@ -836,11 +842,16 @@ impl EditorTabs {
         self.content_stack.add_named(&diff_box, Some("diff"));
         self.content_stack.set_visible_child_name("diff");
 
-        // Back button returns to editor view
+        // Back button returns to editor or welcome
         {
             let cs = self.content_stack.clone();
+            let nb = self.notebook.clone();
             back_btn.connect_clicked(move |_| {
-                cs.set_visible_child_name("editor");
+                if nb.n_pages() > 0 {
+                    cs.set_visible_child_name("editor");
+                } else {
+                    cs.set_visible_child_name("welcome");
+                }
             });
         }
     }

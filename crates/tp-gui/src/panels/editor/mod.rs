@@ -138,7 +138,7 @@ impl CodeEditorPanel {
             Rc::new({
                 let state_c = state.clone();
                 let tabs_c = tabs_rc.clone();
-                move |path, line_num| {
+                move |path, line_num, query| {
                     // Open file and scroll to line
                     tabs_c.open_file(path, &state_c);
                     let st = state_c.borrow();
@@ -148,6 +148,13 @@ impl CodeEditorPanel {
                                 open_file.buffer.place_cursor(&iter);
                                 drop(st);
                                 tabs_c.source_view.scroll_to_iter(&mut iter.clone(), 0.1, false, 0.0, 0.0);
+
+                                // Activate search highlight for the query in the opened file
+                                if !query.is_empty() {
+                                    tabs_c.search_entry.set_text(query);
+                                    tabs_c.search_bar.set_visible(true);
+                                    tabs_c.replace_row.set_visible(false);
+                                }
                             }
                         }
                     }

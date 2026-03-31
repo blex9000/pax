@@ -236,7 +236,7 @@
       "name": "code_editor 2",
       "panel_type": {
         "type": "code_editor",
-        "root_dir": "."
+        "root_dir": "/home/xb/dev/sinelec/me/myterms"
       },
       "target": {
         "type": "local"

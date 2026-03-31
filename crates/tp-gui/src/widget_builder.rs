@@ -10,7 +10,10 @@ use crate::panel_host::{PanelAction, PanelActionCallback, PanelHost};
 
 pub fn add_plus_buttons_recursive(widget: &gtk4::Widget, action_cb: &PanelActionCallback) {
     if let Ok(notebook) = widget.clone().downcast::<gtk4::Notebook>() {
-        setup_notebook_menu_widget(&notebook, Some(action_cb.clone()));
+        // Only add "+" to workspace layout notebooks, not internal ones (code editor, etc.)
+        if notebook.has_css_class("workspace-tabs") {
+            setup_notebook_menu_widget(&notebook, Some(action_cb.clone()));
+        }
     }
     let mut child = widget.first_child();
     while let Some(c) = child {
@@ -343,6 +346,7 @@ pub fn build_layout_widget_inner(
             let notebook = gtk4::Notebook::new();
             notebook.set_show_tabs(true);
             notebook.set_scrollable(true);
+            notebook.add_css_class("workspace-tabs");
 
             for (i, child) in children.iter().enumerate() {
                 let child_widget = build_layout_widget_inner(child, hosts, panels, action_cb);
