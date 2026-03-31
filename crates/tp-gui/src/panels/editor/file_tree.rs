@@ -47,6 +47,11 @@ impl FileTree {
         new_dir_btn.add_css_class("flat");
         new_dir_btn.set_tooltip_text(Some("New Folder"));
 
+        let collapse_btn = gtk4::Button::from_icon_name("view-list-symbolic");
+        collapse_btn.add_css_class("flat");
+        collapse_btn.set_tooltip_text(Some("Collapse All"));
+
+        actions_bar.append(&collapse_btn);
         actions_bar.append(&new_file_btn);
         actions_bar.append(&new_dir_btn);
 
@@ -112,6 +117,39 @@ impl FileTree {
         menu.append(Some("Copy Path"), Some("editor.copy-path"));
         let popover = gtk4::PopoverMenu::from_model(Some(&menu));
         popover.set_parent(&container);
+
+        // Collapse all button
+        {
+            let entries_c = entries.clone();
+            let fi = file_index.clone();
+            let root = root_dir.to_path_buf();
+            let lb = list_box.clone();
+            collapse_btn.connect_clicked(move |_| {
+                // Rebuild with only depth 0 entries (all collapsed)
+                let mut new_entries = Vec::new();
+                let mut new_index = Vec::new();
+                build_file_entries(&root, &root, &mut new_entries, &mut new_index, 0);
+                // All dirs at depth 0 are collapsed (auto_expand only depth < 1,
+                // but we want everything collapsed, so mark depth 0 dirs as collapsed too)
+                for e in &mut new_entries {
+                    if e.is_dir {
+                        e.expanded = false;
+                    }
+                }
+                // Remove any children that were auto-expanded
+                new_entries.retain(|e| e.depth == 0);
+                // Rebuild file index from only visible files
+                new_index.clear();
+                for e in &new_entries {
+                    if !e.is_dir {
+                        new_index.push(e.path.clone());
+                    }
+                }
+                *fi.borrow_mut() = new_index;
+                *entries_c.borrow_mut() = new_entries;
+                populate_list_box(&lb, &entries_c.borrow(), &root);
+            });
+        }
 
         // New file button
         {
