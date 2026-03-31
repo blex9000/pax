@@ -12,6 +12,7 @@ pub struct FileTree {
     pub widget: gtk4::Box,
     list_view: gtk4::ListView,
     root_dir: PathBuf,
+    #[allow(dead_code)]
     on_file_open: Option<OnFileOpen>,
     /// Flat list of all file paths for fuzzy finder indexing.
     pub file_index: Rc<RefCell<Vec<PathBuf>>>,
@@ -23,6 +24,7 @@ struct FileEntry {
     name: String,
     is_dir: bool,
     depth: u32,
+    #[allow(dead_code)]
     expanded: bool,
 }
 

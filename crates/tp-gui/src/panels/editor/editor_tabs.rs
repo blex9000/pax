@@ -13,6 +13,7 @@ pub struct EditorTabs {
     pub status_bar: gtk4::Box,
     pub info_bar_container: gtk4::Box,
     status_lang: gtk4::Label,
+    #[allow(dead_code)]
     status_pos: gtk4::Label,
     status_modified: gtk4::Label,
 }
@@ -321,7 +322,7 @@ impl EditorTabs {
     pub fn show_diff(&self, root: &Path, file_path: &Path) {
         use super::git_status::compute_diff;
 
-        let hunks = compute_diff(root, file_path);
+        let _hunks = compute_diff(root, file_path);
 
         // Get HEAD version
         let rel = file_path.strip_prefix(root).unwrap_or(file_path);

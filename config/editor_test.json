@@ -1,11 +1,22 @@
 {
-    "name": "Editor Test",
-    "layout": { "type": "panel", "id": "ed1" },
+    "name": "Editor + Terminal",
+    "layout": {
+        "type": "hsplit",
+        "children": [
+            { "type": "panel", "id": "ed1" },
+            { "type": "panel", "id": "term1" }
+        ],
+        "ratios": [0.6, 0.4]
+    },
     "panels": [
         {
             "id": "ed1",
             "name": "Code",
             "panel_type": { "type": "code_editor", "root_dir": "." }
+        },
+        {
+            "id": "term1",
+            "name": "Terminal"
         }
     ]
 }

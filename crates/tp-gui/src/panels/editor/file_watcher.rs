@@ -87,6 +87,7 @@ fn start_git_watcher(
     });
 }
 
+#[allow(deprecated)]
 fn show_conflict_bar(container: &gtk4::Box, path: &Path, buffer: &sourceview5::Buffer) {
     // Remove any existing info bar
     while let Some(child) = container.first_child() {

@@ -9,9 +9,13 @@ use std::rc::Rc;
 pub struct FuzzyFinder {
     pub overlay: gtk4::Box,
     search_entry: gtk4::SearchEntry,
+    #[allow(dead_code)]
     results_list: gtk4::ListBox,
+    #[allow(dead_code)]
     file_index: Rc<RefCell<Vec<PathBuf>>>,
+    #[allow(dead_code)]
     root_dir: PathBuf,
+    #[allow(dead_code)]
     on_select: Rc<dyn Fn(&Path)>,
 }
 

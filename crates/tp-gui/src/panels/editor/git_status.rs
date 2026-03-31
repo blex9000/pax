@@ -9,7 +9,9 @@ pub type OnDiffOpen = Rc<dyn Fn(&Path, &str)>; // (path, git_status_char)
 pub struct GitStatusView {
     pub widget: gtk4::Box,
     list_box: gtk4::ListBox,
+    #[allow(dead_code)]
     commit_entry: gtk4::Entry,
+    #[allow(dead_code)]
     commit_btn: gtk4::Button,
     root_dir: PathBuf,
     on_diff_open: OnDiffOpen,
