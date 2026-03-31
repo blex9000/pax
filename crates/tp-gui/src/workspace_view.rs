@@ -794,6 +794,25 @@ impl WorkspaceView {
 
         // 1. Update model: remove panel from layout tree and panels list
         self.update_layout_remove(&focused_id);
+
+        // If the panel ID is still in the layout (empty Tabs fallback), replace
+        // it with a fresh empty panel so the user sees the type chooser.
+        if self.workspace.layout.panel_ids().iter().any(|id| *id == focused_id) {
+            let new_id = self.alloc_panel_id();
+            let new_name = format!("New Panel {}", &new_id[1..]);
+            let new_config = self.make_empty_config(&new_id, &new_name);
+            self.workspace.layout = replace_in_layout(
+                &self.workspace.layout,
+                &focused_id,
+                &|_| LayoutNode::Panel { id: new_id.clone() },
+            );
+            let backend = self.create_chooser_backend(&new_id);
+            let host = PanelHost::new(&new_id, &new_config.name, self.action_cb.clone());
+            host.set_backend(backend);
+            self.hosts.insert(new_id.clone(), host);
+            self.workspace.panels.push(new_config);
+        }
+
         self.workspace.panels.retain(|p| p.id != focused_id);
 
         // 2. Detach the closing panel's widget and drop the host
