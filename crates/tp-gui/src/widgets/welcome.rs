@@ -22,6 +22,12 @@ pub fn build_welcome(on_choice: WelcomeCallback) -> gtk4::Widget {
     container.set_margin_end(40);
     container.set_width_request(600);
 
+    // App icon
+    let icon = gtk4::Image::from_icon_name("pax");
+    icon.set_pixel_size(128);
+    icon.set_margin_bottom(8);
+    container.append(&icon);
+
     // Title
     let title = gtk4::Label::new(Some("Pax"));
     title.add_css_class("title-1");

@@ -48,11 +48,15 @@ pub fn run_app(workspace: Option<Workspace>, config_path: Option<&Path>) -> Resu
             }
         }
 
+        // Set default window icon (used by window manager / taskbar)
+        gtk4::Window::set_default_icon_name("pax");
+
         let window = adw::ApplicationWindow::builder()
             .application(app)
             .title("Pax")
             .default_width(1200)
             .default_height(800)
+            .icon_name("pax")
             .build();
 
         let window_rc = Rc::new(window.clone());
@@ -82,6 +86,11 @@ fn setup_welcome_ui(window: &Rc<adw::ApplicationWindow>) {
     let header = adw::HeaderBar::new();
     header.set_show_end_title_buttons(true);
     header.set_show_start_title_buttons(true);
+
+    // Pax icon in center of welcome header
+    let title_icon = gtk4::Image::from_icon_name("pax");
+    title_icon.set_pixel_size(20);
+    header.set_title_widget(Some(&title_icon));
 
     let toolbar_view = adw::ToolbarView::new();
     toolbar_view.add_top_bar(&header);
@@ -147,6 +156,17 @@ fn setup_workspace_ui(
     let header = adw::HeaderBar::new();
     header.set_show_end_title_buttons(true);
     header.set_show_start_title_buttons(true);
+
+    // Pax icon + workspace name centered in header
+    let title_box = gtk4::Box::new(gtk4::Orientation::Horizontal, 6);
+    title_box.set_halign(gtk4::Align::Center);
+    let title_icon = gtk4::Image::from_icon_name("pax");
+    title_icon.set_pixel_size(18);
+    title_box.append(&title_icon);
+    let title_label = gtk4::Label::new(Some(&ws_name));
+    title_label.add_css_class("heading");
+    title_box.append(&title_label);
+    header.set_title_widget(Some(&title_box));
 
     let menu_btn = gtk4::MenuButton::new();
     menu_btn.set_icon_name("open-menu-symbolic");
