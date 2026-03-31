@@ -140,6 +140,24 @@ impl Theme {
         }
     }
 
+    /// Returns the GtkSourceView 5 style scheme ID for this theme.
+    #[cfg(feature = "sourceview")]
+    pub fn sourceview_scheme(&self) -> &str {
+        match self {
+            Theme::System | Theme::CatppuccinLatte => "Adwaita",
+            Theme::CatppuccinMocha | Theme::Dracula | Theme::Nord => "Adwaita-dark",
+        }
+    }
+
+    /// Fallback scheme if the primary is not available.
+    #[cfg(feature = "sourceview")]
+    pub fn sourceview_scheme_fallback(&self) -> &str {
+        match self {
+            Theme::System | Theme::CatppuccinLatte => "classic",
+            _ => "classic-dark",
+        }
+    }
+
     /// Returns CSS @define-color overrides for libadwaita named colors.
     /// System theme returns empty string (no overrides).
     pub fn css_overrides(&self) -> &str {
@@ -177,6 +195,8 @@ box.panel-title-bar { padding: 2px 6px; margin: 0; min-height: 20px; }
 .tab-close-btn { min-height: 14px; min-width: 14px; padding: 1px; }
 paned > separator { min-width: 1px; min-height: 1px; }
 .dirty-indicator { color: #ff8c00; }
+.editor-tabs { border-bottom: 1px solid alpha(@borders, 0.3); }
+.editor-sidebar { border-right: 1px solid alpha(@borders, 0.3); }
 ";
 
 const CATPPUCCIN_MOCHA_CSS: &str = "\
