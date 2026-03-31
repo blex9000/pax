@@ -24,7 +24,7 @@ pub fn show_panel_config_dialog(
         }
         PanelType::Markdown { file } => show_markdown_config(parent, panel_name, file, min_width, min_height, on_done),
         PanelType::Browser { url } => show_browser_config(parent, panel_name, url, min_width, min_height, on_done),
-        PanelType::CodeEditor { .. } => {}
+        PanelType::CodeEditor { root_dir } => show_code_editor_config(parent, panel_name, root_dir, min_width, min_height, on_done),
         PanelType::Empty => {}
     }
 }
@@ -679,6 +679,60 @@ fn show_browser_config(
         let name = name_entry.text().to_string();
         let url = url_entry.text().to_string();
         on_done(name, PanelType::Browser { url }, None, None, vec![], None, mw_spin.value() as u32, mh_spin.value() as u32);
+    });
+
+    dialog.set_child(Some(&vbox));
+    dialog.present();
+}
+
+fn show_code_editor_config(
+    parent: &impl IsA<gtk4::Window>,
+    panel_name: &str,
+    root_dir: &str,
+    min_width: u32,
+    min_height: u32,
+    on_done: impl Fn(String, PanelType, Option<String>, Option<SshConfig>, Vec<String>, Option<String>, u32, u32) + 'static,
+) {
+    let dialog = make_dialog(parent, "Code Editor Configuration");
+    let vbox = gtk4::Box::new(gtk4::Orientation::Vertical, 8);
+    vbox.set_margin_top(16);
+    vbox.set_margin_bottom(16);
+    vbox.set_margin_start(16);
+    vbox.set_margin_end(16);
+
+    let name_entry = add_field(&vbox, "Name:", panel_name, "Code Editor");
+    let dir_entry = add_field(&vbox, "Project dir:", root_dir, "/path/to/project");
+
+    // Browse button for directory
+    let browse_btn = gtk4::Button::with_label("Browse...");
+    browse_btn.add_css_class("flat");
+    browse_btn.set_halign(gtk4::Align::Start);
+    let de = dir_entry.clone();
+    let d = dialog.clone();
+    browse_btn.connect_clicked(move |_| {
+        let file_dialog = gtk4::FileDialog::builder()
+            .title("Select Project Directory")
+            .modal(true)
+            .build();
+
+        let de2 = de.clone();
+        file_dialog.select_folder(Some(&d), gtk4::gio::Cancellable::NONE, move |result| {
+            if let Ok(file) = result {
+                if let Some(path) = file.path() {
+                    de2.set_text(&path.to_string_lossy());
+                }
+            }
+        });
+    });
+    vbox.append(&browse_btn);
+
+    let (mw_spin, mh_spin) = add_min_size_fields(&vbox, min_width, min_height);
+
+    add_buttons(&vbox, &dialog, move || {
+        let name = name_entry.text().to_string();
+        let root_dir = dir_entry.text().to_string();
+        let root_dir = if root_dir.is_empty() { ".".to_string() } else { root_dir };
+        on_done(name, PanelType::CodeEditor { root_dir }, None, None, vec![], None, mw_spin.value() as u32, mh_spin.value() as u32);
     });
 
     dialog.set_child(Some(&vbox));

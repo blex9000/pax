@@ -14,12 +14,20 @@ pub struct EditorTabs {
     pub source_view: sourceview5::View,
     /// Stack switching between "welcome" and "editor" content.
     pub content_stack: gtk4::Stack,
+    /// Search/replace bar (hidden by default, toggled with Ctrl+F / Ctrl+H).
+    pub search_bar: gtk4::Box,
     pub status_bar: gtk4::Box,
     pub info_bar_container: gtk4::Box,
     status_lang: gtk4::Label,
     #[allow(dead_code)]
     status_pos: gtk4::Label,
     status_modified: gtk4::Label,
+    search_entry: gtk4::SearchEntry,
+    #[allow(dead_code)]
+    replace_entry: gtk4::Entry,
+    replace_row: gtk4::Box,
+    #[allow(dead_code)]
+    search_settings: sourceview5::SearchSettings,
 }
 
 impl EditorTabs {
@@ -128,7 +136,270 @@ impl EditorTabs {
             });
         }
 
-        // Content stack: welcome vs source_scroll
+        // ── Search/Replace bar (hidden by default) ──────────────────
+        let search_bar = gtk4::Box::new(gtk4::Orientation::Vertical, 2);
+        search_bar.set_margin_start(4);
+        search_bar.set_margin_end(4);
+        search_bar.set_margin_top(2);
+        search_bar.set_margin_bottom(2);
+        search_bar.set_visible(false);
+
+        // Search row: [entry] [prev] [next] [count] [close]
+        let search_row = gtk4::Box::new(gtk4::Orientation::Horizontal, 4);
+        let search_entry = gtk4::SearchEntry::new();
+        search_entry.set_hexpand(true);
+        search_entry.set_placeholder_text(Some("Search..."));
+        search_row.append(&search_entry);
+
+        let prev_btn = gtk4::Button::from_icon_name("go-up-symbolic");
+        prev_btn.add_css_class("flat");
+        prev_btn.set_tooltip_text(Some("Previous match (Shift+Enter)"));
+        search_row.append(&prev_btn);
+
+        let next_btn = gtk4::Button::from_icon_name("go-down-symbolic");
+        next_btn.add_css_class("flat");
+        next_btn.set_tooltip_text(Some("Next match (Enter)"));
+        search_row.append(&next_btn);
+
+        let match_count_label = gtk4::Label::new(None);
+        match_count_label.add_css_class("dim-label");
+        match_count_label.add_css_class("caption");
+        match_count_label.set_width_chars(10);
+        search_row.append(&match_count_label);
+
+        let case_btn = gtk4::ToggleButton::new();
+        case_btn.set_icon_name("format-text-uppercase-symbolic");
+        case_btn.add_css_class("flat");
+        case_btn.set_tooltip_text(Some("Case sensitive"));
+        search_row.append(&case_btn);
+
+        let close_search_btn = gtk4::Button::from_icon_name("window-close-symbolic");
+        close_search_btn.add_css_class("flat");
+        search_row.append(&close_search_btn);
+
+        search_bar.append(&search_row);
+
+        // Replace row (hidden until Ctrl+H)
+        let replace_row = gtk4::Box::new(gtk4::Orientation::Horizontal, 4);
+        replace_row.set_visible(false);
+
+        let replace_entry = gtk4::Entry::new();
+        replace_entry.set_hexpand(true);
+        replace_entry.set_placeholder_text(Some("Replace..."));
+        replace_row.append(&replace_entry);
+
+        let replace_btn = gtk4::Button::from_icon_name("edit-find-replace-symbolic");
+        replace_btn.add_css_class("flat");
+        replace_btn.set_tooltip_text(Some("Replace"));
+        replace_row.append(&replace_btn);
+
+        let replace_all_btn = gtk4::Button::with_label("All");
+        replace_all_btn.add_css_class("flat");
+        replace_all_btn.set_tooltip_text(Some("Replace all"));
+        replace_row.append(&replace_all_btn);
+
+        search_bar.append(&replace_row);
+
+        // Search settings (shared, SearchContext is created per-buffer)
+        let search_settings = sourceview5::SearchSettings::new();
+        search_settings.set_wrap_around(true);
+
+        // Helper: get or create SearchContext for the current SourceView buffer
+        let active_ctx: Rc<RefCell<Option<sourceview5::SearchContext>>> = Rc::new(RefCell::new(None));
+        let ensure_ctx = {
+            let sv = source_view.clone();
+            let ss = search_settings.clone();
+            let ctx_cell = active_ctx.clone();
+            move || -> sourceview5::SearchContext {
+                let buf = sv.buffer().downcast::<sourceview5::Buffer>().unwrap();
+                let mut cell = ctx_cell.borrow_mut();
+                // Recreate if buffer changed
+                let needs_new = cell.as_ref().map(|c| c.buffer() != buf).unwrap_or(true);
+                if needs_new {
+                    let ctx = sourceview5::SearchContext::new(&buf, Some(&ss));
+                    ctx.set_highlight(true);
+                    *cell = Some(ctx);
+                }
+                cell.as_ref().unwrap().clone()
+            }
+        };
+
+        // Wire search entry
+        {
+            let get_ctx = ensure_ctx.clone();
+            let count_l = match_count_label.clone();
+            search_entry.connect_search_changed(move |entry| {
+                let text = entry.text().to_string();
+                let ctx = get_ctx();
+                let settings = ctx.settings();
+                settings.set_search_text(if text.is_empty() { None } else { Some(&text) });
+                // Connect count update (re-connected each time, but GTK handles duplicates)
+                let cl = count_l.clone();
+                ctx.connect_notify_local(Some("occurrences-count"), move |ctx, _| {
+                    let n = ctx.occurrences_count();
+                    if n > 0 { cl.set_text(&format!("{} found", n)); }
+                    else { cl.set_text("No results"); }
+                });
+                let n = ctx.occurrences_count();
+                if text.is_empty() { count_l.set_text(""); }
+                else if n > 0 { count_l.set_text(&format!("{} found", n)); }
+                else { count_l.set_text("No results"); }
+            });
+        }
+
+        // Case sensitive toggle
+        {
+            let ss = search_settings.clone();
+            case_btn.connect_toggled(move |btn| {
+                ss.set_case_sensitive(btn.is_active());
+            });
+        }
+
+        // Next match
+        {
+            let get_ctx = ensure_ctx.clone();
+            let sv = source_view.clone();
+            next_btn.connect_clicked(move |_| {
+                let ctx = get_ctx();
+                let buf = sv.buffer();
+                let (_, end) = buf.selection_bounds().unwrap_or_else(|| {
+                    let iter = buf.iter_at_offset(buf.cursor_position());
+                    (iter.clone(), iter)
+                });
+                if let Some((sm, em, _)) = ctx.forward(&end) {
+                    buf.select_range(&sm, &em);
+                    sv.scroll_to_iter(&mut sm.clone(), 0.1, false, 0.0, 0.0);
+                }
+            });
+        }
+
+        // Previous match
+        {
+            let get_ctx = ensure_ctx.clone();
+            let sv = source_view.clone();
+            prev_btn.connect_clicked(move |_| {
+                let ctx = get_ctx();
+                let buf = sv.buffer();
+                let (start, _) = buf.selection_bounds().unwrap_or_else(|| {
+                    let iter = buf.iter_at_offset(buf.cursor_position());
+                    (iter.clone(), iter)
+                });
+                if let Some((sm, em, _)) = ctx.backward(&start) {
+                    buf.select_range(&sm, &em);
+                    sv.scroll_to_iter(&mut sm.clone(), 0.1, false, 0.0, 0.0);
+                }
+            });
+        }
+
+        // Enter → next, Shift+Enter → prev
+        {
+            let get_ctx = ensure_ctx.clone();
+            let sv = source_view.clone();
+            let key_ctrl = gtk4::EventControllerKey::new();
+            key_ctrl.connect_key_pressed(move |_, key, _, modifier| {
+                if key == gtk4::gdk::Key::Return || key == gtk4::gdk::Key::KP_Enter {
+                    let ctx = get_ctx();
+                    let buf = sv.buffer();
+                    if modifier.contains(gtk4::gdk::ModifierType::SHIFT_MASK) {
+                        let (start, _) = buf.selection_bounds().unwrap_or_else(|| {
+                            let iter = buf.iter_at_offset(buf.cursor_position());
+                            (iter.clone(), iter)
+                        });
+                        if let Some((sm, em, _)) = ctx.backward(&start) {
+                            buf.select_range(&sm, &em);
+                            sv.scroll_to_iter(&mut sm.clone(), 0.1, false, 0.0, 0.0);
+                        }
+                    } else {
+                        let (_, end) = buf.selection_bounds().unwrap_or_else(|| {
+                            let iter = buf.iter_at_offset(buf.cursor_position());
+                            (iter.clone(), iter)
+                        });
+                        if let Some((sm, em, _)) = ctx.forward(&end) {
+                            buf.select_range(&sm, &em);
+                            sv.scroll_to_iter(&mut sm.clone(), 0.1, false, 0.0, 0.0);
+                        }
+                    }
+                    return gtk4::glib::Propagation::Stop;
+                }
+                gtk4::glib::Propagation::Proceed
+            });
+            search_entry.add_controller(key_ctrl);
+        }
+
+        // Escape → close
+        {
+            let sb = search_bar.clone();
+            let ss = search_settings.clone();
+            let key_ctrl = gtk4::EventControllerKey::new();
+            key_ctrl.connect_key_pressed(move |_, key, _, _| {
+                if key == gtk4::gdk::Key::Escape {
+                    sb.set_visible(false);
+                    ss.set_search_text(None::<&str>);
+                    return gtk4::glib::Propagation::Stop;
+                }
+                gtk4::glib::Propagation::Proceed
+            });
+            search_entry.add_controller(key_ctrl);
+        }
+        {
+            let sb = search_bar.clone();
+            let key_ctrl = gtk4::EventControllerKey::new();
+            key_ctrl.connect_key_pressed(move |_, key, _, _| {
+                if key == gtk4::gdk::Key::Escape {
+                    sb.set_visible(false);
+                    return gtk4::glib::Propagation::Stop;
+                }
+                gtk4::glib::Propagation::Proceed
+            });
+            replace_entry.add_controller(key_ctrl);
+        }
+
+        // Close button
+        {
+            let sb = search_bar.clone();
+            let ss = search_settings.clone();
+            close_search_btn.connect_clicked(move |_| {
+                sb.set_visible(false);
+                ss.set_search_text(None::<&str>);
+            });
+        }
+
+        // Replace current
+        {
+            let get_ctx = ensure_ctx.clone();
+            let sv = source_view.clone();
+            let re = replace_entry.clone();
+            replace_btn.connect_clicked(move |_| {
+                let ctx = get_ctx();
+                let replace_text = re.text().to_string();
+                let buf = sv.buffer();
+                if let Some((start, end)) = buf.selection_bounds() {
+                    let _ = ctx.replace(&mut start.clone(), &mut end.clone(), &replace_text);
+                    let cursor = buf.iter_at_offset(buf.cursor_position());
+                    if let Some((sm, em, _)) = ctx.forward(&cursor) {
+                        buf.select_range(&sm, &em);
+                        sv.scroll_to_iter(&mut sm.clone(), 0.1, false, 0.0, 0.0);
+                    }
+                }
+            });
+        }
+
+        // Replace all
+        {
+            let get_ctx = ensure_ctx.clone();
+            let re = replace_entry.clone();
+            let count_l = match_count_label.clone();
+            replace_all_btn.connect_clicked(move |_| {
+                let ctx = get_ctx();
+                let replace_text = re.text().to_string();
+                match ctx.replace_all(&replace_text) {
+                    Ok(()) => count_l.set_text("All replaced"),
+                    Err(e) => count_l.set_text(&format!("Error: {}", e)),
+                }
+            });
+        }
+
+        // ── Content stack ────────────────────────────────────────────
         let content_stack = gtk4::Stack::new();
         content_stack.set_vexpand(true);
         content_stack.set_hexpand(true);
@@ -145,11 +416,16 @@ impl EditorTabs {
             notebook,
             source_view,
             content_stack,
+            search_bar,
             status_bar,
             info_bar_container,
             status_lang,
             status_pos,
             status_modified,
+            search_entry,
+            replace_entry,
+            replace_row,
+            search_settings,
         }
     }
 
@@ -566,6 +842,36 @@ impl EditorTabs {
             back_btn.connect_clicked(move |_| {
                 cs.set_visible_child_name("editor");
             });
+        }
+    }
+
+    /// Show the search bar (Ctrl+F). Hides replace row.
+    pub fn show_search(&self) {
+        self.replace_row.set_visible(false);
+        self.search_bar.set_visible(true);
+        self.search_entry.grab_focus();
+        // Pre-fill with current selection
+        let buf = self.source_view.buffer();
+        if let Some((start, end)) = buf.selection_bounds() {
+            let text = buf.text(&start, &end, false).to_string();
+            if !text.is_empty() && !text.contains('\n') {
+                self.search_entry.set_text(&text);
+            }
+        }
+    }
+
+    /// Show the search+replace bar (Ctrl+H).
+    pub fn show_replace(&self) {
+        self.replace_row.set_visible(true);
+        self.search_bar.set_visible(true);
+        self.search_entry.grab_focus();
+        // Pre-fill with current selection
+        let buf = self.source_view.buffer();
+        if let Some((start, end)) = buf.selection_bounds() {
+            let text = buf.text(&start, &end, false).to_string();
+            if !text.is_empty() && !text.contains('\n') {
+                self.search_entry.set_text(&text);
+            }
         }
     }
 

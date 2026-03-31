@@ -24,6 +24,8 @@ pub enum PanelAction {
     Sync,
     /// Rename panel (carries new name)
     Rename(String),
+    /// Rename only the tab label (for layout tabs), not the child panels
+    RenameTab(String),
     /// Focus this panel
     Focus,
 }
@@ -386,6 +388,7 @@ impl PanelHost {
             "terminal" => "utilities-terminal-symbolic",
             "markdown" => "text-x-generic-symbolic",
             "browser" => "web-browser-symbolic",
+            "code_editor" => "accessories-text-editor-symbolic",
             _ => "radio-symbolic", // Empty/chooser — dot
         };
         self.type_icon.set_icon_name(Some(icon_name));
@@ -560,6 +563,7 @@ fn build_panel_menu(panel_id: &str, action_cb: Option<PanelActionCallback>) -> g
             PanelAction::Zoom => "view-fullscreen-symbolic",
             PanelAction::Sync => "media-playlist-consecutive-symbolic",
             PanelAction::Rename(_) => "document-edit-symbolic",
+            PanelAction::RenameTab(_) => "document-edit-symbolic",
             PanelAction::Focus => "radio-symbolic",
         };
         let icon = gtk4::Image::from_icon_name(icon_name);
@@ -579,6 +583,7 @@ fn build_panel_menu(panel_id: &str, action_cb: Option<PanelActionCallback>) -> g
             PanelAction::Zoom => "Ctrl+Z",
             PanelAction::Sync => "Ctrl+Shift+S",
             PanelAction::Rename(_) => "Dbl-click",
+            PanelAction::RenameTab(_) => "Dbl-click",
             PanelAction::Focus => "",
         };
         let hint = gtk4::Label::new(Some(hint_text));

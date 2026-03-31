@@ -22,15 +22,19 @@ pub fn add_plus_buttons_recursive(widget: &gtk4::Widget, action_cb: &PanelAction
 pub fn build_tab_label(name: &str, panel_type_id: &str, action_cb: &Option<PanelActionCallback>, child_widget: &gtk4::Widget) -> gtk4::Widget {
     let hbox = gtk4::Box::new(gtk4::Orientation::Horizontal, 4);
 
-    let icon_name = match panel_type_id {
-        "terminal" => "utilities-terminal-symbolic",
-        "markdown" => "text-x-generic-symbolic",
-        "browser" => "web-browser-symbolic",
-        _ => "radio-symbolic",
-    };
-    let type_icon = gtk4::Image::from_icon_name(icon_name);
-    type_icon.add_css_class("panel-type-icon");
-    hbox.append(&type_icon);
+    // Only show type icon for single-panel tabs, not for layout tabs
+    if panel_type_id != "__layout__" {
+        let icon_name = match panel_type_id {
+            "terminal" => "utilities-terminal-symbolic",
+            "markdown" => "text-x-generic-symbolic",
+            "browser" => "web-browser-symbolic",
+            "code_editor" => "accessories-text-editor-symbolic",
+            _ => "radio-symbolic",
+        };
+        let type_icon = gtk4::Image::from_icon_name(icon_name);
+        type_icon.add_css_class("panel-type-icon");
+        hbox.append(&type_icon);
+    }
 
     let stack = gtk4::Stack::new();
     let label = gtk4::Label::new(Some(name));
@@ -64,14 +68,25 @@ pub fn build_tab_label(name: &str, panel_type_id: &str, action_cb: &Option<Panel
         let l = label.clone();
         let cb = action_cb.clone();
         let w = child_widget.clone();
+        let is_layout = panel_type_id == "__layout__";
         entry.connect_activate(move |entry| {
             let new_name = entry.text().to_string();
             if !new_name.trim().is_empty() {
                 l.set_text(&new_name);
                 if let Some(ref cb) = cb {
-                    find_panel_id_recursive(&w, &|panel_id| {
-                        cb(panel_id, PanelAction::Rename(new_name.clone()));
-                    });
+                    if is_layout {
+                        // Layout tab: update only the tab label, not child panel names.
+                        // Send RenameTab with the first child panel_id so the handler
+                        // can find the correct Tabs node in the layout tree.
+                        find_first_panel_id(&w, &|panel_id| {
+                            cb(panel_id, PanelAction::RenameTab(new_name.clone()));
+                        });
+                    } else {
+                        // Single panel tab: rename the panel itself
+                        find_panel_id_recursive(&w, &|panel_id| {
+                            cb(panel_id, PanelAction::Rename(new_name.clone()));
+                        });
+                    }
                 }
             }
             s.set_visible_child_name("label");
@@ -121,20 +136,36 @@ pub fn update_notebook_labels_recursive(
     workspace: &Workspace,
 ) {
     if let Ok(notebook) = widget.clone().downcast::<gtk4::Notebook>() {
+        // Find the matching Tabs node in the layout to get the labels
+        let tab_labels = find_tab_labels_for_notebook(&workspace.layout, notebook.n_pages());
+
         for i in 0..notebook.n_pages() {
             if let Some(page_widget) = notebook.nth_page(Some(i)) {
-                let panel_id_cell = std::cell::RefCell::new(None);
-                find_panel_id_recursive(&page_widget, &|pid| {
-                    *panel_id_cell.borrow_mut() = Some(pid.to_string());
-                });
-                let panel_id = panel_id_cell.into_inner();
-                if let Some(pid) = panel_id {
-                    let label_text = workspace.panel(&pid).map(|p| p.name.clone()).unwrap_or_else(|| format!("Tab {}", i + 1));
-                    let type_id = workspace.panel(&pid)
-                        .map(|p| panel_type_to_id(&p.effective_type()))
-                        .unwrap_or("__empty__");
-                    let label = build_tab_label(&label_text, type_id, &Some(action_cb.clone()), &page_widget);
+                // Check if this page contains a layout (Paned) or a single panel
+                let is_layout = page_widget.clone().downcast::<gtk4::Paned>().is_ok();
+
+                if is_layout {
+                    // Layout tab: use the label from the model, no panel-type icon
+                    let label_text = tab_labels.as_ref()
+                        .and_then(|labels| labels.get(i as usize).cloned())
+                        .unwrap_or_else(|| format!("Tab {}", i + 1));
+                    let label = build_tab_label(&label_text, "__layout__", &Some(action_cb.clone()), &page_widget);
                     notebook.set_tab_label(&page_widget, Some(&label));
+                } else {
+                    // Single panel tab: use panel name and type icon
+                    let panel_id_cell = std::cell::RefCell::new(None);
+                    find_panel_id_recursive(&page_widget, &|pid| {
+                        *panel_id_cell.borrow_mut() = Some(pid.to_string());
+                    });
+                    let panel_id = panel_id_cell.into_inner();
+                    if let Some(pid) = panel_id {
+                        let label_text = workspace.panel(&pid).map(|p| p.name.clone()).unwrap_or_else(|| format!("Tab {}", i + 1));
+                        let type_id = workspace.panel(&pid)
+                            .map(|p| panel_type_to_id(&p.effective_type()))
+                            .unwrap_or("__empty__");
+                        let label = build_tab_label(&label_text, type_id, &Some(action_cb.clone()), &page_widget);
+                        notebook.set_tab_label(&page_widget, Some(&label));
+                    }
                 }
             }
         }
@@ -143,6 +174,24 @@ pub fn update_notebook_labels_recursive(
     while let Some(c) = child {
         update_notebook_labels_recursive(&c, action_cb, _hosts, workspace);
         child = c.next_sibling();
+    }
+}
+
+/// Find the labels array from a Tabs layout node that matches the given page count.
+fn find_tab_labels_for_notebook(node: &LayoutNode, n_pages: u32) -> Option<Vec<String>> {
+    match node {
+        LayoutNode::Tabs { children, labels } if children.len() == n_pages as usize => {
+            Some(labels.clone())
+        }
+        LayoutNode::Hsplit { children, .. } | LayoutNode::Vsplit { children, .. } | LayoutNode::Tabs { children, .. } => {
+            for child in children {
+                if let Some(labels) = find_tab_labels_for_notebook(child, n_pages) {
+                    return Some(labels);
+                }
+            }
+            None
+        }
+        LayoutNode::Panel { .. } => None,
     }
 }
 
@@ -182,6 +231,29 @@ pub fn find_panel_id_recursive(widget: &gtk4::Widget, callback: &dyn Fn(&str)) {
         find_panel_id_recursive(&c, callback);
         child = c.next_sibling();
     }
+}
+
+/// Find only the first panel ID in a widget tree (stops after first match).
+pub fn find_first_panel_id(widget: &gtk4::Widget, callback: &dyn Fn(&str)) {
+    fn inner(widget: &gtk4::Widget, found: &std::cell::Cell<bool>, callback: &dyn Fn(&str)) {
+        if found.get() { return; }
+        if widget.has_css_class("panel-frame") {
+            let name = widget.widget_name();
+            let name_str = name.as_str();
+            if !name_str.is_empty() {
+                found.set(true);
+                callback(name_str);
+                return;
+            }
+        }
+        let mut child = widget.first_child();
+        while let Some(c) = child {
+            inner(&c, found, callback);
+            if found.get() { return; }
+            child = c.next_sibling();
+        }
+    }
+    inner(widget, &std::cell::Cell::new(false), callback);
 }
 
 pub fn find_notebook_ancestor(widget: &gtk4::Widget) -> Option<gtk4::Notebook> {
@@ -230,7 +302,8 @@ fn get_panel_type_id(node: &LayoutNode, panels: &[PanelConfig]) -> &'static str 
             })
             .unwrap_or("__empty__")
     } else {
-        "terminal"
+        // Layout node (hsplit/vsplit) — not a single panel type
+        "__layout__"
     }
 }
 

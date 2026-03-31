@@ -20,8 +20,8 @@
               }
             ],
             "ratios": [
-              0.5,
-              0.5
+              0.44577685088633995,
+              0.55422314911366
             ]
           },
           {
@@ -31,10 +31,6 @@
           {
             "type": "panel",
             "id": "p10"
-          },
-          {
-            "type": "panel",
-            "id": "p11"
           },
           {
             "type": "hsplit",
@@ -49,15 +45,14 @@
               }
             ],
             "ratios": [
-              0.5,
-              0.5
+              0.08654848800834203,
+              0.913451511991658
             ]
           }
         ],
         "labels": [
           "Terminale xxx",
           "markdown",
-          "code_editor",
           "code_editor",
           "browser"
         ]
@@ -75,14 +70,14 @@
           }
         ],
         "ratios": [
-          0.4993757802746567,
-          0.5006242197253433
+          0.23473282442748092,
+          0.7652671755725191
         ]
       }
     ],
     "ratios": [
-      0.35582329317269074,
-      0.6441767068273092
+      0.45764462809917356,
+      0.5423553719008265
     ]
   },
   "panels": [
@@ -128,7 +123,7 @@
       "post_script": null,
       "before_close": null,
       "min_width": 0,
-      "min_height": 400
+      "min_height": 0
     },
     {
       "id": "p5",
@@ -150,7 +145,7 @@
       "post_script": null,
       "before_close": null,
       "min_width": 0,
-      "min_height": 400
+      "min_height": 0
     },
     {
       "id": "p9",
@@ -177,27 +172,8 @@
       "id": "p10",
       "name": "code_editor",
       "panel_type": {
-        "type": "terminal"
-      },
-      "target": {
-        "type": "local"
-      },
-      "startup_commands": [],
-      "groups": [],
-      "record_output": false,
-      "cwd": null,
-      "env": {},
-      "pre_script": null,
-      "post_script": null,
-      "before_close": null,
-      "min_width": 0,
-      "min_height": 0
-    },
-    {
-      "id": "p11",
-      "name": "code_editor",
-      "panel_type": {
-        "type": "terminal"
+        "type": "code_editor",
+        "root_dir": "."
       },
       "target": {
         "type": "local"
@@ -215,7 +191,7 @@
     },
     {
       "id": "p13",
-      "name": "browser",
+      "name": "code2",
       "panel_type": {
         "type": "browser",
         "url": "about:blank"
@@ -236,9 +212,10 @@
     },
     {
       "id": "p14",
-      "name": "New Panel 14",
+      "name": "code2",
       "panel_type": {
-        "type": "empty"
+        "type": "code_editor",
+        "root_dir": "."
       },
       "target": {
         "type": "local"
@@ -256,9 +233,10 @@
     },
     {
       "id": "p15",
-      "name": "New Panel 15",
+      "name": "code_editor 2",
       "panel_type": {
-        "type": "empty"
+        "type": "code_editor",
+        "root_dir": "."
       },
       "target": {
         "type": "local"

@@ -9,6 +9,8 @@ pub mod git_status;
 pub mod file_watcher;
 #[cfg(feature = "sourceview")]
 pub mod fuzzy_finder;
+#[cfg(feature = "sourceview")]
+pub mod project_search;
 
 use std::cell::RefCell;
 use std::path::PathBuf;
@@ -65,10 +67,11 @@ impl CodeEditorPanel {
         let tabs = editor_tabs::EditorTabs::new(state.clone());
         let tabs_rc = Rc::new(tabs);
 
-        // Right side: info bar + notebook (tab bar) + content stack + status bar
+        // Right side: info bar + notebook (tab bar) + search bar + content stack + status bar
         let editor_area = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
         editor_area.append(&tabs_rc.info_bar_container);
         editor_area.append(&tabs_rc.notebook);
+        editor_area.append(&tabs_rc.search_bar);
         editor_area.append(&tabs_rc.content_stack);
         editor_area.append(&tabs_rc.status_bar);
 
@@ -95,8 +98,15 @@ impl CodeEditorPanel {
         git_btn.set_tooltip_text(Some("Git"));
         git_btn.set_group(Some(&files_btn));
 
+        let search_btn = gtk4::ToggleButton::new();
+        search_btn.set_icon_name("edit-find-symbolic");
+        search_btn.add_css_class("flat");
+        search_btn.set_tooltip_text(Some("Search in files (Ctrl+Shift+F)"));
+        search_btn.set_group(Some(&files_btn));
+
         activity_bar.append(&files_btn);
         activity_bar.append(&git_btn);
+        activity_bar.append(&search_btn);
         sidebar.append(&activity_bar);
         sidebar.append(&gtk4::Separator::new(gtk4::Orientation::Horizontal));
 
@@ -122,10 +132,34 @@ impl CodeEditorPanel {
             }),
         );
 
-        // Sidebar stack to switch between file tree and git view
+        // Project-wide search view
+        let project_search = project_search::ProjectSearch::new(
+            &PathBuf::from(root_dir),
+            Rc::new({
+                let state_c = state.clone();
+                let tabs_c = tabs_rc.clone();
+                move |path, line_num| {
+                    // Open file and scroll to line
+                    tabs_c.open_file(path, &state_c);
+                    let st = state_c.borrow();
+                    if let Some(idx) = st.active_tab {
+                        if let Some(open_file) = st.open_files.get(idx) {
+                            if let Some(iter) = open_file.buffer.iter_at_line((line_num as i32) - 1) {
+                                open_file.buffer.place_cursor(&iter);
+                                drop(st);
+                                tabs_c.source_view.scroll_to_iter(&mut iter.clone(), 0.1, false, 0.0, 0.0);
+                            }
+                        }
+                    }
+                }
+            }),
+        );
+
+        // Sidebar stack to switch between file tree, git view, and search
         let sidebar_stack = gtk4::Stack::new();
         sidebar_stack.add_named(&file_tree.widget, Some("files"));
         sidebar_stack.add_named(&git_status_view.widget, Some("git"));
+        sidebar_stack.add_named(&project_search.widget, Some("search"));
         sidebar.append(&sidebar_stack);
 
         // Connect activity bar toggle buttons
@@ -139,6 +173,16 @@ impl CodeEditorPanel {
             let stack = sidebar_stack.clone();
             git_btn.connect_toggled(move |btn| {
                 if btn.is_active() { stack.set_visible_child_name("git"); }
+            });
+        }
+        {
+            let stack = sidebar_stack.clone();
+            let ps = project_search;
+            search_btn.connect_toggled(move |btn| {
+                if btn.is_active() {
+                    stack.set_visible_child_name("search");
+                    ps.focus_entry();
+                }
             });
         }
 
@@ -176,6 +220,7 @@ impl CodeEditorPanel {
             let sidebar_ref = sidebar.clone();
             let fuzzy_finder_ref = Rc::new(fuzzy_finder);
             let git_btn_ref = git_btn.clone();
+            let search_btn_ref = search_btn.clone();
             key_ctrl.connect_key_pressed(move |_, key, _, modifier| {
                 if modifier.contains(gtk4::gdk::ModifierType::CONTROL_MASK) {
                     match key {
@@ -205,6 +250,19 @@ impl CodeEditorPanel {
                             let mut st = state_c.borrow_mut();
                             st.sidebar_visible = !st.sidebar_visible;
                             sidebar_ref.set_visible(st.sidebar_visible);
+                            return gtk4::glib::Propagation::Stop;
+                        }
+                        gtk4::gdk::Key::f if modifier.contains(gtk4::gdk::ModifierType::SHIFT_MASK) => {
+                            // Ctrl+Shift+F → search in project files
+                            search_btn_ref.set_active(true);
+                            return gtk4::glib::Propagation::Stop;
+                        }
+                        gtk4::gdk::Key::f => {
+                            tabs_ref.show_search();
+                            return gtk4::glib::Propagation::Stop;
+                        }
+                        gtk4::gdk::Key::h => {
+                            tabs_ref.show_replace();
                             return gtk4::glib::Propagation::Stop;
                         }
                         gtk4::gdk::Key::p => {

@@ -346,6 +346,7 @@ impl WorkspaceView {
                 "terminal" => PanelType::Terminal,
                 "markdown" => PanelType::Markdown { file: "README.md".to_string() },
                 "browser" => PanelType::Browser { url: "about:blank".to_string() },
+                "code_editor" => PanelType::CodeEditor { root_dir: ".".to_string() },
                 _ => PanelType::Terminal,
             };
             panel_cfg.name = format!("{}", type_id);

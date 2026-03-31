@@ -29,6 +29,25 @@ pub fn run_app(workspace: Option<Workspace>, config_path: Option<&Path>) -> Resu
     app.connect_activate(move |app| {
         load_css();
 
+        // Register custom icons from resources/icons/
+        if let Some(display) = gtk4::gdk::Display::default() {
+            let icon_theme = gtk4::IconTheme::for_display(&display);
+            // Try to find icons relative to the executable or manifest dir
+            let icon_paths = [
+                std::path::PathBuf::from("resources/icons"),
+                std::env::current_exe().ok()
+                    .and_then(|p| p.parent().map(|d| d.join("../resources/icons")))
+                    .unwrap_or_default(),
+                std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../resources/icons"),
+            ];
+            for path in &icon_paths {
+                if path.exists() {
+                    icon_theme.add_search_path(path);
+                    break;
+                }
+            }
+        }
+
         let window = adw::ApplicationWindow::builder()
             .application(app)
             .title("MyTerms")
@@ -338,6 +357,15 @@ fn setup_workspace_ui(
                     }
                     drop(view);
                     sb_for_cb.borrow().set_message(&format!("Renamed: {}", panel_id));
+                }
+                PanelAction::RenameTab(new_name) => {
+                    // Only update the tab label in the layout tree, not the panel name.
+                    // panel_id here is the first child panel — used to locate the tab.
+                    let mut view = ws_for_cb.borrow_mut();
+                    update_tab_label_in_layout(&mut view.workspace_mut().layout, panel_id, &new_name);
+                    drop(view);
+                    actions::update_dirty_ui(&ws_for_cb, &win_for_cb, &sa_for_cb);
+                    sb_for_cb.borrow().set_message(&format!("Tab renamed: {}", new_name));
                 }
                 PanelAction::Focus => {
                     let idx = ws_for_cb.borrow().focus_order_index(panel_id);
