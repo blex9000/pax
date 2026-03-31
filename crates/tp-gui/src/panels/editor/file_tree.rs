@@ -16,6 +16,7 @@ pub struct FileTree {
     on_file_open: Option<OnFileOpen>,
     /// Flat list of all file paths for fuzzy finder indexing.
     pub file_index: Rc<RefCell<Vec<PathBuf>>>,
+    entries: Rc<RefCell<Vec<FileEntry>>>,
 }
 
 #[derive(Debug, Clone)]
@@ -24,7 +25,6 @@ struct FileEntry {
     name: String,
     is_dir: bool,
     depth: u32,
-    #[allow(dead_code)]
     expanded: bool,
 }
 
@@ -54,13 +54,7 @@ impl FileTree {
         let entries = Rc::new(RefCell::new(Vec::new()));
         build_file_entries(root_dir, root_dir, &mut entries.borrow_mut(), &mut file_index.borrow_mut(), 0);
 
-        // ListView with a GtkStringList model for simplicity
-        let model = gtk4::StringList::new(&[]);
-        for entry in entries.borrow().iter() {
-            let prefix = "  ".repeat(entry.depth as usize);
-            let icon = if entry.is_dir { "\u{1F4C2} " } else { "  " };
-            model.append(&format!("{}{}{}", prefix, icon, entry.name));
-        }
+        let model = build_string_model(&entries.borrow());
 
         let selection = gtk4::SingleSelection::new(Some(model.clone()));
         let factory = gtk4::SignalListItemFactory::new();
@@ -99,16 +93,31 @@ impl FileTree {
         container.append(&scroll);
         container.append(&actions_bar);
 
-        // Double-click to open file
+        // Click to expand/collapse dirs, double-click to open files
         {
             let entries_c = entries.clone();
             let on_open = on_file_open.clone();
-            list_view.connect_activate(move |_, pos| {
-                let entries = entries_c.borrow();
-                if let Some(entry) = entries.get(pos as usize) {
-                    if !entry.is_dir {
-                        on_open(&entry.path);
-                    }
+            let fi = file_index.clone();
+            let root = root_dir.to_path_buf();
+            list_view.connect_activate(move |lv, pos| {
+                let idx = pos as usize;
+                let is_dir;
+                let expanded;
+                let path;
+                let depth;
+                {
+                    let ents = entries_c.borrow();
+                    let Some(entry) = ents.get(idx) else { return };
+                    is_dir = entry.is_dir;
+                    expanded = entry.expanded;
+                    path = entry.path.clone();
+                    depth = entry.depth;
+                }
+                if is_dir {
+                    toggle_dir(&entries_c, &fi, &root, idx, depth, expanded, &path);
+                    rebuild_model(lv, &entries_c.borrow());
+                } else {
+                    on_open(&path);
                 }
             });
         }
@@ -127,7 +136,6 @@ impl FileTree {
         {
             let root = root_dir.to_path_buf();
             new_file_btn.connect_clicked(move |_| {
-                // Create empty file in root (basic implementation)
                 let _ = std::fs::write(root.join("untitled"), "");
             });
         }
@@ -146,27 +154,130 @@ impl FileTree {
             root_dir: root_dir.to_path_buf(),
             on_file_open: Some(on_file_open),
             file_index,
+            entries,
         }
     }
 
     /// Rebuild the tree. Call when file system changes are detected.
     pub fn refresh(&self) {
-        // Re-scan and rebuild the model
+        // Collect expanded dirs to preserve state
+        let expanded_dirs: Vec<PathBuf> = self.entries.borrow().iter()
+            .filter(|e| e.is_dir && e.expanded)
+            .map(|e| e.path.clone())
+            .collect();
+
         let mut entries = Vec::new();
         let mut index = Vec::new();
         build_file_entries(&self.root_dir, &self.root_dir, &mut entries, &mut index, 0);
-        *self.file_index.borrow_mut() = index;
 
-        // Rebuild model
-        if let Some(sel) = self.list_view.model().and_then(|m| m.downcast::<gtk4::SingleSelection>().ok()) {
-            let model = gtk4::StringList::new(&[]);
-            for entry in &entries {
-                let prefix = "  ".repeat(entry.depth as usize);
-                let icon = if entry.is_dir { "\u{1F4C2} " } else { "  " };
-                model.append(&format!("{}{}{}", prefix, icon, entry.name));
-            }
-            sel.set_model(Some(&model));
+        // Restore expanded state
+        restore_expanded(&mut entries, &mut index, &self.root_dir, &expanded_dirs);
+
+        *self.file_index.borrow_mut() = index;
+        *self.entries.borrow_mut() = entries;
+
+        rebuild_model(&self.list_view, &self.entries.borrow());
+    }
+}
+
+/// Toggle a directory open/closed and rebuild entries list accordingly.
+fn toggle_dir(
+    entries: &Rc<RefCell<Vec<FileEntry>>>,
+    file_index: &Rc<RefCell<Vec<PathBuf>>>,
+    root: &Path,
+    idx: usize,
+    depth: u32,
+    was_expanded: bool,
+    dir_path: &Path,
+) {
+    let mut ents = entries.borrow_mut();
+
+    if was_expanded {
+        // Collapse: remove all children (entries with depth > this one's depth,
+        // contiguous after this entry)
+        ents[idx].expanded = false;
+        let remove_start = idx + 1;
+        let mut remove_end = remove_start;
+        while remove_end < ents.len() && ents[remove_end].depth > depth {
+            remove_end += 1;
         }
+        // Remove collapsed file paths from file_index
+        {
+            let removed_paths: Vec<PathBuf> = ents[remove_start..remove_end]
+                .iter()
+                .filter(|e| !e.is_dir)
+                .map(|e| e.path.clone())
+                .collect();
+            let mut fi = file_index.borrow_mut();
+            fi.retain(|p| !removed_paths.contains(p));
+        }
+        ents.drain(remove_start..remove_end);
+    } else {
+        // Expand: insert children after this entry
+        ents[idx].expanded = true;
+        let mut new_entries = Vec::new();
+        let mut new_index = Vec::new();
+        build_file_entries(root, dir_path, &mut new_entries, &mut new_index, depth + 1);
+        file_index.borrow_mut().extend(new_index);
+        // Insert after current entry
+        let insert_pos = idx + 1;
+        for (i, entry) in new_entries.into_iter().enumerate() {
+            ents.insert(insert_pos + i, entry);
+        }
+    }
+}
+
+/// Build a StringList model from entries.
+fn build_string_model(entries: &[FileEntry]) -> gtk4::StringList {
+    let model = gtk4::StringList::new(&[]);
+    for entry in entries {
+        model.append(&format_entry(entry));
+    }
+    model
+}
+
+/// Format a single entry for display.
+fn format_entry(entry: &FileEntry) -> String {
+    let prefix = "  ".repeat(entry.depth as usize);
+    if entry.is_dir {
+        let arrow = if entry.expanded { "▼" } else { "▶" };
+        format!("{}{} \u{1F4C2} {}", prefix, arrow, entry.name)
+    } else {
+        format!("{}   {}", prefix, entry.name)
+    }
+}
+
+/// Rebuild the ListView model from entries.
+fn rebuild_model(list_view: &gtk4::ListView, entries: &[FileEntry]) {
+    if let Some(sel) = list_view.model().and_then(|m| m.downcast::<gtk4::SingleSelection>().ok()) {
+        let model = build_string_model(entries);
+        sel.set_model(Some(&model));
+    }
+}
+
+/// Restore expanded directories after a refresh.
+fn restore_expanded(
+    entries: &mut Vec<FileEntry>,
+    file_index: &mut Vec<PathBuf>,
+    root: &Path,
+    expanded_dirs: &[PathBuf],
+) {
+    let mut i = 0;
+    while i < entries.len() {
+        if entries[i].is_dir && !entries[i].expanded && expanded_dirs.contains(&entries[i].path) {
+            let depth = entries[i].depth;
+            let dir_path = entries[i].path.clone();
+            entries[i].expanded = true;
+            let mut new_entries = Vec::new();
+            let mut new_index = Vec::new();
+            build_file_entries(root, &dir_path, &mut new_entries, &mut new_index, depth + 1);
+            file_index.extend(new_index);
+            let insert_pos = i + 1;
+            for (j, entry) in new_entries.into_iter().enumerate() {
+                entries.insert(insert_pos + j, entry);
+            }
+        }
+        i += 1;
     }
 }
 
@@ -181,7 +292,6 @@ fn build_file_entries(
     let walker = ignore::WalkBuilder::new(dir)
         .max_depth(Some(1))
         .sort_by_file_name(|a, b| {
-            // Directories first, then alphabetical
             a.cmp(b)
         })
         .build();
@@ -208,14 +318,15 @@ fn build_file_entries(
     files.sort_by(|a, b| a.1.to_lowercase().cmp(&b.1.to_lowercase()));
 
     for (path, name) in dirs {
+        let auto_expand = depth < 1;
         entries.push(FileEntry {
             path: path.clone(),
             name,
             is_dir: true,
             depth,
-            expanded: depth < 1, // auto-expand first level
+            expanded: auto_expand,
         });
-        if depth < 1 {
+        if auto_expand {
             build_file_entries(root, &path, entries, file_index, depth + 1);
         }
     }
