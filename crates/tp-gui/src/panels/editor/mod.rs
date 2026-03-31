@@ -121,11 +121,10 @@ impl CodeEditorPanel {
         let git_status_view = git_status::GitStatusView::new(
             &PathBuf::from(root_dir),
             Rc::new({
-                let state_c = state.clone();
+                let root_c = PathBuf::from(root_dir);
                 let tabs_c = tabs_rc.clone();
                 move |path, _status| {
-                    // For now, just open the file. Diff view comes in Task 7.
-                    tabs_c.open_file(path, &state_c);
+                    tabs_c.show_diff(&root_c, path);
                 }
             }),
         );

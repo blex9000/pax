@@ -262,6 +262,155 @@ impl EditorTabs {
         }
     }
 
+    /// Show a side-by-side diff view for the given file.
+    pub fn show_diff(&self, root: &Path, file_path: &Path) {
+        use super::git_status::compute_diff;
+
+        let hunks = compute_diff(root, file_path);
+
+        // Get HEAD version
+        let rel = file_path.strip_prefix(root).unwrap_or(file_path);
+        let old_content = std::process::Command::new("git")
+            .args(["show", &format!("HEAD:{}", rel.to_string_lossy())])
+            .current_dir(root)
+            .output()
+            .ok()
+            .filter(|o| o.status.success())
+            .map(|o| String::from_utf8_lossy(&o.stdout).to_string())
+            .unwrap_or_default();
+        let new_content = std::fs::read_to_string(file_path).unwrap_or_default();
+
+        // Create two read-only SourceViews
+        let old_buf = sourceview5::Buffer::new(None::<&gtk4::TextTagTable>);
+        old_buf.set_text(&old_content);
+        old_buf.set_highlight_syntax(true);
+        let new_buf = sourceview5::Buffer::new(None::<&gtk4::TextTagTable>);
+        new_buf.set_text(&new_content);
+        new_buf.set_highlight_syntax(true);
+
+        // Detect language and apply to both
+        let lang_manager = sourceview5::LanguageManager::default();
+        if let Some(lang) = lang_manager.guess_language(Some(file_path), None::<&str>) {
+            old_buf.set_language(Some(&lang));
+            new_buf.set_language(Some(&lang));
+        }
+        let scheme_manager = sourceview5::StyleSchemeManager::default();
+        if let Some(scheme) = scheme_manager.scheme("Adwaita-dark")
+            .or_else(|| scheme_manager.scheme("classic-dark"))
+        {
+            old_buf.set_style_scheme(Some(&scheme));
+            new_buf.set_style_scheme(Some(&scheme));
+        }
+
+        let make_view = |buf: &sourceview5::Buffer| -> gtk4::ScrolledWindow {
+            let view = sourceview5::View::with_buffer(buf);
+            view.set_editable(false);
+            view.set_show_line_numbers(true);
+            view.set_monospace(true);
+            view.set_left_margin(4);
+            let scroll = gtk4::ScrolledWindow::new();
+            scroll.set_child(Some(&view));
+            scroll.set_vexpand(true);
+            scroll.set_hexpand(true);
+            scroll
+        };
+
+        let old_scroll = make_view(&old_buf);
+        let new_scroll = make_view(&new_buf);
+
+        // Sync scrolling
+        {
+            let ns = new_scroll.clone();
+            old_scroll.vadjustment().connect_value_changed(move |adj| {
+                ns.vadjustment().set_value(adj.value());
+            });
+        }
+        {
+            let os = old_scroll.clone();
+            new_scroll.vadjustment().connect_value_changed(move |adj| {
+                os.vadjustment().set_value(adj.value());
+            });
+        }
+
+        // Layout
+        let diff_box = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
+
+        // Header with file name and actions
+        let header = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
+        header.set_margin_start(8);
+        header.set_margin_end(8);
+        header.set_margin_top(4);
+        header.set_margin_bottom(4);
+
+        let file_label = gtk4::Label::new(Some(&format!("Diff: {}", rel.to_string_lossy())));
+        file_label.add_css_class("heading");
+        file_label.set_hexpand(true);
+        file_label.set_halign(gtk4::Align::Start);
+        header.append(&file_label);
+
+        let revert_all_btn = gtk4::Button::with_label("Revert All");
+        revert_all_btn.add_css_class("destructive-action");
+        {
+            let fp = file_path.to_path_buf();
+            let root_c = root.to_path_buf();
+            revert_all_btn.connect_clicked(move |_| {
+                let rel = fp.strip_prefix(&root_c).unwrap_or(&fp);
+                let _ = std::process::Command::new("git")
+                    .args(["checkout", "--", &rel.to_string_lossy()])
+                    .current_dir(&root_c)
+                    .output();
+            });
+        }
+        header.append(&revert_all_btn);
+
+        diff_box.append(&header);
+
+        // Labels
+        let labels = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
+        let old_label = gtk4::Label::new(Some(&format!("{} (HEAD)", rel.to_string_lossy())));
+        old_label.add_css_class("dim-label");
+        old_label.set_hexpand(true);
+        old_label.set_margin_start(8);
+        let new_label = gtk4::Label::new(Some(&format!("{} (working)", rel.to_string_lossy())));
+        new_label.add_css_class("dim-label");
+        new_label.set_hexpand(true);
+        new_label.set_margin_start(8);
+        labels.append(&old_label);
+        labels.append(&new_label);
+        diff_box.append(&labels);
+
+        let paned = gtk4::Paned::new(gtk4::Orientation::Horizontal);
+        paned.set_start_child(Some(&old_scroll));
+        paned.set_end_child(Some(&new_scroll));
+        paned.set_vexpand(true);
+        diff_box.append(&paned);
+
+        // Add as a notebook tab
+        let file_name = file_path.file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_else(|| "diff".to_string());
+
+        let tab_box = gtk4::Box::new(gtk4::Orientation::Horizontal, 4);
+        let label = gtk4::Label::new(Some(&format!("Diff: {}", file_name)));
+        let close_btn = gtk4::Button::from_icon_name("window-close-symbolic");
+        close_btn.add_css_class("flat");
+        close_btn.add_css_class("tab-close-btn");
+        tab_box.append(&label);
+        tab_box.append(&close_btn);
+
+        let page_idx = self.notebook.append_page(&diff_box, Some(&tab_box));
+        self.notebook.set_show_tabs(true);
+        self.notebook.set_current_page(Some(page_idx));
+
+        // Close button removes the diff tab
+        {
+            let nb = self.notebook.clone();
+            close_btn.connect_clicked(move |_| {
+                nb.remove_page(Some(page_idx));
+            });
+        }
+    }
+
     /// Save the currently active file.
     pub fn save_active(&self, state: &Rc<RefCell<EditorState>>) {
         let mut st = state.borrow_mut();
