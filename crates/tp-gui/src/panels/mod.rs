@@ -1,6 +1,7 @@
 pub mod terminal;
 pub mod markdown;
 pub mod chooser;
+pub mod editor;
 pub mod registry;
 
 /// Trait implemented by all panel backends.

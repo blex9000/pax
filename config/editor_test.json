@@ -1,0 +1,11 @@
+{
+    "name": "Editor Test",
+    "layout": { "type": "panel", "id": "ed1" },
+    "panels": [
+        {
+            "id": "ed1",
+            "name": "Code",
+            "panel_type": { "type": "code_editor", "root_dir": "." }
+        }
+    ]
+}

@@ -214,5 +214,18 @@ pub fn build_default_registry() -> PanelRegistry {
         },
     );
 
+    // Code Editor
+    reg.register(
+        "code_editor",
+        "Code Editor",
+        "Lightweight code editor with file tree and git",
+        "accessories-text-editor-symbolic",
+        true,
+        |config| {
+            let root_dir = config.extra.get("root_dir").map(|s| s.as_str()).unwrap_or(".");
+            Box::new(super::editor::CodeEditorPanel::new(root_dir))
+        },
+    );
+
     reg
 }
