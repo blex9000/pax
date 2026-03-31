@@ -231,10 +231,10 @@ impl EditorTabs {
             let state_c = state.clone();
             let dot_c = dot.clone();
             let mod_label = self.status_modified.clone();
-            let file_idx = idx;
+            let path_for_dirty = path.to_path_buf();
             buf.connect_changed(move |buf| {
                 let mut st = state_c.borrow_mut();
-                if file_idx < st.open_files.len() {
+                if let Some(file_idx) = st.open_files.iter().position(|f| f.path == path_for_dirty) {
                     let was_modified = st.open_files[file_idx].modified;
                     // We consider it modified if undo is available
                     let is_modified = buf.can_undo();
@@ -251,19 +251,18 @@ impl EditorTabs {
         {
             let state_c = state.clone();
             let nb = self.notebook.clone();
-            let file_idx = idx;
+            let path_for_close = path.to_path_buf();
             close_btn.connect_clicked(move |_| {
-                // Save dialog handled in Task 9 (close_active_tab)
                 let mut st = state_c.borrow_mut();
-                if file_idx < st.open_files.len() {
-                    st.open_files.remove(file_idx);
-                    nb.remove_page(Some((file_idx + 1) as u32)); // +1 for welcome
+                if let Some(idx) = st.open_files.iter().position(|f| f.path == path_for_close) {
+                    st.open_files.remove(idx);
+                    nb.remove_page(Some((idx + 1) as u32)); // +1 for welcome
                     if st.open_files.is_empty() {
                         st.active_tab = None;
                         nb.set_show_tabs(false);
                         nb.set_current_page(Some(0)); // show welcome
                     } else {
-                        let new_idx = file_idx.min(st.open_files.len() - 1);
+                        let new_idx = idx.min(st.open_files.len() - 1);
                         st.active_tab = Some(new_idx);
                     }
                 }
@@ -274,20 +273,20 @@ impl EditorTabs {
         {
             let state_c = state.clone();
             let nb = self.notebook.clone();
-            let file_idx = idx;
+            let path_for_middle = path.to_path_buf();
             let gesture = gtk4::GestureClick::new();
             gesture.set_button(2); // middle button
             gesture.connect_released(move |_, _, _, _| {
                 let mut st = state_c.borrow_mut();
-                if file_idx < st.open_files.len() {
-                    st.open_files.remove(file_idx);
-                    nb.remove_page(Some((file_idx + 1) as u32));
+                if let Some(idx) = st.open_files.iter().position(|f| f.path == path_for_middle) {
+                    st.open_files.remove(idx);
+                    nb.remove_page(Some((idx + 1) as u32));
                     if st.open_files.is_empty() {
                         st.active_tab = None;
                         nb.set_show_tabs(false);
                         nb.set_current_page(Some(0));
                     } else {
-                        let new_idx = file_idx.min(st.open_files.len() - 1);
+                        let new_idx = idx.min(st.open_files.len() - 1);
                         st.active_tab = Some(new_idx);
                         nb.set_current_page(Some((new_idx + 1) as u32));
                     }
@@ -377,17 +376,28 @@ impl EditorTabs {
         let old_scroll = make_view(&old_buf);
         let new_scroll = make_view(&new_buf);
 
-        // Sync scrolling
+        // Sync scrolling with guard to prevent infinite feedback loop
+        let syncing = Rc::new(std::cell::Cell::new(false));
         {
             let ns = new_scroll.clone();
+            let s = syncing.clone();
             old_scroll.vadjustment().connect_value_changed(move |adj| {
-                ns.vadjustment().set_value(adj.value());
+                if !s.get() {
+                    s.set(true);
+                    ns.vadjustment().set_value(adj.value());
+                    s.set(false);
+                }
             });
         }
         {
             let os = old_scroll.clone();
+            let s = syncing.clone();
             new_scroll.vadjustment().connect_value_changed(move |adj| {
-                os.vadjustment().set_value(adj.value());
+                if !s.get() {
+                    s.set(true);
+                    os.vadjustment().set_value(adj.value());
+                    s.set(false);
+                }
             });
         }
 
@@ -464,8 +474,11 @@ impl EditorTabs {
         // Close button removes the diff tab
         {
             let nb = self.notebook.clone();
+            let diff_widget = diff_box.clone();
             close_btn.connect_clicked(move |_| {
-                nb.remove_page(Some(page_idx));
+                if let Some(page) = nb.page_num(&diff_widget) {
+                    nb.remove_page(Some(page));
+                }
             });
         }
     }
@@ -589,17 +602,18 @@ impl EditorTabs {
             };
 
             // Apply tag to new lines in the working copy
+            let mut line_num = hunk.new_start.saturating_sub(1);
             for line in &hunk.new_lines {
-                if line.starts_with('+') || line.starts_with(' ') {
-                    let line_num = hunk.new_start.saturating_sub(1);
+                if line.starts_with('+') {
                     if line_num < buf.line_count() as usize {
                         let start = buf.iter_at_line(line_num as i32).unwrap_or(buf.start_iter());
                         let mut end = start.clone();
                         end.forward_to_line_end();
-                        if line.starts_with('+') {
-                            buf.apply_tag_by_name(tag_name, &start, &end);
-                        }
+                        buf.apply_tag_by_name(tag_name, &start, &end);
                     }
+                }
+                if line.starts_with('+') || line.starts_with(' ') {
+                    line_num += 1;
                 }
             }
         }
