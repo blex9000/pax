@@ -116,7 +116,39 @@ impl CodeEditorPanel {
                 tabs_for_open.open_file(path, &state_for_open);
             }),
         );
-        sidebar.append(&file_tree.widget);
+
+        // Git status view
+        let git_status_view = git_status::GitStatusView::new(
+            &PathBuf::from(root_dir),
+            Rc::new({
+                let state_c = state.clone();
+                let tabs_c = tabs_rc.clone();
+                move |path, _status| {
+                    // For now, just open the file. Diff view comes in Task 7.
+                    tabs_c.open_file(path, &state_c);
+                }
+            }),
+        );
+
+        // Sidebar stack to switch between file tree and git view
+        let sidebar_stack = gtk4::Stack::new();
+        sidebar_stack.add_named(&file_tree.widget, Some("files"));
+        sidebar_stack.add_named(&git_status_view.widget, Some("git"));
+        sidebar.append(&sidebar_stack);
+
+        // Connect activity bar toggle buttons
+        {
+            let stack = sidebar_stack.clone();
+            files_btn.connect_toggled(move |btn| {
+                if btn.is_active() { stack.set_visible_child_name("files"); }
+            });
+        }
+        {
+            let stack = sidebar_stack.clone();
+            git_btn.connect_toggled(move |btn| {
+                if btn.is_active() { stack.set_visible_child_name("git"); }
+            });
+        }
 
         // Fuzzy finder overlay
         let fuzzy_finder = fuzzy_finder::FuzzyFinder::new(
@@ -144,13 +176,14 @@ impl CodeEditorPanel {
 
         let widget = main_overlay.upcast::<gtk4::Widget>();
 
-        // Keybindings: Ctrl+S to save, Ctrl+B to toggle sidebar, Ctrl+P fuzzy finder
+        // Keybindings: Ctrl+S to save, Ctrl+B to toggle sidebar, Ctrl+P fuzzy finder, Ctrl+Shift+G git view
         {
             let state_c = state.clone();
             let key_ctrl = gtk4::EventControllerKey::new();
             let tabs_save = tabs_rc.clone();
             let sidebar_ref = sidebar.clone();
             let fuzzy_finder_ref = Rc::new(fuzzy_finder);
+            let git_btn_ref = git_btn.clone();
             key_ctrl.connect_key_pressed(move |_, key, _, modifier| {
                 if modifier.contains(gtk4::gdk::ModifierType::CONTROL_MASK) {
                     match key {
@@ -166,6 +199,10 @@ impl CodeEditorPanel {
                         }
                         gtk4::gdk::Key::p => {
                             fuzzy_finder_ref.show();
+                            return gtk4::glib::Propagation::Stop;
+                        }
+                        gtk4::gdk::Key::g if modifier.contains(gtk4::gdk::ModifierType::SHIFT_MASK) => {
+                            git_btn_ref.set_active(true);
                             return gtk4::glib::Propagation::Stop;
                         }
                         _ => {}
@@ -185,8 +222,8 @@ impl CodeEditorPanel {
                 Rc::new(move || {
                     file_tree_ref.refresh();
                 }),
-                Rc::new(|_git_status| {
-                    // Git status handling comes in Task 6
+                Rc::new(move |git_output: String| {
+                    git_status_view.update(&git_output);
                 }),
             );
         }
