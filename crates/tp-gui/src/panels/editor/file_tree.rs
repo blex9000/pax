@@ -299,6 +299,7 @@ fn build_row_widget(entry: &FileEntry, root: &Path, guides: &[bool], is_last: bo
     let label = gtk4::Label::new(Some(&entry.name));
     label.set_halign(gtk4::Align::Start);
     label.set_hexpand(true);
+    label.set_margin_start(4);
     label.set_ellipsize(gtk4::pango::EllipsizeMode::End);
     let rel = entry.path.strip_prefix(root).unwrap_or(&entry.path);
     label.set_tooltip_text(Some(&rel.to_string_lossy()));
