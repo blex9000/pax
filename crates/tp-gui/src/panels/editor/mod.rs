@@ -118,6 +118,17 @@ impl CodeEditorPanel {
         );
         sidebar.append(&file_tree.widget);
 
+        // Fuzzy finder overlay
+        let fuzzy_finder = fuzzy_finder::FuzzyFinder::new(
+            &PathBuf::from(root_dir),
+            file_tree.file_index.clone(),
+            Rc::new({
+                let state_c = state.clone();
+                let tabs_c = tabs_rc.clone();
+                move |path| { tabs_c.open_file(path, &state_c); }
+            }),
+        );
+
         // Paned: sidebar | editor
         let paned = gtk4::Paned::new(gtk4::Orientation::Horizontal);
         paned.set_start_child(Some(&sidebar));
@@ -126,14 +137,20 @@ impl CodeEditorPanel {
         paned.set_shrink_start_child(false);
         paned.set_resize_start_child(false);
 
-        let widget = paned.upcast::<gtk4::Widget>();
+        // Overlay: paned + fuzzy finder on top
+        let main_overlay = gtk4::Overlay::new();
+        main_overlay.set_child(Some(&paned));
+        main_overlay.add_overlay(&fuzzy_finder.overlay);
 
-        // Keybindings: Ctrl+S to save, Ctrl+B to toggle sidebar
+        let widget = main_overlay.upcast::<gtk4::Widget>();
+
+        // Keybindings: Ctrl+S to save, Ctrl+B to toggle sidebar, Ctrl+P fuzzy finder
         {
             let state_c = state.clone();
             let key_ctrl = gtk4::EventControllerKey::new();
             let tabs_save = tabs_rc.clone();
             let sidebar_ref = sidebar.clone();
+            let fuzzy_finder_ref = Rc::new(fuzzy_finder);
             key_ctrl.connect_key_pressed(move |_, key, _, modifier| {
                 if modifier.contains(gtk4::gdk::ModifierType::CONTROL_MASK) {
                     match key {
@@ -145,6 +162,10 @@ impl CodeEditorPanel {
                             let mut st = state_c.borrow_mut();
                             st.sidebar_visible = !st.sidebar_visible;
                             sidebar_ref.set_visible(st.sidebar_visible);
+                            return gtk4::glib::Propagation::Stop;
+                        }
+                        gtk4::gdk::Key::p => {
+                            fuzzy_finder_ref.show();
                             return gtk4::glib::Propagation::Stop;
                         }
                         _ => {}
