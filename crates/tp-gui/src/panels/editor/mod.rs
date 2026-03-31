@@ -175,11 +175,11 @@ impl CodeEditorPanel {
 
         let widget = main_overlay.upcast::<gtk4::Widget>();
 
-        // Keybindings: Ctrl+S to save, Ctrl+B to toggle sidebar, Ctrl+P fuzzy finder, Ctrl+Shift+G git view
+        // Keybindings: Ctrl+S save, Ctrl+W close, Ctrl+Tab next tab, Ctrl+B sidebar, Ctrl+P fuzzy finder, Ctrl+Shift+G git view
         {
             let state_c = state.clone();
             let key_ctrl = gtk4::EventControllerKey::new();
-            let tabs_save = tabs_rc.clone();
+            let tabs_ref = tabs_rc.clone();
             let sidebar_ref = sidebar.clone();
             let fuzzy_finder_ref = Rc::new(fuzzy_finder);
             let git_btn_ref = git_btn.clone();
@@ -188,7 +188,25 @@ impl CodeEditorPanel {
                     match key {
                         gtk4::gdk::Key::s => {
                             let root = state_c.borrow().root_dir.clone();
-                            tabs_save.save_active(&state_c, &root);
+                            tabs_ref.save_active(&state_c, &root);
+                            return gtk4::glib::Propagation::Stop;
+                        }
+                        gtk4::gdk::Key::w => {
+                            let root = state_c.borrow().root_dir.clone();
+                            tabs_ref.close_active_tab(&state_c, &root);
+                            return gtk4::glib::Propagation::Stop;
+                        }
+                        gtk4::gdk::Key::Tab => {
+                            let st = state_c.borrow();
+                            if let Some(idx) = st.active_tab {
+                                let count = st.open_files.len();
+                                if count > 0 {
+                                    let next = (idx + 1) % count;
+                                    drop(st);
+                                    tabs_ref.notebook.set_current_page(Some((next + 1) as u32));
+                                    // connect_switch_page will handle buffer switch and state update
+                                }
+                            }
                             return gtk4::glib::Propagation::Stop;
                         }
                         gtk4::gdk::Key::b => {

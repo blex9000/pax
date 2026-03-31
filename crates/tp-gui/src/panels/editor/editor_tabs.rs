@@ -18,7 +18,7 @@ pub struct EditorTabs {
 }
 
 impl EditorTabs {
-    pub fn new(_state: Rc<RefCell<EditorState>>) -> Self {
+    pub fn new(state: Rc<RefCell<EditorState>>) -> Self {
         let notebook = gtk4::Notebook::new();
         notebook.set_scrollable(true);
         notebook.set_show_border(false);
@@ -90,6 +90,29 @@ impl EditorTabs {
                 let line = iter.line() + 1;
                 let col = iter.line_offset() + 1;
                 pos_label.set_text(&format!("Ln {}, Col {}", line, col));
+            });
+        }
+
+        // Switch page: update SourceView buffer and status bar when tab changes
+        {
+            let state_c = state.clone();
+            let sv = source_view.clone();
+            let lang_l = status_lang.clone();
+            let mod_l = status_modified.clone();
+            notebook.connect_switch_page(move |_nb, _page, page_num| {
+                if page_num == 0 { return; } // welcome page
+                let idx = (page_num - 1) as usize;
+                let mut st = state_c.borrow_mut();
+                if let Some(open_file) = st.open_files.get(idx) {
+                    sv.set_buffer(Some(&open_file.buffer));
+                    if let Some(l) = open_file.buffer.language() {
+                        lang_l.set_text(&l.name());
+                    } else {
+                        lang_l.set_text("Plain Text");
+                    }
+                    mod_l.set_text(if open_file.modified { "\u{25CF} Modified" } else { "" });
+                }
+                st.active_tab = Some(idx);
             });
         }
 
@@ -238,6 +261,32 @@ impl EditorTabs {
                     }
                 }
             });
+        }
+
+        // Middle-click to close tab
+        {
+            let state_c = state.clone();
+            let nb = self.notebook.clone();
+            let file_idx = idx;
+            let gesture = gtk4::GestureClick::new();
+            gesture.set_button(2); // middle button
+            gesture.connect_released(move |_, _, _, _| {
+                let mut st = state_c.borrow_mut();
+                if file_idx < st.open_files.len() {
+                    st.open_files.remove(file_idx);
+                    nb.remove_page(Some((file_idx + 1) as u32));
+                    if st.open_files.is_empty() {
+                        st.active_tab = None;
+                        nb.set_show_tabs(false);
+                        nb.set_current_page(Some(0));
+                    } else {
+                        let new_idx = file_idx.min(st.open_files.len() - 1);
+                        st.active_tab = Some(new_idx);
+                        nb.set_current_page(Some((new_idx + 1) as u32));
+                    }
+                }
+            });
+            tab_box.add_controller(gesture);
         }
 
         // Switch to this buffer
@@ -433,6 +482,43 @@ impl EditorTabs {
         }
         // Update gutter marks after save
         self.update_gutter_marks(root, state);
+    }
+
+    /// Close the active tab. If modified, save first then close.
+    pub fn close_active_tab(&self, state: &Rc<RefCell<EditorState>>, root: &Path) {
+        let idx = match state.borrow().active_tab {
+            Some(i) => i,
+            None => return,
+        };
+
+        let is_modified = state.borrow().open_files.get(idx)
+            .map(|f| f.modified)
+            .unwrap_or(false);
+
+        if is_modified {
+            self.save_active(state, root);
+        }
+        self.remove_tab(idx, state);
+    }
+
+    /// Remove the tab at the given index from the notebook and state.
+    pub fn remove_tab(&self, idx: usize, state: &Rc<RefCell<EditorState>>) {
+        let mut st = state.borrow_mut();
+        if idx < st.open_files.len() {
+            st.open_files.remove(idx);
+            self.notebook.remove_page(Some((idx + 1) as u32));
+            if st.open_files.is_empty() {
+                st.active_tab = None;
+                self.notebook.set_show_tabs(false);
+                self.notebook.set_current_page(Some(0));
+            } else {
+                let new_idx = idx.min(st.open_files.len() - 1);
+                st.active_tab = Some(new_idx);
+                self.notebook.set_current_page(Some((new_idx + 1) as u32));
+                drop(st);
+                self.switch_to_buffer(new_idx, state);
+            }
+        }
     }
 
     /// Update gutter diff indicators for the active file.
