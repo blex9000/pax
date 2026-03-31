@@ -163,9 +163,15 @@ fn setup_workspace_ui(
     let title_icon = gtk4::Image::from_icon_name("pax");
     title_icon.set_pixel_size(22);
     title_box.append(&title_icon);
-    let title_label = gtk4::Label::new(Some(&ws_name));
-    title_label.add_css_class("heading");
-    title_box.append(&title_label);
+    let app_label = gtk4::Label::new(Some("Pax"));
+    app_label.add_css_class("heading");
+    title_box.append(&app_label);
+    let sep_label = gtk4::Label::new(Some("—"));
+    sep_label.add_css_class("dim-label");
+    title_box.append(&sep_label);
+    let ws_label = gtk4::Label::new(Some(&ws_name));
+    ws_label.add_css_class("dim-label");
+    title_box.append(&ws_label);
     header.set_title_widget(Some(&title_box));
 
     let menu_btn = gtk4::MenuButton::new();
