@@ -176,6 +176,21 @@ impl CodeEditorPanel {
             widget.add_controller(key_ctrl);
         }
 
+        // Start file watchers
+        {
+            let file_tree_ref = file_tree;
+            file_watcher::start_watchers(
+                state.clone(),
+                tabs_rc.info_bar_container.clone(),
+                Rc::new(move || {
+                    file_tree_ref.refresh();
+                }),
+                Rc::new(|_git_status| {
+                    // Git status handling comes in Task 6
+                }),
+            );
+        }
+
         Self { widget, state }
     }
 }
