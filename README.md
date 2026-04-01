@@ -20,7 +20,21 @@ Funzionalità principali:
   • **Welcome page**: carica il tema dall'ultimo workspace usato
   • **Recent workspaces**: dialog con lista workspace recenti da DB SQLite
 
-Installazione
+Download
+
+L'AppImage è il modo più rapido per provare Pax su Linux senza installare dipendenze:
+
+1. Scarica `Pax-x86_64.AppImage` dall'ultima [GitHub Release](../../releases/latest)
+2. Rendi eseguibile e avvia:
+
+─── bash ───
+chmod +x Pax-x86_64.AppImage
+./Pax-x86_64.AppImage
+───────
+
+L'AppImage include tutte le dipendenze GTK4/libadwaita/VTE4. Funziona su qualsiasi distro Linux x86_64 recente.
+
+Installazione da sorgente
 
 Linux (Ubuntu/Debian)
 
@@ -219,6 +233,32 @@ Dati persistenti
 |------|-----------|
 | ~/.local/share/pax/pax.db | Database SQLite — workspace recenti, history comandi, output salvato |
 | ~/.local/share/pax/pax.log | Log applicazione |
+
+Release e Packaging
+
+AppImage (build locale)
+
+─── bash ───
+# Requisiti: cargo + dipendenze GTK4 (vedi Installazione da sorgente)
+./scripts/build-appimage.sh
+# Output: Pax-x86_64.AppImage
+───────
+
+Lo script scarica automaticamente `linuxdeploy` e il plugin GTK4 nella cartella `build-tools/` (cachati per build successive).
+
+GitHub Actions (CI/CD)
+
+Il workflow `.github/workflows/release.yml` builda automaticamente l'AppImage e lo pubblica come GitHub Release:
+
+- **Trigger automatico**: push di un tag `v*` (es. `v0.1.0`)
+- **Trigger manuale**: workflow_dispatch dalla pagina Actions
+
+─── bash ───
+# Creare una release
+git tag v0.1.0
+git push origin v0.1.0
+# → GitHub Actions builda l'AppImage e crea la release
+───────
 
 Licenza
 

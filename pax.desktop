@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Pax
+Comment=Terminal workspace manager with split panels and tabs
+Exec=pax
+Icon=pax
+Terminal=false
+Categories=Development;System;TerminalEmulator;
+Keywords=terminal;session;workspace;split;tabs;
+StartupWMClass=com.sinelec.pax
