@@ -24,7 +24,7 @@ Download
 
 L'AppImage è il modo più rapido per provare Pax su Linux senza installare dipendenze:
 
-1. Scarica `Pax-x86_64.AppImage` dall'ultima [GitHub Release](../../releases/latest)
+1. Scarica `Pax-x86_64.AppImage` dall'ultima [GitHub Release](https://github.com/blex9000/pax/releases/latest)
 2. Rendi eseguibile e avvia:
 
 ─── bash ───
