@@ -501,11 +501,11 @@ impl PanelHost {
             self.collapse_button.set_icon_name("go-next-symbolic");
             self.collapse_button.set_tooltip_text(Some("Expand panel"));
         } else {
+            // Use minimal size request — don't force the configured min_size
+            // which would snap the Paned. Min_size is reapplied on rebuild.
+            self.outer.set_size_request(-1, -1);
             self.container.set_visible(true);
             self.collapsed_view.set_visible(false);
-            // Restore saved min size
-            let (w, h) = self.saved_min_size.get();
-            self.outer.set_size_request(w, h);
             self.collapse_button.set_icon_name("go-previous-symbolic");
             self.collapse_button.set_tooltip_text(Some("Collapse panel"));
         }

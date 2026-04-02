@@ -407,9 +407,6 @@ fn setup_paned_auto_collapse(paned: &gtk4::Paned, hosts: &HashMap<String, PanelH
         collapsed_view: gtk4::Box,
         outer: gtk4::Box,
         collapse_btn: gtk4::Button,
-        /// Original min size from panel config (to restore on expand)
-        orig_min_w: i32,
-        orig_min_h: i32,
     }
 
     impl CollapseWidgets {
@@ -426,10 +423,11 @@ fn setup_paned_auto_collapse(paned: &gtk4::Paned, hosts: &HashMap<String, PanelH
                 self.collapse_btn.set_icon_name("go-next-symbolic");
                 self.collapse_btn.set_tooltip_text(Some("Expand panel"));
             } else {
+                // Use minimal size during drag expand — don't force the large
+                // configured min_size which would snap the Paned back
+                self.outer.set_size_request(-1, -1);
                 self.container.set_visible(true);
                 self.collapsed_view.set_visible(false);
-                // Restore original min size
-                self.outer.set_size_request(self.orig_min_w, self.orig_min_h);
                 self.collapse_btn.set_icon_name("go-previous-symbolic");
                 self.collapse_btn.set_tooltip_text(Some("Collapse panel"));
             }
@@ -438,15 +436,12 @@ fn setup_paned_auto_collapse(paned: &gtk4::Paned, hosts: &HashMap<String, PanelH
 
     let make_cw = |id: &Option<String>| -> Option<std::rc::Rc<CollapseWidgets>> {
         let host = id.as_ref().and_then(|i| hosts.get(i))?;
-        let (orig_w, orig_h) = host.widget().size_request();
         Some(std::rc::Rc::new(CollapseWidgets {
             container: host.container.clone(),
             footer: host.footer_bar.clone(),
             collapsed_view: host.collapsed_view.clone(),
             outer: host.outer.clone(),
             collapse_btn: host.collapse_button.clone(),
-            orig_min_w: if orig_w > 0 { orig_w } else { 80 },
-            orig_min_h: if orig_h > 0 { orig_h } else { 60 },
         }))
     };
 
