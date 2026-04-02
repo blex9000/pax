@@ -192,6 +192,22 @@ impl CodeEditorPanel {
         );
 
         // Git status view
+        // Callback for immediate git status refresh after any git action
+        let git_action_cb: Rc<dyn Fn()> = Rc::new({
+            let git_btn_c = git_btn.clone();
+            let be = backend.clone();
+            move || {
+                // Refresh git status and update button indicator
+                if let Ok(stdout) = be.git_command(&["status", "--porcelain"]) {
+                    if stdout.trim().is_empty() {
+                        git_btn_c.remove_css_class("git-has-changes");
+                    } else {
+                        git_btn_c.add_css_class("git-has-changes");
+                    }
+                }
+            }
+        });
+
         let git_status_view = git_status::GitStatusView::new(
             &PathBuf::from(root_dir),
             Rc::new({
@@ -203,6 +219,7 @@ impl CodeEditorPanel {
                 }
             }),
             backend.clone(),
+            git_action_cb,
         );
 
         // Project-wide search view

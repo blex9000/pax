@@ -7,6 +7,9 @@ use super::file_backend::FileBackend;
 /// Callback when a changed file is clicked (to show diff).
 pub type OnDiffOpen = Rc<dyn Fn(&Path, &str)>; // (path, git_status_char)
 
+/// Callback to trigger after any git action (stage, unstage, commit, revert).
+pub type OnGitAction = Rc<dyn Fn()>;
+
 /// Git status sidebar widget.
 pub struct GitStatusView {
     pub widget: gtk4::Box,
@@ -18,6 +21,7 @@ pub struct GitStatusView {
     root_dir: PathBuf,
     on_diff_open: OnDiffOpen,
     backend: Rc<dyn FileBackend>,
+    on_git_action: OnGitAction,
 }
 
 #[derive(Debug, Clone)]
@@ -28,7 +32,7 @@ struct GitFileEntry {
 }
 
 impl GitStatusView {
-    pub fn new(root_dir: &Path, on_diff_open: OnDiffOpen, backend: Rc<dyn FileBackend>) -> Self {
+    pub fn new(root_dir: &Path, on_diff_open: OnDiffOpen, backend: Rc<dyn FileBackend>, on_git_action: OnGitAction) -> Self {
         let container = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
 
         let header = gtk4::Label::new(Some("Changes"));
@@ -78,6 +82,7 @@ impl GitStatusView {
         {
             let be = backend.clone();
             let entry = commit_entry.clone();
+            let action_cb = on_git_action.clone();
             commit_btn.connect_clicked(move |_btn| {
                 let msg = entry.text().to_string();
                 if msg.is_empty() { return; }
@@ -85,6 +90,7 @@ impl GitStatusView {
                     Ok(_) => {
                         entry.set_text("");
                         tracing::info!("Committed: {}", msg);
+                        action_cb();
                     }
                     Err(e) => {
                         tracing::warn!("git commit failed: {}", e);
@@ -101,6 +107,7 @@ impl GitStatusView {
             root_dir: root_dir.to_path_buf(),
             on_diff_open,
             backend,
+            on_git_action,
         };
 
         // Initial population
@@ -197,8 +204,10 @@ impl GitStatusView {
                 btn.set_tooltip_text(Some("Unstage — remove this file from the next commit"));
                 let path = entry.path.clone();
                 let be = self.backend.clone();
+                let cb = self.on_git_action.clone();
                 btn.connect_clicked(move |_| {
                     let _ = be.git_command(&["restore", "--staged", &path.to_string_lossy()]);
+                    cb();
                 });
                 top_row.append(&btn);
             } else {
@@ -207,8 +216,10 @@ impl GitStatusView {
                 btn.set_tooltip_text(Some("Stage — add this file to the next commit"));
                 let path = entry.path.clone();
                 let be = self.backend.clone();
+                let cb = self.on_git_action.clone();
                 btn.connect_clicked(move |_| {
                     let _ = be.git_command(&["add", &path.to_string_lossy()]);
+                    cb();
                 });
                 top_row.append(&btn);
             }
