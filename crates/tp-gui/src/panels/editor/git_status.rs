@@ -200,38 +200,34 @@ impl GitStatusView {
             top_row.append(&name_btn);
             outer.append(&top_row);
 
-            // Bottom row: action buttons
-            let btn_row = gtk4::Box::new(gtk4::Orientation::Horizontal, 4);
-            btn_row.set_halign(gtk4::Align::End);
-
-            let stage_btn = gtk4::Button::new();
-            stage_btn.add_css_class("flat");
+            // Stage/unstage icon button on the right of the top row
             if entry.staged {
-                stage_btn.set_icon_name("list-remove-symbolic");
-                stage_btn.set_label("Unstage");
+                let btn = gtk4::Button::from_icon_name("list-remove-symbolic");
+                btn.add_css_class("flat");
+                btn.set_tooltip_text(Some("Unstage — remove this file from the next commit"));
                 let path = entry.path.clone();
                 let root = self.root_dir.clone();
-                stage_btn.connect_clicked(move |_| {
+                btn.connect_clicked(move |_| {
                     let _ = std::process::Command::new("git")
                         .args(["restore", "--staged", &path.to_string_lossy()])
                         .current_dir(&root)
                         .output();
                 });
+                top_row.append(&btn);
             } else {
-                stage_btn.set_icon_name("list-add-symbolic");
-                stage_btn.set_label("Stage");
+                let btn = gtk4::Button::from_icon_name("list-add-symbolic");
+                btn.add_css_class("flat");
+                btn.set_tooltip_text(Some("Stage — add this file to the next commit"));
                 let path = entry.path.clone();
                 let root = self.root_dir.clone();
-                stage_btn.connect_clicked(move |_| {
+                btn.connect_clicked(move |_| {
                     let _ = std::process::Command::new("git")
                         .args(["add", &path.to_string_lossy()])
                         .current_dir(&root)
                         .output();
                 });
+                top_row.append(&btn);
             }
-            btn_row.append(&stage_btn);
-
-            outer.append(&btn_row);
             self.list_container.append(&outer);
             self.list_container.append(&gtk4::Separator::new(gtk4::Orientation::Horizontal));
         }
