@@ -710,6 +710,18 @@ fn setup_workspace_ui(
                         return glib::Propagation::Stop;
                     }
                     gdk::Key::s => {
+                        // If focused panel is a code editor, let Ctrl+S propagate
+                        // to the editor's own save handler (saves the file, not workspace)
+                        let is_code_editor = {
+                            let view = ws.borrow();
+                            view.focused_panel_id()
+                                .and_then(|id| view.workspace().panel(id))
+                                .map(|p| matches!(p.effective_type(), pax_core::workspace::PanelType::CodeEditor { .. }))
+                                .unwrap_or(false)
+                        };
+                        if is_code_editor {
+                            return glib::Propagation::Proceed;
+                        }
                         actions::do_save(&ws, &sb, &win, &sa, false);
                         return glib::Propagation::Stop;
                     }
