@@ -53,7 +53,6 @@ pub struct PanelHost {
     panel_id: String,
     backend: RefCell<Option<Box<dyn PanelBackend>>>,
     focused: RefCell<bool>,
-    collapsed: std::cell::Cell<bool>,
     /// Shared callback ref — updated by set_action_callback, read by button handlers.
     action_cb_ref: Rc<RefCell<Option<PanelActionCallback>>>,
     /// Shared sync commit callback — updated by set_sync_commit_callback, read by VTE commit handler.
@@ -344,7 +343,6 @@ impl PanelHost {
             panel_id: panel_id.to_string(),
             backend: RefCell::new(None),
             focused: RefCell::new(false),
-            collapsed: std::cell::Cell::new(false),
             action_cb_ref,
             #[cfg(feature = "vte")]
             sync_cb_ref: Rc::new(RefCell::new(None)),
@@ -474,51 +472,17 @@ impl PanelHost {
 
     /// Toggle collapsed state. Returns true if now collapsed.
     pub fn toggle_collapsed(&self) -> bool {
-        let new_state = !self.collapsed.get();
-        self.set_collapsed(new_state);
-        new_state
+        let is_now_collapsed = !self.is_collapsed();
+        // Adjust the parent Paned separator
+        self.adjust_paned_for_collapse(is_now_collapsed);
+        // The notify::position listener on the Paned will handle the
+        // visual collapse/expand via container visibility.
+        is_now_collapsed
     }
 
-    /// Set collapsed state directly. Adjusts the parent Paned position.
-    pub fn set_collapsed(&self, collapsed: bool) {
-        self.collapsed.set(collapsed);
-        if collapsed {
-            self.container.set_visible(false);
-            self.footer_bar.set_visible(false);
-            self.collapsed_view.set_visible(true);
-            self.outer.set_size_request(44, 44);
-            self.collapse_button.set_icon_name("go-next-symbolic");
-            self.collapse_button.set_tooltip_text(Some("Expand panel"));
-            // Move parent Paned separator to collapse this panel
-            self.adjust_paned_for_collapse(true);
-        } else {
-            self.container.set_visible(true);
-            self.collapsed_view.set_visible(false);
-            self.outer.set_size_request(80, 60);
-            self.collapse_button.set_icon_name("go-previous-symbolic");
-            self.collapse_button.set_tooltip_text(Some("Collapse panel"));
-            // Restore parent Paned separator to ~40% for this panel
-            self.adjust_paned_for_collapse(false);
-        }
-    }
-
-    /// Set collapsed state without adjusting the parent Paned (for auto-collapse from drag).
-    pub fn set_collapsed_no_adjust(&self, collapsed: bool) {
-        self.collapsed.set(collapsed);
-        if collapsed {
-            self.container.set_visible(false);
-            self.footer_bar.set_visible(false);
-            self.collapsed_view.set_visible(true);
-            self.outer.set_size_request(44, 44);
-            self.collapse_button.set_icon_name("go-next-symbolic");
-            self.collapse_button.set_tooltip_text(Some("Expand panel"));
-        } else {
-            self.container.set_visible(true);
-            self.collapsed_view.set_visible(false);
-            self.outer.set_size_request(80, 60);
-            self.collapse_button.set_icon_name("go-previous-symbolic");
-            self.collapse_button.set_tooltip_text(Some("Collapse panel"));
-        }
+    /// Whether the panel is collapsed (container hidden).
+    pub fn is_collapsed(&self) -> bool {
+        !self.container.is_visible()
     }
 
     /// Find the parent Paned and adjust its position for collapse/expand.
@@ -532,7 +496,6 @@ impl PanelHost {
                 } else {
                     paned.allocation().height()
                 };
-                // Determine if we are the start or end child
                 let is_start = paned.start_child()
                     .map(|c| self.outer.is_ancestor(&c) || c.eq(self.outer.upcast_ref::<gtk4::Widget>()))
                     .unwrap_or(false);
@@ -544,7 +507,6 @@ impl PanelHost {
                         paned.set_position(total - 44);
                     }
                 } else {
-                    // Restore to ~40% / ~60%
                     if is_start {
                         paned.set_position(total * 2 / 5);
                     } else {
@@ -558,10 +520,6 @@ impl PanelHost {
     }
 
     /// Whether the panel is collapsed.
-    pub fn is_collapsed(&self) -> bool {
-        self.collapsed.get()
-    }
-
     /// Update sync button visual state.
     pub fn set_sync_active(&self, active: bool) {
         if active {
