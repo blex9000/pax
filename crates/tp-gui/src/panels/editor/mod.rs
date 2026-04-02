@@ -32,9 +32,9 @@ pub struct EditorState {
     pub sidebar_visible: bool,
     pub sidebar_mode: SidebarMode,
     /// File backend — Local for local projects, SSH for remote.
-    /// Shared by all components (file_tree, editor_tabs, git, search, watchers).
-    /// Designed for easy swap to a future Agent-based backend.
     pub backend: Rc<dyn file_backend::FileBackend>,
+    /// Watcher poll interval in seconds (configurable per panel).
+    pub poll_interval: u64,
 }
 
 #[cfg(feature = "sourceview")]
@@ -94,6 +94,7 @@ impl CodeEditorPanel {
     }
 
     fn new_with_backend(root_dir: &str, backend: Rc<dyn file_backend::FileBackend>) -> Self {
+        let poll_secs = if backend.is_remote() { 5 } else { 2 };
         let state = Rc::new(RefCell::new(EditorState {
             root_dir: PathBuf::from(root_dir),
             open_files: Vec::new(),
@@ -101,6 +102,7 @@ impl CodeEditorPanel {
             sidebar_visible: true,
             sidebar_mode: SidebarMode::Files,
             backend: backend.clone(),
+            poll_interval: poll_secs,
         }));
 
         let tabs = editor_tabs::EditorTabs::new(state.clone());

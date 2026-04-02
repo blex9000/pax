@@ -24,7 +24,7 @@ pub fn panel_type_to_create_config(pt: &PanelType, default_shell: &str, workspac
         PanelType::Browser { url } => {
             extra.insert("url".to_string(), url.clone());
         }
-        PanelType::CodeEditor { root_dir, ssh, remote_path } => {
+        PanelType::CodeEditor { root_dir, ssh, remote_path, .. } => {
             extra.insert("root_dir".to_string(), root_dir.clone());
             if let Some(ref ssh_cfg) = ssh {
                 extra.insert("ssh_host".to_string(), ssh_cfg.host.clone());
@@ -75,7 +75,7 @@ pub fn create_backend_from_registry(
             extra.insert("url".to_string(), url.clone());
             ("browser", extra)
         }
-        PanelType::CodeEditor { root_dir, ssh, remote_path } => {
+        PanelType::CodeEditor { root_dir, ssh, remote_path, .. } => {
             let mut extra = HashMap::new();
             extra.insert("root_dir".to_string(), root_dir.clone());
             if let Some(ref ssh_cfg) = ssh {

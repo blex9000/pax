@@ -141,13 +141,15 @@ pub enum PanelType {
     /// Embedded code editor (local or remote via SSHFS)
     CodeEditor {
         root_dir: String,
-        /// SSH config for remote editing. When set, Pax mounts the remote
-        /// directory via SSHFS automatically and uses it as root_dir.
+        /// SSH config for remote editing.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         ssh: Option<SshConfig>,
         /// Path on the remote host (used with ssh). Defaults to root_dir if not set.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         remote_path: Option<String>,
+        /// File watcher poll interval in seconds (default 5 for remote, 2 for local).
+        #[serde(default)]
+        poll_interval: Option<u64>,
     },
 }
 

@@ -16,10 +16,11 @@ pub fn start_watchers(
 ) {
     let backend = state.borrow().backend.clone();
     let is_remote = backend.is_remote();
+    let poll = state.borrow().poll_interval;
 
     start_open_file_watcher(state.clone(), info_bar_container, backend.clone(), is_remote);
-    start_tree_watcher(state.clone(), on_tree_changed, backend.clone(), is_remote);
-    start_git_watcher(state, on_git_changed, backend, is_remote);
+    start_tree_watcher(state.clone(), on_tree_changed, backend.clone(), is_remote, poll);
+    start_git_watcher(state, on_git_changed, backend, is_remote, poll);
 }
 
 /// Watch open files for external changes (1s local, 5s remote).
@@ -59,9 +60,10 @@ fn start_tree_watcher(
     on_changed: Rc<dyn Fn()>,
     _backend: Rc<dyn FileBackend>,
     is_remote: bool,
+    poll: u64,
 ) {
     let last_hash = Rc::new(Cell::new(0u64));
-    let interval = if is_remote { 30 } else { 2 };
+    let interval = poll;
     glib::timeout_add_local(std::time::Duration::from_secs(interval), move || {
         let root = state.borrow().root_dir.clone();
         let hash = dir_hash(&root, is_remote);
@@ -78,10 +80,11 @@ fn start_git_watcher(
     _state: Rc<RefCell<EditorState>>,
     on_changed: Rc<dyn Fn(String)>,
     backend: Rc<dyn FileBackend>,
-    is_remote: bool,
+    _is_remote: bool,
+    poll: u64,
 ) {
     let last_output = Rc::new(RefCell::new(String::new()));
-    let interval = if is_remote { 15 } else { 3 };
+    let interval = poll;
     glib::timeout_add_local(std::time::Duration::from_secs(interval), move || {
         if let Ok(stdout) = backend.git_command(&["status", "--porcelain"]) {
             if stdout != *last_output.borrow() {

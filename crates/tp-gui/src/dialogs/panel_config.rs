@@ -27,7 +27,7 @@ pub fn show_panel_config_dialog(
         }
         PanelType::Markdown { file } => show_markdown_config(parent, panel_name, file, min_width, min_height, on_done),
         PanelType::Browser { url } => show_browser_config(parent, panel_name, url, min_width, min_height, on_done),
-        PanelType::CodeEditor { root_dir, ssh: editor_ssh, remote_path } => show_code_editor_config(parent, panel_name, root_dir, editor_ssh.as_ref(), remote_path.as_deref(), min_width, min_height, saved_ssh, on_done),
+        PanelType::CodeEditor { root_dir, ssh: editor_ssh, remote_path, .. } => show_code_editor_config(parent, panel_name, root_dir, editor_ssh.as_ref(), remote_path.as_deref(), min_width, min_height, saved_ssh, on_done),
         PanelType::Empty => {}
     }
 }
@@ -998,7 +998,7 @@ fn show_code_editor_config(
             if rp.trim().is_empty() { None } else { Some(rp) }
         };
 
-        on_done(name, PanelType::CodeEditor { root_dir, ssh, remote_path }, None, None, vec![], None, mw_spin.value() as u32, mh_spin.value() as u32);
+        on_done(name, PanelType::CodeEditor { root_dir, ssh, remote_path, poll_interval: None }, None, None, vec![], None, mw_spin.value() as u32, mh_spin.value() as u32);
     });
 
     dialog.set_child(Some(&vbox));

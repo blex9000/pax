@@ -163,7 +163,7 @@ mod tests {
             ]
         }"#;
         let ws: crate::workspace::Workspace = serde_json::from_str(json).unwrap();
-        assert_eq!(ws.panels[0].effective_type(), crate::workspace::PanelType::CodeEditor { root_dir: "/tmp/project".to_string(), ssh: None, remote_path: None });
+        assert_eq!(ws.panels[0].effective_type(), crate::workspace::PanelType::CodeEditor { root_dir: "/tmp/project".to_string(), ssh: None, remote_path: None, poll_interval: None });
 
         // Roundtrip
         let serialized = serde_json::to_string_pretty(&ws).unwrap();
