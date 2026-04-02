@@ -56,6 +56,8 @@ pub struct CodeEditorPanel {
     state: Rc<RefCell<EditorState>>,
     /// SSHFS mount point to unmount on drop (None for local projects).
     sshfs_mount: Option<PathBuf>,
+    /// SSH connection label for remote panels (e.g. "user@host").
+    ssh_info: Option<String>,
 }
 
 #[cfg(feature = "sourceview")]
@@ -116,15 +118,20 @@ impl CodeEditorPanel {
                 tracing::info!("SSHFS mounted successfully at {}", mount_dir.display());
                 let mut panel = Self::new_inner(&mount_dir.to_string_lossy());
                 panel.sshfs_mount = Some(mount_dir);
+                panel.ssh_info = Some(format!("{}@{}", user, host));
                 panel
             }
             Ok(status) => {
                 tracing::error!("SSHFS mount failed with status: {}", status);
-                Self::new_inner(remote_path)
+                let mut panel = Self::new_inner(remote_path);
+                panel.ssh_info = Some(format!("{}@{} (failed)", user, host));
+                panel
             }
             Err(e) => {
                 tracing::error!("SSHFS not found or failed: {}. Install with: sudo apt install sshfs (Linux) or brew install macfuse sshfs (macOS)", e);
-                Self::new_inner(remote_path)
+                let mut panel = Self::new_inner(remote_path);
+                panel.ssh_info = Some(format!("{}@{} (no sshfs)", user, host));
+                panel
             }
         }
     }
@@ -132,6 +139,7 @@ impl CodeEditorPanel {
     pub fn new(root_dir: &str) -> Self {
         let mut panel = Self::new_inner(root_dir);
         panel.sshfs_mount = None;
+        panel.ssh_info = None;
         panel
     }
 
@@ -432,7 +440,7 @@ impl CodeEditorPanel {
             );
         }
 
-        Self { widget, state, sshfs_mount: None }
+        Self { widget, state, sshfs_mount: None, ssh_info: None }
     }
 }
 
@@ -467,6 +475,10 @@ impl PanelBackend for CodeEditorPanel {
     fn panel_type(&self) -> &str { "code_editor" }
     fn widget(&self) -> &gtk4::Widget { &self.widget }
     fn on_focus(&self) {}
+
+    fn ssh_label(&self) -> Option<String> {
+        self.ssh_info.clone()
+    }
 
     fn get_text_content(&self) -> Option<String> {
         let st = self.state.borrow();

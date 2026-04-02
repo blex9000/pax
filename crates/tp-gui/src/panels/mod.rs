@@ -34,4 +34,10 @@ pub trait PanelBackend: std::fmt::Debug {
     fn accepts_input(&self) -> bool {
         false
     }
+
+    /// SSH connection label if this panel is remote (e.g. "user@host").
+    /// Returns None for local panels.
+    fn ssh_label(&self) -> Option<String> {
+        None
+    }
 }

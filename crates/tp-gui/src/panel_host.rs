@@ -47,6 +47,7 @@ pub struct PanelHost {
     menu_button: gtk4::MenuButton,
     pub(crate) collapse_button: gtk4::Button,
     pub(crate) collapsed_view: gtk4::Box,
+    ssh_indicator: gtk4::Box,
     pub(crate) footer_bar: gtk4::Box,
     /// Saved min size before collapse (to restore on expand)
     saved_min_size: std::cell::Cell<(i32, i32)>,
@@ -224,7 +225,22 @@ impl PanelHost {
             });
         }
 
-        // Layout: [collapse] | [icon][title][spacer][sync][zoom][menu]
+        // SSH indicator (hidden by default, shown for remote panels)
+        let ssh_indicator = gtk4::Box::new(gtk4::Orientation::Horizontal, 3);
+        ssh_indicator.set_visible(false);
+        ssh_indicator.set_margin_end(4);
+        {
+            let ssh_icon = gtk4::Image::from_icon_name("network-server-symbolic");
+            ssh_icon.set_pixel_size(12);
+            ssh_indicator.append(&ssh_icon);
+            let ssh_lbl = gtk4::Label::new(None);
+            ssh_lbl.add_css_class("caption");
+            ssh_lbl.add_css_class("dim-label");
+            ssh_lbl.set_ellipsize(gtk4::pango::EllipsizeMode::End);
+            ssh_indicator.append(&ssh_lbl);
+        }
+
+        // Layout: [collapse] | [icon][ssh][title][spacer][sync][zoom][menu]
         title_bar.append(&collapse_button);
         let collapse_sep = gtk4::Separator::new(gtk4::Orientation::Vertical);
         collapse_sep.set_margin_start(2);
@@ -233,6 +249,7 @@ impl PanelHost {
         collapse_sep.set_margin_bottom(5);
         title_bar.append(&collapse_sep);
         title_bar.append(&type_icon);
+        title_bar.append(&ssh_indicator);
         title_bar.append(&title_stack);
         let spacer = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
         spacer.set_hexpand(true);
@@ -350,6 +367,7 @@ impl PanelHost {
             menu_button,
             collapse_button,
             collapsed_view,
+            ssh_indicator,
             footer_bar,
             footer_label,
             widget,
@@ -398,6 +416,13 @@ impl PanelHost {
         // If this is a VTE terminal, connect directory tracking
         #[cfg(feature = "vte")]
         self.setup_vte_directory_tracking(&panel_widget);
+
+        // Show SSH indicator if backend is remote
+        if let Some(ssh_label) = backend.ssh_label() {
+            self.set_ssh_indicator(Some(&ssh_label));
+        } else {
+            self.set_ssh_indicator(None);
+        }
 
         *self.backend.borrow_mut() = Some(backend);
     }
@@ -470,6 +495,23 @@ impl PanelHost {
             if let Some(img) = child.downcast_ref::<gtk4::Image>() {
                 img.set_icon_name(Some(icon_name));
             }
+        }
+    }
+
+    /// Show or hide the SSH connection indicator in the title bar.
+    pub fn set_ssh_indicator(&self, label: Option<&str>) {
+        if let Some(text) = label {
+            self.ssh_indicator.set_visible(true);
+            // Update the label (second child of ssh_indicator)
+            if let Some(icon) = self.ssh_indicator.first_child() {
+                if let Some(lbl_widget) = icon.next_sibling() {
+                    if let Some(lbl) = lbl_widget.downcast_ref::<gtk4::Label>() {
+                        lbl.set_text(text);
+                    }
+                }
+            }
+        } else {
+            self.ssh_indicator.set_visible(false);
         }
     }
 
