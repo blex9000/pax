@@ -222,13 +222,16 @@ impl PanelHost {
             });
         }
 
+        // Layout: [collapse] [spacer] [icon+title] [spacer] [sync][zoom][menu]
+        title_bar.append(&collapse_button);
+        let spacer_left = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
+        spacer_left.set_hexpand(true);
+        title_bar.append(&spacer_left);
         title_bar.append(&type_icon);
         title_bar.append(&title_stack);
-        // Spacer pushes buttons to the right (even when title is hidden)
-        let spacer = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
-        spacer.set_hexpand(true);
-        title_bar.append(&spacer);
-        title_bar.append(&collapse_button);
+        let spacer_right = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
+        spacer_right.set_hexpand(true);
+        title_bar.append(&spacer_right);
         title_bar.append(&sync_button);
         title_bar.append(&zoom_button);
         title_bar.append(&menu_button);
