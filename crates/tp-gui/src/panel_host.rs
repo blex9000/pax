@@ -206,7 +206,7 @@ impl PanelHost {
 
         // Collapse button
         let collapse_button = gtk4::Button::new();
-        collapse_button.set_icon_name("go-previous-symbolic");
+        collapse_button.set_icon_name("media-seek-backward-symbolic");
         collapse_button.add_css_class("flat");
         collapse_button.add_css_class("panel-action-btn");
         collapse_button.set_tooltip_text(Some("Collapse panel"));
@@ -222,16 +222,13 @@ impl PanelHost {
             });
         }
 
-        // Layout: [collapse] [spacer] [icon+title] [spacer] [sync][zoom][menu]
+        // Layout: [collapse][icon][title][spacer][sync][zoom][menu]
         title_bar.append(&collapse_button);
-        let spacer_left = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
-        spacer_left.set_hexpand(true);
-        title_bar.append(&spacer_left);
         title_bar.append(&type_icon);
         title_bar.append(&title_stack);
-        let spacer_right = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
-        spacer_right.set_hexpand(true);
-        title_bar.append(&spacer_right);
+        let spacer = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
+        spacer.set_hexpand(true);
+        title_bar.append(&spacer);
         title_bar.append(&sync_button);
         title_bar.append(&zoom_button);
         title_bar.append(&menu_button);
@@ -605,16 +602,16 @@ impl PanelHost {
     /// Update collapse button icon based on orientation and position.
     fn update_collapse_icon(&self, orient: gtk4::Orientation, is_start: bool, collapsed: bool) {
         let icon = match (orient, is_start, collapsed) {
-            // Horizontal split
-            (gtk4::Orientation::Horizontal, true, false)  => "go-previous-symbolic",  // collapse left
-            (gtk4::Orientation::Horizontal, true, true)   => "go-next-symbolic",      // expand right
-            (gtk4::Orientation::Horizontal, false, false) => "go-next-symbolic",       // collapse right
-            (gtk4::Orientation::Horizontal, false, true)  => "go-previous-symbolic",   // expand left
-            // Vertical split
-            (_, true, false)  => "go-up-symbolic",     // collapse up
-            (_, true, true)   => "go-down-symbolic",   // expand down
-            (_, false, false) => "go-down-symbolic",   // collapse down
-            (_, false, true)  => "go-up-symbolic",     // expand up
+            // Horizontal: use media-seek (double chevron)
+            (gtk4::Orientation::Horizontal, true, false)  => "media-seek-backward-symbolic",
+            (gtk4::Orientation::Horizontal, true, true)   => "media-seek-forward-symbolic",
+            (gtk4::Orientation::Horizontal, false, false) => "media-seek-forward-symbolic",
+            (gtk4::Orientation::Horizontal, false, true)  => "media-seek-backward-symbolic",
+            // Vertical: use pan (single arrow, no double vertical in GTK)
+            (_, true, false)  => "pan-up-symbolic",
+            (_, true, true)   => "pan-down-symbolic",
+            (_, false, false) => "pan-down-symbolic",
+            (_, false, true)  => "pan-up-symbolic",
         };
         let tip = if collapsed { "Expand panel" } else { "Collapse panel" };
         self.collapse_button.set_icon_name(icon);
