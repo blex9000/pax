@@ -429,6 +429,7 @@ fn show_terminal_config(
         &ssh_container, &saved_ssh,
         &ssh_host_entry, &ssh_port_entry, &ssh_user_entry,
         &ssh_pw_entry, &ssh_id_entry,
+        Some(&remote_cwd_entry),
     );
 
     ssh_container.set_sensitive(ssh_enabled);
@@ -941,6 +942,7 @@ fn show_code_editor_config(
         &ssh_fields, &saved_ssh,
         &ssh_host_entry, &ssh_port_entry, &ssh_user_entry,
         &ssh_pass_entry, &ssh_key_entry,
+        Some(&remote_path_entry),
     );
 
     vbox.append(&ssh_fields);
@@ -1015,6 +1017,7 @@ fn add_ssh_save_load_buttons(
     user_entry: &gtk4::Entry,
     pass_entry: &gtk4::PasswordEntry,
     key_entry: &gtk4::Entry,
+    remote_path_entry: Option<&gtk4::Entry>,
 ) {
     let btn_row = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
     btn_row.set_margin_top(4);
@@ -1033,6 +1036,7 @@ fn add_ssh_save_load_buttons(
         let ue = user_entry.clone();
         let pwe = pass_entry.clone();
         let ke = key_entry.clone();
+        let rpe = remote_path_entry.cloned();
         load_btn.connect_clicked(move |btn| {
 
             let dialog = gtk4::Window::builder()
@@ -1081,11 +1085,12 @@ fn add_ssh_save_load_buttons(
                         name_label.set_halign(gtk4::Align::Start);
                         info.append(&name_label);
 
-                        let details = format!("{}@{}:{} {}",
+                        let details = format!("{}@{}:{} {}{}",
                             cfg.config.user.as_deref().unwrap_or("root"),
                             cfg.config.host,
                             cfg.config.port,
-                            if cfg.config.identity_file.is_some() { "🔑" } else if cfg.config.password.is_some() { "🔒" } else { "" }
+                            if cfg.config.identity_file.is_some() { "🔑" } else if cfg.config.password.is_some() { "🔒" } else { "" },
+                            cfg.remote_path.as_deref().map(|p| format!(" → {}", p)).unwrap_or_default()
                         );
                         let detail_label = gtk4::Label::new(Some(&details));
                         detail_label.add_css_class("dim-label");
@@ -1158,6 +1163,7 @@ fn add_ssh_save_load_buttons(
                 let ue = ue.clone();
                 let pwe = pwe.clone();
                 let ke = ke.clone();
+                let rpe = rpe.clone();
                 let saved = saved_rc;
                 list_box.connect_row_activated(move |_, row| {
                     let name = row.widget_name();
@@ -1167,6 +1173,9 @@ fn add_ssh_save_load_buttons(
                         ue.set_text(cfg.config.user.as_deref().unwrap_or(""));
                         pwe.set_text(cfg.config.password.as_deref().unwrap_or(""));
                         ke.set_text(cfg.config.identity_file.as_deref().unwrap_or(""));
+                        if let Some(ref rpe) = rpe {
+                            rpe.set_text(cfg.remote_path.as_deref().unwrap_or(""));
+                        }
                     }
                     d.close();
                 });
@@ -1196,6 +1205,7 @@ fn add_ssh_save_load_buttons(
         let ue = user_entry.clone();
         let pwe = pass_entry.clone();
         let ke = key_entry.clone();
+        let rpe_save = remote_path_entry.cloned();
         save_btn.connect_clicked(move |btn| {
             let host = he.text().to_string();
             if host.trim().is_empty() { return; }
@@ -1229,6 +1239,7 @@ fn add_ssh_save_load_buttons(
             let user_text = ue.text().to_string();
             let pass_text = pwe.text().to_string();
             let key_text = ke.text().to_string();
+            let rpath_text = rpe_save.as_ref().map(|e| e.text().to_string()).unwrap_or_default();
             ok_btn.connect_clicked(move |_| {
                 let name = entry.text().to_string();
                 if name.trim().is_empty() { return; }
@@ -1240,10 +1251,10 @@ fn add_ssh_save_load_buttons(
                     identity_file: if key_text.is_empty() { None } else { Some(key_text.clone()) },
                     tmux_session: None,
                 };
+                let remote_path = if rpath_text.trim().is_empty() { None } else { Some(rpath_text.clone()) };
                 let mut saved = saved_c.borrow_mut();
-                // Replace if same name exists
                 saved.retain(|c| c.name != name);
-                saved.push(NamedSshConfig { name, config });
+                saved.push(NamedSshConfig { name, config, remote_path });
                 d.close();
             });
             vbox.append(&ok_btn);

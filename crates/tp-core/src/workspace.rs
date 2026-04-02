@@ -30,6 +30,8 @@ pub struct Workspace {
 pub struct NamedSshConfig {
     pub name: String,
     pub config: SshConfig,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub remote_path: Option<String>,
 }
 
 /// Recursive layout tree.
