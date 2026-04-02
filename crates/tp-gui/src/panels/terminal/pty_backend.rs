@@ -53,6 +53,9 @@ impl TerminalInner {
         text_view.set_cursor_visible(true);
         text_view.set_monospace(true);
         text_view.add_css_class("terminal-fallback");
+        text_view.set_top_margin(0);
+        text_view.set_bottom_margin(0);
+        text_view.set_valign(gtk4::Align::Start);
 
         let scrolled = gtk4::ScrolledWindow::new();
         scrolled.set_child(Some(&text_view));

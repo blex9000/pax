@@ -351,7 +351,11 @@ impl WorkspaceView {
                 "terminal" => PanelType::Terminal,
                 "markdown" => PanelType::Markdown { file: "README.md".to_string() },
                 "browser" => PanelType::Browser { url: "about:blank".to_string() },
-                "code_editor" => PanelType::CodeEditor { root_dir: ".".to_string(), ssh: None, remote_path: None, poll_interval: None },
+                "code_editor" => {
+                    // Use home directory as default instead of "." which causes permission issues on macOS
+                    let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+                    PanelType::CodeEditor { root_dir: home, ssh: None, remote_path: None, poll_interval: None }
+                }
                 _ => PanelType::Terminal,
             };
             panel_cfg.name = format!("{}", type_id);

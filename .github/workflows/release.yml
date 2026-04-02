@@ -125,10 +125,13 @@ jobs:
             cp -r "$GDK_PIXBUF_DIR"/* "$LIB/gdk-pixbuf-2.0/"
           fi
 
-          # Copy hicolor icon theme (for symbolic icons)
+          # Copy icon themes (hicolor + Adwaita for symbolic icons)
           mkdir -p "$SHARE/icons"
           if [ -d "$BREW_PREFIX/share/icons/hicolor" ]; then
             cp -r "$BREW_PREFIX/share/icons/hicolor" "$SHARE/icons/"
+          fi
+          if [ -d "$BREW_PREFIX/share/icons/Adwaita" ]; then
+            cp -r "$BREW_PREFIX/share/icons/Adwaita" "$SHARE/icons/"
           fi
 
           # Copy GtkSourceView language specs and styles
