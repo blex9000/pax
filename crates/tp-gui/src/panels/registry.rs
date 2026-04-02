@@ -126,7 +126,7 @@ pub fn build_default_registry() -> PanelRegistry {
             if let Some(pw) = config.extra.get("ssh_password") {
                 env.push(("SSHPASS".to_string(), pw.clone()));
             }
-            let panel = super::terminal::TerminalPanel::new(
+            let mut panel = super::terminal::TerminalPanel::new(
                 shell,
                 config.cwd.as_deref(),
                 &env,
@@ -137,6 +137,13 @@ pub fn build_default_registry() -> PanelRegistry {
             // SSH connection if configured
             if let Some(host) = config.extra.get("ssh_host") {
                 let user = config.extra.get("ssh_user");
+                // Set SSH label for panel header indicator
+                let ssh_label = if let Some(u) = user {
+                    format!("{}@{}", u, host)
+                } else {
+                    host.clone()
+                };
+                panel.set_ssh_info(ssh_label);
                 let has_password = config.extra.contains_key("ssh_password");
                 let tmux_session = config.extra.get("ssh_tmux_session");
                 let ssh_target = if let Some(u) = user {

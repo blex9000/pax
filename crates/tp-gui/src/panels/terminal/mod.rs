@@ -49,13 +49,21 @@ use super::PanelBackend;
 #[derive(Debug)]
 pub struct TerminalPanel {
     inner: TerminalInner,
+    /// SSH connection label (e.g. "user@host") for remote terminals.
+    ssh_info: Option<String>,
 }
 
 impl TerminalPanel {
     pub fn new(shell: &str, cwd: Option<&str>, env: &[(String, String)], workspace_dir: Option<&str>) -> Self {
         Self {
             inner: TerminalInner::new(shell, cwd, env, workspace_dir),
+            ssh_info: None,
         }
+    }
+
+    /// Set the SSH label shown in the panel header.
+    pub fn set_ssh_info(&mut self, label: String) {
+        self.ssh_info = Some(label);
     }
 
     /// Queue startup commands to execute once the shell is ready.
@@ -85,6 +93,10 @@ impl PanelBackend for TerminalPanel {
 
     fn write_input(&self, data: &[u8]) -> bool {
         self.inner.write_input(data)
+    }
+
+    fn ssh_label(&self) -> Option<String> {
+        self.ssh_info.clone()
     }
 
     fn accepts_input(&self) -> bool {
