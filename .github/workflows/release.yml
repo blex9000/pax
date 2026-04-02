@@ -89,8 +89,44 @@ jobs:
         run: |
           mkdir -p Pax.app/Contents/MacOS
           mkdir -p Pax.app/Contents/Resources
-          cp target/release/pax Pax.app/Contents/MacOS/
+          cp target/release/pax Pax.app/Contents/MacOS/pax-bin
           cp -r resources/* Pax.app/Contents/Resources/
+
+          # Launcher script: checks for GTK4 deps before running
+          cat > Pax.app/Contents/MacOS/pax << 'LAUNCHER'
+          #!/bin/bash
+          DIR="$(cd "$(dirname "$0")" && pwd)"
+
+          # Check if Homebrew is installed
+          if ! command -v brew &>/dev/null; then
+            osascript -e 'display dialog "Pax requires Homebrew.\n\nInstall it from https://brew.sh and then run:\n\nbrew install gtk4 libadwaita gtksourceview5" buttons {"OK"} default button "OK" with title "Pax — Missing Dependencies" with icon caution'
+            exit 1
+          fi
+
+          # Check for GTK4
+          MISSING=""
+          brew list gtk4 &>/dev/null || MISSING="$MISSING gtk4"
+          brew list libadwaita &>/dev/null || MISSING="$MISSING libadwaita"
+          brew list gtksourceview5 &>/dev/null || MISSING="$MISSING gtksourceview5"
+
+          if [ -n "$MISSING" ]; then
+            # Ask user if they want to install
+            RESULT=$(osascript -e "display dialog \"Pax needs these packages:\n\n$MISSING\n\nInstall them now via Homebrew?\" buttons {\"Cancel\", \"Install\"} default button \"Install\" with title \"Pax — Missing Dependencies\" with icon caution" 2>&1)
+            if echo "$RESULT" | grep -q "Install"; then
+              # Open Terminal and run brew install
+              osascript -e "tell application \"Terminal\" to do script \"brew install$MISSING && echo 'Done! You can now open Pax.app'\""
+              osascript -e "tell application \"Terminal\" to activate"
+              exit 0
+            else
+              exit 1
+            fi
+          fi
+
+          # All deps present — launch the app
+          exec "$DIR/pax-bin" "$@"
+          LAUNCHER
+          chmod +x Pax.app/Contents/MacOS/pax
+
           cat > Pax.app/Contents/Info.plist << 'PLIST'
           <?xml version="1.0" encoding="UTF-8"?>
           <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
