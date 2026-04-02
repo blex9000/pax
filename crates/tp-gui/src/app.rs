@@ -347,8 +347,15 @@ fn setup_workspace_ui(
                     };
                     let pid = panel_id.to_string();
                     let ws2 = ws_for_cb.clone();
+                    let ws3 = ws_for_cb.clone();
                     let win2 = win_for_cb.clone();
                     let sa2 = sa_for_cb.clone();
+                    // Share saved SSH configs with the dialog
+                    let saved_ssh = {
+                        let view = ws_for_cb.borrow();
+                        std::rc::Rc::new(std::cell::RefCell::new(view.workspace().ssh_configs.clone()))
+                    };
+                    let saved_ssh_for_save = saved_ssh.clone();
                     crate::dialogs::panel_config::show_panel_config_dialog(
                         &*win_for_cb,
                         &pname,
@@ -359,7 +366,10 @@ fn setup_workspace_ui(
                         pclose.as_deref(),
                         pmw,
                         pmh,
+                        saved_ssh,
                         move |new_name, new_type, new_cwd, new_ssh, new_cmds, new_close, new_mw, new_mh| {
+                            // Save updated SSH configs back to workspace
+                            ws3.borrow_mut().workspace_mut().ssh_configs = saved_ssh_for_save.borrow().clone();
                             ws2.borrow_mut().apply_panel_config(&pid, new_name, new_type, new_cwd, new_ssh, new_cmds, new_close, new_mw, new_mh);
                             actions::update_dirty_ui(&ws2, &win2, &sa2);
                         },

@@ -1,6 +1,8 @@
 use gtk4::prelude::*;
+use std::cell::RefCell;
+use std::rc::Rc;
 
-use pax_core::workspace::{PanelType, SshConfig};
+use pax_core::workspace::{PanelType, SshConfig, NamedSshConfig};
 
 /// Callback: (name, panel_type, cwd, ssh, startup_commands, before_close, min_width, min_height)
 pub type ConfigDoneCallback = dyn Fn(String, PanelType, Option<String>, Option<SshConfig>, Vec<String>, Option<String>, u32, u32) + 'static;
@@ -16,15 +18,16 @@ pub fn show_panel_config_dialog(
     before_close: Option<&str>,
     min_width: u32,
     min_height: u32,
+    saved_ssh: Rc<RefCell<Vec<NamedSshConfig>>>,
     on_done: impl Fn(String, PanelType, Option<String>, Option<SshConfig>, Vec<String>, Option<String>, u32, u32) + 'static,
 ) {
     match panel_type {
         PanelType::Terminal | PanelType::Ssh { .. } | PanelType::RemoteTmux { .. } => {
-            show_terminal_config(parent, panel_name, cwd, ssh, startup_commands, before_close, min_width, min_height, on_done)
+            show_terminal_config(parent, panel_name, cwd, ssh, startup_commands, before_close, min_width, min_height, saved_ssh, on_done)
         }
         PanelType::Markdown { file } => show_markdown_config(parent, panel_name, file, min_width, min_height, on_done),
         PanelType::Browser { url } => show_browser_config(parent, panel_name, url, min_width, min_height, on_done),
-        PanelType::CodeEditor { root_dir, ssh: editor_ssh, remote_path } => show_code_editor_config(parent, panel_name, root_dir, editor_ssh.as_ref(), remote_path.as_deref(), min_width, min_height, on_done),
+        PanelType::CodeEditor { root_dir, ssh: editor_ssh, remote_path } => show_code_editor_config(parent, panel_name, root_dir, editor_ssh.as_ref(), remote_path.as_deref(), min_width, min_height, saved_ssh, on_done),
         PanelType::Empty => {}
     }
 }
@@ -282,6 +285,7 @@ fn show_terminal_config(
     before_close: Option<&str>,
     min_width: u32,
     min_height: u32,
+    saved_ssh: Rc<RefCell<Vec<NamedSshConfig>>>,
     on_done: impl Fn(String, PanelType, Option<String>, Option<SshConfig>, Vec<String>, Option<String>, u32, u32) + 'static,
 ) {
     let dialog = make_dialog(parent, "Terminal Configuration");
@@ -419,6 +423,13 @@ fn show_terminal_config(
     ssh_warn.add_css_class("caption");
     ssh_warn.set_halign(gtk4::Align::Start);
     ssh_container.append(&ssh_warn);
+
+    // Save/Load SSH config buttons
+    add_ssh_save_load_buttons(
+        &ssh_container, &saved_ssh,
+        &ssh_host_entry, &ssh_port_entry, &ssh_user_entry,
+        &ssh_pw_entry, &ssh_id_entry,
+    );
 
     ssh_container.set_sensitive(ssh_enabled);
     vbox.append(&ssh_container);
@@ -761,6 +772,7 @@ fn show_code_editor_config(
     existing_remote_path: Option<&str>,
     min_width: u32,
     min_height: u32,
+    saved_ssh: Rc<RefCell<Vec<NamedSshConfig>>>,
     on_done: impl Fn(String, PanelType, Option<String>, Option<SshConfig>, Vec<String>, Option<String>, u32, u32) + 'static,
 ) {
     let dialog = make_dialog(parent, "Code Editor Configuration");
@@ -832,7 +844,7 @@ fn show_code_editor_config(
     ssh_fields.set_margin_start(0);
     ssh_fields.set_visible(has_ssh);
 
-    let ssh_hint = gtk4::Label::new(Some("Mount remote directory via SSHFS. Requires: sshfs (Linux) or macfuse+sshfs (macOS)."));
+    let ssh_hint = gtk4::Label::new(Some("Edit remote files via SSH. Requires: ssh + sshpass (for password auth)."));
     ssh_hint.add_css_class("dim-label");
     ssh_hint.add_css_class("caption");
     ssh_hint.set_halign(gtk4::Align::Start);
@@ -920,6 +932,13 @@ fn show_code_editor_config(
         });
     }
 
+    // Save/Load SSH config buttons
+    add_ssh_save_load_buttons(
+        &ssh_fields, &saved_ssh,
+        &ssh_host_entry, &ssh_port_entry, &ssh_user_entry,
+        &ssh_pass_entry, &ssh_key_entry,
+    );
+
     vbox.append(&ssh_fields);
 
     // Toggle SSH fields visibility
@@ -983,6 +1002,144 @@ fn show_code_editor_config(
 }
 
 /// Show a dialog to browse remote directories via SSH.
+/// Add Save/Load SSH config buttons to an SSH config section.
+fn add_ssh_save_load_buttons(
+    container: &gtk4::Box,
+    saved_ssh: &Rc<RefCell<Vec<NamedSshConfig>>>,
+    host_entry: &gtk4::Entry,
+    port_entry: &gtk4::Entry,
+    user_entry: &gtk4::Entry,
+    pass_entry: &gtk4::PasswordEntry,
+    key_entry: &gtk4::Entry,
+) {
+    let btn_row = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
+    btn_row.set_margin_top(4);
+    btn_row.set_halign(gtk4::Align::End);
+
+    // Load saved config
+    let load_btn = gtk4::Button::new();
+    load_btn.set_icon_name("document-open-symbolic");
+    load_btn.set_label("Load");
+    load_btn.add_css_class("flat");
+    load_btn.set_tooltip_text(Some("Load a saved SSH configuration"));
+    {
+        let saved = saved_ssh.clone();
+        let he = host_entry.clone();
+        let pe = port_entry.clone();
+        let ue = user_entry.clone();
+        let pwe = pass_entry.clone();
+        let ke = key_entry.clone();
+        load_btn.connect_clicked(move |btn| {
+            let configs = saved.borrow().clone();
+            if configs.is_empty() {
+                return;
+            }
+
+            let popover = gtk4::Popover::new();
+            let menu = gtk4::Box::new(gtk4::Orientation::Vertical, 2);
+            menu.set_margin_top(4);
+            menu.set_margin_bottom(4);
+
+            for cfg in &configs {
+                let item = gtk4::Button::with_label(&format!("{} ({}@{})", cfg.name, cfg.config.user.as_deref().unwrap_or("root"), cfg.config.host));
+                item.add_css_class("flat");
+                let c = cfg.config.clone();
+                let he = he.clone();
+                let pe = pe.clone();
+                let ue = ue.clone();
+                let pwe = pwe.clone();
+                let ke = ke.clone();
+                let pop = popover.clone();
+                item.connect_clicked(move |_| {
+                    he.set_text(&c.host);
+                    pe.set_text(&c.port.to_string());
+                    ue.set_text(c.user.as_deref().unwrap_or(""));
+                    pwe.set_text(c.password.as_deref().unwrap_or(""));
+                    ke.set_text(c.identity_file.as_deref().unwrap_or(""));
+                    pop.popdown();
+                });
+                menu.append(&item);
+            }
+            popover.set_child(Some(&menu));
+            popover.set_parent(btn);
+            popover.popup();
+        });
+    }
+    btn_row.append(&load_btn);
+
+    // Save current config
+    let save_btn = gtk4::Button::new();
+    save_btn.set_icon_name("document-save-symbolic");
+    save_btn.set_label("Save");
+    save_btn.add_css_class("flat");
+    save_btn.set_tooltip_text(Some("Save this SSH configuration for reuse"));
+    {
+        let saved = saved_ssh.clone();
+        let he = host_entry.clone();
+        let pe = port_entry.clone();
+        let ue = user_entry.clone();
+        let pwe = pass_entry.clone();
+        let ke = key_entry.clone();
+        save_btn.connect_clicked(move |btn| {
+            let host = he.text().to_string();
+            if host.trim().is_empty() { return; }
+
+            // Show name input dialog
+            let dialog = gtk4::Window::builder()
+                .title("Save SSH Config")
+                .modal(true)
+                .default_width(300)
+                .default_height(80)
+                .build();
+            if let Some(win) = btn.root().and_then(|r| r.downcast::<gtk4::Window>().ok()) {
+                dialog.set_transient_for(Some(&win));
+            }
+            let vbox = gtk4::Box::new(gtk4::Orientation::Vertical, 8);
+            vbox.set_margin_top(12);
+            vbox.set_margin_bottom(12);
+            vbox.set_margin_start(12);
+            vbox.set_margin_end(12);
+            let entry = gtk4::Entry::new();
+            let default_name = format!("{}@{}", ue.text(), host);
+            entry.set_text(&default_name);
+            entry.set_placeholder_text(Some("Config name"));
+            vbox.append(&entry);
+            let ok_btn = gtk4::Button::with_label("Save");
+            ok_btn.add_css_class("suggested-action");
+
+            let saved_c = saved.clone();
+            let d = dialog.clone();
+            let port_text = pe.text().to_string();
+            let user_text = ue.text().to_string();
+            let pass_text = pwe.text().to_string();
+            let key_text = ke.text().to_string();
+            ok_btn.connect_clicked(move |_| {
+                let name = entry.text().to_string();
+                if name.trim().is_empty() { return; }
+                let config = SshConfig {
+                    host: host.clone(),
+                    port: port_text.parse().unwrap_or(22),
+                    user: if user_text.is_empty() { None } else { Some(user_text.clone()) },
+                    password: if pass_text.is_empty() { None } else { Some(pass_text.clone()) },
+                    identity_file: if key_text.is_empty() { None } else { Some(key_text.clone()) },
+                    tmux_session: None,
+                };
+                let mut saved = saved_c.borrow_mut();
+                // Replace if same name exists
+                saved.retain(|c| c.name != name);
+                saved.push(NamedSshConfig { name, config });
+                d.close();
+            });
+            vbox.append(&ok_btn);
+            dialog.set_child(Some(&vbox));
+            dialog.present();
+        });
+    }
+    btn_row.append(&save_btn);
+
+    container.append(&btn_row);
+}
+
 fn show_remote_browse_dialog(
     parent: &gtk4::Window,
     host: &str, user: &str, password: &str, identity_file: &str, port: &str,

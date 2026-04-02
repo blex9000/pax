@@ -20,6 +20,16 @@ pub struct Workspace {
     pub notes_file: Option<String>,
     #[serde(default)]
     pub settings: WorkspaceSettings,
+    /// Saved SSH configurations reusable across panels.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub ssh_configs: Vec<NamedSshConfig>,
+}
+
+/// A named SSH configuration saved at workspace level.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct NamedSshConfig {
+    pub name: String,
+    pub config: SshConfig,
 }
 
 /// Recursive layout tree.

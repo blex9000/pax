@@ -29,6 +29,7 @@ pub fn empty_workspace(name: &str) -> Workspace {
         startup_script: None,
         notes_file: None,
         settings: WorkspaceSettings::default(),
+        ssh_configs: vec![],
     }
 }
 
@@ -71,6 +72,7 @@ pub fn simple_hsplit(name: &str, count: usize) -> Workspace {
         startup_script: None,
         notes_file: None,
         settings: WorkspaceSettings::default(),
+        ssh_configs: vec![],
     }
 }
 
@@ -126,5 +128,6 @@ pub fn grid_2x2(name: &str) -> Workspace {
         startup_script: None,
         notes_file: None,
         settings: WorkspaceSettings::default(),
+        ssh_configs: vec![],
     }
 }
