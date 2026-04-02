@@ -36,8 +36,14 @@ chmod +x Pax-x86_64.AppImage
 
 macOS (app bundle)
 
-1. Scarica `Pax-macos-arm64.tar.gz` dalla pagina [Actions](https://github.com/blex9000/pax/actions) (sezione Artifacts nel Summary della build)
-2. Estrai e avvia:
+1. Installa le dipendenze GTK4 (una tantum):
+
+─── bash ───
+brew install gtk4 libadwaita gtksourceview5
+───────
+
+2. Scarica `Pax-macos-arm64.tar.gz` dalla pagina [Actions](https://github.com/blex9000/pax/actions) (sezione Artifacts nel Summary della build)
+3. Estrai e avvia:
 
 ─── bash ───
 tar xzf Pax-macos-arm64.tar.gz
