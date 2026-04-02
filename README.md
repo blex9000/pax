@@ -128,6 +128,7 @@ Tipi di pannello
 | remote_tmux | Sessione tmux remota | Sì | Sì |
 | markdown | Viewer/editor per note .md | Sì | Sì |
 | code_editor | Editor codice con file tree, git, search/replace | Sì (richiede sourceview) | Sì (richiede sourceview) |
+| code_editor (SSH) | Editor remoto via SSH — stesse feature del code_editor locale | Sì | Sì |
 | browser | WebView per dashboard, docs | WebKitGTK | Non disponibile |
 
 Tipi di layout
@@ -197,6 +198,43 @@ Esempio workspace JSON
 }
 ───────
 
+Editor remoto (SSH)
+
+Il code editor può lavorare su progetti remoti via SSH — nessun mount filesystem (SSHFS) necessario. Tutte le operazioni (file tree, lettura/scrittura file, git, search) vengono eseguite direttamente sul server tramite comandi SSH.
+
+─── json ───
+{
+    "id": "remote-editor",
+    "name": "Server",
+    "panel_type": {
+        "type": "code_editor",
+        "root_dir": "/home/user/project",
+        "ssh": {
+            "host": "server.example.com",
+            "port": 22,
+            "user": "user"
+        },
+        "remote_path": "/home/user/project"
+    }
+}
+───────
+
+Configurazione SSH disponibile anche dalla UI: menu ⋮ → Configure → sezione "Remote (SSHFS)" con toggle on/off.
+
+Come funziona:
+  • Usa SSH ControlMaster per una connessione persistente (un solo handshake)
+  • Ogni operazione file è un singolo comando SSH (cat, ls, git, etc.)
+  • Supporta autenticazione con password (via sshpass) o chiave SSH
+  • Browse remoto delle cartelle direttamente dal dialog di configurazione
+  • Intervalli watcher adattivi: 15s git status, 30s file tree (vs 3s/2s in locale)
+
+Prerequisiti: `ssh` (sempre disponibile), `sshpass` (solo se si usa password)
+
+Architettura FileBackend:
+  • `LocalFileBackend` — operazioni su filesystem locale (std::fs + git)
+  • `SshFileBackend` — comandi SSH diretti con ControlMaster
+  • Il trait è progettato per supportare un futuro `AgentFileBackend` (binario remoto per batch operations)
+
 Scorciatoie
 
 | Tasto | Azione |
@@ -209,6 +247,10 @@ Scorciatoie
 | Ctrl+Shift+J | Split verticale (nuovo pannello a destra) |
 | Ctrl+Shift+T | Nuovo tab |
 | Ctrl+Shift+W | Chiudi pannello |
+| Ctrl+Shift+Z | Collapse/expand pannello |
+| Ctrl+Shift+S | Toggle sync input tra terminali |
+| Ctrl+R | Reverse search (terminale bash) |
+| Ctrl+Z | Zoom/unzoom pannello |
 | Menu ⋮ | Configure, Split H/V, Add Tab, Close |
 | Hamburger ☰ | New, Open, Recent, Save, Save As, Settings, Quit |
 
@@ -217,14 +259,22 @@ Architettura
 pax/
 ├── crates/
 │   ├── pax-core/    # Modelli, config JSON, alert, safety, SSH parser
-│   ├── pax-pty/     # PTY locale + SSH sessions + broadcast
 │   ├── pax-db/      # SQLite + FTS5 (history, output, workspaces)
 │   ├── pax-gui/     # GTK4 + VTE/fallback (UI principale, cross-platform)
+│   │   └── panels/
+│   │       ├── terminal/
+│   │       │   ├── vte_backend.rs    # Linux VTE4
+│   │       │   └── pty_backend.rs    # macOS PTY fallback
+│   │       └── editor/
+│   │           ├── file_backend.rs   # FileBackend trait (Local/SSH/Agent)
+│   │           ├── file_tree.rs      # File tree sidebar
+│   │           ├── editor_tabs.rs    # Tab bar + code editing
+│   │           ├── git_status.rs     # Git changes view
+│   │           ├── git_log.rs        # Git history view
+│   │           └── project_search.rs # Project-wide search
 │   └── pax-cli/     # Entry point CLI (clap)
-├── config/
-│   ├── default_workspace.json   # 3 terminali in split
-│   ├── mixed_workspace.json     # Terminal + markdown + browser
-│   └── tabs_workspace.json      # Split + tabs annidati
+├── config/           # Workspace JSON di esempio
+├── resources/        # Icone, CSS, style scheme sourceview
 ───────
 
 Vedi ROADMAP.md per architettura dettagliata e piano di implementazione.
