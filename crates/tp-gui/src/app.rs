@@ -270,7 +270,7 @@ fn setup_workspace_ui(
                     &*win, &tid, &default_type, None, None,
                     &[], None, 0, 0, saved_ssh,
                     move |new_name, new_type, new_cwd, new_ssh, new_cmds, new_close, new_mw, new_mh| {
-                        ws2.borrow_mut().set_panel_type(&pid, &tid2);
+                        // apply_panel_config handles everything: sets type, creates backend, rebuilds layout
                         ws2.borrow_mut().apply_panel_config(&pid, new_name, new_type, new_cwd, new_ssh, new_cmds, new_close, new_mw, new_mh);
                         actions::update_dirty_ui(&ws2, &win2, &sa2);
                     },
