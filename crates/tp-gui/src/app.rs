@@ -690,17 +690,9 @@ fn setup_workspace_ui(
                         actions::do_open(&ws, &sb, &win, &sa);
                         return glib::Propagation::Stop;
                     }
+                    // Ctrl+R is reserved for terminal reverse-search (bash)
                     gdk::Key::r => {
-                        let result = ws.borrow_mut().toggle_sync_focused();
-                        if let Some((panel_id, is_synced)) = result {
-                            let count = ws.borrow().sync_count();
-                            if is_synced {
-                                sb.borrow().set_message(&format!("Sync ON: {} ({} panels)", panel_id, count));
-                            } else {
-                                sb.borrow().set_message(&format!("Sync OFF: {} ({} panels)", panel_id, count));
-                            }
-                        }
-                        return glib::Propagation::Stop;
+                        return glib::Propagation::Proceed;
                     }
                     gdk::Key::z => {
                         ws.borrow_mut().toggle_zoom();
@@ -860,7 +852,7 @@ fn show_shortcuts_dialog(window: &Rc<adw::ApplicationWindow>) {
             ("Ctrl+N", "Focus next panel"),
             ("Ctrl+P", "Focus previous panel"),
             ("Ctrl+Z", "Zoom/unzoom focused panel"),
-            ("Ctrl+R", "Toggle sync on focused panel"),
+            ("Ctrl+R", "Reverse search (terminal)"),
             ("Ctrl+Arrow", "Scroll workspace"),
             ("Ctrl+Scroll", "Scroll workspace (mouse)"),
         ]),
