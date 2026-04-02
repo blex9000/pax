@@ -240,12 +240,11 @@ paned > separator { min-width: 1px; min-height: 1px; }
 .dirty-indicator { color: #ff8c00; }
 .editor-tabs { border-bottom: 1px solid alpha(@borders, 0.3); }
 .editor-sidebar { border-right: 1px solid alpha(@borders, 0.3); }
-popover, popover > contents, popover > box, popover > stack { background-color: @popover_bg_color; color: @popover_fg_color; }
+popover > contents { background-color: @popover_bg_color; color: @popover_fg_color; }
+popover > arrow { background-color: @popover_bg_color; }
 popover label, popover button, popover .flat, popover modelbutton { color: @popover_fg_color; }
 popover separator { background-color: @borders; }
-.popup, .context-menu { background-color: @popover_bg_color; color: @popover_fg_color; }
-menu, menu menuitem { background-color: @popover_bg_color; color: @popover_fg_color; }
-menu menuitem:hover { background-color: @accent_bg_color; color: @accent_fg_color; }
+popover modelbutton:hover { background-color: @accent_bg_color; color: @accent_fg_color; }
 ";
 
 const CATPPUCCIN_MOCHA_CSS: &str = "\
@@ -257,6 +256,7 @@ const CATPPUCCIN_MOCHA_CSS: &str = "\
 @define-color card_fg_color #cdd6f4;
 @define-color popover_bg_color #313244;
 @define-color popover_fg_color #cdd6f4;
+@define-color popover_shade_color alpha(black, 0.25);
 @define-color view_bg_color #1e1e2e;
 @define-color view_fg_color #cdd6f4;
 @define-color accent_bg_color #89b4fa;
@@ -264,6 +264,7 @@ const CATPPUCCIN_MOCHA_CSS: &str = "\
 @define-color accent_color #89b4fa;
 @define-color borders alpha(white, 0.15);
 @define-color headerbar_border_color alpha(white, 0.15);
+@define-color headerbar_backdrop_color @headerbar_bg_color;
 ";
 
 const CATPPUCCIN_LATTE_CSS: &str = "\
@@ -275,6 +276,7 @@ const CATPPUCCIN_LATTE_CSS: &str = "\
 @define-color card_fg_color #4c4f69;
 @define-color popover_bg_color #ccd0da;
 @define-color popover_fg_color #4c4f69;
+@define-color popover_shade_color alpha(black, 0.12);
 @define-color view_bg_color #eff1f5;
 @define-color view_fg_color #4c4f69;
 @define-color accent_bg_color #1e66f5;
@@ -282,6 +284,7 @@ const CATPPUCCIN_LATTE_CSS: &str = "\
 @define-color accent_color #1e66f5;
 @define-color borders alpha(black, 0.15);
 @define-color headerbar_border_color alpha(black, 0.15);
+@define-color headerbar_backdrop_color @headerbar_bg_color;
 ";
 
 const DRACULA_CSS: &str = "\
@@ -293,6 +296,7 @@ const DRACULA_CSS: &str = "\
 @define-color card_fg_color #f8f8f2;
 @define-color popover_bg_color #44475a;
 @define-color popover_fg_color #f8f8f2;
+@define-color popover_shade_color alpha(black, 0.25);
 @define-color view_bg_color #282a36;
 @define-color view_fg_color #f8f8f2;
 @define-color accent_bg_color #bd93f9;
@@ -300,6 +304,7 @@ const DRACULA_CSS: &str = "\
 @define-color accent_color #bd93f9;
 @define-color borders alpha(white, 0.15);
 @define-color headerbar_border_color alpha(white, 0.15);
+@define-color headerbar_backdrop_color @headerbar_bg_color;
 ";
 
 const NORD_CSS: &str = "\
@@ -311,6 +316,7 @@ const NORD_CSS: &str = "\
 @define-color card_fg_color #eceff4;
 @define-color popover_bg_color #3b4252;
 @define-color popover_fg_color #eceff4;
+@define-color popover_shade_color alpha(black, 0.25);
 @define-color view_bg_color #2e3440;
 @define-color view_fg_color #eceff4;
 @define-color accent_bg_color #88c0d0;
@@ -318,4 +324,5 @@ const NORD_CSS: &str = "\
 @define-color accent_color #88c0d0;
 @define-color borders alpha(white, 0.12);
 @define-color headerbar_border_color alpha(white, 0.12);
+@define-color headerbar_backdrop_color @headerbar_bg_color;
 ";
