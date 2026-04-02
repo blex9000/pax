@@ -168,8 +168,6 @@ impl CodeEditorPanel {
         {
             let outer_ref = outer.clone();
             let mount_dir = mount_dir.clone();
-            let state = state.clone();
-            let ssh_label = ssh_label.clone();
             let _rpath = remote_path.to_string();
             gtk4::glib::timeout_add_local(std::time::Duration::from_millis(200), move || {
                 let ready = result_slot.lock().unwrap().is_some();
@@ -186,12 +184,16 @@ impl CodeEditorPanel {
                 match result {
                     Ok(()) => {
                         tracing::info!("SSHFS mounted at {}", mount_dir.display());
-                        // Update state root_dir to mount point
-                        state.borrow_mut().root_dir = mount_dir.clone();
-                        // Show success briefly then the user can interact
-                        let done_label = gtk4::Label::new(Some(&format!("Connected: {}", ssh_label)));
-                        done_label.add_css_class("dim-label");
-                        outer_ref.append(&done_label);
+                        // Build the full editor widget using the mount point
+                        let editor = Self::new_inner(&mount_dir.to_string_lossy());
+                        // Reparent: take the editor's widget content and put it in our outer box
+                        let editor_widget = editor.widget().clone();
+                        editor_widget.set_vexpand(true);
+                        editor_widget.set_hexpand(true);
+                        outer_ref.append(&editor_widget);
+                        // Keep editor alive by leaking it (it's owned by the widget tree now)
+                        // The panel host holds our outer widget, and the editor lives inside it
+                        std::mem::forget(editor);
                     }
                     Err(e) => {
                         tracing::error!("SSHFS mount failed: {}", e);
