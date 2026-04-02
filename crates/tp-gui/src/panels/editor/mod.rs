@@ -319,6 +319,21 @@ impl CodeEditorPanel {
         sidebar_stack.add_named(&project_search.widget, Some("search"));
         sidebar.append(&sidebar_stack);
 
+        // Bottom bar with hide sidebar button (aligned right)
+        let sidebar_bottom = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
+        sidebar_bottom.set_margin_start(4);
+        sidebar_bottom.set_margin_end(4);
+        sidebar_bottom.set_margin_top(2);
+        sidebar_bottom.set_margin_bottom(2);
+        let bottom_spacer = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
+        bottom_spacer.set_hexpand(true);
+        sidebar_bottom.append(&bottom_spacer);
+        let hide_sidebar_btn = gtk4::Button::from_icon_name("go-previous-symbolic");
+        hide_sidebar_btn.add_css_class("flat");
+        hide_sidebar_btn.set_tooltip_text(Some("Hide sidebar (Ctrl+B)"));
+        sidebar_bottom.append(&hide_sidebar_btn);
+        sidebar.append(&sidebar_bottom);
+
         // Connect activity bar toggle buttons
         {
             let stack = sidebar_stack.clone();
@@ -384,6 +399,19 @@ impl CodeEditorPanel {
         }
         editor_area.prepend(&sidebar_open_btn);
 
+        // Wire hide sidebar button (in sidebar bottom bar)
+        {
+            let sc = state.clone();
+            let sb = sidebar.clone();
+            let open_btn = sidebar_open_btn.clone();
+            hide_sidebar_btn.connect_clicked(move |_| {
+                let mut st = sc.borrow_mut();
+                st.sidebar_visible = false;
+                sb.set_visible(false);
+                open_btn.set_visible(true);
+            });
+        }
+
         // Paned: sidebar | editor
         editor_area.set_width_request(300);
         let paned = gtk4::Paned::new(gtk4::Orientation::Horizontal);
@@ -408,6 +436,17 @@ impl CodeEditorPanel {
 
         let widget = main_overlay.upcast::<gtk4::Widget>();
         widget.set_focusable(true);
+        // Click anywhere to grab focus (needed for shortcuts without open file)
+        {
+            let w = widget.clone();
+            let gesture = gtk4::GestureClick::new();
+            gesture.set_button(1);
+            gesture.set_propagation_phase(gtk4::PropagationPhase::Capture);
+            gesture.connect_pressed(move |_, _, _, _| {
+                w.grab_focus();
+            });
+            widget.add_controller(gesture);
+        }
 
         // Keybindings: Ctrl+S save, Ctrl+W close, Ctrl+Tab next tab, Ctrl+B sidebar, Ctrl+P fuzzy finder, Ctrl+Shift+G git view
         {
