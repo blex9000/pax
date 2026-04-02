@@ -428,6 +428,15 @@ impl EditorTabs {
         // Push current position to navigation history before switching
         super::push_nav_position(state);
 
+        // Update recent files immediately
+        {
+            let mut st = state.borrow_mut();
+            let p = path.to_path_buf();
+            st.recent_files.retain(|r| r != &p);
+            st.recent_files.insert(0, p);
+            if st.recent_files.len() > 10 { st.recent_files.truncate(10); }
+        }
+
         // Check if already open
         {
             let st = state.borrow();
