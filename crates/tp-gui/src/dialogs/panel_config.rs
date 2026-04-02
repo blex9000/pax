@@ -37,8 +37,8 @@ fn make_dialog(parent: &impl IsA<gtk4::Window>, title: &str) -> gtk4::Window {
         .title(title)
         .transient_for(parent)
         .modal(true)
-        .default_width(500)
-        .default_height(400)
+        .default_width(550)
+        .default_height(650)
         .build()
 }
 
