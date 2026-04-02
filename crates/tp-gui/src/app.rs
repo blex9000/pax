@@ -779,6 +779,28 @@ fn setup_workspace_ui(
 
     window.add_controller(controller);
 
+    // Auto-save workspace every 30s if dirty and has a config path
+    {
+        let ws = ws_view.clone();
+        let sb = status_bar.clone();
+        glib::timeout_add_local(std::time::Duration::from_secs(30), move || {
+            let has_path = ws.borrow().has_config_path();
+            let is_dirty = ws.borrow().is_dirty();
+            if has_path && is_dirty {
+                match ws.borrow_mut().save() {
+                    Ok(path) => {
+                        tracing::info!("Auto-saved workspace: {}", path.display());
+                        sb.borrow().set_message("Auto-saved");
+                    }
+                    Err(e) => {
+                        tracing::warn!("Auto-save failed: {}", e);
+                    }
+                }
+            }
+            glib::ControlFlow::Continue
+        });
+    }
+
     // Ctrl+Scroll: scroll the entire workspace (bypasses VTE scroll capture)
     {
         let scroll_ctrl = gtk4::EventControllerScroll::new(
