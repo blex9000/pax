@@ -1041,7 +1041,7 @@ impl EditorTabs {
         let author = info_lines.get(2).copied().unwrap_or("");
         let date = info_lines.get(3).copied().unwrap_or("");
 
-        // Get list of changed files with stats
+        // Get list of changed files with status
         let diff_stat = std::process::Command::new("git")
             .args(["diff-tree", "--no-commit-id", "-r", "--name-status", commit_hash])
             .current_dir(root)
@@ -1050,6 +1050,20 @@ impl EditorTabs {
             .filter(|o| o.status.success())
             .map(|o| String::from_utf8_lossy(&o.stdout).to_string())
             .unwrap_or_default();
+
+        // Get numeric stats (additions/deletions per file)
+        let numstat = std::process::Command::new("git")
+            .args(["diff-tree", "--no-commit-id", "-r", "--numstat", commit_hash])
+            .current_dir(root)
+            .output()
+            .ok()
+            .filter(|o| o.status.success())
+            .map(|o| String::from_utf8_lossy(&o.stdout).to_string())
+            .unwrap_or_default();
+        let stats: std::collections::HashMap<&str, (String, String)> = numstat.lines().filter_map(|line| {
+            let parts: Vec<&str> = line.splitn(3, '\t').collect();
+            if parts.len() == 3 { Some((parts[2], (parts[0].to_string(), parts[1].to_string()))) } else { None }
+        }).collect();
 
         // Build UI
         let commit_box = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
@@ -1089,6 +1103,23 @@ impl EditorTabs {
         info_box.append(&meta_label);
 
         header.append(&info_box);
+
+        // Revert commit button
+        let revert_commit_btn = gtk4::Button::from_icon_name("edit-undo-symbolic");
+        revert_commit_btn.add_css_class("flat");
+        revert_commit_btn.set_tooltip_text(Some("Revert this commit (git revert)"));
+        {
+            let root_c = root.to_path_buf();
+            let hash = commit_hash.to_string();
+            revert_commit_btn.connect_clicked(move |_| {
+                let _ = std::process::Command::new("git")
+                    .args(["revert", "--no-edit", &hash])
+                    .current_dir(&root_c)
+                    .output();
+            });
+        }
+        header.append(&revert_commit_btn);
+
         commit_box.append(&header);
         commit_box.append(&gtk4::Separator::new(gtk4::Orientation::Horizontal));
 
@@ -1145,22 +1176,15 @@ impl EditorTabs {
             }
             row_box.append(&name_btn);
 
-            // Revert button — checkout this file from the parent commit
-            let revert_btn = gtk4::Button::from_icon_name("edit-undo-symbolic");
-            revert_btn.add_css_class("flat");
-            revert_btn.set_tooltip_text(Some("Revert this file to before this commit"));
-            {
-                let root_c = root.to_path_buf();
-                let parent = format!("{}~1", commit_hash);
-                let fp = file_path_str.to_string();
-                revert_btn.connect_clicked(move |_| {
-                    let _ = std::process::Command::new("git")
-                        .args(["checkout", &parent, "--", &fp])
-                        .current_dir(&root_c)
-                        .output();
-                });
+            // Change stats (+N / -N)
+            if let Some((added, removed)) = stats.get(file_path_str) {
+                let stat_text = format!("+{}  −{}", added, removed);
+                let stat_label = gtk4::Label::new(Some(&stat_text));
+                stat_label.add_css_class("dim-label");
+                stat_label.add_css_class("caption");
+                stat_label.add_css_class("monospace");
+                row_box.append(&stat_label);
             }
-            row_box.append(&revert_btn);
 
             file_list.append(&row_box);
             file_list.append(&gtk4::Separator::new(gtk4::Orientation::Horizontal));
@@ -1344,6 +1368,25 @@ fn show_commit_file_diff(
     file_label.set_hexpand(true);
     file_label.set_halign(gtk4::Align::Start);
     header.append(&file_label);
+
+    // Revert this file to before this commit
+    let revert_btn = gtk4::Button::from_icon_name("edit-undo-symbolic");
+    revert_btn.add_css_class("flat");
+    revert_btn.set_tooltip_text(Some("Revert this file to before this commit"));
+    {
+        let root_c = root.to_path_buf();
+        let parent_c = parent.clone();
+        let fp = file_rel.to_string();
+        let cs = content_stack.clone();
+        revert_btn.connect_clicked(move |_| {
+            let _ = std::process::Command::new("git")
+                .args(["checkout", &parent_c, "--", &fp])
+                .current_dir(&root_c)
+                .output();
+            cs.set_visible_child_name("commit-diff");
+        });
+    }
+    header.append(&revert_btn);
 
     diff_box.append(&header);
 
