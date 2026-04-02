@@ -53,17 +53,9 @@ impl EditorTabs {
         source_view.set_show_right_margin(true);
         source_view.set_right_margin_position(120);
 
-        // Apply theme scheme
+        // Apply and register for theme updates
         if let Some(buf) = source_view.buffer().downcast_ref::<sourceview5::Buffer>() {
-            let theme = crate::theme::current_theme();
-            let scheme_id = theme.sourceview_scheme();
-            let fallback_id = theme.sourceview_scheme_fallback();
-            let scheme_manager = sourceview5::StyleSchemeManager::default();
-            if let Some(scheme) = scheme_manager.scheme(scheme_id)
-                .or_else(|| scheme_manager.scheme(fallback_id))
-            {
-                buf.set_style_scheme(Some(&scheme));
-            }
+            crate::theme::register_sourceview_buffer(buf);
         }
 
         let source_scroll = gtk4::ScrolledWindow::new();
@@ -463,16 +455,8 @@ impl EditorTabs {
             buf.set_language(Some(&lang));
         }
 
-        // Apply scheme
-        let theme = crate::theme::current_theme();
-        let scheme_id = theme.sourceview_scheme();
-        let fallback_id = theme.sourceview_scheme_fallback();
-        let scheme_manager = sourceview5::StyleSchemeManager::default();
-        if let Some(scheme) = scheme_manager.scheme(scheme_id)
-            .or_else(|| scheme_manager.scheme(fallback_id))
-        {
-            buf.set_style_scheme(Some(&scheme));
-        }
+        // Apply scheme and register for live theme updates
+        crate::theme::register_sourceview_buffer(&buf);
 
         // Reset undo after setting initial text
         buf.set_enable_undo(false);
@@ -650,16 +634,8 @@ impl EditorTabs {
             old_buf.set_language(Some(&lang));
             new_buf.set_language(Some(&lang));
         }
-        let theme = crate::theme::current_theme();
-        let scheme_id = theme.sourceview_scheme();
-        let fallback_id = theme.sourceview_scheme_fallback();
-        let scheme_manager = sourceview5::StyleSchemeManager::default();
-        if let Some(scheme) = scheme_manager.scheme(scheme_id)
-            .or_else(|| scheme_manager.scheme(fallback_id))
-        {
-            old_buf.set_style_scheme(Some(&scheme));
-            new_buf.set_style_scheme(Some(&scheme));
-        }
+        crate::theme::register_sourceview_buffer(&old_buf);
+        crate::theme::register_sourceview_buffer(&new_buf);
 
         // Highlight changed lines using similar
         {
@@ -1258,16 +1234,8 @@ fn show_commit_file_diff(
         old_buf.set_language(Some(&lang));
         new_buf.set_language(Some(&lang));
     }
-    let theme = crate::theme::current_theme();
-    let scheme_id = theme.sourceview_scheme();
-    let fallback_id = theme.sourceview_scheme_fallback();
-    let scheme_manager = sourceview5::StyleSchemeManager::default();
-    if let Some(scheme) = scheme_manager.scheme(scheme_id)
-        .or_else(|| scheme_manager.scheme(fallback_id))
-    {
-        old_buf.set_style_scheme(Some(&scheme));
-        new_buf.set_style_scheme(Some(&scheme));
-    }
+    crate::theme::register_sourceview_buffer(&old_buf);
+    crate::theme::register_sourceview_buffer(&new_buf);
 
     // Highlight diff
     {

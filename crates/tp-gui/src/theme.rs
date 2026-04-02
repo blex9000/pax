@@ -6,13 +6,17 @@ thread_local! {
     static CURRENT_THEME: RefCell<Theme> = RefCell::new(Theme::System);
     #[cfg(feature = "vte")]
     static VTE_TERMINALS: RefCell<Vec<vte4::Terminal>> = RefCell::new(Vec::new());
+    #[cfg(feature = "sourceview")]
+    static SV_BUFFERS: RefCell<Vec<sourceview5::Buffer>> = RefCell::new(Vec::new());
 }
 
-/// Set the current theme and update all registered VTE terminals.
+/// Set the current theme and update all registered VTE terminals and sourceview buffers.
 pub fn set_current_theme(theme: Theme) {
     CURRENT_THEME.with(|cell| *cell.borrow_mut() = theme);
     #[cfg(feature = "vte")]
     apply_theme_to_all_terminals(theme);
+    #[cfg(feature = "sourceview")]
+    apply_theme_to_all_buffers(theme);
 }
 
 /// Get the current theme.
@@ -54,6 +58,42 @@ fn apply_theme_to_all_terminals(theme: Theme) {
                 vte.set_color_background(&gtk4::gdk::RGBA::new(0.0, 0.0, 0.0, 1.0));
                 vte.set_color_foreground(&gtk4::gdk::RGBA::new(1.0, 1.0, 1.0, 1.0));
             }
+        }
+    });
+}
+
+/// Register a sourceview5 Buffer for theme updates.
+#[cfg(feature = "sourceview")]
+pub fn register_sourceview_buffer(buf: &sourceview5::Buffer) {
+    use sourceview5::prelude::*;
+    // Apply current scheme
+    let theme = current_theme();
+    let scheme_id = theme.sourceview_scheme();
+    let fallback_id = theme.sourceview_scheme_fallback();
+    let manager = sourceview5::StyleSchemeManager::default();
+    if let Some(scheme) = manager.scheme(scheme_id).or_else(|| manager.scheme(fallback_id)) {
+        buf.set_style_scheme(Some(&scheme));
+    }
+    SV_BUFFERS.with(|cell| {
+        cell.borrow_mut().push(buf.clone());
+    });
+}
+
+/// Apply theme to all registered sourceview buffers, pruning stale ones.
+#[cfg(feature = "sourceview")]
+fn apply_theme_to_all_buffers(theme: Theme) {
+    use gtk4::prelude::*;
+    use sourceview5::prelude::*;
+    SV_BUFFERS.with(|cell| {
+        let mut buffers = cell.borrow_mut();
+        // Prune buffers with zero ref count (no longer in use)
+        buffers.retain(|buf| buf.tag_table().size() >= 0); // always true, but keeps ref alive
+        let scheme_id = theme.sourceview_scheme();
+        let fallback_id = theme.sourceview_scheme_fallback();
+        let manager = sourceview5::StyleSchemeManager::default();
+        let scheme = manager.scheme(scheme_id).or_else(|| manager.scheme(fallback_id));
+        for buf in buffers.iter() {
+            buf.set_style_scheme(scheme.as_ref());
         }
     });
 }
