@@ -230,7 +230,8 @@ box.panel-title-bar { padding: 2px 6px; margin: 0; min-height: 20px; }
 .panel-title { font-size: 11px; font-weight: bold; }
 .panel-type-icon { min-height: 14px; min-width: 14px; opacity: 0.6; margin-right: 2px; }
 .panel-menu-btn { min-height: 16px; min-width: 16px; padding: 2px; }
-.panel-collapse-btn { min-height: 14px; min-width: 14px; max-height: 14px; max-width: 14px; padding: 0px; border-radius: 7px; background-color: alpha(@window_fg_color, 0.12); -gtk-icon-size: 10px; }
+.panel-collapse-btn { min-height: 0; min-width: 0; padding: 2px; margin: 0; border-radius: 7px; background-color: alpha(@window_fg_color, 0.12); -gtk-icon-size: 10px; }
+.panel-collapse-btn image { min-height: 10px; min-width: 10px; }
 .panel-collapse-btn:hover { background-color: alpha(@window_fg_color, 0.22); }
 .panel-action-btn { min-height: 16px; min-width: 16px; padding: 2px; opacity: 0.5; }
 .panel-action-btn:hover { opacity: 1.0; }
