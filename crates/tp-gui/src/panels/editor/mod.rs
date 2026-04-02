@@ -47,11 +47,12 @@ pub struct EditorState {
     pub backend: Rc<dyn file_backend::FileBackend>,
     /// Watcher poll interval in seconds (configurable per panel).
     pub poll_interval: u64,
-    /// Navigation history: stack of (file, line) positions for back/forward.
+    /// Back stack: positions you can go back to.
     #[cfg(feature = "sourceview")]
-    pub nav_history: Vec<FilePosition>,
+    pub nav_back: Vec<FilePosition>,
+    /// Forward stack: positions you can go forward to (after going back).
     #[cfg(feature = "sourceview")]
-    pub nav_index: usize,
+    pub nav_forward: Vec<FilePosition>,
     /// Recent files history (last 10 focused files).
     #[cfg(feature = "sourceview")]
     pub recent_files: Vec<PathBuf>,
@@ -123,8 +124,8 @@ impl CodeEditorPanel {
             sidebar_mode: SidebarMode::Files,
             backend: backend.clone(),
             poll_interval: poll_secs,
-            nav_history: Vec::new(),
-            nav_index: 0,
+            nav_back: Vec::new(),
+            nav_forward: Vec::new(),
             recent_files: Vec::new(),
         }));
 
@@ -514,55 +515,60 @@ impl CodeEditorPanel {
 /// Push current cursor position to navigation history.
 #[cfg(feature = "sourceview")]
 fn push_nav_position(state: &Rc<RefCell<EditorState>>) {
-    let (pos, path) = {
+    let pos = {
         let st = state.borrow();
         if let Some(idx) = st.active_tab {
             if let Some(f) = st.open_files.get(idx) {
                 let buf = &f.buffer;
                 let iter = buf.iter_at_mark(&buf.get_insert());
-                let line = iter.line();
-                (Some(FilePosition { path: f.path.clone(), line }), Some(f.path.clone()))
-            } else { (None, None) }
-        } else { (None, None) }
+                Some(FilePosition { path: f.path.clone(), line: iter.line() })
+            } else { None }
+        } else { None }
     };
     if let Some(pos) = pos {
         let mut st = state.borrow_mut();
-        // Truncate any forward history
-        let nav_idx = st.nav_index + 1;
-        if nav_idx < st.nav_history.len() {
-            st.nav_history.truncate(nav_idx);
-        }
-        st.nav_history.push(pos);
-        if st.nav_history.len() > 50 { st.nav_history.remove(0); }
-        st.nav_index = st.nav_history.len() - 1;
-        if let Some(p) = path {
-            st.recent_files.retain(|r| r != &p);
-            st.recent_files.insert(0, p);
-            if st.recent_files.len() > 10 { st.recent_files.truncate(10); }
-        }
+        st.nav_back.push(pos);
+        st.nav_forward.clear(); // new action clears forward stack
+        if st.nav_back.len() > 50 { st.nav_back.remove(0); }
     }
 }
 
 /// Navigate back or forward in file history.
-/// Uses a simple approach: nav_history is a stack, nav_index is the current position.
-/// Going back decreases index, forward increases it.
+/// Two-stack approach: back stack and forward stack, like a browser.
 #[cfg(feature = "sourceview")]
 fn navigate_history(state: &Rc<RefCell<EditorState>>, tabs: &Rc<editor_tabs::EditorTabs>, forward: bool) {
+    // Get current position to save on the opposite stack
+    let current_pos = {
+        let st = state.borrow();
+        st.active_tab.and_then(|idx| {
+            st.open_files.get(idx).map(|f| {
+                let iter = f.buffer.iter_at_mark(&f.buffer.get_insert());
+                FilePosition { path: f.path.clone(), line: iter.line() }
+            })
+        })
+    };
+
     let target = {
         let mut st = state.borrow_mut();
-        if st.nav_history.is_empty() { return; }
         if forward {
-            if st.nav_index + 1 >= st.nav_history.len() { return; }
-            st.nav_index += 1;
+            if st.nav_forward.is_empty() { return; }
+            // Push current to back stack
+            if let Some(cur) = current_pos {
+                st.nav_back.push(cur);
+            }
+            st.nav_forward.pop()
         } else {
-            if st.nav_index == 0 { return; }
-            st.nav_index -= 1;
+            if st.nav_back.is_empty() { return; }
+            // Push current to forward stack
+            if let Some(cur) = current_pos {
+                st.nav_forward.push(cur);
+            }
+            st.nav_back.pop()
         }
-        st.nav_history.get(st.nav_index).cloned()
     };
 
     if let Some(pos) = target {
-        // Switch to file without pushing to history
+        // Switch to file
         let already_open = {
             let st = state.borrow();
             st.open_files.iter().position(|f| f.path == pos.path)
@@ -571,18 +577,12 @@ fn navigate_history(state: &Rc<RefCell<EditorState>>, tabs: &Rc<editor_tabs::Edi
             tabs.notebook.set_current_page(Some(idx as u32));
             tabs.switch_to_buffer(idx, state);
         } else {
-            // Need to open file — temporarily disable nav push
-            // by not calling open_file (which pushes nav)
-            // Instead call the raw open
+            // Open file — but undo the nav push it causes
             tabs.open_file(&pos.path, state);
-            // Undo the push that open_file just did
             let mut st = state.borrow_mut();
-            if st.nav_history.len() > 1 {
-                st.nav_history.pop();
-                // Don't change nav_index — it was already set above
-            }
+            st.nav_back.pop(); // undo the push from open_file
         }
-        // Scroll to the saved line
+        // Scroll to saved line
         let st = state.borrow();
         if let Some(idx) = st.active_tab {
             if let Some(f) = st.open_files.get(idx) {
