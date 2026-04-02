@@ -741,20 +741,35 @@ fn show_code_editor_config(
 
     // ── SSH / Remote section ──
     vbox.append(&gtk4::Separator::new(gtk4::Orientation::Horizontal));
+
+    let ssh_toggle = gtk4::Switch::new();
+    ssh_toggle.set_active(false);
+    ssh_toggle.set_valign(gtk4::Align::Center);
+
+    let ssh_header_row = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
+    ssh_header_row.set_margin_top(8);
+    ssh_header_row.set_margin_bottom(4);
     let ssh_header = gtk4::Label::new(Some("Remote (SSH)"));
     ssh_header.add_css_class("heading");
     ssh_header.set_halign(gtk4::Align::Start);
-    ssh_header.set_margin_top(8);
-    vbox.append(&ssh_header);
-    let ssh_hint = gtk4::Label::new(Some("Leave empty for local project. Fill in to edit remote files via SSHFS."));
+    ssh_header.set_hexpand(true);
+    ssh_header_row.append(&ssh_header);
+    ssh_header_row.append(&ssh_toggle);
+    vbox.append(&ssh_header_row);
+
+    let ssh_fields = gtk4::Box::new(gtk4::Orientation::Vertical, 4);
+    ssh_fields.set_margin_start(0);
+    ssh_fields.set_visible(false);
+
+    let ssh_hint = gtk4::Label::new(Some("Edit remote files via SSHFS. Requires sshfs installed."));
     ssh_hint.add_css_class("dim-label");
     ssh_hint.add_css_class("caption");
     ssh_hint.set_halign(gtk4::Align::Start);
     ssh_hint.set_margin_bottom(4);
-    vbox.append(&ssh_hint);
+    ssh_fields.append(&ssh_hint);
 
-    let ssh_host_entry = add_field(&vbox, "SSH Host:", "", "server.example.com");
-    let ssh_user_entry = add_field(&vbox, "User:", "", "root");
+    let ssh_host_entry = add_field(&ssh_fields, "SSH Host:", "", "server.example.com");
+    let ssh_user_entry = add_field(&ssh_fields, "User:", "", "root");
     let ssh_pass_entry = {
         let row = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
         let label = gtk4::Label::new(Some("Password:"));
@@ -765,12 +780,23 @@ fn show_code_editor_config(
         entry.set_hexpand(true);
         row.append(&label);
         row.append(&entry);
-        vbox.append(&row);
+        ssh_fields.append(&row);
         entry
     };
-    let ssh_key_entry = add_field(&vbox, "Identity file:", "", "~/.ssh/id_rsa");
-    let ssh_port_entry = add_field(&vbox, "Port:", "22", "22");
-    let remote_path_entry = add_field(&vbox, "Remote path:", "", "/home/user/project");
+    let ssh_key_entry = add_field(&ssh_fields, "Identity file:", "", "~/.ssh/id_rsa");
+    let ssh_port_entry = add_field(&ssh_fields, "Port:", "22", "22");
+    let remote_path_entry = add_field(&ssh_fields, "Remote path:", "", "/home/user/project");
+
+    vbox.append(&ssh_fields);
+
+    // Toggle SSH fields visibility
+    {
+        let fields = ssh_fields.clone();
+        ssh_toggle.connect_state_set(move |_, active| {
+            fields.set_visible(active);
+            gtk4::glib::Propagation::Proceed
+        });
+    }
 
     vbox.append(&gtk4::Separator::new(gtk4::Orientation::Horizontal));
 
@@ -781,9 +807,10 @@ fn show_code_editor_config(
         let root_dir = dir_entry.text().to_string();
         let root_dir = if root_dir.is_empty() { ".".to_string() } else { root_dir };
 
-        // Build SSH config if host is set
+        // Build SSH config only if toggle is enabled AND host is set
+        let ssh_enabled = ssh_toggle.is_active();
         let host_text = ssh_host_entry.text().to_string();
-        let ssh = if !host_text.trim().is_empty() {
+        let ssh = if ssh_enabled && !host_text.trim().is_empty() {
             let port_text = ssh_port_entry.text().to_string();
             let port: u16 = port_text.trim().parse().unwrap_or(22);
             let user = {
