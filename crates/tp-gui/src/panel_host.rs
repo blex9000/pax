@@ -37,17 +37,17 @@ pub type PanelActionCallback = Rc<dyn Fn(&str, PanelAction)>;
 
 /// Container widget that hosts a PanelBackend with title bar.
 pub struct PanelHost {
-    outer: gtk4::Box,
-    container: gtk4::Box,
+    pub(crate) outer: gtk4::Box,
+    pub(crate) container: gtk4::Box,
     _title_bar: gtk4::Box,
     type_icon: gtk4::Image,
     title_label: gtk4::Label,
     sync_button: gtk4::Button,
     zoom_button: gtk4::Button,
     menu_button: gtk4::MenuButton,
-    collapse_button: gtk4::Button,
-    collapsed_view: gtk4::Box,
-    footer_bar: gtk4::Box,
+    pub(crate) collapse_button: gtk4::Button,
+    pub(crate) collapsed_view: gtk4::Box,
+    pub(crate) footer_bar: gtk4::Box,
     footer_label: gtk4::Label,
     widget: gtk4::Widget,
     panel_id: String,
@@ -479,8 +479,31 @@ impl PanelHost {
         new_state
     }
 
-    /// Set collapsed state directly.
+    /// Set collapsed state directly. Adjusts the parent Paned position.
     pub fn set_collapsed(&self, collapsed: bool) {
+        self.collapsed.set(collapsed);
+        if collapsed {
+            self.container.set_visible(false);
+            self.footer_bar.set_visible(false);
+            self.collapsed_view.set_visible(true);
+            self.outer.set_size_request(44, 44);
+            self.collapse_button.set_icon_name("go-next-symbolic");
+            self.collapse_button.set_tooltip_text(Some("Expand panel"));
+            // Move parent Paned separator to collapse this panel
+            self.adjust_paned_for_collapse(true);
+        } else {
+            self.container.set_visible(true);
+            self.collapsed_view.set_visible(false);
+            self.outer.set_size_request(80, 60);
+            self.collapse_button.set_icon_name("go-previous-symbolic");
+            self.collapse_button.set_tooltip_text(Some("Collapse panel"));
+            // Restore parent Paned separator to ~40% for this panel
+            self.adjust_paned_for_collapse(false);
+        }
+    }
+
+    /// Set collapsed state without adjusting the parent Paned (for auto-collapse from drag).
+    pub fn set_collapsed_no_adjust(&self, collapsed: bool) {
         self.collapsed.set(collapsed);
         if collapsed {
             self.container.set_visible(false);
@@ -495,6 +518,42 @@ impl PanelHost {
             self.outer.set_size_request(80, 60);
             self.collapse_button.set_icon_name("go-previous-symbolic");
             self.collapse_button.set_tooltip_text(Some("Collapse panel"));
+        }
+    }
+
+    /// Find the parent Paned and adjust its position for collapse/expand.
+    fn adjust_paned_for_collapse(&self, collapse: bool) {
+        use gtk4::prelude::*;
+        let mut widget = self.outer.parent();
+        while let Some(w) = widget {
+            if let Some(paned) = w.downcast_ref::<gtk4::Paned>() {
+                let total = if paned.orientation() == gtk4::Orientation::Horizontal {
+                    paned.allocation().width()
+                } else {
+                    paned.allocation().height()
+                };
+                // Determine if we are the start or end child
+                let is_start = paned.start_child()
+                    .map(|c| self.outer.is_ancestor(&c) || c.eq(self.outer.upcast_ref::<gtk4::Widget>()))
+                    .unwrap_or(false);
+
+                if collapse {
+                    if is_start {
+                        paned.set_position(44);
+                    } else {
+                        paned.set_position(total - 44);
+                    }
+                } else {
+                    // Restore to ~40% / ~60%
+                    if is_start {
+                        paned.set_position(total * 2 / 5);
+                    } else {
+                        paned.set_position(total * 3 / 5);
+                    }
+                }
+                return;
+            }
+            widget = w.parent();
         }
     }
 

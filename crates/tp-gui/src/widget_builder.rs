@@ -367,6 +367,8 @@ pub fn build_layout_widget_inner(
     }
 }
 
+const COLLAPSE_THRESHOLD: i32 = 52;
+
 fn setup_paned_ratio(paned: &gtk4::Paned, ratio: f64, orientation: gtk4::Orientation) {
     use gtk4::glib;
     paned.set_position((ratio * 800.0) as i32);
@@ -380,6 +382,84 @@ fn setup_paned_ratio(paned: &gtk4::Paned, ratio: f64, orientation: gtk4::Orienta
         };
         if total > 0 {
             p.set_position((r * total as f64) as i32);
+        }
+    });
+}
+
+/// Monitor Paned position changes to auto-collapse/expand panels at threshold.
+fn setup_paned_auto_collapse(paned: &gtk4::Paned, hosts: &HashMap<String, PanelHost>) {
+    let find_host_id = |child: &gtk4::Widget| -> Option<String> {
+        let name = child.widget_name();
+        let name_str = name.as_str();
+        if !name_str.is_empty() && name_str.starts_with('p') {
+            return Some(name_str.to_string());
+        }
+        None
+    };
+
+    let start_id = paned.start_child().and_then(|c| find_host_id(&c));
+    let end_id = paned.end_child().and_then(|c| find_host_id(&c));
+
+    if start_id.is_none() && end_id.is_none() { return; }
+
+    // Store the outer widgets + collapsed_view refs directly (GTK widgets are Rc-based)
+    struct CollapseState {
+        container: gtk4::Box,
+        footer: gtk4::Box,
+        collapsed_view: gtk4::Box,
+        outer: gtk4::Box,
+        collapse_btn: gtk4::Button,
+        is_collapsed: std::cell::Cell<bool>,
+    }
+
+    let make_state = |id: &Option<String>| -> Option<std::rc::Rc<CollapseState>> {
+        let host = id.as_ref().and_then(|i| hosts.get(i))?;
+        Some(std::rc::Rc::new(CollapseState {
+            container: host.container.clone(),
+            footer: host.footer_bar.clone(),
+            collapsed_view: host.collapsed_view.clone(),
+            outer: host.outer.clone(),
+            collapse_btn: host.collapse_button.clone(),
+            is_collapsed: std::cell::Cell::new(host.is_collapsed()),
+        }))
+    };
+
+    let start_state = make_state(&start_id);
+    let end_state = make_state(&end_id);
+    let orient = paned.orientation();
+
+    let set_collapsed = |state: &CollapseState, collapsed: bool| {
+        if state.is_collapsed.get() == collapsed { return; }
+        state.is_collapsed.set(collapsed);
+        if collapsed {
+            state.container.set_visible(false);
+            state.footer.set_visible(false);
+            state.collapsed_view.set_visible(true);
+            state.outer.set_size_request(44, 44);
+            state.collapse_btn.set_icon_name("go-next-symbolic");
+        } else {
+            state.container.set_visible(true);
+            state.collapsed_view.set_visible(false);
+            state.outer.set_size_request(80, 60);
+            state.collapse_btn.set_icon_name("go-previous-symbolic");
+        }
+    };
+
+    paned.connect_notify_local(Some("position"), move |paned, _| {
+        let pos = paned.position();
+        let total = if orient == gtk4::Orientation::Horizontal {
+            paned.allocation().width()
+        } else {
+            paned.allocation().height()
+        };
+        if total <= 0 { return; }
+        let end_size = total - pos;
+
+        if let Some(ref s) = start_state {
+            set_collapsed(s, pos < COLLAPSE_THRESHOLD);
+        }
+        if let Some(ref s) = end_state {
+            set_collapsed(s, end_size < COLLAPSE_THRESHOLD);
         }
     });
 }
@@ -419,6 +499,7 @@ fn build_paned(
         paned.set_resize_start_child(!c1_fixed || !c2_fixed);
         paned.set_resize_end_child(!c2_fixed || !c1_fixed);
         setup_paned_ratio(&paned, normalized[0], orientation);
+        setup_paned_auto_collapse(&paned, hosts);
         return paned.upcast::<gtk4::Widget>();
     }
 
@@ -435,6 +516,7 @@ fn build_paned(
     paned.set_resize_start_child(true);
     paned.set_resize_end_child(true);
     setup_paned_ratio(&paned, normalized[0], orientation);
+    setup_paned_auto_collapse(&paned, hosts);
     paned.upcast::<gtk4::Widget>()
 }
 
