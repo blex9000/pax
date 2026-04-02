@@ -7,9 +7,14 @@ edition.workspace = true
 name = "pax"
 path = "src/main.rs"
 
+[features]
+default = ["vte", "sourceview"]
+vte = ["pax-gui/vte"]
+sourceview = ["pax-gui/sourceview"]
+
 [dependencies]
 pax-core = { workspace = true }
-pax-gui = { workspace = true }
+pax-gui = { workspace = true, default-features = false }
 pax-db = { workspace = true }
 tokio = { workspace = true }
 anyhow = { workspace = true }

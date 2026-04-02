@@ -435,7 +435,8 @@ fn setup_workspace_ui(
     }
 
     // Setup sync input propagation: when a synced terminal gets input,
-    // forward it to all other synced terminals
+    // forward it to all other synced terminals (VTE-only feature)
+    #[cfg(feature = "vte")]
     {
         let ws = ws_view.clone();
         let sync_cb: Rc<dyn Fn(&str, &str)> = Rc::new(move |source_panel_id, text| {

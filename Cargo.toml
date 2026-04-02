@@ -16,7 +16,7 @@ authors = ["xb"]
 [workspace.dependencies]
 pax-core = { path = "crates/tp-core" }
 pax-db = { path = "crates/tp-db" }
-pax-gui = { path = "crates/tp-gui" }
+pax-gui = { path = "crates/tp-gui", default-features = false }
 
 tokio = { version = "1", features = ["full"] }
 serde = { version = "1", features = ["derive"] }
