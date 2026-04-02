@@ -231,24 +231,6 @@ impl GitStatusView {
             }
             btn_row.append(&stage_btn);
 
-            if entry.status != "??" {
-                let revert_btn = gtk4::Button::new();
-                revert_btn.set_icon_name("edit-undo-symbolic");
-                revert_btn.set_label("Revert");
-                revert_btn.add_css_class("flat");
-                revert_btn.add_css_class("destructive-action");
-                let path = entry.path.clone();
-                let root = self.root_dir.clone();
-                revert_btn.connect_clicked(move |_| {
-                    let rel = path.strip_prefix(&root).unwrap_or(&path);
-                    let _ = std::process::Command::new("git")
-                        .args(["checkout", "--", &rel.to_string_lossy()])
-                        .current_dir(&root)
-                        .output();
-                });
-                btn_row.append(&revert_btn);
-            }
-
             outer.append(&btn_row);
             self.list_container.append(&outer);
             self.list_container.append(&gtk4::Separator::new(gtk4::Orientation::Horizontal));
