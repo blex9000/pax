@@ -447,11 +447,11 @@ fn setup_paned_auto_collapse(paned: &gtk4::Paned, hosts: &HashMap<String, PanelH
     let end_cw = make_cw(&end_id);
     let orient = paned.orientation();
 
-    let clamping = std::rc::Rc::new(std::cell::Cell::new(false));
+    let guard = std::rc::Rc::new(std::cell::Cell::new(false));
 
     paned.connect_notify_local(Some("position"), move |paned, _| {
-        // Prevent re-entry from our own set_position calls
-        if clamping.get() { return; }
+        if guard.get() { return; }
+        guard.set(true);
 
         let pos = paned.position();
         let total = if orient == gtk4::Orientation::Horizontal {
@@ -459,41 +459,38 @@ fn setup_paned_auto_collapse(paned: &gtk4::Paned, hosts: &HashMap<String, PanelH
         } else {
             paned.allocation().height()
         };
-        if total <= 0 { return; }
 
-        let min = 44;
-        let end_size = total - pos;
+        if total > 0 {
+            let min = 44;
+            let start_size = pos;
+            let end_size = total - pos;
 
-        // Clamp: don't allow either side below min
-        if pos < min && !start_cw.as_ref().map_or(false, |cw| cw.is_collapsed()) {
-            clamping.set(true);
-            paned.set_position(min);
-            clamping.set(false);
-        }
-        if end_size < min && !end_cw.as_ref().map_or(false, |cw| cw.is_collapsed()) {
-            clamping.set(true);
-            paned.set_position(total - min);
-            clamping.set(false);
-        }
+            // Start child: collapse at min, expand above min, clamp to min
+            if let Some(ref cw) = start_cw {
+                if start_size <= min {
+                    cw.apply_visual(true);
+                    if start_size < min {
+                        paned.set_position(min);
+                    }
+                } else {
+                    cw.apply_visual(false);
+                }
+            }
 
-        let pos = paned.position();
-        let end_size = total - pos;
-
-        // Toggle collapse at exact threshold
-        if let Some(ref cw) = start_cw {
-            if pos <= min && !cw.is_collapsed() {
-                cw.apply_visual(true);
-            } else if pos > min && cw.is_collapsed() {
-                cw.apply_visual(false);
+            // End child: collapse at min, expand above min, clamp to min
+            if let Some(ref cw) = end_cw {
+                if end_size <= min {
+                    cw.apply_visual(true);
+                    if end_size < min {
+                        paned.set_position(total - min);
+                    }
+                } else {
+                    cw.apply_visual(false);
+                }
             }
         }
-        if let Some(ref cw) = end_cw {
-            if end_size <= min && !cw.is_collapsed() {
-                cw.apply_visual(true);
-            } else if end_size > min && cw.is_collapsed() {
-                cw.apply_visual(false);
-            }
-        }
+
+        guard.set(false);
     });
 }
 
