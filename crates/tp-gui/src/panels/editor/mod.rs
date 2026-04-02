@@ -382,6 +382,19 @@ impl CodeEditorPanel {
             widget.add_controller(key_ctrl);
         }
 
+        // Check git status immediately for the button indicator
+        {
+            let git_btn_init = git_btn.clone();
+            let be = backend.clone();
+            gtk4::glib::idle_add_local_once(move || {
+                if let Ok(stdout) = be.git_command(&["status", "--porcelain"]) {
+                    if !stdout.trim().is_empty() {
+                        git_btn_init.add_css_class("git-has-changes");
+                    }
+                }
+            });
+        }
+
         // Start file watchers
         {
             let file_tree_ref = file_tree;
