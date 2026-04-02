@@ -381,6 +381,58 @@ impl FileTree {
         populate_list_box(&self.list_box, &self.entries.borrow(), &self.root_dir);
         vadj.set_value(scroll_pos);
     }
+
+    /// Expand all parent directories of the given file and scroll to it.
+    pub fn reveal_file(&self, file_path: &Path) {
+        // Build list of ancestor directories that need expanding
+        let mut ancestors: Vec<PathBuf> = Vec::new();
+        let mut parent = file_path.parent();
+        while let Some(p) = parent {
+            if p == self.root_dir { break; }
+            ancestors.push(p.to_path_buf());
+            parent = p.parent();
+        }
+        ancestors.reverse(); // root-first order
+
+        // Expand each ancestor if not already expanded
+        let mut changed = false;
+        for ancestor in &ancestors {
+            let needs_expand = {
+                let ents = self.entries.borrow();
+                ents.iter().any(|e| e.path == *ancestor && e.is_dir && !e.expanded)
+            };
+            if needs_expand {
+                let idx_and_depth = {
+                    let ents = self.entries.borrow();
+                    ents.iter().enumerate()
+                        .find(|(_, e)| e.path == *ancestor && e.is_dir)
+                        .map(|(i, e)| (i, e.depth))
+                };
+                if let Some((idx, depth)) = idx_and_depth {
+                    toggle_dir(&self.entries, &self.file_index, &self.root_dir,
+                        idx, depth, false, ancestor, &*self.backend);
+                    changed = true;
+                }
+            }
+        }
+
+        if changed {
+            populate_list_box(&self.list_box, &self.entries.borrow(), &self.root_dir);
+        }
+
+        // Find the file row and scroll to it
+        let file_idx = {
+            let ents = self.entries.borrow();
+            ents.iter().position(|e| e.path == file_path)
+        };
+        if let Some(idx) = file_idx {
+            if let Some(row) = self.list_box.row_at_index(idx as i32) {
+                self.list_box.select_row(Some(&row));
+                // Scroll to make the row visible
+                row.grab_focus();
+            }
+        }
+    }
 }
 
 /// Indent step in pixels per depth level.

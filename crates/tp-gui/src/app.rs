@@ -718,6 +718,18 @@ fn setup_workspace_ui(
                         return glib::Propagation::Stop;
                     }
                     gdk::Key::p => {
+                        // If focused panel is a code editor, let Ctrl+P propagate
+                        // to the editor's fuzzy finder
+                        let is_code_editor = {
+                            let view = ws.borrow();
+                            view.focused_panel_id()
+                                .and_then(|id| view.workspace().panel(id))
+                                .map(|p| matches!(p.effective_type(), pax_core::workspace::PanelType::CodeEditor { .. }))
+                                .unwrap_or(false)
+                        };
+                        if is_code_editor {
+                            return glib::Propagation::Proceed;
+                        }
                         ws.borrow_mut().focus_prev();
                         if let Some(id) = ws.borrow().focused_panel_id() {
                             sb.borrow().set_panel(id);

@@ -203,6 +203,12 @@ impl CodeEditorPanel {
         activity_bar.append(&nav_sep);
         activity_bar.append(&nav_back_btn);
         activity_bar.append(&nav_fwd_btn);
+
+        let reveal_btn = gtk4::Button::from_icon_name("find-location-symbolic");
+        reveal_btn.add_css_class("flat");
+        reveal_btn.set_tooltip_text(Some("Reveal active file in tree"));
+
+        activity_bar.append(&reveal_btn);
         activity_bar.append(&bar_spacer);
         activity_bar.append(&recent_btn);
         sidebar.append(&activity_bar);
@@ -228,7 +234,7 @@ impl CodeEditorPanel {
         let root_for_ctx = PathBuf::from(root_dir);
         let glv_for_ctx = git_log_view.clone();
         let history_btn_for_ctx = history_btn.clone();
-        let file_tree = file_tree::FileTree::new_with_context(
+        let file_tree = Rc::new(file_tree::FileTree::new_with_context(
             &PathBuf::from(root_dir),
             Rc::new(move |path| {
                 tabs_for_open.open_file(path, &state_for_open);
@@ -241,7 +247,7 @@ impl CodeEditorPanel {
                 }
             })),
             backend.clone(),
-        );
+        ));
 
         // Git status view
         // Callback for immediate git status refresh after any git action
@@ -504,6 +510,24 @@ impl CodeEditorPanel {
             });
         }
 
+        // Reveal active file in tree button
+        {
+            let sc = state.clone();
+            let ft = file_tree.clone();
+            let files_btn_c = files_btn.clone();
+            reveal_btn.connect_clicked(move |_| {
+                let st = sc.borrow();
+                if let Some(idx) = st.active_tab {
+                    if let Some(f) = st.open_files.get(idx) {
+                        let path = f.path.clone();
+                        drop(st);
+                        files_btn_c.set_active(true); // switch sidebar to files
+                        ft.reveal_file(&path);
+                    }
+                }
+            });
+        }
+
         // Check git status immediately for the button indicator
         {
             let git_btn_init = git_btn.clone();
@@ -519,7 +543,7 @@ impl CodeEditorPanel {
 
         // Start file watchers
         {
-            let file_tree_ref = file_tree;
+            let file_tree_ref = file_tree.clone();
             file_watcher::start_watchers(
                 state.clone(),
                 tabs_rc.info_bar_container.clone(),
