@@ -48,16 +48,94 @@ pub enum SidebarMode {
 }
 
 /// Embedded code editor panel with file tree, tabs, and git integration.
+/// Supports both local directories and remote projects via SSHFS.
 #[cfg(feature = "sourceview")]
 #[derive(Debug)]
 pub struct CodeEditorPanel {
     widget: gtk4::Widget,
     state: Rc<RefCell<EditorState>>,
+    /// SSHFS mount point to unmount on drop (None for local projects).
+    sshfs_mount: Option<PathBuf>,
 }
 
 #[cfg(feature = "sourceview")]
 impl CodeEditorPanel {
+    /// Create a code editor for a remote project via SSHFS.
+    pub fn new_remote(
+        host: &str, port: u16, user: &str,
+        password: Option<&str>, identity_file: Option<&str>,
+        remote_path: &str,
+    ) -> Self {
+        // Create a unique mount point
+        let mount_dir = std::env::temp_dir().join(format!(
+            "pax_sshfs_{}_{}",
+            host.replace('.', "_"),
+            std::process::id(),
+        ));
+        let _ = std::fs::create_dir_all(&mount_dir);
+
+        // Build sshfs command
+        let remote = format!("{}@{}:{}", user, host, remote_path);
+        let mut cmd = std::process::Command::new("sshfs");
+        cmd.arg(&remote)
+            .arg(&mount_dir)
+            .arg("-o").arg("reconnect")
+            .arg("-o").arg("ServerAliveInterval=15")
+            .arg("-o").arg(format!("port={}", port));
+
+        if let Some(key) = identity_file {
+            cmd.arg("-o").arg(format!("IdentityFile={}", key));
+        }
+        if password.is_some() {
+            // sshfs with password requires sshpass or ssh-askpass
+            cmd.arg("-o").arg("password_stdin");
+        }
+
+        tracing::info!("SSHFS mount: {} -> {}", remote, mount_dir.display());
+
+        let result = if let Some(pass) = password {
+            // Pipe password via stdin
+            use std::io::Write;
+            let mut child = cmd.stdin(std::process::Stdio::piped())
+                .spawn();
+            if let Ok(ref mut child) = child {
+                if let Some(ref mut stdin) = child.stdin {
+                    let _ = stdin.write_all(pass.as_bytes());
+                    let _ = stdin.write_all(b"\n");
+                }
+                child.wait()
+            } else {
+                child.map(|_| std::process::ExitStatus::default())
+            }
+        } else {
+            cmd.status()
+        };
+
+        match result {
+            Ok(status) if status.success() => {
+                tracing::info!("SSHFS mounted successfully at {}", mount_dir.display());
+                let mut panel = Self::new_inner(&mount_dir.to_string_lossy());
+                panel.sshfs_mount = Some(mount_dir);
+                panel
+            }
+            Ok(status) => {
+                tracing::error!("SSHFS mount failed with status: {}", status);
+                Self::new_inner(remote_path)
+            }
+            Err(e) => {
+                tracing::error!("SSHFS not found or failed: {}. Install with: sudo apt install sshfs (Linux) or brew install macfuse sshfs (macOS)", e);
+                Self::new_inner(remote_path)
+            }
+        }
+    }
+
     pub fn new(root_dir: &str) -> Self {
+        let mut panel = Self::new_inner(root_dir);
+        panel.sshfs_mount = None;
+        panel
+    }
+
+    fn new_inner(root_dir: &str) -> Self {
         let state = Rc::new(RefCell::new(EditorState {
             root_dir: PathBuf::from(root_dir),
             open_files: Vec::new(),
@@ -354,7 +432,33 @@ impl CodeEditorPanel {
             );
         }
 
-        Self { widget, state }
+        Self { widget, state, sshfs_mount: None }
+    }
+}
+
+/// Unmount SSHFS on panel close.
+#[cfg(feature = "sourceview")]
+impl Drop for CodeEditorPanel {
+    fn drop(&mut self) {
+        if let Some(ref mount) = self.sshfs_mount {
+            tracing::info!("Unmounting SSHFS at {}", mount.display());
+            // Try fusermount first (Linux), then umount (macOS)
+            let result = std::process::Command::new("fusermount")
+                .args(["-u", &mount.to_string_lossy()])
+                .status()
+                .or_else(|_| {
+                    std::process::Command::new("umount")
+                        .arg(&mount.to_string_lossy().to_string())
+                        .status()
+                });
+            match result {
+                Ok(s) if s.success() => {
+                    let _ = std::fs::remove_dir(mount);
+                    tracing::info!("SSHFS unmounted");
+                }
+                _ => tracing::warn!("Failed to unmount SSHFS at {}", mount.display()),
+            }
+        }
     }
 }
 
@@ -390,6 +494,10 @@ impl CodeEditorPanel {
         label.set_margin_bottom(32);
         label.add_css_class("dim-label");
         Self { widget: label.upcast::<gtk4::Widget>() }
+    }
+
+    pub fn new_remote(_host: &str, _port: u16, _user: &str, _password: Option<&str>, _identity_file: Option<&str>, _remote_path: &str) -> Self {
+        Self::new("")
     }
 }
 

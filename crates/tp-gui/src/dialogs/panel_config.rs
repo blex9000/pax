@@ -24,7 +24,7 @@ pub fn show_panel_config_dialog(
         }
         PanelType::Markdown { file } => show_markdown_config(parent, panel_name, file, min_width, min_height, on_done),
         PanelType::Browser { url } => show_browser_config(parent, panel_name, url, min_width, min_height, on_done),
-        PanelType::CodeEditor { root_dir } => show_code_editor_config(parent, panel_name, root_dir, min_width, min_height, on_done),
+        PanelType::CodeEditor { root_dir, .. } => show_code_editor_config(parent, panel_name, root_dir, min_width, min_height, on_done),
         PanelType::Empty => {}
     }
 }
@@ -745,7 +745,7 @@ fn show_code_editor_config(
         let name = name_entry.text().to_string();
         let root_dir = dir_entry.text().to_string();
         let root_dir = if root_dir.is_empty() { ".".to_string() } else { root_dir };
-        on_done(name, PanelType::CodeEditor { root_dir }, None, None, vec![], None, mw_spin.value() as u32, mh_spin.value() as u32);
+        on_done(name, PanelType::CodeEditor { root_dir, ssh: None, remote_path: None }, None, None, vec![], None, mw_spin.value() as u32, mh_spin.value() as u32);
     });
 
     dialog.set_child(Some(&vbox));

@@ -223,7 +223,24 @@ pub fn build_default_registry() -> PanelRegistry {
         true,
         |config| {
             let root_dir = config.extra.get("root_dir").map(|s| s.as_str()).unwrap_or(".");
-            Box::new(super::editor::CodeEditorPanel::new(root_dir))
+            let ssh_host = config.extra.get("ssh_host").cloned();
+            let ssh_user = config.extra.get("ssh_user").cloned();
+            let ssh_password = config.extra.get("ssh_password").cloned();
+            let ssh_identity = config.extra.get("ssh_identity").cloned();
+            let ssh_port = config.extra.get("ssh_port").and_then(|s| s.parse().ok()).unwrap_or(22u16);
+            let remote_path = config.extra.get("remote_path").cloned();
+
+            if let Some(host) = ssh_host {
+                // Remote code editor: mount via SSHFS
+                let user = ssh_user.as_deref().unwrap_or("root");
+                let rpath = remote_path.as_deref().unwrap_or(root_dir);
+                Box::new(super::editor::CodeEditorPanel::new_remote(
+                    &host, ssh_port, user, ssh_password.as_deref(),
+                    ssh_identity.as_deref(), rpath,
+                ))
+            } else {
+                Box::new(super::editor::CodeEditorPanel::new(root_dir))
+            }
         },
     );
 
