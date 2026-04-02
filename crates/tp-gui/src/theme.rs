@@ -184,7 +184,11 @@ impl Theme {
     #[cfg(feature = "sourceview")]
     pub fn sourceview_scheme(&self) -> &str {
         match self {
-            Theme::System => "Adwaita",
+            Theme::System => {
+                // Follow system dark/light preference
+                let style_manager = libadwaita::StyleManager::default();
+                if style_manager.is_dark() { "Adwaita-dark" } else { "Adwaita" }
+            }
             Theme::CatppuccinMocha => "pax-catppuccin-mocha",
             Theme::CatppuccinLatte => "pax-catppuccin-latte",
             Theme::Dracula => "pax-dracula",
@@ -196,7 +200,11 @@ impl Theme {
     #[cfg(feature = "sourceview")]
     pub fn sourceview_scheme_fallback(&self) -> &str {
         match self {
-            Theme::System | Theme::CatppuccinLatte => "Adwaita",
+            Theme::System => {
+                let style_manager = libadwaita::StyleManager::default();
+                if style_manager.is_dark() { "Adwaita-dark" } else { "Adwaita" }
+            }
+            Theme::CatppuccinLatte => "Adwaita",
             _ => "Adwaita-dark",
         }
     }
