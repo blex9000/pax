@@ -435,8 +435,9 @@ impl EditorTabs {
             }
         }
 
-        // Read file
-        let content = match std::fs::read_to_string(path) {
+        // Read file via backend
+        let backend = state.borrow().backend.clone();
+        let content = match backend.read_file(path) {
             Ok(c) => c,
             Err(e) => {
                 tracing::warn!("Cannot open file {}: {}", path.display(), e);
@@ -883,11 +884,12 @@ impl EditorTabs {
     pub fn save_active(&self, state: &Rc<RefCell<EditorState>>, root: &Path) {
         {
             let mut st = state.borrow_mut();
+            let backend = st.backend.clone();
             if let Some(idx) = st.active_tab {
                 if let Some(open_file) = st.open_files.get_mut(idx) {
                     let buf = &open_file.buffer;
                     let text = buf.text(&buf.start_iter(), &buf.end_iter(), false).to_string();
-                    if let Err(e) = std::fs::write(&open_file.path, &text) {
+                    if let Err(e) = backend.write_file(&open_file.path, &text) {
                         tracing::error!("Failed to save {}: {}", open_file.path.display(), e);
                         return;
                     }
@@ -946,7 +948,7 @@ impl EditorTabs {
     }
 
     /// Update gutter diff indicators for the active file.
-    pub fn update_gutter_marks(&self, root: &Path, state: &Rc<RefCell<EditorState>>) {
+    pub fn update_gutter_marks(&self, _root: &Path, state: &Rc<RefCell<EditorState>>) {
         use super::git_status::compute_diff;
 
         let st = state.borrow();
@@ -979,9 +981,10 @@ impl EditorTabs {
         buf.remove_tag_by_name("diff-modified", &start, &end);
 
         let file_path = open_file.path.clone();
+        let backend = st.backend.clone();
         drop(st);
 
-        let hunks = compute_diff(root, &file_path);
+        let hunks = compute_diff(&*backend, &file_path);
         let st = state.borrow();
         let open_file = match st.open_files.get(idx) {
             Some(f) => f,

@@ -315,6 +315,7 @@ impl CodeEditorPanel {
                     tabs_c.show_commit_diff(&root_c, hash);
                 }
             }),
+            backend.clone(),
         ));
 
         // File tree with context menu
@@ -347,6 +348,7 @@ impl CodeEditorPanel {
                     tabs_c.show_diff(&root_c, path);
                 }
             }),
+            backend.clone(),
         );
 
         // Project-wide search view

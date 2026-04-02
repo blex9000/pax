@@ -1,7 +1,9 @@
 use gtk4::prelude::*;
 use std::cell::RefCell;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::rc::Rc;
+
+use super::file_backend::FileBackend;
 
 /// Callback when a commit is clicked: (commit_hash)
 pub type OnCommitClick = Rc<dyn Fn(&str)>;
@@ -13,7 +15,7 @@ pub struct GitLogView {
     search_entry: gtk4::SearchEntry,
     #[allow(dead_code)]
     filter_label: gtk4::Label,
-    root_dir: PathBuf,
+    backend: Rc<dyn FileBackend>,
     on_commit_click: OnCommitClick,
     /// Current file filter (None = show all commits)
     file_filter: Rc<RefCell<Option<String>>>,
@@ -27,7 +29,7 @@ struct CommitEntry {
 }
 
 impl GitLogView {
-    pub fn new(root_dir: &Path, on_commit_click: OnCommitClick) -> Self {
+    pub fn new(_root_dir: &Path, on_commit_click: OnCommitClick, backend: Rc<dyn FileBackend>) -> Self {
         let container = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
 
         let header = gtk4::Label::new(Some("History"));
@@ -71,14 +73,14 @@ impl GitLogView {
             list_box,
             search_entry: search_entry.clone(),
             filter_label: filter_label.clone(),
-            root_dir: root_dir.to_path_buf(),
+            backend: backend.clone(),
             on_commit_click,
             file_filter: file_filter.clone(),
         };
 
         // Search on Enter or search-changed (debounced by GTK)
         {
-            let root = root_dir.to_path_buf();
+            let be = backend.clone();
             let lb = view.list_box.clone();
             let cb = view.on_commit_click.clone();
             let ff = file_filter.clone();
@@ -97,7 +99,7 @@ impl GitLogView {
                 } else {
                     fl.set_visible(false);
                 }
-                let commits = load_commits(&root, filter.as_deref());
+                let commits = load_commits(&*be, filter.as_deref());
                 populate_list(&lb, &commits, &cb);
             });
         }
@@ -109,7 +111,7 @@ impl GitLogView {
     /// Refresh the commit list.
     pub fn refresh(&self) {
         let filter = self.file_filter.borrow().clone();
-        let commits = load_commits(&self.root_dir, filter.as_deref());
+        let commits = load_commits(&*self.backend, filter.as_deref());
         populate_list(&self.list_box, &commits, &self.on_commit_click);
     }
 
@@ -125,27 +127,25 @@ impl GitLogView {
     }
 }
 
-fn load_commits(root: &Path, file_filter: Option<&str>) -> Vec<CommitEntry> {
-    let mut args = vec![
-        "log".to_string(),
-        format!("--format=%h\x1f%s\x1f%an\x1f%ar"),
-        "-200".to_string(),
-    ];
+fn load_commits(backend: &dyn FileBackend, file_filter: Option<&str>) -> Vec<CommitEntry> {
+    let mut args: Vec<&str> = vec!["log", "--format=%h\x1f%s\x1f%an\x1f%ar", "-200"];
+    let follow_str;
+    let dashdash_str;
+    let file_owned: String;
     if let Some(file) = file_filter {
-        args.push("--follow".to_string());
-        args.push("--".to_string());
-        args.push(file.to_string());
+        follow_str = "--follow";
+        dashdash_str = "--";
+        file_owned = file.to_string();
+        args.push(follow_str);
+        args.push(dashdash_str);
+        args.push(&file_owned);
     }
 
-    let output = std::process::Command::new("git")
-        .args(&args)
-        .current_dir(root)
-        .output();
+    let stdout = match backend.git_command(&args) {
+        Ok(s) => s,
+        Err(_) => return Vec::new(),
+    };
 
-    let Ok(output) = output else { return Vec::new() };
-    if !output.status.success() { return Vec::new(); }
-
-    let stdout = String::from_utf8_lossy(&output.stdout);
     stdout.lines().filter_map(|line| {
         let parts: Vec<&str> = line.splitn(4, '\x1f').collect();
         if parts.len() == 4 {

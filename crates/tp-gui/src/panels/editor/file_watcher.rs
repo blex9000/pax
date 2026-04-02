@@ -5,6 +5,7 @@ use std::path::Path;
 use std::rc::Rc;
 
 use super::EditorState;
+use super::file_backend::FileBackend;
 
 /// Start all file watchers. Call once during CodeEditorPanel construction.
 pub fn start_watchers(
@@ -13,17 +14,23 @@ pub fn start_watchers(
     on_tree_changed: Rc<dyn Fn()>,
     on_git_changed: Rc<dyn Fn(String)>,
 ) {
-    start_open_file_watcher(state.clone(), info_bar_container);
-    start_tree_watcher(state.clone(), on_tree_changed);
-    start_git_watcher(state, on_git_changed);
+    let backend = state.borrow().backend.clone();
+    let is_remote = backend.is_remote();
+
+    start_open_file_watcher(state.clone(), info_bar_container, backend.clone(), is_remote);
+    start_tree_watcher(state.clone(), on_tree_changed, backend.clone(), is_remote);
+    start_git_watcher(state, on_git_changed, backend, is_remote);
 }
 
-/// Watch open files for external changes (1s interval).
+/// Watch open files for external changes (1s local, 5s remote).
 fn start_open_file_watcher(
     state: Rc<RefCell<EditorState>>,
     info_bar_container: gtk4::Box,
+    backend: Rc<dyn FileBackend>,
+    is_remote: bool,
 ) {
-    glib::timeout_add_local(std::time::Duration::from_secs(1), move || {
+    let interval = if is_remote { 5 } else { 1 };
+    glib::timeout_add_local(std::time::Duration::from_secs(interval), move || {
         let mut st = state.borrow_mut();
         for open_file in &mut st.open_files {
             let current_mtime = get_mtime(&open_file.path);
@@ -31,14 +38,14 @@ fn start_open_file_watcher(
                 open_file.last_disk_mtime = current_mtime;
                 if !open_file.modified {
                     // Silent reload
-                    if let Ok(content) = std::fs::read_to_string(&open_file.path) {
+                    if let Ok(content) = backend.read_file(&open_file.path) {
                         open_file.buffer.set_text(&content);
                         open_file.buffer.set_enable_undo(false);
                         open_file.buffer.set_enable_undo(true);
                     }
                 } else {
                     // Show info bar for conflict
-                    show_conflict_bar(&info_bar_container, &open_file.path, &open_file.buffer);
+                    show_conflict_bar(&info_bar_container, &open_file.path, &open_file.buffer, backend.clone());
                 }
             }
         }
@@ -46,15 +53,18 @@ fn start_open_file_watcher(
     });
 }
 
-/// Watch file tree for structural changes (2s interval).
+/// Watch file tree for structural changes (2s local, 30s remote).
 fn start_tree_watcher(
     state: Rc<RefCell<EditorState>>,
     on_changed: Rc<dyn Fn()>,
+    _backend: Rc<dyn FileBackend>,
+    is_remote: bool,
 ) {
     let last_hash = Rc::new(Cell::new(0u64));
-    glib::timeout_add_local(std::time::Duration::from_secs(2), move || {
+    let interval = if is_remote { 30 } else { 2 };
+    glib::timeout_add_local(std::time::Duration::from_secs(interval), move || {
         let root = state.borrow().root_dir.clone();
-        let hash = dir_hash(&root);
+        let hash = dir_hash(&root, is_remote);
         if hash != last_hash.get() {
             last_hash.set(hash);
             on_changed();
@@ -63,21 +73,17 @@ fn start_tree_watcher(
     });
 }
 
-/// Watch git status (3s interval).
+/// Watch git status (3s local, 15s remote).
 fn start_git_watcher(
-    state: Rc<RefCell<EditorState>>,
+    _state: Rc<RefCell<EditorState>>,
     on_changed: Rc<dyn Fn(String)>,
+    backend: Rc<dyn FileBackend>,
+    is_remote: bool,
 ) {
     let last_output = Rc::new(RefCell::new(String::new()));
-    glib::timeout_add_local(std::time::Duration::from_secs(3), move || {
-        let root = state.borrow().root_dir.clone();
-        if let Ok(output) = std::process::Command::new("git")
-            .arg("status")
-            .arg("--porcelain")
-            .current_dir(&root)
-            .output()
-        {
-            let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+    let interval = if is_remote { 15 } else { 3 };
+    glib::timeout_add_local(std::time::Duration::from_secs(interval), move || {
+        if let Ok(stdout) = backend.git_command(&["status", "--porcelain"]) {
             if stdout != *last_output.borrow() {
                 *last_output.borrow_mut() = stdout.clone();
                 on_changed(stdout);
@@ -88,7 +94,7 @@ fn start_git_watcher(
 }
 
 #[allow(deprecated)]
-fn show_conflict_bar(container: &gtk4::Box, path: &Path, buffer: &sourceview5::Buffer) {
+fn show_conflict_bar(container: &gtk4::Box, path: &Path, buffer: &sourceview5::Buffer, backend: Rc<dyn FileBackend>) {
     // Remove any existing info bar
     while let Some(child) = container.first_child() {
         container.remove(&child);
@@ -112,7 +118,7 @@ fn show_conflict_bar(container: &gtk4::Box, path: &Path, buffer: &sourceview5::B
     let container_c = container.clone();
     bar.connect_response(move |bar, response| {
         if response == gtk4::ResponseType::Accept {
-            if let Ok(content) = std::fs::read_to_string(&path_c) {
+            if let Ok(content) = backend.read_file(&path_c) {
                 buf_c.set_text(&content);
                 buf_c.set_enable_undo(false);
                 buf_c.set_enable_undo(true);
@@ -140,7 +146,12 @@ fn get_mtime(path: &Path) -> u64 {
 }
 
 /// Quick hash of directory structure (paths + mtimes) for change detection.
-fn dir_hash(dir: &Path) -> u64 {
+/// For remote backends, skip the expensive dir traversal — return 0 (rely on git status only).
+fn dir_hash(dir: &Path, is_remote: bool) -> u64 {
+    if is_remote {
+        return 0;
+    }
+
     use std::collections::hash_map::DefaultHasher;
     use std::hash::{Hash, Hasher};
 

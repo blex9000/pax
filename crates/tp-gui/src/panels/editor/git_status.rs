@@ -2,6 +2,8 @@ use gtk4::prelude::*;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
+use super::file_backend::FileBackend;
+
 /// Callback when a changed file is clicked (to show diff).
 pub type OnDiffOpen = Rc<dyn Fn(&Path, &str)>; // (path, git_status_char)
 
@@ -15,6 +17,7 @@ pub struct GitStatusView {
     commit_btn: gtk4::Button,
     root_dir: PathBuf,
     on_diff_open: OnDiffOpen,
+    backend: Rc<dyn FileBackend>,
 }
 
 #[derive(Debug, Clone)]
@@ -25,7 +28,7 @@ struct GitFileEntry {
 }
 
 impl GitStatusView {
-    pub fn new(root_dir: &Path, on_diff_open: OnDiffOpen) -> Self {
+    pub fn new(root_dir: &Path, on_diff_open: OnDiffOpen, backend: Rc<dyn FileBackend>) -> Self {
         let container = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
 
         let header = gtk4::Label::new(Some("Changes"));
@@ -73,25 +76,18 @@ impl GitStatusView {
 
         // Commit action
         {
-            let root = root_dir.to_path_buf();
+            let be = backend.clone();
             let entry = commit_entry.clone();
             commit_btn.connect_clicked(move |_btn| {
                 let msg = entry.text().to_string();
                 if msg.is_empty() { return; }
-                let output = std::process::Command::new("git")
-                    .args(["commit", "-m", &msg])
-                    .current_dir(&root)
-                    .output();
-                match output {
-                    Ok(o) if o.status.success() => {
+                match be.git_command(&["commit", "-m", &msg]) {
+                    Ok(_) => {
                         entry.set_text("");
                         tracing::info!("Committed: {}", msg);
                     }
-                    Ok(o) => {
-                        tracing::warn!("git commit failed: {}", String::from_utf8_lossy(&o.stderr));
-                    }
                     Err(e) => {
-                        tracing::error!("git commit error: {}", e);
+                        tracing::warn!("git commit failed: {}", e);
                     }
                 }
             });
@@ -104,6 +100,7 @@ impl GitStatusView {
             commit_btn,
             root_dir: root_dir.to_path_buf(),
             on_diff_open,
+            backend,
         };
 
         // Initial population
@@ -115,17 +112,10 @@ impl GitStatusView {
     /// Refresh by running git status.
     pub fn refresh(&self) {
         tracing::info!("GitStatusView::refresh() root_dir={}", self.root_dir.display());
-        let output = std::process::Command::new("git")
-            .args(["status", "--porcelain"])
-            .current_dir(&self.root_dir)
-            .output();
-        match &output {
-            Ok(o) => {
-                tracing::info!("git status exit={} stdout_len={}", o.status, o.stdout.len());
-                if o.status.success() {
-                    let stdout = String::from_utf8_lossy(&o.stdout).to_string();
-                    self.update(&stdout);
-                }
+        match self.backend.git_command(&["status", "--porcelain"]) {
+            Ok(stdout) => {
+                tracing::info!("git status stdout_len={}", stdout.len());
+                self.update(&stdout);
             }
             Err(e) => {
                 tracing::error!("git status failed: {}", e);
@@ -206,12 +196,9 @@ impl GitStatusView {
                 btn.add_css_class("flat");
                 btn.set_tooltip_text(Some("Unstage — remove this file from the next commit"));
                 let path = entry.path.clone();
-                let root = self.root_dir.clone();
+                let be = self.backend.clone();
                 btn.connect_clicked(move |_| {
-                    let _ = std::process::Command::new("git")
-                        .args(["restore", "--staged", &path.to_string_lossy()])
-                        .current_dir(&root)
-                        .output();
+                    let _ = be.git_command(&["restore", "--staged", &path.to_string_lossy()]);
                 });
                 top_row.append(&btn);
             } else {
@@ -219,12 +206,9 @@ impl GitStatusView {
                 btn.add_css_class("flat");
                 btn.set_tooltip_text(Some("Stage — add this file to the next commit"));
                 let path = entry.path.clone();
-                let root = self.root_dir.clone();
+                let be = self.backend.clone();
                 btn.connect_clicked(move |_| {
-                    let _ = std::process::Command::new("git")
-                        .args(["add", &path.to_string_lossy()])
-                        .current_dir(&root)
-                        .output();
+                    let _ = be.git_command(&["add", &path.to_string_lossy()]);
                 });
                 top_row.append(&btn);
             }
@@ -270,20 +254,15 @@ pub struct DiffHunk {
 }
 
 /// Get diff hunks for a file using the `similar` crate.
-pub fn compute_diff(root: &Path, file_path: &Path) -> Vec<DiffHunk> {
+pub fn compute_diff(backend: &dyn FileBackend, file_path: &Path) -> Vec<DiffHunk> {
     // Get HEAD version
+    let root = backend.root();
     let rel = file_path.strip_prefix(root).unwrap_or(file_path);
-    let old_content = std::process::Command::new("git")
-        .args(["show", &format!("HEAD:{}", rel.to_string_lossy())])
-        .current_dir(root)
-        .output()
-        .ok()
-        .filter(|o| o.status.success())
-        .map(|o| String::from_utf8_lossy(&o.stdout).to_string())
+    let old_content = backend.git_show(&format!("HEAD:{}", rel.to_string_lossy()))
         .unwrap_or_default();
 
     // Get working version
-    let new_content = std::fs::read_to_string(file_path).unwrap_or_default();
+    let new_content = backend.read_file(file_path).unwrap_or_default();
 
     let diff = similar::TextDiff::from_lines(&old_content, &new_content);
     let mut hunks = Vec::new();
@@ -344,8 +323,8 @@ pub fn compute_diff(root: &Path, file_path: &Path) -> Vec<DiffHunk> {
 }
 
 /// Revert a single hunk by restoring old lines at the hunk position.
-pub fn revert_hunk(file_path: &Path, hunk: &DiffHunk) -> Result<(), String> {
-    let content = std::fs::read_to_string(file_path)
+pub fn revert_hunk(backend: &dyn FileBackend, file_path: &Path, hunk: &DiffHunk) -> Result<(), String> {
+    let content = backend.read_file(file_path)
         .map_err(|e| format!("Cannot read file: {}", e))?;
     let lines: Vec<&str> = content.lines().collect();
 
@@ -379,6 +358,6 @@ pub fn revert_hunk(file_path: &Path, hunk: &DiffHunk) -> Result<(), String> {
     }
 
     let output = result.join("\n");
-    std::fs::write(file_path, &output)
+    backend.write_file(file_path, &output)
         .map_err(|e| format!("Cannot write file: {}", e))
 }
