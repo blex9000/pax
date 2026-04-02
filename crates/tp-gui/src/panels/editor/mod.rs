@@ -339,12 +339,22 @@ impl CodeEditorPanel {
             let fuzzy_finder_ref = Rc::new(fuzzy_finder);
             let git_btn_ref = git_btn.clone();
             let search_btn_ref = search_btn.clone();
+            let save_backend = backend.clone();
+            let save_git_btn = git_btn.clone();
             key_ctrl.connect_key_pressed(move |_, key, _, modifier| {
                 if modifier.contains(gtk4::gdk::ModifierType::CONTROL_MASK) {
                     match key {
                         gtk4::gdk::Key::s => {
                             let root = state_c.borrow().root_dir.clone();
                             tabs_ref.save_active(&state_c, &root);
+                            // Refresh git indicator after save
+                            if let Ok(stdout) = save_backend.git_command(&["status", "--porcelain"]) {
+                                if stdout.trim().is_empty() {
+                                    save_git_btn.remove_css_class("git-has-changes");
+                                } else {
+                                    save_git_btn.add_css_class("git-has-changes");
+                                }
+                            }
                             return gtk4::glib::Propagation::Stop;
                         }
                         gtk4::gdk::Key::w => {
