@@ -134,57 +134,145 @@ impl FileTree {
                 let path = entry.path.clone();
                 let rel = path.strip_prefix(&root).unwrap_or(&path).to_path_buf();
 
-                // Build popover menu
                 let menu_box = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
                 menu_box.set_margin_top(4);
                 menu_box.set_margin_bottom(4);
-                menu_box.set_margin_start(4);
-                menu_box.set_margin_end(4);
 
-                // Copy Path
-                let copy_btn = gtk4::Button::with_label("Copy Path");
-                copy_btn.add_css_class("flat");
+                let make_item = |icon: &str, label: &str| -> gtk4::Button {
+                    let btn = gtk4::Button::new();
+                    btn.add_css_class("flat");
+                    let content = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
+                    content.set_margin_start(4);
+                    content.set_margin_end(8);
+                    let img = gtk4::Image::from_icon_name(icon);
+                    img.set_pixel_size(16);
+                    content.append(&img);
+                    let lbl = gtk4::Label::new(Some(label));
+                    lbl.set_halign(gtk4::Align::Start);
+                    content.append(&lbl);
+                    btn.set_child(Some(&content));
+                    btn
+                };
+
+                // ── Clipboard ──
+                let copy_rel = make_item("edit-copy-symbolic", "Copy Relative Path");
                 {
                     let rel_str = rel.to_string_lossy().to_string();
-                    copy_btn.connect_clicked(move |btn| {
-                        if let Some(display) = gtk4::gdk::Display::default() {
-                            display.clipboard().set_text(&rel_str);
-                        }
+                    copy_rel.connect_clicked(move |btn| {
+                        if let Some(d) = gtk4::gdk::Display::default() { d.clipboard().set_text(&rel_str); }
                         if let Some(p) = btn.ancestor(gtk4::Popover::static_type()) {
                             p.downcast_ref::<gtk4::Popover>().unwrap().popdown();
                         }
                     });
                 }
-                menu_box.append(&copy_btn);
+                menu_box.append(&copy_rel);
 
-                // Git History
-                if let Some(ref ctx) = ctx_cb {
-                    let history_btn = gtk4::Button::with_label("Git History");
-                    history_btn.add_css_class("flat");
-                    let cb = ctx.clone();
+                let copy_abs = make_item("edit-copy-symbolic", "Copy Absolute Path");
+                {
+                    let abs_str = path.to_string_lossy().to_string();
+                    copy_abs.connect_clicked(move |btn| {
+                        if let Some(d) = gtk4::gdk::Display::default() { d.clipboard().set_text(&abs_str); }
+                        if let Some(p) = btn.ancestor(gtk4::Popover::static_type()) {
+                            p.downcast_ref::<gtk4::Popover>().unwrap().popdown();
+                        }
+                    });
+                }
+                menu_box.append(&copy_abs);
+
+                menu_box.append(&gtk4::Separator::new(gtk4::Orientation::Horizontal));
+
+                // ── File operations ──
+                let rename_btn = make_item("document-edit-symbolic", "Rename");
+                {
                     let p = path.clone();
-                    history_btn.connect_clicked(move |btn| {
-                        cb("git-history", &p);
+                    rename_btn.connect_clicked(move |btn| {
+                        // Close popover first
+                        if let Some(pop) = btn.ancestor(gtk4::Popover::static_type()) {
+                            pop.downcast_ref::<gtk4::Popover>().unwrap().popdown();
+                        }
+                        // Show a small rename dialog
+                        let dialog = gtk4::Window::builder()
+                            .title("Rename")
+                            .modal(true)
+                            .default_width(350)
+                            .default_height(80)
+                            .build();
+                        let vbox = gtk4::Box::new(gtk4::Orientation::Vertical, 8);
+                        vbox.set_margin_top(12);
+                        vbox.set_margin_bottom(12);
+                        vbox.set_margin_start(12);
+                        vbox.set_margin_end(12);
+                        let entry = gtk4::Entry::new();
+                        let current_name = p.file_name().unwrap_or_default().to_string_lossy().to_string();
+                        entry.set_text(&current_name);
+                        vbox.append(&entry);
+                        let ok_btn = gtk4::Button::with_label("Rename");
+                        ok_btn.add_css_class("suggested-action");
+                        let pp = p.clone();
+                        let d = dialog.clone();
+                        ok_btn.connect_clicked(move |_| {
+                            let new_name = entry.text().to_string();
+                            if !new_name.is_empty() && new_name != current_name {
+                                let dest = pp.with_file_name(&new_name);
+                                let _ = std::fs::rename(&pp, &dest);
+                            }
+                            d.close();
+                        });
+                        vbox.append(&ok_btn);
+                        dialog.set_child(Some(&vbox));
+                        dialog.present();
+                    });
+                }
+                menu_box.append(&rename_btn);
+
+                let dup_btn = make_item("document-save-as-symbolic", "Duplicate File");
+                {
+                    let p = path.clone();
+                    dup_btn.connect_clicked(move |btn| {
+                        if let Some(ext) = p.extension() {
+                            let stem = p.file_stem().unwrap_or_default().to_string_lossy();
+                            let new_name = format!("{}_copy.{}", stem, ext.to_string_lossy());
+                            let dest = p.with_file_name(new_name);
+                            let _ = std::fs::copy(&p, &dest);
+                        } else {
+                            let name = p.file_name().unwrap_or_default().to_string_lossy();
+                            let dest = p.with_file_name(format!("{}_copy", name));
+                            let _ = std::fs::copy(&p, &dest);
+                        }
                         if let Some(pop) = btn.ancestor(gtk4::Popover::static_type()) {
                             pop.downcast_ref::<gtk4::Popover>().unwrap().popdown();
                         }
                     });
-                    menu_box.append(&history_btn);
                 }
+                menu_box.append(&dup_btn);
 
-                // Delete
-                let delete_btn = gtk4::Button::with_label("Delete");
-                delete_btn.add_css_class("flat");
+                let del_btn = make_item("user-trash-symbolic", "Delete File");
                 {
                     let p = path.clone();
-                    delete_btn.connect_clicked(move |btn| {
+                    del_btn.connect_clicked(move |btn| {
                         let _ = std::fs::remove_file(&p);
                         if let Some(pop) = btn.ancestor(gtk4::Popover::static_type()) {
                             pop.downcast_ref::<gtk4::Popover>().unwrap().popdown();
                         }
                     });
                 }
-                menu_box.append(&delete_btn);
+                menu_box.append(&del_btn);
+
+                menu_box.append(&gtk4::Separator::new(gtk4::Orientation::Horizontal));
+
+                // ── Git ──
+                if let Some(ref ctx) = ctx_cb {
+                    let hist_btn = make_item("document-open-recent-symbolic", "Git History");
+                    let cb = ctx.clone();
+                    let p = path.clone();
+                    hist_btn.connect_clicked(move |btn| {
+                        cb("git-history", &p);
+                        if let Some(pop) = btn.ancestor(gtk4::Popover::static_type()) {
+                            pop.downcast_ref::<gtk4::Popover>().unwrap().popdown();
+                        }
+                    });
+                    menu_box.append(&hist_btn);
+                }
 
                 let popover = gtk4::Popover::new();
                 popover.set_child(Some(&menu_box));
