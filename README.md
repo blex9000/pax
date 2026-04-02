@@ -22,15 +22,30 @@ Funzionalità principali:
 
 Download
 
+Linux (AppImage)
+
 L'AppImage è il modo più rapido per provare Pax su Linux senza installare dipendenze:
 
-1. Scarica `Pax-x86_64.AppImage` dall'ultima [GitHub Release](https://github.com/blex9000/pax/releases/latest)
+1. Scarica `Pax-x86_64.AppImage` dall'ultima [GitHub Release](https://github.com/blex9000/pax/releases/latest) o dalla pagina [Actions](https://github.com/blex9000/pax/actions) (sezione Artifacts nel Summary della build)
 2. Rendi eseguibile e avvia:
 
 ─── bash ───
 chmod +x Pax-x86_64.AppImage
 ./Pax-x86_64.AppImage
 ───────
+
+macOS (app bundle)
+
+1. Scarica `Pax-macos-arm64.tar.gz` dalla pagina [Actions](https://github.com/blex9000/pax/actions) (sezione Artifacts nel Summary della build)
+2. Estrai e avvia:
+
+─── bash ───
+tar xzf Pax-macos-arm64.tar.gz
+xattr -cr Pax.app    # rimuove il blocco Gatekeeper (app non firmata)
+open Pax.app
+───────
+
+Nota: la build macOS non include VTE (terminale nativo Linux). Il terminale usa un fallback PTY con funzionalità ridotte. L'app non è firmata con certificato Apple, quindi `xattr -cr` è necessario al primo avvio.
 
 L'AppImage include tutte le dipendenze GTK4/libadwaita/VTE4. Funziona su qualsiasi distro Linux x86_64 recente.
 
