@@ -44,6 +44,8 @@ pub struct OpenFile {
     pub buffer: sourceview5::Buffer,
     pub modified: bool,
     pub last_disk_mtime: u64,
+    /// Original content for accurate dirty detection (content on disk at open/save time).
+    pub saved_content: Rc<RefCell<String>>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]

@@ -490,11 +490,13 @@ impl EditorTabs {
         // Add to state
         let idx = {
             let mut st = state.borrow_mut();
+            let saved_content = Rc::new(RefCell::new(content.clone()));
             st.open_files.push(super::OpenFile {
                 path: path.to_path_buf(),
                 buffer: buf.clone(),
                 modified: false,
                 last_disk_mtime: mtime,
+                saved_content: saved_content.clone(),
             });
             st.active_tab = Some(st.open_files.len() - 1);
             st.open_files.len() - 1
@@ -506,13 +508,16 @@ impl EditorTabs {
             let dot_c = dot.clone();
             let mod_label = self.status_modified.clone();
             let path_for_dirty = path.to_path_buf();
-            buf.connect_changed(move |_buf| {
-                // Mark as modified on any edit
-                dot_c.set_text("\u{25CF} ");
-                mod_label.set_text("\u{25CF} Modified");
+            // Compare buffer content against saved content for accurate dirty detection
+            let saved_for_changed = state.borrow().open_files[idx].saved_content.clone();
+            buf.connect_changed(move |buf| {
+                let current = buf.text(&buf.start_iter(), &buf.end_iter(), false).to_string();
+                let is_dirty = current != *saved_for_changed.borrow();
+                dot_c.set_text(if is_dirty { "\u{25CF} " } else { "" });
+                mod_label.set_text(if is_dirty { "\u{25CF} Modified" } else { "" });
                 if let Ok(mut st) = state_c.try_borrow_mut() {
                     if let Some(file_idx) = st.open_files.iter().position(|f| f.path == path_for_dirty) {
-                        st.open_files[file_idx].modified = true;
+                        st.open_files[file_idx].modified = is_dirty;
                     }
                 }
             });
@@ -892,8 +897,8 @@ impl EditorTabs {
                     }
                     open_file.modified = false;
                     open_file.last_disk_mtime = get_mtime(&open_file.path);
-                    buf.set_enable_undo(false);
-                    buf.set_enable_undo(true);
+                    // Update saved content so dirty detection compares against new save
+                    *open_file.saved_content.borrow_mut() = text;
                     // Clear the modified indicator in tab and status bar
                     if let Some(page) = self.notebook.nth_page(Some(idx as u32)) {
                         if let Some(tab_label) = self.notebook.tab_label(&page) {
@@ -909,7 +914,6 @@ impl EditorTabs {
             }
         }
         self.status_modified.set_text("");
-        self.update_gutter_marks(root, state);
     }
 
     /// Close the active tab. If modified, save first then close.
