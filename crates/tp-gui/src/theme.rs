@@ -240,9 +240,12 @@ paned > separator { min-width: 1px; min-height: 1px; }
 .dirty-indicator { color: #ff8c00; }
 .editor-tabs { border-bottom: 1px solid alpha(@borders, 0.3); }
 .editor-sidebar { border-right: 1px solid alpha(@borders, 0.3); }
-popover > contents { background-color: @popover_bg_color; color: @popover_fg_color; }
-popover modelbutton, popover .flat { color: @popover_fg_color; }
-menu, menuitem { background-color: @popover_bg_color; color: @popover_fg_color; }
+popover, popover > contents, popover > box, popover > stack { background-color: @popover_bg_color; color: @popover_fg_color; }
+popover label, popover button, popover .flat, popover modelbutton { color: @popover_fg_color; }
+popover separator { background-color: @borders; }
+.popup, .context-menu { background-color: @popover_bg_color; color: @popover_fg_color; }
+menu, menu menuitem { background-color: @popover_bg_color; color: @popover_fg_color; }
+menu menuitem:hover { background-color: @accent_bg_color; color: @accent_fg_color; }
 ";
 
 const CATPPUCCIN_MOCHA_CSS: &str = "\
