@@ -31,9 +31,10 @@ pub struct EditorState {
     pub active_tab: Option<usize>,
     pub sidebar_visible: bool,
     pub sidebar_mode: SidebarMode,
-    /// True when editing a remote project via SSHFS.
-    /// Watchers use longer intervals and file tree avoids deep traversal.
-    pub is_remote: bool,
+    /// File backend — Local for local projects, SSH for remote.
+    /// Shared by all components (file_tree, editor_tabs, git, search, watchers).
+    /// Designed for easy swap to a future Agent-based backend.
+    pub backend: Rc<dyn file_backend::FileBackend>,
 }
 
 #[cfg(feature = "sourceview")]
@@ -108,13 +109,16 @@ impl CodeEditorPanel {
 
         let widget = container.clone().upcast::<gtk4::Widget>();
 
+        let backend: Rc<dyn file_backend::FileBackend> = Rc::new(
+            file_backend::LocalFileBackend::new(&PathBuf::from(remote_path))
+        );
         let state = Rc::new(RefCell::new(EditorState {
             root_dir: PathBuf::from(remote_path),
             open_files: Vec::new(),
             active_tab: None,
             sidebar_visible: true,
             sidebar_mode: SidebarMode::Files,
-            is_remote: true,
+            backend,
         }));
 
         // Spawn SSHFS in background
@@ -192,7 +196,8 @@ impl CodeEditorPanel {
                     Ok(()) => {
                         tracing::info!("SSHFS mounted successfully");
                         // Now build the full editor on the mounted directory
-                        let editor = Self::new_inner(&mount_dir_ref.to_string_lossy());
+                        let backend = Rc::new(file_backend::LocalFileBackend::new(&mount_dir_ref));
+                        let editor = Self::new_with_backend(&mount_dir_ref.to_string_lossy(), backend);
                         let editor_widget = editor.widget().clone();
                         editor_widget.set_vexpand(true);
                         editor_widget.set_hexpand(true);
@@ -230,20 +235,21 @@ impl CodeEditorPanel {
     }
 
     pub fn new(root_dir: &str) -> Self {
-        let mut panel = Self::new_inner(root_dir);
+        let backend = Rc::new(file_backend::LocalFileBackend::new(&PathBuf::from(root_dir)));
+        let mut panel = Self::new_with_backend(root_dir, backend);
         panel.sshfs_mount = None;
         panel.ssh_info = None;
         panel
     }
 
-    fn new_inner(root_dir: &str) -> Self {
+    fn new_with_backend(root_dir: &str, backend: Rc<dyn file_backend::FileBackend>) -> Self {
         let state = Rc::new(RefCell::new(EditorState {
             root_dir: PathBuf::from(root_dir),
             open_files: Vec::new(),
             active_tab: None,
             sidebar_visible: true,
             sidebar_mode: SidebarMode::Files,
-            is_remote: false,
+            backend: backend.clone(),
         }));
 
         let tabs = editor_tabs::EditorTabs::new(state.clone());

@@ -17,6 +17,10 @@ pub struct DirEntry {
 }
 
 /// Abstraction over local and remote file operations.
+///
+/// Designed to be implementation-agnostic: currently backed by Local (std::fs)
+/// and SSH (shell commands), but the trait is ready for a future Agent-based
+/// backend that runs a binary on the remote host for faster batch operations.
 pub trait FileBackend: std::fmt::Debug {
     /// List entries in a directory (files and subdirectories).
     fn list_dir(&self, path: &Path) -> Result<Vec<DirEntry>, String>;
@@ -30,14 +34,57 @@ pub trait FileBackend: std::fmt::Debug {
     /// Check if a file or directory exists.
     fn file_exists(&self, path: &Path) -> bool;
 
+    /// Delete a file.
+    fn delete_file(&self, path: &Path) -> Result<(), String>;
+
+    /// Rename/move a file.
+    fn rename_file(&self, from: &Path, to: &Path) -> Result<(), String>;
+
+    /// Copy a file.
+    fn copy_file(&self, from: &Path, to: &Path) -> Result<(), String>;
+
+    /// Create a directory (and parents).
+    fn create_dir(&self, path: &Path) -> Result<(), String>;
+
     /// Run a git command in the project root. Returns stdout.
     fn git_command(&self, args: &[&str]) -> Result<String, String>;
+
+    /// Get file content at a specific git ref (e.g. "HEAD:path/file.rs").
+    fn git_show(&self, spec: &str) -> Result<String, String> {
+        self.git_command(&["show", spec])
+    }
+
+    /// Search files for a pattern. Returns Vec<(relative_path, line_number, line_content)>.
+    /// Default uses git grep; backends can override for non-git projects.
+    fn search_files(&self, pattern: &str) -> Result<Vec<(String, usize, String)>, String> {
+        let output = self.git_command(&["grep", "-n", "--no-color", pattern])?;
+        let mut results = Vec::new();
+        for line in output.lines() {
+            // format: path:line_num:content
+            if let Some(colon1) = line.find(':') {
+                let path = &line[..colon1];
+                let rest = &line[colon1 + 1..];
+                if let Some(colon2) = rest.find(':') {
+                    if let Ok(line_num) = rest[..colon2].parse::<usize>() {
+                        let content = &rest[colon2 + 1..];
+                        results.push((path.to_string(), line_num, content.to_string()));
+                    }
+                }
+            }
+        }
+        Ok(results)
+    }
 
     /// Root directory of the project (local path or remote path).
     fn root(&self) -> &Path;
 
     /// Whether this is a remote backend.
     fn is_remote(&self) -> bool;
+
+    /// Backend type identifier (for logging/UI).
+    fn backend_type(&self) -> &str {
+        if self.is_remote() { "ssh" } else { "local" }
+    }
 }
 
 // ── Local Backend ───────────────────────────────────────────────────────────
@@ -80,6 +127,22 @@ impl FileBackend for LocalFileBackend {
 
     fn file_exists(&self, path: &Path) -> bool {
         path.exists()
+    }
+
+    fn delete_file(&self, path: &Path) -> Result<(), String> {
+        std::fs::remove_file(path).map_err(|e| e.to_string())
+    }
+
+    fn rename_file(&self, from: &Path, to: &Path) -> Result<(), String> {
+        std::fs::rename(from, to).map_err(|e| e.to_string())
+    }
+
+    fn copy_file(&self, from: &Path, to: &Path) -> Result<(), String> {
+        std::fs::copy(from, to).map(|_| ()).map_err(|e| e.to_string())
+    }
+
+    fn create_dir(&self, path: &Path) -> Result<(), String> {
+        std::fs::create_dir_all(path).map_err(|e| e.to_string())
     }
 
     fn git_command(&self, args: &[&str]) -> Result<String, String> {
@@ -260,6 +323,22 @@ impl FileBackend for SshFileBackend {
         self.ssh_exec(&format!("test -e '{}' && echo yes", path.to_string_lossy()))
             .map(|s| s.trim() == "yes")
             .unwrap_or(false)
+    }
+
+    fn delete_file(&self, path: &Path) -> Result<(), String> {
+        self.ssh_exec(&format!("rm -f '{}'", path.to_string_lossy())).map(|_| ())
+    }
+
+    fn rename_file(&self, from: &Path, to: &Path) -> Result<(), String> {
+        self.ssh_exec(&format!("mv '{}' '{}'", from.to_string_lossy(), to.to_string_lossy())).map(|_| ())
+    }
+
+    fn copy_file(&self, from: &Path, to: &Path) -> Result<(), String> {
+        self.ssh_exec(&format!("cp '{}' '{}'", from.to_string_lossy(), to.to_string_lossy())).map(|_| ())
+    }
+
+    fn create_dir(&self, path: &Path) -> Result<(), String> {
+        self.ssh_exec(&format!("mkdir -p '{}'", path.to_string_lossy())).map(|_| ())
     }
 
     fn git_command(&self, args: &[&str]) -> Result<String, String> {
