@@ -240,6 +240,9 @@ paned > separator { min-width: 1px; min-height: 1px; }
 .dirty-indicator { color: #ff8c00; }
 .editor-tabs { border-bottom: 1px solid alpha(@borders, 0.3); }
 .editor-sidebar { border-right: 1px solid alpha(@borders, 0.3); }
+popover > contents { background-color: @popover_bg_color; color: @popover_fg_color; }
+popover modelbutton, popover .flat { color: @popover_fg_color; }
+menu, menuitem { background-color: @popover_bg_color; color: @popover_fg_color; }
 ";
 
 const CATPPUCCIN_MOCHA_CSS: &str = "\
