@@ -24,8 +24,16 @@ pub fn panel_type_to_create_config(pt: &PanelType, default_shell: &str, workspac
         PanelType::Browser { url } => {
             extra.insert("url".to_string(), url.clone());
         }
-        PanelType::CodeEditor { root_dir, .. } => {
+        PanelType::CodeEditor { root_dir, ssh, remote_path } => {
             extra.insert("root_dir".to_string(), root_dir.clone());
+            if let Some(ref ssh_cfg) = ssh {
+                extra.insert("ssh_host".to_string(), ssh_cfg.host.clone());
+                if let Some(ref u) = ssh_cfg.user { extra.insert("ssh_user".to_string(), u.clone()); }
+                if let Some(ref p) = ssh_cfg.password { extra.insert("ssh_password".to_string(), p.clone()); }
+                if let Some(ref k) = ssh_cfg.identity_file { extra.insert("ssh_identity".to_string(), k.clone()); }
+                extra.insert("ssh_port".to_string(), ssh_cfg.port.to_string());
+            }
+            if let Some(ref rp) = remote_path { extra.insert("remote_path".to_string(), rp.clone()); }
         }
         _ => {}
     }

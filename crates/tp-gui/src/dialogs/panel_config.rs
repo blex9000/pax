@@ -24,7 +24,7 @@ pub fn show_panel_config_dialog(
         }
         PanelType::Markdown { file } => show_markdown_config(parent, panel_name, file, min_width, min_height, on_done),
         PanelType::Browser { url } => show_browser_config(parent, panel_name, url, min_width, min_height, on_done),
-        PanelType::CodeEditor { root_dir, .. } => show_code_editor_config(parent, panel_name, root_dir, min_width, min_height, on_done),
+        PanelType::CodeEditor { root_dir, ssh: editor_ssh, remote_path } => show_code_editor_config(parent, panel_name, root_dir, editor_ssh.as_ref(), remote_path.as_deref(), min_width, min_height, on_done),
         PanelType::Empty => {}
     }
 }
@@ -689,6 +689,8 @@ fn show_code_editor_config(
     parent: &impl IsA<gtk4::Window>,
     panel_name: &str,
     root_dir: &str,
+    existing_ssh: Option<&pax_core::workspace::SshConfig>,
+    existing_remote_path: Option<&str>,
     min_width: u32,
     min_height: u32,
     on_done: impl Fn(String, PanelType, Option<String>, Option<SshConfig>, Vec<String>, Option<String>, u32, u32) + 'static,
@@ -742,14 +744,15 @@ fn show_code_editor_config(
     // ── SSH / Remote section ──
     vbox.append(&gtk4::Separator::new(gtk4::Orientation::Horizontal));
 
+    let has_ssh = existing_ssh.is_some();
     let ssh_toggle = gtk4::Switch::new();
-    ssh_toggle.set_active(false);
+    ssh_toggle.set_active(has_ssh);
     ssh_toggle.set_valign(gtk4::Align::Center);
 
     let ssh_header_row = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
     ssh_header_row.set_margin_top(8);
     ssh_header_row.set_margin_bottom(4);
-    let ssh_header = gtk4::Label::new(Some("Remote (SSH)"));
+    let ssh_header = gtk4::Label::new(Some("Remote (SSHFS)"));
     ssh_header.add_css_class("heading");
     ssh_header.set_halign(gtk4::Align::Start);
     ssh_header.set_hexpand(true);
@@ -759,17 +762,19 @@ fn show_code_editor_config(
 
     let ssh_fields = gtk4::Box::new(gtk4::Orientation::Vertical, 4);
     ssh_fields.set_margin_start(0);
-    ssh_fields.set_visible(false);
+    ssh_fields.set_visible(has_ssh);
 
-    let ssh_hint = gtk4::Label::new(Some("Edit remote files via SSHFS. Requires sshfs installed."));
+    let ssh_hint = gtk4::Label::new(Some("Mount remote directory via SSHFS. Requires: sshfs (Linux) or macfuse+sshfs (macOS)."));
     ssh_hint.add_css_class("dim-label");
     ssh_hint.add_css_class("caption");
     ssh_hint.set_halign(gtk4::Align::Start);
     ssh_hint.set_margin_bottom(4);
     ssh_fields.append(&ssh_hint);
 
-    let ssh_host_entry = add_field(&ssh_fields, "SSH Host:", "", "server.example.com");
-    let ssh_user_entry = add_field(&ssh_fields, "User:", "", "root");
+    let ssh_host_entry = add_field(&ssh_fields, "SSH Host:",
+        existing_ssh.map(|s| s.host.as_str()).unwrap_or(""), "server.example.com");
+    let ssh_user_entry = add_field(&ssh_fields, "User:",
+        existing_ssh.and_then(|s| s.user.as_deref()).unwrap_or(""), "root");
     let ssh_pass_entry = {
         let row = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
         let label = gtk4::Label::new(Some("Password:"));
@@ -778,13 +783,18 @@ fn show_code_editor_config(
         let entry = gtk4::PasswordEntry::new();
         entry.set_show_peek_icon(true);
         entry.set_hexpand(true);
+        if let Some(p) = existing_ssh.and_then(|s| s.password.as_deref()) {
+            entry.set_text(p);
+        }
         row.append(&label);
         row.append(&entry);
         ssh_fields.append(&row);
         entry
     };
-    let ssh_key_entry = add_field(&ssh_fields, "Identity file:", "", "~/.ssh/id_rsa");
-    let ssh_port_entry = add_field(&ssh_fields, "Port:", "22", "22");
+    let ssh_key_entry = add_field(&ssh_fields, "Identity file:",
+        existing_ssh.and_then(|s| s.identity_file.as_deref()).unwrap_or(""), "~/.ssh/id_rsa");
+    let ssh_port_entry = add_field(&ssh_fields, "Port:",
+        &existing_ssh.map(|s| s.port.to_string()).unwrap_or_else(|| "22".to_string()), "22");
 
     // Remote path with browse button
     let remote_path_row = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
@@ -793,11 +803,14 @@ fn show_code_editor_config(
     remote_path_label.set_halign(gtk4::Align::Start);
     let remote_path_entry = gtk4::Entry::new();
     remote_path_entry.set_placeholder_text(Some("/home/user/project"));
+    if let Some(rp) = existing_remote_path {
+        remote_path_entry.set_text(rp);
+    }
     remote_path_entry.set_hexpand(true);
     let remote_browse_btn = gtk4::Button::from_icon_name("folder-open-symbolic");
     remote_browse_btn.add_css_class("flat");
     remote_browse_btn.set_tooltip_text(Some("Browse remote directories"));
-    remote_browse_btn.set_sensitive(false);
+    remote_browse_btn.set_sensitive(has_ssh);
     remote_path_row.append(&remote_path_label);
     remote_path_row.append(&remote_path_entry);
     remote_path_row.append(&remote_browse_btn);
