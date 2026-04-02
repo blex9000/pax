@@ -22,8 +22,20 @@ use std::rc::Rc;
 use gtk4::prelude::*;
 use super::PanelBackend;
 
+/// A position in a file (for navigation history).
+#[cfg(feature = "sourceview")]
+#[derive(Debug, Clone)]
+pub struct FilePosition {
+    pub path: PathBuf,
+    pub line: i32,
+}
+
 /// State shared across all editor sub-components.
-#[derive(Debug)]
+impl std::fmt::Debug for EditorState {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("EditorState").field("root_dir", &self.root_dir).finish()
+    }
+}
 pub struct EditorState {
     pub root_dir: PathBuf,
     #[cfg(feature = "sourceview")]
@@ -35,6 +47,14 @@ pub struct EditorState {
     pub backend: Rc<dyn file_backend::FileBackend>,
     /// Watcher poll interval in seconds (configurable per panel).
     pub poll_interval: u64,
+    /// Navigation history: stack of (file, line) positions for back/forward.
+    #[cfg(feature = "sourceview")]
+    pub nav_history: Vec<FilePosition>,
+    #[cfg(feature = "sourceview")]
+    pub nav_index: usize,
+    /// Recent files history (last 10 focused files).
+    #[cfg(feature = "sourceview")]
+    pub recent_files: Vec<PathBuf>,
 }
 
 #[cfg(feature = "sourceview")]
@@ -103,6 +123,9 @@ impl CodeEditorPanel {
             sidebar_mode: SidebarMode::Files,
             backend: backend.clone(),
             poll_interval: poll_secs,
+            nav_history: Vec::new(),
+            nav_index: 0,
+            recent_files: Vec::new(),
         }));
 
         let tabs = editor_tabs::EditorTabs::new(state.clone());
@@ -151,10 +174,26 @@ impl CodeEditorPanel {
         history_btn.set_tooltip_text(Some("Git History"));
         history_btn.set_group(Some(&files_btn));
 
+        // Spacer to push more button to the right
+        let bar_spacer = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
+        bar_spacer.set_hexpand(true);
+
+        let more_btn = gtk4::MenuButton::new();
+        more_btn.set_icon_name("view-more-symbolic");
+        more_btn.add_css_class("flat");
+        more_btn.set_tooltip_text(Some("More actions"));
+        let more_menu = gtk4::gio::Menu::new();
+        more_menu.append(Some("Recent Files (Ctrl+E)"), None);
+        more_menu.append(Some("Go Back (Alt+←)"), None);
+        more_menu.append(Some("Go Forward (Alt+→)"), None);
+        more_btn.set_menu_model(Some(&more_menu));
+
         activity_bar.append(&files_btn);
         activity_bar.append(&git_btn);
         activity_bar.append(&history_btn);
         activity_bar.append(&search_btn);
+        activity_bar.append(&bar_spacer);
+        activity_bar.append(&more_btn);
         sidebar.append(&activity_bar);
         sidebar.append(&gtk4::Separator::new(gtk4::Orientation::Horizontal));
 
@@ -403,6 +442,26 @@ impl CodeEditorPanel {
                             git_btn_ref.set_active(true);
                             return gtk4::glib::Propagation::Stop;
                         }
+                        gtk4::gdk::Key::e => {
+                            // Ctrl+E → show recent files popup
+                            show_recent_files_popup(&state_c, &tabs_ref);
+                            return gtk4::glib::Propagation::Stop;
+                        }
+                        _ => {}
+                    }
+                }
+                // Alt+Left/Right → navigate back/forward in file history
+                let alt = modifier.contains(gtk4::gdk::ModifierType::ALT_MASK);
+                if alt {
+                    match key {
+                        gtk4::gdk::Key::Left => {
+                            navigate_history(&state_c, &tabs_ref, false);
+                            return gtk4::glib::Propagation::Stop;
+                        }
+                        gtk4::gdk::Key::Right => {
+                            navigate_history(&state_c, &tabs_ref, true);
+                            return gtk4::glib::Propagation::Stop;
+                        }
                         _ => {}
                     }
                 }
@@ -450,6 +509,129 @@ impl CodeEditorPanel {
 
         Self { widget, state, ssh_info: None }
     }
+}
+
+/// Push current cursor position to navigation history.
+#[cfg(feature = "sourceview")]
+fn push_nav_position(state: &Rc<RefCell<EditorState>>) {
+    let (pos, path) = {
+        let st = state.borrow();
+        if let Some(idx) = st.active_tab {
+            if let Some(f) = st.open_files.get(idx) {
+                let buf = &f.buffer;
+                let iter = buf.iter_at_mark(&buf.get_insert());
+                let line = iter.line();
+                (Some(FilePosition { path: f.path.clone(), line }), Some(f.path.clone()))
+            } else { (None, None) }
+        } else { (None, None) }
+    };
+    if let Some(pos) = pos {
+        let mut st = state.borrow_mut();
+        let nav_idx = st.nav_index;
+        if nav_idx < st.nav_history.len() {
+            st.nav_history.truncate(nav_idx);
+        }
+        st.nav_history.push(pos);
+        if st.nav_history.len() > 50 { st.nav_history.remove(0); }
+        st.nav_index = st.nav_history.len();
+        if let Some(p) = path {
+            st.recent_files.retain(|r| r != &p);
+            st.recent_files.insert(0, p);
+            if st.recent_files.len() > 10 { st.recent_files.truncate(10); }
+        }
+    }
+}
+
+/// Navigate back or forward in file history.
+#[cfg(feature = "sourceview")]
+fn navigate_history(state: &Rc<RefCell<EditorState>>, tabs: &Rc<editor_tabs::EditorTabs>, forward: bool) {
+    let target = {
+        let mut st = state.borrow_mut();
+        if forward {
+            if st.nav_index >= st.nav_history.len() { return; }
+            st.nav_index += 1;
+        } else {
+            if st.nav_index == 0 { return; }
+            st.nav_index -= 1;
+        }
+        st.nav_history.get(st.nav_index.saturating_sub(if forward { 0 } else { 0 })).cloned()
+    };
+    if let Some(pos) = target {
+        // Open the file (no-op if already open)
+        tabs.open_file(&pos.path, state);
+        // Scroll to the line
+        let st = state.borrow();
+        if let Some(idx) = st.active_tab {
+            if let Some(f) = st.open_files.get(idx) {
+                if let Some(iter) = f.buffer.iter_at_line(pos.line) {
+                    f.buffer.place_cursor(&iter);
+                    drop(st);
+                    tabs.source_view.scroll_to_iter(&mut iter.clone(), 0.1, false, 0.0, 0.0);
+                }
+            }
+        }
+    }
+}
+
+/// Show a popup with recent files for quick switching (Ctrl+E).
+#[cfg(feature = "sourceview")]
+fn show_recent_files_popup(state: &Rc<RefCell<EditorState>>, tabs: &Rc<editor_tabs::EditorTabs>) {
+    let recent = state.borrow().recent_files.clone();
+    let root = state.borrow().root_dir.clone();
+    if recent.is_empty() { return; }
+
+    let dialog = gtk4::Window::builder()
+        .title("Recent Files")
+        .modal(true)
+        .default_width(400)
+        .default_height(300)
+        .build();
+
+    let vbox = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
+    let list_box = gtk4::ListBox::new();
+    list_box.set_selection_mode(gtk4::SelectionMode::Single);
+
+    for path in &recent {
+        let rel = path.strip_prefix(&root).unwrap_or(path);
+        let row_box = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
+        row_box.set_margin_start(8);
+        row_box.set_margin_end(8);
+        row_box.set_margin_top(4);
+        row_box.set_margin_bottom(4);
+        let icon = gtk4::Image::from_icon_name("text-x-generic-symbolic");
+        icon.set_pixel_size(16);
+        row_box.append(&icon);
+        let label = gtk4::Label::new(Some(&rel.to_string_lossy()));
+        label.set_halign(gtk4::Align::Start);
+        label.set_hexpand(true);
+        label.set_ellipsize(gtk4::pango::EllipsizeMode::Start);
+        row_box.append(&label);
+        let row = gtk4::ListBoxRow::new();
+        row.set_child(Some(&row_box));
+        row.set_widget_name(&path.to_string_lossy());
+        list_box.append(&row);
+    }
+
+    let scroll = gtk4::ScrolledWindow::new();
+    scroll.set_child(Some(&list_box));
+    scroll.set_vexpand(true);
+    vbox.append(&scroll);
+
+    // Click to open
+    {
+        let d = dialog.clone();
+        let state_c = state.clone();
+        let tabs_c = tabs.clone();
+        list_box.connect_row_activated(move |_, row| {
+            let path_str = row.widget_name();
+            let path = PathBuf::from(path_str.as_str());
+            tabs_c.open_file(&path, &state_c);
+            d.close();
+        });
+    }
+
+    dialog.set_child(Some(&vbox));
+    dialog.present();
 }
 
 /// SSH ControlMaster connection is cleaned up by SshFileBackend::Drop.

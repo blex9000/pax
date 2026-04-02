@@ -425,6 +425,9 @@ impl EditorTabs {
     /// Open a file in a new tab. Returns the tab index.
     /// If the file is already open, switches to that tab.
     pub fn open_file(&self, path: &Path, state: &Rc<RefCell<EditorState>>) -> Option<usize> {
+        // Push current position to navigation history before switching
+        super::push_nav_position(state);
+
         // Check if already open
         {
             let st = state.borrow();
