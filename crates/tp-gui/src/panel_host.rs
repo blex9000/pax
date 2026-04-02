@@ -500,24 +500,46 @@ impl PanelHost {
             paned.allocation().height()
         };
 
+        // Update collapsed_view layout based on orientation
+        self.update_collapsed_view_orientation(orient);
+
         if self.is_collapsed() {
             // ── EXPAND ──
             let saved = self.saved_min_size.get();
-            // Restore position
             if is_start {
                 paned.set_position(saved.0);
             } else {
                 paned.set_position(total - saved.0);
             }
             self.container.set_visible(true);
-            self.footer_bar.set_visible(false); // footer managed by backend
+            self.footer_bar.set_visible(false);
             self.collapsed_view.set_visible(false);
             self.outer.set_size_request(-1, -1);
             self.update_collapse_icon(orient, is_start, false);
             false
         } else {
             // ── COLLAPSE ──
-            // Save current size for restore
+            // If the sibling is also collapsed, expand it first
+            let sibling = if is_start { paned.end_child() } else { paned.start_child() };
+            if let Some(ref sib) = sibling {
+                // Check if sibling's container is hidden (collapsed)
+                if let Ok(sib_box) = sib.clone().downcast::<gtk4::Box>() {
+                    if let Some(first) = sib_box.first_child() {
+                        if let Ok(container_box) = first.downcast::<gtk4::Box>() {
+                            if !container_box.is_visible() {
+                                // Sibling is collapsed — expand it by making its content visible
+                                container_box.set_visible(true);
+                                // Hide its collapsed_view (second child)
+                                if let Some(second) = sib_box.first_child().and_then(|f| f.next_sibling()) {
+                                    second.set_visible(false);
+                                }
+                                sib_box.set_size_request(-1, -1);
+                            }
+                        }
+                    }
+                }
+            }
+
             let current_size = if is_start {
                 paned.position()
             } else {
@@ -525,7 +547,6 @@ impl PanelHost {
             };
             self.saved_min_size.set((current_size, current_size));
 
-            // Move separator
             if is_start {
                 paned.set_position(44);
             } else {
@@ -543,6 +564,39 @@ impl PanelHost {
     /// Whether the panel is collapsed (container hidden).
     pub fn is_collapsed(&self) -> bool {
         !self.container.is_visible()
+    }
+
+    /// Update collapsed_view layout based on Paned orientation.
+    fn update_collapsed_view_orientation(&self, orient: gtk4::Orientation) {
+        if orient == gtk4::Orientation::Horizontal {
+            // Horizontal split: collapsed to a narrow vertical strip
+            self.collapsed_view.set_orientation(gtk4::Orientation::Vertical);
+            self.collapsed_view.set_halign(gtk4::Align::Center);
+            self.collapsed_view.set_valign(gtk4::Align::Center);
+            // Make label show vertically (one char per line)
+            if let Some(child) = self.collapsed_view.first_child() {
+                if let Some(next) = child.next_sibling() {
+                    if let Some(label) = next.downcast_ref::<gtk4::Label>() {
+                        label.set_max_width_chars(1);
+                        label.set_wrap(true);
+                        label.set_justify(gtk4::Justification::Center);
+                    }
+                }
+            }
+        } else {
+            // Vertical split: collapsed to a short horizontal strip
+            self.collapsed_view.set_orientation(gtk4::Orientation::Horizontal);
+            self.collapsed_view.set_halign(gtk4::Align::Center);
+            self.collapsed_view.set_valign(gtk4::Align::Center);
+            if let Some(child) = self.collapsed_view.first_child() {
+                if let Some(next) = child.next_sibling() {
+                    if let Some(label) = next.downcast_ref::<gtk4::Label>() {
+                        label.set_max_width_chars(20);
+                        label.set_wrap(false);
+                    }
+                }
+            }
+        }
     }
 
     /// Update collapse button icon based on orientation and position.

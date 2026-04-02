@@ -662,6 +662,15 @@ fn setup_workspace_ui(
                         }
                         return glib::Propagation::Stop;
                     }
+                    gdk::Key::Z => {
+                        let view = ws.borrow();
+                        if let Some(id) = view.focused_panel_id() {
+                            if let Some(host) = view.hosts().get(id) {
+                                host.toggle_collapsed();
+                            }
+                        }
+                        return glib::Propagation::Stop;
+                    }
                     gdk::Key::C | gdk::Key::V => {
                         return glib::Propagation::Proceed;
                     }
@@ -859,6 +868,7 @@ fn show_shortcuts_dialog(window: &Rc<adw::ApplicationWindow>) {
             ("Ctrl+N", "Focus next panel"),
             ("Ctrl+P", "Focus previous panel"),
             ("Ctrl+Z", "Zoom/unzoom focused panel"),
+            ("Ctrl+Shift+Z", "Collapse/expand focused panel"),
             ("Ctrl+R", "Reverse search (terminal)"),
             ("Ctrl+Arrow", "Scroll workspace"),
             ("Ctrl+Scroll", "Scroll workspace (mouse)"),
