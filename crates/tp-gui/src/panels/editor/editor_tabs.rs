@@ -708,7 +708,7 @@ impl EditorTabs {
     }
 
     /// Switch the SourceView to display the buffer at the given index.
-    fn switch_to_buffer(&self, idx: usize, state: &Rc<RefCell<EditorState>>) {
+    pub fn switch_to_buffer(&self, idx: usize, state: &Rc<RefCell<EditorState>>) {
         let st = state.borrow();
         if let Some(open_file) = st.open_files.get(idx) {
             self.source_view.set_buffer(Some(&open_file.buffer));

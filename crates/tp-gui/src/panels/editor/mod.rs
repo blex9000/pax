@@ -527,13 +527,14 @@ fn push_nav_position(state: &Rc<RefCell<EditorState>>) {
     };
     if let Some(pos) = pos {
         let mut st = state.borrow_mut();
-        let nav_idx = st.nav_index;
+        // Truncate any forward history
+        let nav_idx = st.nav_index + 1;
         if nav_idx < st.nav_history.len() {
             st.nav_history.truncate(nav_idx);
         }
         st.nav_history.push(pos);
         if st.nav_history.len() > 50 { st.nav_history.remove(0); }
-        st.nav_index = st.nav_history.len();
+        st.nav_index = st.nav_history.len() - 1;
         if let Some(p) = path {
             st.recent_files.retain(|r| r != &p);
             st.recent_files.insert(0, p);
@@ -543,23 +544,45 @@ fn push_nav_position(state: &Rc<RefCell<EditorState>>) {
 }
 
 /// Navigate back or forward in file history.
+/// Uses a simple approach: nav_history is a stack, nav_index is the current position.
+/// Going back decreases index, forward increases it.
 #[cfg(feature = "sourceview")]
 fn navigate_history(state: &Rc<RefCell<EditorState>>, tabs: &Rc<editor_tabs::EditorTabs>, forward: bool) {
     let target = {
         let mut st = state.borrow_mut();
+        if st.nav_history.is_empty() { return; }
         if forward {
-            if st.nav_index >= st.nav_history.len() { return; }
+            if st.nav_index + 1 >= st.nav_history.len() { return; }
             st.nav_index += 1;
         } else {
             if st.nav_index == 0 { return; }
             st.nav_index -= 1;
         }
-        st.nav_history.get(st.nav_index.saturating_sub(if forward { 0 } else { 0 })).cloned()
+        st.nav_history.get(st.nav_index).cloned()
     };
+
     if let Some(pos) = target {
-        // Open the file (no-op if already open)
-        tabs.open_file(&pos.path, state);
-        // Scroll to the line
+        // Switch to file without pushing to history
+        let already_open = {
+            let st = state.borrow();
+            st.open_files.iter().position(|f| f.path == pos.path)
+        };
+        if let Some(idx) = already_open {
+            tabs.notebook.set_current_page(Some(idx as u32));
+            tabs.switch_to_buffer(idx, state);
+        } else {
+            // Need to open file — temporarily disable nav push
+            // by not calling open_file (which pushes nav)
+            // Instead call the raw open
+            tabs.open_file(&pos.path, state);
+            // Undo the push that open_file just did
+            let mut st = state.borrow_mut();
+            if st.nav_history.len() > 1 {
+                st.nav_history.pop();
+                // Don't change nav_index — it was already set above
+            }
+        }
+        // Scroll to the saved line
         let st = state.borrow();
         if let Some(idx) = st.active_tab {
             if let Some(f) = st.open_files.get(idx) {
