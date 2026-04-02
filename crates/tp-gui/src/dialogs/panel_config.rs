@@ -1016,51 +1016,74 @@ fn show_remote_browse_dialog(
         }
     };
 
-    // Populate list for a given path
+    // Populate list for a given path (async — runs SSH in background thread)
     let populate = {
         let lb = list_box.clone();
         let pl = path_label.clone();
         let sl = status_label.clone();
         let cp = current_path.clone();
-        let list_fn = list_remote_dirs.clone();
+        let list_fn = std::sync::Arc::new(list_remote_dirs);
         move |path: &str| {
             *cp.borrow_mut() = path.to_string();
             pl.set_text(path);
             while let Some(child) = lb.first_child() {
                 lb.remove(&child);
             }
-            sl.set_text("Loading...");
+            sl.set_text("Connecting...");
             sl.set_visible(true);
 
-            match list_fn(path) {
-                Ok(dirs) => {
-                    if dirs.is_empty() {
-                        sl.set_text("No subdirectories");
-                    } else {
-                        sl.set_visible(false);
-                        for dir in &dirs {
-                            let row_box = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
-                            row_box.set_margin_start(8);
-                            row_box.set_margin_end(8);
-                            row_box.set_margin_top(3);
-                            row_box.set_margin_bottom(3);
-                            let icon = gtk4::Image::from_icon_name("folder-symbolic");
-                            icon.set_pixel_size(16);
-                            row_box.append(&icon);
-                            let label = gtk4::Label::new(Some(dir));
-                            label.set_halign(gtk4::Align::Start);
-                            row_box.append(&label);
-                            let row = gtk4::ListBoxRow::new();
-                            row.set_child(Some(&row_box));
-                            row.set_widget_name(dir);
-                            lb.append(&row);
+            let path_owned = path.to_string();
+            let list_fn = list_fn.clone();
+            let lb = lb.clone();
+            let sl = sl.clone();
+            let result_slot = std::sync::Arc::new(std::sync::Mutex::new(None::<Result<Vec<String>, String>>));
+
+            // Run SSH in background thread
+            let slot = result_slot.clone();
+            std::thread::spawn(move || {
+                let result = list_fn(&path_owned);
+                *slot.lock().unwrap() = Some(result);
+            });
+
+            // Poll for result on main thread
+            let slot = result_slot;
+            gtk4::glib::timeout_add_local(std::time::Duration::from_millis(100), move || {
+                let ready = slot.lock().unwrap().is_some();
+                if !ready {
+                    return gtk4::glib::ControlFlow::Continue;
+                }
+                let result = slot.lock().unwrap().take().unwrap();
+                match result {
+                    Ok(dirs) => {
+                        if dirs.is_empty() {
+                            sl.set_text("No subdirectories");
+                        } else {
+                            sl.set_visible(false);
+                            for dir in &dirs {
+                                let row_box = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
+                                row_box.set_margin_start(8);
+                                row_box.set_margin_end(8);
+                                row_box.set_margin_top(3);
+                                row_box.set_margin_bottom(3);
+                                let icon = gtk4::Image::from_icon_name("folder-symbolic");
+                                icon.set_pixel_size(16);
+                                row_box.append(&icon);
+                                let label = gtk4::Label::new(Some(dir));
+                                label.set_halign(gtk4::Align::Start);
+                                row_box.append(&label);
+                                let row = gtk4::ListBoxRow::new();
+                                row.set_child(Some(&row_box));
+                                row.set_widget_name(dir);
+                                lb.append(&row);
+                            }
                         }
                     }
+                    Err(e) => {
+                        sl.set_text(&format!("Error: {}", e.chars().take(100).collect::<String>()));
+                    }
                 }
-                Err(e) => {
-                    sl.set_text(&format!("Error: {}", e.chars().take(100).collect::<String>()));
-                }
-            }
+                gtk4::glib::ControlFlow::Break
+            });
         }
     };
 
