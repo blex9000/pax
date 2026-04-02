@@ -415,7 +415,7 @@ fn setup_paned_auto_collapse(paned: &gtk4::Paned, hosts: &HashMap<String, PanelH
         fn is_collapsed(&self) -> bool {
             !self.container.is_visible()
         }
-        fn set_collapsed(&self, collapsed: bool) {
+        fn apply_visual(&self, collapsed: bool) {
             if self.is_collapsed() == collapsed { return; }
             if collapsed {
                 self.container.set_visible(false);
@@ -460,10 +460,10 @@ fn setup_paned_auto_collapse(paned: &gtk4::Paned, hosts: &HashMap<String, PanelH
         let end_size = total - pos;
 
         if let Some(ref cw) = start_cw {
-            cw.set_collapsed(pos < COLLAPSE_THRESHOLD);
+            cw.apply_visual(pos < COLLAPSE_THRESHOLD);
         }
         if let Some(ref cw) = end_cw {
-            cw.set_collapsed(end_size < COLLAPSE_THRESHOLD);
+            cw.apply_visual(end_size < COLLAPSE_THRESHOLD);
         }
     });
 }

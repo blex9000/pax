@@ -470,14 +470,12 @@ impl PanelHost {
         }
     }
 
-    /// Toggle collapsed state. Returns true if now collapsed.
+    /// Toggle collapsed state from button click. Returns true if now collapsed.
     pub fn toggle_collapsed(&self) -> bool {
-        let is_now_collapsed = !self.is_collapsed();
-        // Adjust the parent Paned separator
-        self.adjust_paned_for_collapse(is_now_collapsed);
-        // The notify::position listener on the Paned will handle the
-        // visual collapse/expand via container visibility.
-        is_now_collapsed
+        let collapsing = !self.is_collapsed();
+        self.apply_collapsed_visual(collapsing);
+        self.adjust_paned(collapsing);
+        collapsing
     }
 
     /// Whether the panel is collapsed (container hidden).
@@ -485,8 +483,26 @@ impl PanelHost {
         !self.container.is_visible()
     }
 
-    /// Find the parent Paned and adjust its position for collapse/expand.
-    fn adjust_paned_for_collapse(&self, collapse: bool) {
+    /// Apply the visual collapsed/expanded state (hide/show widgets).
+    pub fn apply_collapsed_visual(&self, collapsed: bool) {
+        if collapsed {
+            self.container.set_visible(false);
+            self.footer_bar.set_visible(false);
+            self.collapsed_view.set_visible(true);
+            self.outer.set_size_request(44, 44);
+            self.collapse_button.set_icon_name("go-next-symbolic");
+            self.collapse_button.set_tooltip_text(Some("Expand panel"));
+        } else {
+            self.container.set_visible(true);
+            self.collapsed_view.set_visible(false);
+            self.outer.set_size_request(80, 60);
+            self.collapse_button.set_icon_name("go-previous-symbolic");
+            self.collapse_button.set_tooltip_text(Some("Collapse panel"));
+        }
+    }
+
+    /// Move the parent Paned separator for collapse/expand.
+    fn adjust_paned(&self, collapse: bool) {
         use gtk4::prelude::*;
         let mut widget = self.outer.parent();
         while let Some(w) = widget {
