@@ -81,44 +81,36 @@ impl CodeEditorPanel {
         ));
         let _ = std::fs::create_dir_all(&mount_dir);
 
-        // Build the editor immediately on the (still empty) mount dir
-        let mut panel = Self::new_inner(&mount_dir.to_string_lossy());
-        panel.sshfs_mount = Some(mount_dir.clone());
-        panel.ssh_info = Some(ssh_label.clone());
+        // Container: holds the connecting message now, editor later
+        let container = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
+        container.set_vexpand(true);
+        container.set_hexpand(true);
 
-        // Add a connecting overlay on top of the editor
-        // Find the overlay or wrap in one
-        let overlay = gtk4::Overlay::new();
-        let editor_widget = panel.widget.clone();
-        overlay.set_child(Some(&editor_widget));
-
-        let overlay_box = gtk4::Box::new(gtk4::Orientation::Vertical, 12);
-        overlay_box.set_halign(gtk4::Align::Center);
-        overlay_box.set_valign(gtk4::Align::Center);
-        overlay_box.add_css_class("card");
-        overlay_box.set_margin_top(20);
-        overlay_box.set_margin_bottom(20);
-        overlay_box.set_margin_start(40);
-        overlay_box.set_margin_end(40);
+        // Connecting overlay
+        let connect_box = gtk4::Box::new(gtk4::Orientation::Vertical, 12);
+        connect_box.set_halign(gtk4::Align::Center);
+        connect_box.set_valign(gtk4::Align::Center);
+        connect_box.set_vexpand(true);
         let spinner = gtk4::Spinner::new();
         spinner.start();
         spinner.set_width_request(32);
         spinner.set_height_request(32);
-        overlay_box.append(&spinner);
+        connect_box.append(&spinner);
         let msg = gtk4::Label::new(Some(&connect_msg));
         msg.add_css_class("dim-label");
         msg.set_justify(gtk4::Justification::Center);
-        msg.set_margin_start(16);
-        msg.set_margin_end(16);
-        msg.set_margin_bottom(12);
-        overlay_box.append(&msg);
-        overlay.add_overlay(&overlay_box);
+        connect_box.append(&msg);
+        container.append(&connect_box);
 
-        // Replace the panel widget with our overlay wrapper
-        let widget = overlay.clone().upcast::<gtk4::Widget>();
-        widget.set_vexpand(true);
-        widget.set_hexpand(true);
-        panel.widget = widget;
+        let widget = container.clone().upcast::<gtk4::Widget>();
+
+        let state = Rc::new(RefCell::new(EditorState {
+            root_dir: PathBuf::from(remote_path),
+            open_files: Vec::new(),
+            active_tab: None,
+            sidebar_visible: true,
+            sidebar_mode: SidebarMode::Files,
+        }));
 
         // Spawn SSHFS in background
         let host_owned = host.to_string();
@@ -175,45 +167,61 @@ impl CodeEditorPanel {
             *slot.lock().unwrap() = Some(result);
         });
 
-        // Poll for completion, then remove overlay
+        // Poll for completion, then replace connecting message with editor
         {
-            let overlay_widget = overlay_box.clone();
-            let overlay_ref = overlay.clone();
+            let container_ref = container.clone();
+            let mount_dir_ref = mount_dir.clone();
             gtk4::glib::timeout_add_local(std::time::Duration::from_millis(200), move || {
                 let ready = result_slot.lock().unwrap().is_some();
                 if !ready {
                     return gtk4::glib::ControlFlow::Continue;
                 }
                 let result = result_slot.lock().unwrap().take().unwrap();
+
+                // Remove connecting message
+                while let Some(child) = container_ref.first_child() {
+                    container_ref.remove(&child);
+                }
+
                 match result {
                     Ok(()) => {
                         tracing::info!("SSHFS mounted successfully");
-                        overlay_ref.remove_overlay(&overlay_widget);
+                        // Now build the full editor on the mounted directory
+                        let editor = Self::new_inner(&mount_dir_ref.to_string_lossy());
+                        let editor_widget = editor.widget().clone();
+                        editor_widget.set_vexpand(true);
+                        editor_widget.set_hexpand(true);
+                        container_ref.append(&editor_widget);
+                        // Keep editor alive — owned by widget tree
+                        std::mem::forget(editor);
                     }
                     Err(e) => {
                         tracing::error!("SSHFS mount failed: {}", e);
-                        // Replace spinner with error message
-                        while let Some(child) = overlay_widget.first_child() {
-                            overlay_widget.remove(&child);
-                        }
+                        let err_box = gtk4::Box::new(gtk4::Orientation::Vertical, 12);
+                        err_box.set_halign(gtk4::Align::Center);
+                        err_box.set_valign(gtk4::Align::Center);
+                        err_box.set_vexpand(true);
                         let err_icon = gtk4::Image::from_icon_name("dialog-error-symbolic");
-                        err_icon.set_pixel_size(32);
-                        overlay_widget.append(&err_icon);
+                        err_icon.set_pixel_size(48);
+                        err_box.append(&err_icon);
                         let err_label = gtk4::Label::new(Some(&format!("Connection failed:\n{}", e)));
                         err_label.add_css_class("dim-label");
                         err_label.set_justify(gtk4::Justification::Center);
                         err_label.set_wrap(true);
-                        err_label.set_margin_start(16);
-                        err_label.set_margin_end(16);
-                        err_label.set_margin_bottom(12);
-                        overlay_widget.append(&err_label);
+                        err_box.append(&err_label);
+                        container_ref.append(&err_box);
                     }
                 }
                 gtk4::glib::ControlFlow::Break
             });
         }
 
-        panel
+        Self {
+            widget,
+            state,
+            sshfs_mount: Some(mount_dir),
+            ssh_info: Some(ssh_label),
+        }
     }
 
     pub fn new(root_dir: &str) -> Self {
