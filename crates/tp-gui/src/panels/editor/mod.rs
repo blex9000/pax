@@ -364,6 +364,26 @@ impl CodeEditorPanel {
             }),
         );
 
+        // Sidebar toggle button — visible only when sidebar is hidden
+        let sidebar_open_btn = gtk4::Button::from_icon_name("go-next-symbolic");
+        sidebar_open_btn.add_css_class("flat");
+        sidebar_open_btn.set_tooltip_text(Some("Show sidebar (Ctrl+B)"));
+        sidebar_open_btn.set_visible(false);
+        sidebar_open_btn.set_valign(gtk4::Align::Start);
+        sidebar_open_btn.set_margin_top(2);
+        {
+            let sc = state.clone();
+            let sb = sidebar.clone();
+            let btn = sidebar_open_btn.clone();
+            sidebar_open_btn.connect_clicked(move |_| {
+                let mut st = sc.borrow_mut();
+                st.sidebar_visible = true;
+                sb.set_visible(true);
+                btn.set_visible(false);
+            });
+        }
+        editor_area.prepend(&sidebar_open_btn);
+
         // Paned: sidebar | editor
         editor_area.set_width_request(300);
         let paned = gtk4::Paned::new(gtk4::Orientation::Horizontal);
@@ -400,6 +420,7 @@ impl CodeEditorPanel {
             let search_btn_ref = search_btn.clone();
             let save_backend = backend.clone();
             let save_git_btn = git_btn.clone();
+            let sidebar_open_btn_ref = sidebar_open_btn.clone();
             key_ctrl.connect_key_pressed(move |_, key, _, modifier| {
                 if modifier.contains(gtk4::gdk::ModifierType::CONTROL_MASK) {
                     match key {
@@ -437,6 +458,7 @@ impl CodeEditorPanel {
                             let mut st = state_c.borrow_mut();
                             st.sidebar_visible = !st.sidebar_visible;
                             sidebar_ref.set_visible(st.sidebar_visible);
+                            sidebar_open_btn_ref.set_visible(!st.sidebar_visible);
                             return gtk4::glib::Propagation::Stop;
                         }
                         gtk4::gdk::Key::f if modifier.contains(gtk4::gdk::ModifierType::SHIFT_MASK) => {
