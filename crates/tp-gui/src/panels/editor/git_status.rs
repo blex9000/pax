@@ -35,14 +35,6 @@ impl GitStatusView {
     pub fn new(root_dir: &Path, on_diff_open: OnDiffOpen, backend: Rc<dyn FileBackend>, on_git_action: OnGitAction) -> Self {
         let container = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
 
-        let header = gtk4::Label::new(Some("Changes"));
-        header.add_css_class("heading");
-        header.set_halign(gtk4::Align::Start);
-        header.set_margin_start(8);
-        header.set_margin_top(4);
-        header.set_margin_bottom(4);
-        container.append(&header);
-
         let scroll = gtk4::ScrolledWindow::new();
         scroll.set_vexpand(true);
 
