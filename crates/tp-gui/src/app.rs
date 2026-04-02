@@ -415,6 +415,12 @@ fn setup_workspace_ui(
                     actions::update_dirty_ui(&ws_for_cb, &win_for_cb, &sa_for_cb);
                     sb_for_cb.borrow().set_message(&format!("Tab renamed: {}", new_name));
                 }
+                PanelAction::Collapse => {
+                    let view = ws_for_cb.borrow();
+                    if let Some(host) = view.hosts().get(panel_id) {
+                        host.toggle_collapsed();
+                    }
+                }
                 PanelAction::Focus => {
                     let idx = ws_for_cb.borrow().focus_order_index(panel_id);
                     if let Some(idx) = idx {

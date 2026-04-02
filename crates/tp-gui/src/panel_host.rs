@@ -26,6 +26,8 @@ pub enum PanelAction {
     Rename(String),
     /// Rename only the tab label (for layout tabs), not the child panels
     RenameTab(String),
+    /// Collapse/expand panel to icon
+    Collapse,
     /// Focus this panel
     Focus,
 }
@@ -43,12 +45,15 @@ pub struct PanelHost {
     sync_button: gtk4::Button,
     zoom_button: gtk4::Button,
     menu_button: gtk4::MenuButton,
+    collapse_button: gtk4::Button,
+    collapsed_view: gtk4::Box,
     footer_bar: gtk4::Box,
     footer_label: gtk4::Label,
     widget: gtk4::Widget,
     panel_id: String,
     backend: RefCell<Option<Box<dyn PanelBackend>>>,
     focused: RefCell<bool>,
+    collapsed: std::cell::Cell<bool>,
     /// Shared callback ref — updated by set_action_callback, read by button handlers.
     action_cb_ref: Rc<RefCell<Option<PanelActionCallback>>>,
     /// Shared sync commit callback — updated by set_sync_commit_callback, read by VTE commit handler.
@@ -198,12 +203,31 @@ impl PanelHost {
         let popover = build_panel_menu(panel_id, action_cb);
         menu_button.set_popover(Some(&popover));
 
+        // Collapse button
+        let collapse_button = gtk4::Button::new();
+        collapse_button.set_icon_name("go-previous-symbolic");
+        collapse_button.add_css_class("flat");
+        collapse_button.add_css_class("panel-action-btn");
+        collapse_button.set_tooltip_text(Some("Collapse panel"));
+        {
+            let cb_ref = action_cb_ref.clone();
+            let pid = panel_id.to_string();
+            collapse_button.connect_clicked(move |_| {
+                if let Ok(borrowed) = cb_ref.try_borrow() {
+                    if let Some(ref cb) = *borrowed {
+                        cb(&pid, PanelAction::Collapse);
+                    }
+                }
+            });
+        }
+
         title_bar.append(&type_icon);
         title_bar.append(&title_stack);
         // Spacer pushes buttons to the right (even when title is hidden)
         let spacer = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
         spacer.set_hexpand(true);
         title_bar.append(&spacer);
+        title_bar.append(&collapse_button);
         title_bar.append(&sync_button);
         title_bar.append(&zoom_button);
         title_bar.append(&menu_button);
@@ -242,8 +266,42 @@ impl PanelHost {
         footer_bar.append(&footer_label);
         footer_bar.set_visible(false); // Hidden until content is set
 
+        // Collapsed view: shown when panel is minimized
+        let collapsed_view = gtk4::Box::new(gtk4::Orientation::Vertical, 8);
+        collapsed_view.set_halign(gtk4::Align::Center);
+        collapsed_view.set_valign(gtk4::Align::Center);
+        collapsed_view.set_vexpand(true);
+        collapsed_view.set_visible(false);
+        {
+            let collapsed_icon = gtk4::Image::from_icon_name("utilities-terminal-symbolic");
+            collapsed_icon.set_pixel_size(32);
+            collapsed_view.append(&collapsed_icon);
+            let collapsed_label = gtk4::Label::new(Some(name));
+            collapsed_label.add_css_class("dim-label");
+            collapsed_label.add_css_class("caption");
+            collapsed_label.set_ellipsize(gtk4::pango::EllipsizeMode::End);
+            collapsed_label.set_max_width_chars(6);
+            collapsed_view.append(&collapsed_label);
+        }
+        collapsed_view.set_tooltip_text(Some(&format!("Click to expand: {}", name)));
+        {
+            let cb_ref = action_cb_ref.clone();
+            let pid = panel_id.to_string();
+            let gesture = gtk4::GestureClick::new();
+            gesture.set_button(1);
+            gesture.connect_released(move |_, _, _, _| {
+                if let Ok(borrowed) = cb_ref.try_borrow() {
+                    if let Some(ref cb) = *borrowed {
+                        cb(&pid, PanelAction::Collapse);
+                    }
+                }
+            });
+            collapsed_view.add_controller(gesture);
+        }
+
         let outer = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
         outer.append(&container);
+        outer.append(&collapsed_view);
         outer.append(&footer_bar);
         outer.add_css_class("panel-frame");
         outer.set_widget_name(panel_id);
@@ -278,12 +336,15 @@ impl PanelHost {
             sync_button,
             zoom_button,
             menu_button,
+            collapse_button,
+            collapsed_view,
             footer_bar,
             footer_label,
             widget,
             panel_id: panel_id.to_string(),
             backend: RefCell::new(None),
             focused: RefCell::new(false),
+            collapsed: std::cell::Cell::new(false),
             action_cb_ref,
             #[cfg(feature = "vte")]
             sync_cb_ref: Rc::new(RefCell::new(None)),
@@ -392,6 +453,12 @@ impl PanelHost {
             _ => "radio-symbolic", // Empty/chooser — dot
         };
         self.type_icon.set_icon_name(Some(icon_name));
+        // Update collapsed view icon too
+        if let Some(child) = self.collapsed_view.first_child() {
+            if let Some(img) = child.downcast_ref::<gtk4::Image>() {
+                img.set_icon_name(Some(icon_name));
+            }
+        }
     }
 
     /// Update zoom button visual state and icon.
@@ -403,6 +470,37 @@ impl PanelHost {
             self.zoom_button.set_icon_name("view-fullscreen-symbolic");
             self.zoom_button.remove_css_class("zoom-active");
         }
+    }
+
+    /// Toggle collapsed state. Returns true if now collapsed.
+    pub fn toggle_collapsed(&self) -> bool {
+        let new_state = !self.collapsed.get();
+        self.set_collapsed(new_state);
+        new_state
+    }
+
+    /// Set collapsed state directly.
+    pub fn set_collapsed(&self, collapsed: bool) {
+        self.collapsed.set(collapsed);
+        if collapsed {
+            self.container.set_visible(false);
+            self.footer_bar.set_visible(false);
+            self.collapsed_view.set_visible(true);
+            self.outer.set_size_request(44, 44);
+            self.collapse_button.set_icon_name("go-next-symbolic");
+            self.collapse_button.set_tooltip_text(Some("Expand panel"));
+        } else {
+            self.container.set_visible(true);
+            self.collapsed_view.set_visible(false);
+            self.outer.set_size_request(80, 60);
+            self.collapse_button.set_icon_name("go-previous-symbolic");
+            self.collapse_button.set_tooltip_text(Some("Collapse panel"));
+        }
+    }
+
+    /// Whether the panel is collapsed.
+    pub fn is_collapsed(&self) -> bool {
+        self.collapsed.get()
     }
 
     /// Update sync button visual state.
@@ -564,6 +662,7 @@ fn build_panel_menu(panel_id: &str, action_cb: Option<PanelActionCallback>) -> g
             PanelAction::Sync => "media-playlist-consecutive-symbolic",
             PanelAction::Rename(_) => "document-edit-symbolic",
             PanelAction::RenameTab(_) => "document-edit-symbolic",
+            PanelAction::Collapse => "go-previous-symbolic",
             PanelAction::Focus => "radio-symbolic",
         };
         let icon = gtk4::Image::from_icon_name(icon_name);
@@ -584,6 +683,7 @@ fn build_panel_menu(panel_id: &str, action_cb: Option<PanelActionCallback>) -> g
             PanelAction::Sync => "Ctrl+Shift+S",
             PanelAction::Rename(_) => "Dbl-click",
             PanelAction::RenameTab(_) => "Dbl-click",
+            PanelAction::Collapse => "",
             PanelAction::Focus => "",
         };
         let hint = gtk4::Label::new(Some(hint_text));
