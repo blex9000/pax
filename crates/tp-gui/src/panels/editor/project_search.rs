@@ -108,36 +108,49 @@ impl ProjectSearch {
                 }
 
                 let results = search_in_files(&root, &query, &*be);
-                let count = results.len();
-                status_l.set_text(&format!("{} matches", count));
+                let total_matches = results.len();
 
+                // Group by file: count matches per file, keep first result per file for click
+                let mut file_groups: Vec<(PathBuf, usize, u32)> = Vec::new(); // (path, count, first_line)
                 for result in &results {
-                    let rel = result.path.strip_prefix(&root).unwrap_or(&result.path);
-                    let row = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
-                    row.set_margin_start(4);
-                    row.set_margin_end(4);
-                    row.set_margin_top(2);
-                    row.set_margin_bottom(2);
+                    if let Some(group) = file_groups.iter_mut().find(|(p, _, _)| *p == result.path) {
+                        group.1 += 1;
+                    } else {
+                        file_groups.push((result.path.clone(), 1, result.line_num));
+                    }
+                }
 
-                    let file_label = gtk4::Label::new(Some(
-                        &format!("{}:{}", rel.to_string_lossy(), result.line_num)
-                    ));
-                    file_label.set_halign(gtk4::Align::Start);
-                    file_label.add_css_class("caption");
-                    file_label.set_opacity(0.7);
-                    row.append(&file_label);
+                let file_count = file_groups.len();
+                status_l.set_text(&format!("{} matches in {} files", total_matches, file_count));
 
-                    // Highlight match in result text using Pango markup
-                    let line = result.line_text.trim();
-                    let markup = build_highlight_markup(line, &query);
-                    let text_label = gtk4::Label::new(None);
-                    text_label.set_markup(&markup);
-                    text_label.set_halign(gtk4::Align::Start);
-                    text_label.set_ellipsize(gtk4::pango::EllipsizeMode::End);
-                    text_label.set_max_width_chars(40);
-                    row.append(&text_label);
+                for (file_path, match_count, _first_line) in &file_groups {
+                    let rel = file_path.strip_prefix(&root).unwrap_or(file_path);
+                    let row = gtk4::Box::new(gtk4::Orientation::Horizontal, 6);
+                    row.set_margin_start(6);
+                    row.set_margin_end(6);
+                    row.set_margin_top(3);
+                    row.set_margin_bottom(3);
 
-                    results_list_c.append(&row);
+                    let icon = gtk4::Image::from_icon_name("text-x-generic-symbolic");
+                    icon.set_pixel_size(14);
+                    row.append(&icon);
+
+                    let name_label = gtk4::Label::new(Some(&rel.to_string_lossy()));
+                    name_label.set_halign(gtk4::Align::Start);
+                    name_label.set_hexpand(true);
+                    name_label.set_ellipsize(gtk4::pango::EllipsizeMode::Start);
+                    name_label.set_tooltip_text(Some(&rel.to_string_lossy()));
+                    row.append(&name_label);
+
+                    let count_label = gtk4::Label::new(Some(&format!("{}", match_count)));
+                    count_label.add_css_class("dim-label");
+                    count_label.add_css_class("caption");
+                    row.append(&count_label);
+
+                    let list_row = gtk4::ListBoxRow::new();
+                    list_row.set_child(Some(&row));
+                    list_row.set_widget_name(&file_path.to_string_lossy());
+                    results_list_c.append(&list_row);
                 }
 
                 *results_s.borrow_mut() = results;
@@ -150,12 +163,16 @@ impl ProjectSearch {
             let results_s = results_store.clone();
             let lq = last_query.clone();
             results_list.connect_row_activated(move |_, row| {
-                let idx = row.index() as usize;
-                let results = results_s.borrow();
+                let file_path_str = row.widget_name();
+                let file_path = PathBuf::from(file_path_str.as_str());
                 let query = lq.borrow().clone();
-                if let Some(result) = results.get(idx) {
-                    on_click_c(&result.path, result.line_num, &query);
-                }
+                // Find first match in this file
+                let results = results_s.borrow();
+                let first_line = results.iter()
+                    .find(|r| r.path == file_path)
+                    .map(|r| r.line_num)
+                    .unwrap_or(1);
+                on_click_c(&file_path, first_line, &query);
             });
         }
 
