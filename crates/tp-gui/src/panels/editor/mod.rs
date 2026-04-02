@@ -195,9 +195,15 @@ impl CodeEditorPanel {
         activity_bar.append(&git_btn);
         activity_bar.append(&history_btn);
         activity_bar.append(&search_btn);
-        activity_bar.append(&bar_spacer);
+        let nav_sep = gtk4::Separator::new(gtk4::Orientation::Vertical);
+        nav_sep.set_margin_start(4);
+        nav_sep.set_margin_end(2);
+        nav_sep.set_margin_top(6);
+        nav_sep.set_margin_bottom(6);
+        activity_bar.append(&nav_sep);
         activity_bar.append(&nav_back_btn);
         activity_bar.append(&nav_fwd_btn);
+        activity_bar.append(&bar_spacer);
         activity_bar.append(&recent_btn);
         sidebar.append(&activity_bar);
         sidebar.append(&gtk4::Separator::new(gtk4::Orientation::Horizontal));
