@@ -783,6 +783,8 @@ fn setup_workspace_ui(
     {
         let ws = ws_view.clone();
         let sb = status_bar.clone();
+        let win = window_rc.clone();
+        let sa = save_action.clone();
         glib::timeout_add_local(std::time::Duration::from_secs(30), move || {
             let has_path = ws.borrow().has_config_path();
             let is_dirty = ws.borrow().is_dirty();
@@ -796,6 +798,7 @@ fn setup_workspace_ui(
                         tracing::warn!("Auto-save failed: {}", e);
                     }
                 }
+                actions::update_dirty_ui(&ws, &win, &sa);
             }
             glib::ControlFlow::Continue
         });
