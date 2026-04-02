@@ -1,6 +1,4 @@
 use gtk4::prelude::*;
-use gtk4::glib;
-use std::cell::Cell;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
@@ -10,15 +8,13 @@ pub type OnDiffOpen = Rc<dyn Fn(&Path, &str)>; // (path, git_status_char)
 /// Git status sidebar widget.
 pub struct GitStatusView {
     pub widget: gtk4::Box,
-    list_box: gtk4::ListBox,
+    list_container: gtk4::Box,
     #[allow(dead_code)]
     commit_entry: gtk4::Entry,
     #[allow(dead_code)]
     commit_btn: gtk4::Button,
     root_dir: PathBuf,
     on_diff_open: OnDiffOpen,
-    /// Signal handler ID for row-activated, to avoid stacking handlers on each update.
-    row_activated_handler: Rc<Cell<Option<glib::SignalHandlerId>>>,
 }
 
 #[derive(Debug, Clone)]
@@ -43,9 +39,8 @@ impl GitStatusView {
         let scroll = gtk4::ScrolledWindow::new();
         scroll.set_vexpand(true);
 
-        let list_box = gtk4::ListBox::new();
-        list_box.set_selection_mode(gtk4::SelectionMode::Single);
-        scroll.set_child(Some(&list_box));
+        let list_container = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
+        scroll.set_child(Some(&list_container));
         container.append(&scroll);
 
         // Commit section
@@ -104,12 +99,11 @@ impl GitStatusView {
 
         let view = Self {
             widget: container,
-            list_box,
+            list_container,
             commit_entry,
             commit_btn,
             root_dir: root_dir.to_path_buf(),
             on_diff_open,
-            row_activated_handler: Rc::new(Cell::new(None)),
         };
 
         // Initial population
@@ -120,14 +114,21 @@ impl GitStatusView {
 
     /// Refresh by running git status.
     pub fn refresh(&self) {
+        tracing::info!("GitStatusView::refresh() root_dir={}", self.root_dir.display());
         let output = std::process::Command::new("git")
             .args(["status", "--porcelain"])
             .current_dir(&self.root_dir)
             .output();
-        if let Ok(o) = output {
-            if o.status.success() {
-                let stdout = String::from_utf8_lossy(&o.stdout).to_string();
-                self.update(&stdout);
+        match &output {
+            Ok(o) => {
+                tracing::info!("git status exit={} stdout_len={}", o.status, o.stdout.len());
+                if o.status.success() {
+                    let stdout = String::from_utf8_lossy(&o.stdout).to_string();
+                    self.update(&stdout);
+                }
+            }
+            Err(e) => {
+                tracing::error!("git status failed: {}", e);
             }
         }
     }
@@ -135,8 +136,8 @@ impl GitStatusView {
     /// Update the git status list from `git status --porcelain` output.
     pub fn update(&self, porcelain_output: &str) {
         // Clear existing
-        while let Some(child) = self.list_box.first_child() {
-            self.list_box.remove(&child);
+        while let Some(child) = self.list_container.first_child() {
+            self.list_container.remove(&child);
         }
 
         let entries = parse_porcelain(porcelain_output, &self.root_dir);
@@ -145,19 +146,19 @@ impl GitStatusView {
             let label = gtk4::Label::new(Some("No changes"));
             label.add_css_class("dim-label");
             label.set_margin_top(16);
-            self.list_box.append(&label);
+            self.list_container.append(&label);
             return;
         }
 
         for entry in &entries {
-            let outer = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
+            let outer = gtk4::Box::new(gtk4::Orientation::Vertical, 2);
             outer.set_margin_start(6);
-            outer.set_margin_end(4);
-            outer.set_margin_top(2);
-            outer.set_margin_bottom(2);
+            outer.set_margin_end(6);
+            outer.set_margin_top(4);
+            outer.set_margin_bottom(4);
 
-            // Top row: badge + filename
-            let top_row = gtk4::Box::new(gtk4::Orientation::Horizontal, 4);
+            // Top row: badge + filename (clickable for diff)
+            let top_row = gtk4::Box::new(gtk4::Orientation::Horizontal, 6);
 
             let (badge_text, badge_class) = match entry.status.as_str() {
                 "M" | "MM" => ("M", "warning"),
@@ -174,16 +175,32 @@ impl GitStatusView {
 
             let rel = entry.path.strip_prefix(&self.root_dir).unwrap_or(&entry.path);
             let rel_str = rel.to_string_lossy().to_string();
-            let name_label = gtk4::Label::new(Some(&rel_str));
-            name_label.set_halign(gtk4::Align::Start);
-            name_label.set_hexpand(true);
-            name_label.set_ellipsize(gtk4::pango::EllipsizeMode::End);
-            name_label.set_tooltip_text(Some(&rel_str));
-            top_row.append(&name_label);
 
+            // Make filename a link button for opening diff
+            let name_btn = gtk4::Button::with_label(&rel_str);
+            name_btn.add_css_class("flat");
+            name_btn.set_halign(gtk4::Align::Start);
+            name_btn.set_hexpand(true);
+            name_btn.set_tooltip_text(Some("Click to view diff"));
+            // Ellipsize the label inside the button
+            if let Some(child) = name_btn.child() {
+                if let Some(label) = child.downcast_ref::<gtk4::Label>() {
+                    label.set_ellipsize(gtk4::pango::EllipsizeMode::Start);
+                    label.set_halign(gtk4::Align::Start);
+                }
+            }
+            {
+                let path = entry.path.clone();
+                let status = entry.status.clone();
+                let on_diff = self.on_diff_open.clone();
+                name_btn.connect_clicked(move |_| {
+                    on_diff(&path, &status);
+                });
+            }
+            top_row.append(&name_btn);
             outer.append(&top_row);
 
-            // Bottom row: action buttons aligned right
+            // Bottom row: action buttons
             let btn_row = gtk4::Box::new(gtk4::Orientation::Horizontal, 4);
             btn_row.set_halign(gtk4::Align::End);
 
@@ -192,7 +209,6 @@ impl GitStatusView {
             if entry.staged {
                 stage_btn.set_icon_name("list-remove-symbolic");
                 stage_btn.set_label("Unstage");
-                stage_btn.set_tooltip_text(Some("Unstage"));
                 let path = entry.path.clone();
                 let root = self.root_dir.clone();
                 stage_btn.connect_clicked(move |_| {
@@ -204,7 +220,6 @@ impl GitStatusView {
             } else {
                 stage_btn.set_icon_name("list-add-symbolic");
                 stage_btn.set_label("Stage");
-                stage_btn.set_tooltip_text(Some("Stage"));
                 let path = entry.path.clone();
                 let root = self.root_dir.clone();
                 stage_btn.connect_clicked(move |_| {
@@ -221,7 +236,7 @@ impl GitStatusView {
                 revert_btn.set_icon_name("edit-undo-symbolic");
                 revert_btn.set_label("Revert");
                 revert_btn.add_css_class("flat");
-                revert_btn.set_tooltip_text(Some("Revert changes"));
+                revert_btn.add_css_class("destructive-action");
                 let path = entry.path.clone();
                 let root = self.root_dir.clone();
                 revert_btn.connect_clicked(move |_| {
@@ -235,25 +250,8 @@ impl GitStatusView {
             }
 
             outer.append(&btn_row);
-            self.list_box.append(&outer);
-        }
-
-        // Disconnect previous handler to avoid stacking
-        if let Some(old_id) = self.row_activated_handler.take() {
-            self.list_box.disconnect(old_id);
-        }
-
-        // Make rows clickable to open diff
-        {
-            let entries_c = entries.clone();
-            let on_diff = self.on_diff_open.clone();
-            let handler_id = self.list_box.connect_row_activated(move |_, row| {
-                let idx = row.index() as usize;
-                if let Some(entry) = entries_c.get(idx) {
-                    on_diff(&entry.path, &entry.status);
-                }
-            });
-            self.row_activated_handler.set(Some(handler_id));
+            self.list_container.append(&outer);
+            self.list_container.append(&gtk4::Separator::new(gtk4::Orientation::Horizontal));
         }
     }
 }
