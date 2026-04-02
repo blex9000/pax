@@ -230,6 +230,8 @@ box.panel-title-bar { padding: 2px 6px; margin: 0; min-height: 20px; }
 .panel-title { font-size: 11px; font-weight: bold; }
 .panel-type-icon { min-height: 14px; min-width: 14px; opacity: 0.6; margin-right: 2px; }
 .panel-menu-btn { min-height: 16px; min-width: 16px; padding: 2px; }
+.panel-collapse-btn { min-height: 18px; min-width: 18px; padding: 2px; border-radius: 50%; background-color: alpha(@window_fg_color, 0.12); }
+.panel-collapse-btn:hover { background-color: alpha(@window_fg_color, 0.22); }
 .panel-action-btn { min-height: 16px; min-width: 16px; padding: 2px; opacity: 0.5; }
 .panel-action-btn:hover { opacity: 1.0; }
 .sync-active { opacity: 1.0; color: #e5a50a; }
