@@ -407,6 +407,7 @@ impl CodeEditorPanel {
         main_overlay.add_overlay(&fuzzy_finder.overlay);
 
         let widget = main_overlay.upcast::<gtk4::Widget>();
+        widget.set_focusable(true);
 
         // Keybindings: Ctrl+S save, Ctrl+W close, Ctrl+Tab next tab, Ctrl+B sidebar, Ctrl+P fuzzy finder, Ctrl+Shift+G git view
         {
