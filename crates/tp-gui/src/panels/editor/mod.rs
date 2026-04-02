@@ -187,7 +187,7 @@ impl CodeEditorPanel {
         nav_fwd_btn.add_css_class("flat");
         nav_fwd_btn.set_tooltip_text(Some("Go Forward (Alt+→)"));
 
-        let recent_btn = gtk4::Button::from_icon_name("document-open-recent-symbolic");
+        let recent_btn = gtk4::Button::from_icon_name("view-list-symbolic");
         recent_btn.add_css_class("flat");
         recent_btn.set_tooltip_text(Some("Recent Files (Ctrl+E)"));
 
@@ -615,17 +615,21 @@ fn navigate_history(state: &Rc<RefCell<EditorState>>, tabs: &Rc<editor_tabs::Edi
             let mut st = state.borrow_mut();
             st.nav_back.pop(); // undo the push from open_file
         }
-        // Scroll to saved line
-        let st = state.borrow();
-        if let Some(idx) = st.active_tab {
-            if let Some(f) = st.open_files.get(idx) {
-                if let Some(iter) = f.buffer.iter_at_line(pos.line) {
-                    f.buffer.place_cursor(&iter);
-                    drop(st);
-                    tabs.source_view.scroll_to_iter(&mut iter.clone(), 0.1, false, 0.0, 0.0);
+        // Scroll to saved line (deferred so layout has time to complete)
+        let line = pos.line;
+        let sv = tabs.source_view.clone();
+        let state_c = state.clone();
+        gtk4::glib::idle_add_local_once(move || {
+            let st = state_c.borrow();
+            if let Some(idx) = st.active_tab {
+                if let Some(f) = st.open_files.get(idx) {
+                    if let Some(iter) = f.buffer.iter_at_line(line) {
+                        f.buffer.place_cursor(&iter);
+                        sv.scroll_to_iter(&mut iter.clone(), 0.1, false, 0.0, 0.0);
+                    }
                 }
             }
-        }
+        });
     }
 }
 
