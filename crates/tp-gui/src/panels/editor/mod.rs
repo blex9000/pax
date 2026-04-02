@@ -247,16 +247,25 @@ impl CodeEditorPanel {
         );
 
         // Paned: sidebar | editor
+        editor_area.set_width_request(300);
         let paned = gtk4::Paned::new(gtk4::Orientation::Horizontal);
         paned.set_start_child(Some(&sidebar));
         paned.set_end_child(Some(&editor_area));
         paned.set_position(200);
         paned.set_shrink_start_child(false);
+        paned.set_shrink_end_child(false);
         paned.set_resize_start_child(false);
 
-        // Overlay: paned + fuzzy finder on top
+        // Wrap in a ScrolledWindow for horizontal scroll when space is tight
+        let scroll_wrap = gtk4::ScrolledWindow::new();
+        scroll_wrap.set_child(Some(&paned));
+        scroll_wrap.set_hscrollbar_policy(gtk4::PolicyType::Automatic);
+        scroll_wrap.set_vscrollbar_policy(gtk4::PolicyType::Never);
+        scroll_wrap.set_propagate_natural_width(true);
+
+        // Overlay: scroll + fuzzy finder on top
         let main_overlay = gtk4::Overlay::new();
-        main_overlay.set_child(Some(&paned));
+        main_overlay.set_child(Some(&scroll_wrap));
         main_overlay.add_overlay(&fuzzy_finder.overlay);
 
         let widget = main_overlay.upcast::<gtk4::Widget>();
