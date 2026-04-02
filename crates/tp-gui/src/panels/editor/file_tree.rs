@@ -3,6 +3,8 @@ use std::cell::RefCell;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
+use super::file_backend::FileBackend;
+
 /// Callback when a file is opened in the tree.
 pub type OnFileOpen = Rc<dyn Fn(&Path)>;
 /// Callback for context menu actions: (action, file_path)
@@ -21,6 +23,8 @@ pub struct FileTree {
     entries: Rc<RefCell<Vec<FileEntry>>>,
     #[allow(dead_code)]
     on_context_action: Option<OnContextAction>,
+    #[allow(dead_code)]
+    backend: Rc<dyn FileBackend>,
 }
 
 #[derive(Debug, Clone)]
@@ -33,11 +37,11 @@ struct FileEntry {
 }
 
 impl FileTree {
-    pub fn new(root_dir: &Path, on_file_open: OnFileOpen) -> Self {
-        Self::new_with_context(root_dir, on_file_open, None)
+    pub fn new(root_dir: &Path, on_file_open: OnFileOpen, backend: Rc<dyn FileBackend>) -> Self {
+        Self::new_with_context(root_dir, on_file_open, None, backend)
     }
 
-    pub fn new_with_context(root_dir: &Path, on_file_open: OnFileOpen, on_context_action: Option<OnContextAction>) -> Self {
+    pub fn new_with_context(root_dir: &Path, on_file_open: OnFileOpen, on_context_action: Option<OnContextAction>, backend: Rc<dyn FileBackend>) -> Self {
         let container = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
 
         // Action buttons bar at bottom
@@ -65,7 +69,7 @@ impl FileTree {
         // Build initial file list
         let file_index = Rc::new(RefCell::new(Vec::new()));
         let entries = Rc::new(RefCell::new(Vec::new()));
-        build_file_entries(root_dir, root_dir, &mut entries.borrow_mut(), &mut file_index.borrow_mut(), 0);
+        build_file_entries(root_dir, root_dir, &mut entries.borrow_mut(), &mut file_index.borrow_mut(), 0, &*backend);
 
         let list_box = gtk4::ListBox::new();
         list_box.set_selection_mode(gtk4::SelectionMode::Single);
@@ -87,6 +91,7 @@ impl FileTree {
             let fi = file_index.clone();
             let root = root_dir.to_path_buf();
             let sw = scroll.clone();
+            let be = backend.clone();
             list_box.connect_row_activated(move |lb, row| {
                 let idx = row.index() as usize;
                 let is_dir;
@@ -105,7 +110,7 @@ impl FileTree {
                     // Save scroll position before rebuilding
                     let vadj = sw.vadjustment();
                     let scroll_pos = vadj.value();
-                    toggle_dir(&entries_c, &fi, &root, idx, depth, expanded, &path);
+                    toggle_dir(&entries_c, &fi, &root, idx, depth, expanded, &path, &*be);
                     populate_list_box(lb, &entries_c.borrow(), &root);
                     // Restore scroll position after rebuild
                     vadj.set_value(scroll_pos);
@@ -120,6 +125,7 @@ impl FileTree {
             let entries_c = entries.clone();
             let root = root_dir.to_path_buf();
             let ctx_cb = on_context_action.clone();
+            let backend = backend.clone();
             let gesture = gtk4::GestureClick::new();
             gesture.set_button(3); // right-click
             gesture.connect_pressed(move |g, _n, x, y| {
@@ -185,6 +191,7 @@ impl FileTree {
                 let rename_btn = make_item("document-edit-symbolic", "Rename");
                 {
                     let p = path.clone();
+                    let be = backend.clone();
                     rename_btn.connect_clicked(move |btn| {
                         // Close popover first
                         if let Some(pop) = btn.ancestor(gtk4::Popover::static_type()) {
@@ -209,12 +216,13 @@ impl FileTree {
                         let ok_btn = gtk4::Button::with_label("Rename");
                         ok_btn.add_css_class("suggested-action");
                         let pp = p.clone();
+                        let be2 = be.clone();
                         let d = dialog.clone();
                         ok_btn.connect_clicked(move |_| {
                             let new_name = entry.text().to_string();
                             if !new_name.is_empty() && new_name != current_name {
                                 let dest = pp.with_file_name(&new_name);
-                                let _ = std::fs::rename(&pp, &dest);
+                                let _ = be2.rename_file(&pp, &dest);
                             }
                             d.close();
                         });
@@ -228,16 +236,17 @@ impl FileTree {
                 let dup_btn = make_item("document-save-as-symbolic", "Duplicate File");
                 {
                     let p = path.clone();
+                    let be = backend.clone();
                     dup_btn.connect_clicked(move |btn| {
                         if let Some(ext) = p.extension() {
                             let stem = p.file_stem().unwrap_or_default().to_string_lossy();
                             let new_name = format!("{}_copy.{}", stem, ext.to_string_lossy());
                             let dest = p.with_file_name(new_name);
-                            let _ = std::fs::copy(&p, &dest);
+                            let _ = be.copy_file(&p, &dest);
                         } else {
                             let name = p.file_name().unwrap_or_default().to_string_lossy();
                             let dest = p.with_file_name(format!("{}_copy", name));
-                            let _ = std::fs::copy(&p, &dest);
+                            let _ = be.copy_file(&p, &dest);
                         }
                         if let Some(pop) = btn.ancestor(gtk4::Popover::static_type()) {
                             pop.downcast_ref::<gtk4::Popover>().unwrap().popdown();
@@ -249,8 +258,9 @@ impl FileTree {
                 let del_btn = make_item("user-trash-symbolic", "Delete File");
                 {
                     let p = path.clone();
+                    let be = backend.clone();
                     del_btn.connect_clicked(move |btn| {
-                        let _ = std::fs::remove_file(&p);
+                        let _ = be.delete_file(&p);
                         if let Some(pop) = btn.ancestor(gtk4::Popover::static_type()) {
                             pop.downcast_ref::<gtk4::Popover>().unwrap().popdown();
                         }
@@ -289,11 +299,12 @@ impl FileTree {
             let fi = file_index.clone();
             let root = root_dir.to_path_buf();
             let lb = list_box.clone();
+            let be_ref = backend.clone();
             collapse_btn.connect_clicked(move |_| {
                 // Rebuild with only depth 0 entries (all collapsed)
                 let mut new_entries = Vec::new();
                 let mut new_index = Vec::new();
-                build_file_entries(&root, &root, &mut new_entries, &mut new_index, 0);
+                build_file_entries(&root, &root, &mut new_entries, &mut new_index, 0, &*be_ref);
                 // All dirs at depth 0 are collapsed (auto_expand only depth < 1,
                 // but we want everything collapsed, so mark depth 0 dirs as collapsed too)
                 for e in &mut new_entries {
@@ -319,16 +330,18 @@ impl FileTree {
         // New file button
         {
             let root = root_dir.to_path_buf();
+            let be = backend.clone();
             new_file_btn.connect_clicked(move |_| {
-                let _ = std::fs::write(root.join("untitled"), "");
+                let _ = be.write_file(&root.join("untitled"), "");
             });
         }
 
         // New folder button
         {
             let root = root_dir.to_path_buf();
+            let be = backend.clone();
             new_dir_btn.connect_clicked(move |_| {
-                let _ = std::fs::create_dir(root.join("new_folder"));
+                let _ = be.create_dir(&root.join("new_folder"));
             });
         }
 
@@ -341,6 +354,7 @@ impl FileTree {
             file_index,
             entries,
             on_context_action,
+            backend,
         }
     }
 
@@ -354,10 +368,10 @@ impl FileTree {
 
         let mut entries = Vec::new();
         let mut index = Vec::new();
-        build_file_entries(&self.root_dir, &self.root_dir, &mut entries, &mut index, 0);
+        build_file_entries(&self.root_dir, &self.root_dir, &mut entries, &mut index, 0, &*self.backend);
 
         // Restore expanded state
-        restore_expanded(&mut entries, &mut index, &self.root_dir, &expanded_dirs);
+        restore_expanded(&mut entries, &mut index, &self.root_dir, &expanded_dirs, &*self.backend);
 
         *self.file_index.borrow_mut() = index;
         *self.entries.borrow_mut() = entries;
@@ -554,6 +568,7 @@ fn toggle_dir(
     depth: u32,
     was_expanded: bool,
     dir_path: &Path,
+    backend: &dyn FileBackend,
 ) {
     let mut ents = entries.borrow_mut();
 
@@ -580,7 +595,7 @@ fn toggle_dir(
         ents[idx].expanded = true;
         let mut new_entries = Vec::new();
         let mut new_index = Vec::new();
-        build_file_entries(root, dir_path, &mut new_entries, &mut new_index, depth + 1);
+        build_file_entries(root, dir_path, &mut new_entries, &mut new_index, depth + 1, backend);
         file_index.borrow_mut().extend(new_index);
         let insert_pos = idx + 1;
         for (i, entry) in new_entries.into_iter().enumerate() {
@@ -595,6 +610,7 @@ fn restore_expanded(
     file_index: &mut Vec<PathBuf>,
     root: &Path,
     expanded_dirs: &[PathBuf],
+    backend: &dyn FileBackend,
 ) {
     let mut i = 0;
     while i < entries.len() {
@@ -604,7 +620,7 @@ fn restore_expanded(
             entries[i].expanded = true;
             let mut new_entries = Vec::new();
             let mut new_index = Vec::new();
-            build_file_entries(root, &dir_path, &mut new_entries, &mut new_index, depth + 1);
+            build_file_entries(root, &dir_path, &mut new_entries, &mut new_index, depth + 1, backend);
             file_index.extend(new_index);
             let insert_pos = i + 1;
             for (j, entry) in new_entries.into_iter().enumerate() {
@@ -622,35 +638,54 @@ fn build_file_entries(
     entries: &mut Vec<FileEntry>,
     file_index: &mut Vec<PathBuf>,
     depth: u32,
+    backend: &dyn FileBackend,
 ) {
-    let walker = ignore::WalkBuilder::new(dir)
-        .max_depth(Some(1))
-        .sort_by_file_name(|a, b| a.cmp(b))
-        .build();
-
     let mut dirs = Vec::new();
     let mut files = Vec::new();
 
-    for entry in walker.flatten() {
-        let path = entry.path().to_path_buf();
-        if path == dir { continue; }
+    if backend.is_remote() {
+        // Remote: use backend.list_dir() — one SSH call per directory
+        if let Ok(listing) = backend.list_dir(dir) {
+            for de in listing {
+                let path = dir.join(&de.name);
+                if de.is_dir {
+                    dirs.push((path, de.name));
+                } else {
+                    files.push((path, de.name));
+                }
+            }
+        }
+    } else {
+        // Local: use ignore::WalkBuilder for .gitignore support
+        let walker = ignore::WalkBuilder::new(dir)
+            .max_depth(Some(1))
+            .sort_by_file_name(|a, b| a.cmp(b))
+            .build();
 
-        let name = path.file_name()
-            .map(|n| n.to_string_lossy().to_string())
-            .unwrap_or_default();
+        for entry in walker.flatten() {
+            let path = entry.path().to_path_buf();
+            if path == dir { continue; }
 
-        if path.is_dir() {
-            dirs.push((path, name));
-        } else {
-            files.push((path, name));
+            let name = path.file_name()
+                .map(|n| n.to_string_lossy().to_string())
+                .unwrap_or_default();
+
+            if path.is_dir() {
+                dirs.push((path, name));
+            } else {
+                files.push((path, name));
+            }
         }
     }
 
     dirs.sort_by(|a, b| a.1.to_lowercase().cmp(&b.1.to_lowercase()));
     files.sort_by(|a, b| a.1.to_lowercase().cmp(&b.1.to_lowercase()));
 
+    // Remote: don't auto-expand (each expand is an SSH call)
+    let auto_expand_depth = if backend.is_remote() { 0 } else { 1 };
+
     for (path, name) in dirs {
-        let auto_expand = depth < 1;
+        let auto_expand = depth < auto_expand_depth;
         entries.push(FileEntry {
             path: path.clone(),
             name,
@@ -659,7 +694,7 @@ fn build_file_entries(
             expanded: auto_expand,
         });
         if auto_expand {
-            build_file_entries(root, &path, entries, file_index, depth + 1);
+            build_file_entries(root, &path, entries, file_index, depth + 1, backend);
         }
     }
 
