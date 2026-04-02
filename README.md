@@ -34,24 +34,19 @@ chmod +x Pax-x86_64.AppImage
 ./Pax-x86_64.AppImage
 ───────
 
-macOS (app bundle)
+macOS (DMG)
 
-1. Installa le dipendenze GTK4 (una tantum):
-
-─── bash ───
-brew install gtk4 libadwaita gtksourceview5
-───────
-
-2. Scarica `Pax-macos-arm64.tar.gz` dalla pagina [Actions](https://github.com/blex9000/pax/actions) (sezione Artifacts nel Summary della build)
-3. Estrai e avvia:
+1. Scarica `Pax-macos-arm64.dmg` dalla pagina [Actions](https://github.com/blex9000/pax/actions) (sezione Artifacts nel Summary della build)
+2. Apri il DMG e trascina Pax nella cartella Applications
+3. Al primo avvio, se macOS blocca l'app (non firmata):
 
 ─── bash ───
-tar xzf Pax-macos-arm64.tar.gz
-xattr -cr Pax.app    # rimuove il blocco Gatekeeper (app non firmata)
-open Pax.app
+xattr -cr /Applications/Pax.app
 ───────
 
-Nota: la build macOS non include VTE (terminale nativo Linux). Il terminale usa un fallback PTY con funzionalità ridotte. L'app non è firmata con certificato Apple, quindi `xattr -cr` è necessario al primo avvio.
+Il DMG include tutte le dipendenze (GTK4, libadwaita, GtkSourceView5) — non serve installare nulla.
+
+Nota: la build macOS non include VTE (terminale nativo Linux). Il terminale usa un fallback PTY con funzionalità ridotte.
 
 L'AppImage include tutte le dipendenze GTK4/libadwaita/VTE4. Funziona su qualsiasi distro Linux x86_64 recente.
 

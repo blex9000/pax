@@ -80,54 +80,87 @@ jobs:
           restore-keys: cargo-macos-release-
 
       - name: Install system dependencies
-        run: brew install gtk4 libadwaita gtksourceview5 pkg-config
+        run: |
+          brew install gtk4 libadwaita gtksourceview5 pkg-config dylibbundler
 
       - name: Build
         run: cargo build --release --no-default-features --features sourceview
 
-      - name: Package
+      - name: Bundle app with all dependencies
         run: |
-          mkdir -p Pax.app/Contents/MacOS
-          mkdir -p Pax.app/Contents/Resources
-          cp target/release/pax Pax.app/Contents/MacOS/pax-bin
-          cp -r resources/* Pax.app/Contents/Resources/
+          set -euo pipefail
+          APP="Pax.app"
+          MACOS="$APP/Contents/MacOS"
+          RES="$APP/Contents/Resources"
+          LIB="$APP/Contents/lib"
+          SHARE="$APP/Contents/share"
 
-          # Launcher script: checks for GTK4 deps before running
-          cat > Pax.app/Contents/MacOS/pax << 'LAUNCHER'
+          mkdir -p "$MACOS" "$RES" "$LIB"
+
+          # Copy binary
+          cp target/release/pax "$MACOS/pax-bin"
+
+          # Copy app resources
+          cp -r resources/* "$RES/"
+
+          # Bundle all dylib dependencies into the .app
+          dylibbundler -od -b \
+            -x "$MACOS/pax-bin" \
+            -d "$LIB" \
+            -p @executable_path/../lib/
+
+          # Copy GLib schemas (required for GTK4/libadwaita)
+          BREW_PREFIX="$(brew --prefix)"
+          mkdir -p "$SHARE/glib-2.0/schemas"
+          cp "$BREW_PREFIX/share/glib-2.0/schemas/gschemas.compiled" "$SHARE/glib-2.0/schemas/" 2>/dev/null || true
+          # Compile schemas if compiled version doesn't exist
+          if [ ! -f "$SHARE/glib-2.0/schemas/gschemas.compiled" ]; then
+            glib-compile-schemas "$BREW_PREFIX/share/glib-2.0/schemas" --targetdir="$SHARE/glib-2.0/schemas/"
+          fi
+
+          # Copy GDK pixbuf loaders
+          GDK_PIXBUF_DIR="$BREW_PREFIX/lib/gdk-pixbuf-2.0"
+          if [ -d "$GDK_PIXBUF_DIR" ]; then
+            mkdir -p "$LIB/gdk-pixbuf-2.0"
+            cp -r "$GDK_PIXBUF_DIR"/* "$LIB/gdk-pixbuf-2.0/"
+          fi
+
+          # Copy hicolor icon theme (for symbolic icons)
+          mkdir -p "$SHARE/icons"
+          if [ -d "$BREW_PREFIX/share/icons/hicolor" ]; then
+            cp -r "$BREW_PREFIX/share/icons/hicolor" "$SHARE/icons/"
+          fi
+
+          # Copy GtkSourceView language specs and styles
+          SV_DIR="$BREW_PREFIX/share/gtksourceview-5"
+          if [ -d "$SV_DIR" ]; then
+            mkdir -p "$SHARE/gtksourceview-5"
+            cp -r "$SV_DIR"/* "$SHARE/gtksourceview-5/"
+          fi
+
+          # Copy custom sourceview styles
+          if [ -d "resources/sourceview-styles" ]; then
+            cp resources/sourceview-styles/*.xml "$SHARE/gtksourceview-5/styles/" 2>/dev/null || true
+          fi
+
+          # Launcher script that sets up environment for bundled libs
+          cat > "$MACOS/pax" << 'LAUNCHER'
           #!/bin/bash
           DIR="$(cd "$(dirname "$0")" && pwd)"
+          CONTENTS="$(dirname "$DIR")"
 
-          # Check if Homebrew is installed
-          if ! command -v brew &>/dev/null; then
-            osascript -e 'display dialog "Pax requires Homebrew.\n\nInstall it from https://brew.sh and then run:\n\nbrew install gtk4 libadwaita gtksourceview5" buttons {"OK"} default button "OK" with title "Pax — Missing Dependencies" with icon caution'
-            exit 1
-          fi
+          export DYLD_LIBRARY_PATH="$CONTENTS/lib:$DYLD_LIBRARY_PATH"
+          export XDG_DATA_DIRS="$CONTENTS/share:${XDG_DATA_DIRS:-/usr/local/share:/usr/share}"
+          export GSETTINGS_SCHEMA_DIR="$CONTENTS/share/glib-2.0/schemas"
+          export GDK_PIXBUF_MODULE_FILE="$CONTENTS/lib/gdk-pixbuf-2.0/2.10.0/loaders.cache"
+          export GTK_PATH="$CONTENTS/lib/gtk-4.0"
 
-          # Check for GTK4
-          MISSING=""
-          brew list gtk4 &>/dev/null || MISSING="$MISSING gtk4"
-          brew list libadwaita &>/dev/null || MISSING="$MISSING libadwaita"
-          brew list gtksourceview5 &>/dev/null || MISSING="$MISSING gtksourceview5"
-
-          if [ -n "$MISSING" ]; then
-            # Ask user if they want to install
-            RESULT=$(osascript -e "display dialog \"Pax needs these packages:\n\n$MISSING\n\nInstall them now via Homebrew?\" buttons {\"Cancel\", \"Install\"} default button \"Install\" with title \"Pax — Missing Dependencies\" with icon caution" 2>&1)
-            if echo "$RESULT" | grep -q "Install"; then
-              # Open Terminal and run brew install
-              osascript -e "tell application \"Terminal\" to do script \"brew install$MISSING && echo 'Done! You can now open Pax.app'\""
-              osascript -e "tell application \"Terminal\" to activate"
-              exit 0
-            else
-              exit 1
-            fi
-          fi
-
-          # All deps present — launch the app
           exec "$DIR/pax-bin" "$@"
           LAUNCHER
-          chmod +x Pax.app/Contents/MacOS/pax
+          chmod +x "$MACOS/pax"
 
-          cat > Pax.app/Contents/Info.plist << 'PLIST'
+          # Info.plist
+          cat > "$APP/Contents/Info.plist" << 'PLIST'
           <?xml version="1.0" encoding="UTF-8"?>
           <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
           <plist version="1.0">
@@ -137,19 +170,31 @@ jobs:
             <key>CFBundleExecutable</key><string>pax</string>
             <key>CFBundleVersion</key><string>0.1.0</string>
             <key>CFBundlePackageType</key><string>APPL</string>
+            <key>NSHighResolutionCapable</key><true/>
           </dict>
           </plist>
           PLIST
-          tar czf Pax-macos-arm64.tar.gz Pax.app
+
+      - name: Create DMG
+        run: |
+          # Create a DMG with drag-to-Applications layout
+          mkdir -p dmg_contents
+          cp -r Pax.app dmg_contents/
+          ln -s /Applications dmg_contents/Applications
+
+          hdiutil create -volname "Pax" \
+            -srcfolder dmg_contents \
+            -ov -format UDZO \
+            Pax-macos-arm64.dmg
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: Pax-macOS-arm64
-          path: Pax-macos-arm64.tar.gz
+          path: Pax-macos-arm64.dmg
 
       - name: Add to GitHub Release
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
-          files: Pax-macos-arm64.tar.gz
+          files: Pax-macos-arm64.dmg
