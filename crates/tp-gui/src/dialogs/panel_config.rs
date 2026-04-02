@@ -785,7 +785,59 @@ fn show_code_editor_config(
     };
     let ssh_key_entry = add_field(&ssh_fields, "Identity file:", "", "~/.ssh/id_rsa");
     let ssh_port_entry = add_field(&ssh_fields, "Port:", "22", "22");
-    let remote_path_entry = add_field(&ssh_fields, "Remote path:", "", "/home/user/project");
+
+    // Remote path with browse button
+    let remote_path_row = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
+    let remote_path_label = gtk4::Label::new(Some("Remote path:"));
+    remote_path_label.set_width_chars(15);
+    remote_path_label.set_halign(gtk4::Align::Start);
+    let remote_path_entry = gtk4::Entry::new();
+    remote_path_entry.set_placeholder_text(Some("/home/user/project"));
+    remote_path_entry.set_hexpand(true);
+    let remote_browse_btn = gtk4::Button::from_icon_name("folder-open-symbolic");
+    remote_browse_btn.add_css_class("flat");
+    remote_browse_btn.set_tooltip_text(Some("Browse remote directories"));
+    remote_browse_btn.set_sensitive(false);
+    remote_path_row.append(&remote_path_label);
+    remote_path_row.append(&remote_path_entry);
+    remote_path_row.append(&remote_browse_btn);
+    ssh_fields.append(&remote_path_row);
+
+    // Enable browse button when host is filled
+    {
+        let btn = remote_browse_btn.clone();
+        let host = ssh_host_entry.clone();
+        ssh_host_entry.connect_changed(move |_| {
+            btn.set_sensitive(!host.text().is_empty());
+        });
+    }
+
+    // Browse remote directories via SSH
+    {
+        let host_e = ssh_host_entry.clone();
+        let user_e = ssh_user_entry.clone();
+        let pass_e = ssh_pass_entry.clone();
+        let key_e = ssh_key_entry.clone();
+        let port_e = ssh_port_entry.clone();
+        let path_e = remote_path_entry.clone();
+        remote_browse_btn.connect_clicked(move |btn| {
+            let host = host_e.text().to_string();
+            let user = user_e.text().to_string();
+            let user = if user.is_empty() { "root".to_string() } else { user };
+            let password = pass_e.text().to_string();
+            let key = key_e.text().to_string();
+            let port = port_e.text().to_string();
+            let current_path = path_e.text().to_string();
+            let start_path = if current_path.is_empty() { "/".to_string() } else { current_path };
+
+            let path_entry = path_e.clone();
+            if let Some(win) = btn.root().and_then(|r| r.downcast::<gtk4::Window>().ok()) {
+                show_remote_browse_dialog(&win, &host, &user, &password, &key, &port, &start_path, move |selected| {
+                    path_entry.set_text(&selected);
+                });
+            }
+        });
+    }
 
     vbox.append(&ssh_fields);
 
@@ -846,5 +898,230 @@ fn show_code_editor_config(
     });
 
     dialog.set_child(Some(&vbox));
+    dialog.present();
+}
+
+/// Show a dialog to browse remote directories via SSH.
+fn show_remote_browse_dialog(
+    parent: &gtk4::Window,
+    host: &str, user: &str, password: &str, identity_file: &str, port: &str,
+    start_path: &str,
+    on_select: impl Fn(String) + 'static,
+) {
+    use std::rc::Rc;
+    use std::cell::RefCell;
+
+    let dialog = gtk4::Window::builder()
+        .title("Browse Remote Directory")
+        .transient_for(parent)
+        .modal(true)
+        .default_width(450)
+        .default_height(400)
+        .build();
+
+    let vbox = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
+
+    // Header: up button + current path
+    let header = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
+    header.set_margin_start(12);
+    header.set_margin_end(12);
+    header.set_margin_top(8);
+    header.set_margin_bottom(4);
+
+    let up_btn = gtk4::Button::from_icon_name("go-up-symbolic");
+    up_btn.add_css_class("flat");
+    up_btn.set_tooltip_text(Some("Go up"));
+    header.append(&up_btn);
+
+    let path_label = gtk4::Label::new(Some(start_path));
+    path_label.add_css_class("heading");
+    path_label.set_halign(gtk4::Align::Start);
+    path_label.set_hexpand(true);
+    path_label.set_ellipsize(gtk4::pango::EllipsizeMode::Start);
+    header.append(&path_label);
+
+    vbox.append(&header);
+    vbox.append(&gtk4::Separator::new(gtk4::Orientation::Horizontal));
+
+    let list_box = gtk4::ListBox::new();
+    list_box.set_selection_mode(gtk4::SelectionMode::Single);
+    let scroll = gtk4::ScrolledWindow::new();
+    scroll.set_child(Some(&list_box));
+    scroll.set_vexpand(true);
+    vbox.append(&scroll);
+
+    let status_label = gtk4::Label::new(Some("Loading..."));
+    status_label.add_css_class("dim-label");
+    status_label.set_margin_top(4);
+    status_label.set_margin_bottom(4);
+    vbox.append(&status_label);
+
+    let btn_row = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
+    btn_row.set_halign(gtk4::Align::End);
+    btn_row.set_margin_start(12);
+    btn_row.set_margin_end(12);
+    btn_row.set_margin_top(4);
+    btn_row.set_margin_bottom(8);
+
+    let cancel_btn = gtk4::Button::with_label("Cancel");
+    let select_btn = gtk4::Button::with_label("Select");
+    select_btn.add_css_class("suggested-action");
+    btn_row.append(&cancel_btn);
+    btn_row.append(&select_btn);
+    vbox.append(&btn_row);
+
+    dialog.set_child(Some(&vbox));
+
+    let ssh_host = host.to_string();
+    let ssh_user = user.to_string();
+    let ssh_pass = password.to_string();
+    let ssh_key = identity_file.to_string();
+    let ssh_port = port.to_string();
+    let current_path: Rc<RefCell<String>> = Rc::new(RefCell::new(start_path.to_string()));
+
+    // List remote directories via SSH
+    let list_remote_dirs = {
+        let host = ssh_host.clone();
+        let user = ssh_user.clone();
+        let pass = ssh_pass.clone();
+        let key = ssh_key.clone();
+        let port = ssh_port.clone();
+        move |path: &str| -> Result<Vec<String>, String> {
+            let cmd_str = format!("ls -1ap '{}' 2>/dev/null | grep '/$'", path);
+            let mut cmd = if !pass.is_empty() {
+                let mut c = std::process::Command::new("sshpass");
+                c.args(["-p", &pass, "ssh"]);
+                c
+            } else {
+                std::process::Command::new("ssh")
+            };
+            cmd.args(["-o", "StrictHostKeyChecking=no", "-o", "ConnectTimeout=5"]);
+            if !key.is_empty() {
+                cmd.args(["-i", &key]);
+            }
+            cmd.args(["-p", &port, &format!("{}@{}", user, host), &cmd_str]);
+
+            match cmd.output() {
+                Ok(output) if output.status.success() => {
+                    let stdout = String::from_utf8_lossy(&output.stdout);
+                    let dirs: Vec<String> = stdout.lines()
+                        .filter(|l| !l.is_empty() && *l != "./" && *l != "../")
+                        .map(|l| l.trim_end_matches('/').to_string())
+                        .collect();
+                    Ok(dirs)
+                }
+                Ok(output) => Err(String::from_utf8_lossy(&output.stderr).trim().to_string()),
+                Err(e) => Err(format!("SSH failed: {}", e)),
+            }
+        }
+    };
+
+    // Populate list for a given path
+    let populate = {
+        let lb = list_box.clone();
+        let pl = path_label.clone();
+        let sl = status_label.clone();
+        let cp = current_path.clone();
+        let list_fn = list_remote_dirs.clone();
+        move |path: &str| {
+            *cp.borrow_mut() = path.to_string();
+            pl.set_text(path);
+            while let Some(child) = lb.first_child() {
+                lb.remove(&child);
+            }
+            sl.set_text("Loading...");
+            sl.set_visible(true);
+
+            match list_fn(path) {
+                Ok(dirs) => {
+                    if dirs.is_empty() {
+                        sl.set_text("No subdirectories");
+                    } else {
+                        sl.set_visible(false);
+                        for dir in &dirs {
+                            let row_box = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
+                            row_box.set_margin_start(8);
+                            row_box.set_margin_end(8);
+                            row_box.set_margin_top(3);
+                            row_box.set_margin_bottom(3);
+                            let icon = gtk4::Image::from_icon_name("folder-symbolic");
+                            icon.set_pixel_size(16);
+                            row_box.append(&icon);
+                            let label = gtk4::Label::new(Some(dir));
+                            label.set_halign(gtk4::Align::Start);
+                            row_box.append(&label);
+                            let row = gtk4::ListBoxRow::new();
+                            row.set_child(Some(&row_box));
+                            row.set_widget_name(dir);
+                            lb.append(&row);
+                        }
+                    }
+                }
+                Err(e) => {
+                    sl.set_text(&format!("Error: {}", e.chars().take(100).collect::<String>()));
+                }
+            }
+        }
+    };
+
+    let populate_rc = Rc::new(populate);
+
+    // Initial load (deferred to next idle so dialog is visible first)
+    {
+        let p = populate_rc.clone();
+        let sp = start_path.to_string();
+        gtk4::glib::idle_add_local_once(move || { p(&sp); });
+    }
+
+    // Double-click directory to navigate into it
+    {
+        let p = populate_rc.clone();
+        let cp = current_path.clone();
+        list_box.connect_row_activated(move |_, row| {
+            let dir_name = row.widget_name();
+            let current = cp.borrow().clone();
+            let new_path = if current.ends_with('/') {
+                format!("{}{}", current, dir_name)
+            } else {
+                format!("{}/{}", current, dir_name)
+            };
+            p(&new_path);
+        });
+    }
+
+    // Up button
+    {
+        let p = populate_rc.clone();
+        let cp = current_path.clone();
+        up_btn.connect_clicked(move |_| {
+            let current = cp.borrow().clone();
+            if current != "/" {
+                let parent = std::path::Path::new(&current)
+                    .parent()
+                    .map(|p| p.to_string_lossy().to_string())
+                    .unwrap_or_else(|| "/".to_string());
+                p(&parent);
+            }
+        });
+    }
+
+    // Cancel
+    {
+        let d = dialog.clone();
+        cancel_btn.connect_clicked(move |_| { d.close(); });
+    }
+
+    // Select current path
+    {
+        let d = dialog.clone();
+        let cp = current_path;
+        let on_sel = Rc::new(on_select);
+        select_btn.connect_clicked(move |_| {
+            let path = cp.borrow().clone();
+            on_sel(path);
+            d.close();
+        });
+    }
+
     dialog.present();
 }
