@@ -144,8 +144,11 @@ impl Theme {
     #[cfg(feature = "sourceview")]
     pub fn sourceview_scheme(&self) -> &str {
         match self {
-            Theme::System | Theme::CatppuccinLatte => "Adwaita",
-            Theme::CatppuccinMocha | Theme::Dracula | Theme::Nord => "Adwaita-dark",
+            Theme::System => "Adwaita",
+            Theme::CatppuccinMocha => "pax-catppuccin-mocha",
+            Theme::CatppuccinLatte => "pax-catppuccin-latte",
+            Theme::Dracula => "pax-dracula",
+            Theme::Nord => "pax-nord",
         }
     }
 
@@ -153,8 +156,8 @@ impl Theme {
     #[cfg(feature = "sourceview")]
     pub fn sourceview_scheme_fallback(&self) -> &str {
         match self {
-            Theme::System | Theme::CatppuccinLatte => "classic",
-            _ => "classic-dark",
+            Theme::System | Theme::CatppuccinLatte => "Adwaita",
+            _ => "Adwaita-dark",
         }
     }
 

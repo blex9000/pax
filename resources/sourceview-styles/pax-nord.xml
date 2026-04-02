@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<style-scheme id="pax-nord" name="Pax Nord" version="1.0">
+  <author>Pax</author>
+  <description>Nord for Pax editor</description>
+  <metadata><property name="variant">dark</property></metadata>
+
+  <color name="nord0"      value="#2e3440"/>
+  <color name="nord1"      value="#3b4252"/>
+  <color name="nord2"      value="#434c5e"/>
+  <color name="nord3"      value="#4c566a"/>
+  <color name="nord4"      value="#d8dee9"/>
+  <color name="nord5"      value="#e5e9f0"/>
+  <color name="nord6"      value="#eceff4"/>
+  <color name="nord7"      value="#8fbcbb"/>
+  <color name="nord8"      value="#88c0d0"/>
+  <color name="nord9"      value="#81a1c1"/>
+  <color name="nord10"     value="#5e81ac"/>
+  <color name="nord11"     value="#bf616a"/>
+  <color name="nord12"     value="#d08770"/>
+  <color name="nord13"     value="#ebcb8b"/>
+  <color name="nord14"     value="#a3be8c"/>
+  <color name="nord15"     value="#b48ead"/>
+
+  <style name="text"                        foreground="nord4" background="nord0"/>
+  <style name="cursor"                      foreground="nord4"/>
+  <style name="selection"                   background="nord2"/>
+  <style name="current-line"                background="nord1"/>
+  <style name="line-numbers"                foreground="nord3" background="nord0"/>
+  <style name="current-line-number"         foreground="nord8" background="nord1"/>
+  <style name="bracket-match"               foreground="nord8" background="nord2" bold="true"/>
+
+  <style name="def:comment"                 foreground="nord3" italic="true"/>
+  <style name="def:constant"                foreground="nord15"/>
+  <style name="def:string"                  foreground="nord14"/>
+  <style name="def:character"               foreground="nord14"/>
+  <style name="def:number"                  foreground="nord15"/>
+  <style name="def:boolean"                 foreground="nord9"/>
+  <style name="def:floating-point"          foreground="nord15"/>
+  <style name="def:keyword"                 foreground="nord9" bold="true"/>
+  <style name="def:type"                    foreground="nord7"/>
+  <style name="def:function"                foreground="nord8"/>
+  <style name="def:builtin"                 foreground="nord9"/>
+  <style name="def:identifier"              foreground="nord4"/>
+  <style name="def:preprocessor"            foreground="nord10"/>
+  <style name="def:error"                   foreground="nord11" underline="true"/>
+  <style name="def:warning"                 foreground="nord13" underline="true"/>
+  <style name="def:note"                    foreground="nord8" bold="true"/>
+  <style name="def:special-char"            foreground="nord12"/>
+  <style name="def:operator"                foreground="nord9"/>
+  <style name="def:statement"               foreground="nord9"/>
+</style-scheme>

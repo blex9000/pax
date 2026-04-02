@@ -48,6 +48,25 @@ pub fn run_app(workspace: Option<Workspace>, config_path: Option<&Path>) -> Resu
             }
         }
 
+        // Register custom GtkSourceView style schemes
+        #[cfg(feature = "sourceview")]
+        {
+            let style_paths = [
+                std::path::PathBuf::from("resources/sourceview-styles"),
+                std::env::current_exe().ok()
+                    .and_then(|p| p.parent().map(|d| d.join("../resources/sourceview-styles")))
+                    .unwrap_or_default(),
+                std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../resources/sourceview-styles"),
+            ];
+            let manager = sourceview5::StyleSchemeManager::default();
+            for path in &style_paths {
+                if path.exists() {
+                    manager.append_search_path(&path.to_string_lossy());
+                    break;
+                }
+            }
+        }
+
         // Set default window icon (used by window manager / taskbar)
         gtk4::Window::set_default_icon_name("pax");
 

@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<style-scheme id="pax-catppuccin-mocha" name="Pax Catppuccin Mocha" version="1.0">
+  <author>Pax</author>
+  <description>Catppuccin Mocha for Pax editor</description>
+  <metadata>
+    <property name="variant">dark</property>
+  </metadata>
+
+  <!-- Palette: Catppuccin Mocha -->
+  <color name="base"       value="#1e1e2e"/>
+  <color name="mantle"     value="#181825"/>
+  <color name="surface0"   value="#313244"/>
+  <color name="surface1"   value="#45475a"/>
+  <color name="overlay0"   value="#6c7086"/>
+  <color name="text"       value="#cdd6f4"/>
+  <color name="subtext0"   value="#a6adc8"/>
+  <color name="red"        value="#f38ba8"/>
+  <color name="green"      value="#a6e3a1"/>
+  <color name="yellow"     value="#f9e2af"/>
+  <color name="blue"       value="#89b4fa"/>
+  <color name="mauve"      value="#cba6f7"/>
+  <color name="teal"       value="#94e2d5"/>
+  <color name="peach"      value="#fab387"/>
+  <color name="sky"        value="#89dceb"/>
+  <color name="pink"       value="#f5c2e7"/>
+  <color name="lavender"   value="#b4befe"/>
+
+  <style name="text"                        foreground="text" background="base"/>
+  <style name="cursor"                      foreground="lavender"/>
+  <style name="selection"                   background="surface1"/>
+  <style name="current-line"                background="mantle"/>
+  <style name="line-numbers"                foreground="overlay0" background="mantle"/>
+  <style name="current-line-number"         foreground="lavender" background="mantle"/>
+  <style name="bracket-match"               foreground="text" background="surface1" bold="true"/>
+
+  <style name="def:comment"                 foreground="overlay0" italic="true"/>
+  <style name="def:constant"                foreground="peach"/>
+  <style name="def:string"                  foreground="green"/>
+  <style name="def:character"               foreground="teal"/>
+  <style name="def:number"                  foreground="peach"/>
+  <style name="def:boolean"                 foreground="peach"/>
+  <style name="def:floating-point"          foreground="peach"/>
+  <style name="def:keyword"                 foreground="mauve" bold="true"/>
+  <style name="def:type"                    foreground="yellow"/>
+  <style name="def:function"                foreground="blue"/>
+  <style name="def:builtin"                 foreground="red"/>
+  <style name="def:identifier"              foreground="text"/>
+  <style name="def:preprocessor"            foreground="pink"/>
+  <style name="def:error"                   foreground="red" underline="true"/>
+  <style name="def:warning"                 foreground="yellow" underline="true"/>
+  <style name="def:note"                    foreground="teal" bold="true"/>
+  <style name="def:special-char"            foreground="pink"/>
+  <style name="def:operator"                foreground="sky"/>
+  <style name="def:statement"               foreground="mauve"/>
+</style-scheme>

@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<style-scheme id="pax-dracula" name="Pax Dracula" version="1.0">
+  <author>Pax</author>
+  <description>Dracula for Pax editor</description>
+  <metadata><property name="variant">dark</property></metadata>
+
+  <color name="bg"         value="#282a36"/>
+  <color name="current"    value="#44475a"/>
+  <color name="fg"         value="#f8f8f2"/>
+  <color name="comment"    value="#6272a4"/>
+  <color name="cyan"       value="#8be9fd"/>
+  <color name="green"      value="#50fa7b"/>
+  <color name="orange"     value="#ffb86c"/>
+  <color name="pink"       value="#ff79c6"/>
+  <color name="purple"     value="#bd93f9"/>
+  <color name="red"        value="#ff5555"/>
+  <color name="yellow"     value="#f1fa8c"/>
+
+  <style name="text"                        foreground="fg" background="bg"/>
+  <style name="cursor"                      foreground="fg"/>
+  <style name="selection"                   background="current"/>
+  <style name="current-line"                background="current"/>
+  <style name="line-numbers"                foreground="comment" background="bg"/>
+  <style name="current-line-number"         foreground="yellow" background="current"/>
+  <style name="bracket-match"               foreground="fg" background="current" bold="true"/>
+
+  <style name="def:comment"                 foreground="comment" italic="true"/>
+  <style name="def:constant"                foreground="purple"/>
+  <style name="def:string"                  foreground="yellow"/>
+  <style name="def:character"               foreground="green"/>
+  <style name="def:number"                  foreground="purple"/>
+  <style name="def:boolean"                 foreground="purple"/>
+  <style name="def:floating-point"          foreground="purple"/>
+  <style name="def:keyword"                 foreground="pink" bold="true"/>
+  <style name="def:type"                    foreground="cyan" italic="true"/>
+  <style name="def:function"                foreground="green"/>
+  <style name="def:builtin"                 foreground="cyan"/>
+  <style name="def:identifier"              foreground="fg"/>
+  <style name="def:preprocessor"            foreground="pink"/>
+  <style name="def:error"                   foreground="red" underline="true"/>
+  <style name="def:warning"                 foreground="yellow" underline="true"/>
+  <style name="def:note"                    foreground="cyan" bold="true"/>
+  <style name="def:special-char"            foreground="pink"/>
+  <style name="def:operator"                foreground="pink"/>
+  <style name="def:statement"               foreground="pink"/>
+</style-scheme>
