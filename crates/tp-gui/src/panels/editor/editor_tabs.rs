@@ -529,39 +529,136 @@ impl EditorTabs {
             let nb = self.notebook.clone();
             let cs = self.content_stack.clone();
             let path_for_close = path.to_path_buf();
-            close_btn.connect_clicked(move |_| {
-                // Don't close if file has unsaved changes
-                {
+            let close_do_it = {
+                let state_c = state_c.clone();
+                let nb = nb.clone();
+                let cs = cs.clone();
+                let path_for_close = path_for_close.clone();
+                Rc::new(move || {
+                    let (empty_after, new_idx);
+                    {
+                        let mut st = state_c.borrow_mut();
+                        if let Some(idx) = st.open_files.iter().position(|f| f.path == path_for_close) {
+                            st.open_files.remove(idx);
+                            empty_after = st.open_files.is_empty();
+                            new_idx = if empty_after { 0 } else { idx.min(st.open_files.len() - 1) };
+                            if empty_after {
+                                st.active_tab = None;
+                            } else {
+                                st.active_tab = Some(new_idx);
+                            }
+                            drop(st);
+                            nb.remove_page(Some(idx as u32));
+                            if empty_after {
+                                nb.set_show_tabs(false);
+                                cs.set_visible_child_name("welcome");
+                            } else {
+                                nb.set_current_page(Some(new_idx as u32));
+                            }
+                        }
+                    }
+                })
+            };
+            close_btn.connect_clicked(move |btn| {
+                let is_modified = {
                     let st = state_c.borrow();
-                    if let Some(f) = st.open_files.iter().find(|f| f.path == path_for_close) {
-                        if f.modified {
-                            tracing::info!("Cannot close: file has unsaved changes");
-                            return;
-                        }
+                    st.open_files.iter().find(|f| f.path == path_for_close)
+                        .map(|f| f.modified).unwrap_or(false)
+                };
+                if is_modified {
+                    // Show save/discard dialog
+                    let dialog = gtk4::Window::builder()
+                        .title("Unsaved Changes")
+                        .modal(true)
+                        .default_width(350)
+                        .default_height(100)
+                        .build();
+                    if let Some(win) = btn.root().and_then(|r| r.downcast::<gtk4::Window>().ok()) {
+                        dialog.set_transient_for(Some(&win));
                     }
-                }
-                let (empty_after, new_idx);
-                {
-                    let mut st = state_c.borrow_mut();
-                    if let Some(idx) = st.open_files.iter().position(|f| f.path == path_for_close) {
-                        st.open_files.remove(idx);
-                        empty_after = st.open_files.is_empty();
-                        new_idx = if empty_after { 0 } else { idx.min(st.open_files.len() - 1) };
-                        if empty_after {
-                            st.active_tab = None;
-                        } else {
-                            st.active_tab = Some(new_idx);
-                        }
-                        drop(st);
-                        nb.remove_page(Some(idx as u32));
-                        if empty_after {
-                            nb.set_show_tabs(false);
-                            cs.set_visible_child_name("welcome");
-                        } else {
-                            nb.set_current_page(Some(new_idx as u32));
-                        }
+                    let vbox = gtk4::Box::new(gtk4::Orientation::Vertical, 12);
+                    vbox.set_margin_top(16);
+                    vbox.set_margin_bottom(16);
+                    vbox.set_margin_start(16);
+                    vbox.set_margin_end(16);
+
+                    let file_name = path_for_close.file_name()
+                        .map(|n| n.to_string_lossy().to_string())
+                        .unwrap_or_else(|| "file".to_string());
+                    let msg = gtk4::Label::new(Some(&format!("\"{}\" has unsaved changes.", file_name)));
+                    vbox.append(&msg);
+
+                    let btn_row = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
+                    btn_row.set_halign(gtk4::Align::End);
+
+                    let save_btn = gtk4::Button::with_label("Save");
+                    save_btn.add_css_class("suggested-action");
+                    let discard_btn = gtk4::Button::with_label("Discard");
+                    discard_btn.add_css_class("destructive-action");
+                    let cancel_btn = gtk4::Button::with_label("Cancel");
+
+                    btn_row.append(&cancel_btn);
+                    btn_row.append(&discard_btn);
+                    btn_row.append(&save_btn);
+                    vbox.append(&btn_row);
+
+                    // Cancel
+                    {
+                        let d = dialog.clone();
+                        cancel_btn.connect_clicked(move |_| d.close());
                     }
+                    // Discard — reset modified and close
+                    {
+                        let d = dialog.clone();
+                        let sc = state_c.clone();
+                        let pfc = path_for_close.clone();
+                        let close = close_do_it.clone();
+                        discard_btn.connect_clicked(move |_| {
+                            if let Ok(mut st) = sc.try_borrow_mut() {
+                                if let Some(f) = st.open_files.iter_mut().find(|f| f.path == pfc) {
+                                    f.modified = false;
+                                }
+                            }
+                            close();
+                            d.close();
+                        });
+                    }
+                    // Save then close
+                    {
+                        let d = dialog.clone();
+                        let sc = state_c.clone();
+                        let close = close_do_it.clone();
+                        save_btn.connect_clicked(move |_| {
+                            // Save the file
+                            let (backend, text, fpath) = {
+                                let st = sc.borrow();
+                                let be = st.backend.clone();
+                                if let Some(f) = st.open_files.iter().find(|f| f.modified) {
+                                    let buf = &f.buffer;
+                                    let t = buf.text(&buf.start_iter(), &buf.end_iter(), false).to_string();
+                                    (be, t, f.path.clone())
+                                } else {
+                                    close();
+                                    d.close();
+                                    return;
+                                }
+                            };
+                            let _ = backend.write_file(&fpath, &text);
+                            if let Ok(mut st) = sc.try_borrow_mut() {
+                                if let Some(f) = st.open_files.iter_mut().find(|f| f.path == fpath) {
+                                    f.modified = false;
+                                }
+                            }
+                            close();
+                            d.close();
+                        });
+                    }
+
+                    dialog.set_child(Some(&vbox));
+                    dialog.present();
+                    return;
                 }
+                close_do_it();
             });
         }
 
