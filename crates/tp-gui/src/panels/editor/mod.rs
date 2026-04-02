@@ -59,185 +59,34 @@ pub enum SidebarMode {
 pub struct CodeEditorPanel {
     widget: gtk4::Widget,
     state: Rc<RefCell<EditorState>>,
-    /// SSHFS mount point to unmount on drop (None for local projects).
-    sshfs_mount: Option<PathBuf>,
     /// SSH connection label for remote panels (e.g. "user@host").
     ssh_info: Option<String>,
 }
 
 #[cfg(feature = "sourceview")]
 impl CodeEditorPanel {
-    /// Create a code editor for a remote project via SSHFS.
-    /// Creates the editor immediately (on mount point dir) with a connecting
-    /// overlay on top. SSHFS mount runs in background; overlay removed on success.
+    /// Create a code editor for a remote project via SSH.
+    /// Uses SshFileBackend (direct SSH commands with ControlMaster) — no SSHFS.
     pub fn new_remote(
         host: &str, port: u16, user: &str,
         password: Option<&str>, identity_file: Option<&str>,
         remote_path: &str,
     ) -> Self {
         let ssh_label = format!("{}@{}", user, host);
-        let connect_msg = format!("Connecting to remote filesystem\n{}:{}", ssh_label, remote_path);
 
-        // Create mount point
-        let mount_dir = std::env::temp_dir().join(format!(
-            "pax_sshfs_{}_{}",
-            host.replace('.', "_"),
-            std::process::id(),
-        ));
-        let _ = std::fs::create_dir_all(&mount_dir);
-
-        // Container: holds the connecting message now, editor later
-        let container = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
-        container.set_vexpand(true);
-        container.set_hexpand(true);
-
-        // Connecting overlay
-        let connect_box = gtk4::Box::new(gtk4::Orientation::Vertical, 12);
-        connect_box.set_halign(gtk4::Align::Center);
-        connect_box.set_valign(gtk4::Align::Center);
-        connect_box.set_vexpand(true);
-        let spinner = gtk4::Spinner::new();
-        spinner.start();
-        spinner.set_width_request(32);
-        spinner.set_height_request(32);
-        connect_box.append(&spinner);
-        let msg = gtk4::Label::new(Some(&connect_msg));
-        msg.add_css_class("dim-label");
-        msg.set_justify(gtk4::Justification::Center);
-        connect_box.append(&msg);
-        container.append(&connect_box);
-
-        let widget = container.clone().upcast::<gtk4::Widget>();
-
+        // Create SSH backend — ControlMaster connection established in constructor
         let backend: Rc<dyn file_backend::FileBackend> = Rc::new(
-            file_backend::LocalFileBackend::new(&PathBuf::from(remote_path))
+            file_backend::SshFileBackend::new(remote_path, host, port, user, password, identity_file)
         );
-        let state = Rc::new(RefCell::new(EditorState {
-            root_dir: PathBuf::from(remote_path),
-            open_files: Vec::new(),
-            active_tab: None,
-            sidebar_visible: true,
-            sidebar_mode: SidebarMode::Files,
-            backend,
-        }));
 
-        // Spawn SSHFS in background
-        let host_owned = host.to_string();
-        let user_owned = user.to_string();
-        let pass_owned = password.map(|s| s.to_string());
-        let key_owned = identity_file.map(|s| s.to_string());
-        let rpath_owned = remote_path.to_string();
-        let mount_dir_clone = mount_dir.clone();
-
-        let result_slot = std::sync::Arc::new(std::sync::Mutex::new(None::<Result<(), String>>));
-        let slot = result_slot.clone();
-
-        std::thread::spawn(move || {
-            let remote = format!("{}@{}:{}", user_owned, host_owned, rpath_owned);
-            let mut cmd = std::process::Command::new("sshfs");
-            cmd.arg(&remote)
-                .arg(&mount_dir_clone)
-                .arg("-o").arg("reconnect")
-                .arg("-o").arg("ServerAliveInterval=15")
-                .arg("-o").arg(format!("port={}", port));
-
-            if let Some(ref key) = key_owned {
-                if !key.is_empty() {
-                    cmd.arg("-o").arg(format!("IdentityFile={}", key));
-                }
-            }
-            if pass_owned.is_some() {
-                cmd.arg("-o").arg("password_stdin");
-            }
-
-            let result = if let Some(ref pass) = pass_owned {
-                use std::io::Write;
-                match cmd.stdin(std::process::Stdio::piped()).spawn() {
-                    Ok(mut child) => {
-                        if let Some(ref mut stdin) = child.stdin {
-                            let _ = stdin.write_all(pass.as_bytes());
-                            let _ = stdin.write_all(b"\n");
-                        }
-                        match child.wait() {
-                            Ok(s) if s.success() => Ok(()),
-                            Ok(s) => Err(format!("sshfs exited with {}", s)),
-                            Err(e) => Err(format!("sshfs wait failed: {}", e)),
-                        }
-                    }
-                    Err(e) => Err(format!("sshfs not found: {}. Install with: sudo apt install sshfs", e)),
-                }
-            } else {
-                match cmd.status() {
-                    Ok(s) if s.success() => Ok(()),
-                    Ok(s) => Err(format!("sshfs exited with {}", s)),
-                    Err(e) => Err(format!("sshfs not found: {}. Install with: sudo apt install sshfs", e)),
-                }
-            };
-            *slot.lock().unwrap() = Some(result);
-        });
-
-        // Poll for completion, then replace connecting message with editor
-        {
-            let container_ref = container.clone();
-            let mount_dir_ref = mount_dir.clone();
-            gtk4::glib::timeout_add_local(std::time::Duration::from_millis(200), move || {
-                let ready = result_slot.lock().unwrap().is_some();
-                if !ready {
-                    return gtk4::glib::ControlFlow::Continue;
-                }
-                let result = result_slot.lock().unwrap().take().unwrap();
-
-                // Remove connecting message
-                while let Some(child) = container_ref.first_child() {
-                    container_ref.remove(&child);
-                }
-
-                match result {
-                    Ok(()) => {
-                        tracing::info!("SSHFS mounted successfully");
-                        // Now build the full editor on the mounted directory
-                        let backend = Rc::new(file_backend::LocalFileBackend::new(&mount_dir_ref));
-                        let editor = Self::new_with_backend(&mount_dir_ref.to_string_lossy(), backend);
-                        let editor_widget = editor.widget().clone();
-                        editor_widget.set_vexpand(true);
-                        editor_widget.set_hexpand(true);
-                        container_ref.append(&editor_widget);
-                        // Keep editor alive — owned by widget tree
-                        std::mem::forget(editor);
-                    }
-                    Err(e) => {
-                        tracing::error!("SSHFS mount failed: {}", e);
-                        let err_box = gtk4::Box::new(gtk4::Orientation::Vertical, 12);
-                        err_box.set_halign(gtk4::Align::Center);
-                        err_box.set_valign(gtk4::Align::Center);
-                        err_box.set_vexpand(true);
-                        let err_icon = gtk4::Image::from_icon_name("dialog-error-symbolic");
-                        err_icon.set_pixel_size(48);
-                        err_box.append(&err_icon);
-                        let err_label = gtk4::Label::new(Some(&format!("Connection failed:\n{}", e)));
-                        err_label.add_css_class("dim-label");
-                        err_label.set_justify(gtk4::Justification::Center);
-                        err_label.set_wrap(true);
-                        err_box.append(&err_label);
-                        container_ref.append(&err_box);
-                    }
-                }
-                gtk4::glib::ControlFlow::Break
-            });
-        }
-
-        Self {
-            widget,
-            state,
-            sshfs_mount: Some(mount_dir),
-            ssh_info: Some(ssh_label),
-        }
+        let mut panel = Self::new_with_backend(remote_path, backend);
+        panel.ssh_info = Some(ssh_label);
+        panel
     }
 
     pub fn new(root_dir: &str) -> Self {
         let backend = Rc::new(file_backend::LocalFileBackend::new(&PathBuf::from(root_dir)));
         let mut panel = Self::new_with_backend(root_dir, backend);
-        panel.sshfs_mount = None;
         panel.ssh_info = None;
         panel
     }
@@ -311,8 +160,9 @@ impl CodeEditorPanel {
             Rc::new({
                 let root_c = PathBuf::from(root_dir);
                 let tabs_c = tabs_rc.clone();
+                let be = backend.clone();
                 move |hash| {
-                    tabs_c.show_commit_diff(&root_c, hash);
+                    tabs_c.show_commit_diff(&root_c, hash, be.clone());
                 }
             }),
             backend.clone(),
@@ -336,6 +186,7 @@ impl CodeEditorPanel {
                     history_btn_for_ctx.set_active(true); // switches sidebar to history
                 }
             })),
+            backend.clone(),
         );
 
         // Git status view
@@ -344,8 +195,9 @@ impl CodeEditorPanel {
             Rc::new({
                 let root_c = PathBuf::from(root_dir);
                 let tabs_c = tabs_rc.clone();
+                let be = backend.clone();
                 move |path, _status| {
-                    tabs_c.show_diff(&root_c, path);
+                    tabs_c.show_diff(&root_c, path, be.clone());
                 }
             }),
             backend.clone(),
@@ -379,6 +231,7 @@ impl CodeEditorPanel {
                     }
                 }
             }),
+            backend.clone(),
         );
 
         // Sidebar stack to switch between file tree, git view, history, and search
@@ -542,33 +395,14 @@ impl CodeEditorPanel {
             );
         }
 
-        Self { widget, state, sshfs_mount: None, ssh_info: None }
+        Self { widget, state, ssh_info: None }
     }
 }
 
-/// Unmount SSHFS on panel close.
+/// SSH ControlMaster connection is cleaned up by SshFileBackend::Drop.
 #[cfg(feature = "sourceview")]
 impl Drop for CodeEditorPanel {
     fn drop(&mut self) {
-        if let Some(ref mount) = self.sshfs_mount {
-            tracing::info!("Unmounting SSHFS at {}", mount.display());
-            // Try fusermount first (Linux), then umount (macOS)
-            let result = std::process::Command::new("fusermount")
-                .args(["-u", &mount.to_string_lossy()])
-                .status()
-                .or_else(|_| {
-                    std::process::Command::new("umount")
-                        .arg(&mount.to_string_lossy().to_string())
-                        .status()
-                });
-            match result {
-                Ok(s) if s.success() => {
-                    let _ = std::fs::remove_dir(mount);
-                    tracing::info!("SSHFS unmounted");
-                }
-                _ => tracing::warn!("Failed to unmount SSHFS at {}", mount.display()),
-            }
-        }
     }
 }
 
