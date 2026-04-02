@@ -576,31 +576,33 @@ impl PanelHost {
 
     /// Update collapsed_view layout based on Paned orientation.
     fn update_collapsed_view_orientation(&self, orient: gtk4::Orientation) {
-        if orient == gtk4::Orientation::Horizontal {
-            // Horizontal split: collapsed to a narrow vertical strip
-            self.collapsed_view.set_orientation(gtk4::Orientation::Vertical);
-            self.collapsed_view.set_halign(gtk4::Align::Center);
-            self.collapsed_view.set_valign(gtk4::Align::Center);
-            // Make label show vertically (one char per line)
-            if let Some(child) = self.collapsed_view.first_child() {
-                if let Some(next) = child.next_sibling() {
-                    if let Some(label) = next.downcast_ref::<gtk4::Label>() {
-                        label.set_max_width_chars(1);
-                        label.set_wrap(true);
+        if let Some(child) = self.collapsed_view.first_child() {
+            if let Some(next) = child.next_sibling() {
+                if let Some(label) = next.downcast_ref::<gtk4::Label>() {
+                    let name = self.title_label.text().to_string();
+                    if orient == gtk4::Orientation::Horizontal {
+                        // Vertical strip: icon on top, name written vertically
+                        self.collapsed_view.set_orientation(gtk4::Orientation::Vertical);
+                        self.collapsed_view.set_halign(gtk4::Align::Center);
+                        self.collapsed_view.set_valign(gtk4::Align::Center);
+                        // Insert newline between each character
+                        let vertical: String = name.chars()
+                            .take(10)
+                            .map(|c| c.to_string())
+                            .collect::<Vec<_>>()
+                            .join("\n");
+                        label.set_text(&vertical);
                         label.set_justify(gtk4::Justification::Center);
-                    }
-                }
-            }
-        } else {
-            // Vertical split: collapsed to a short horizontal strip
-            self.collapsed_view.set_orientation(gtk4::Orientation::Horizontal);
-            self.collapsed_view.set_halign(gtk4::Align::Center);
-            self.collapsed_view.set_valign(gtk4::Align::Center);
-            if let Some(child) = self.collapsed_view.first_child() {
-                if let Some(next) = child.next_sibling() {
-                    if let Some(label) = next.downcast_ref::<gtk4::Label>() {
-                        label.set_max_width_chars(20);
                         label.set_wrap(false);
+                        label.set_max_width_chars(-1);
+                    } else {
+                        // Horizontal strip: icon + name side by side
+                        self.collapsed_view.set_orientation(gtk4::Orientation::Horizontal);
+                        self.collapsed_view.set_halign(gtk4::Align::Center);
+                        self.collapsed_view.set_valign(gtk4::Align::Center);
+                        label.set_text(&name);
+                        label.set_wrap(false);
+                        label.set_max_width_chars(20);
                     }
                 }
             }
