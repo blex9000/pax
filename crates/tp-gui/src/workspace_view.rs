@@ -329,7 +329,8 @@ impl WorkspaceView {
     }
 
     /// Change a panel's type. Swaps the backend in the existing PanelHost.
-    pub fn set_panel_type(&mut self, panel_id: &str, type_id: &str) {
+    /// Returns true if the panel needs immediate configuration (markdown, code_editor).
+    pub fn set_panel_type(&mut self, panel_id: &str, type_id: &str) -> bool {
         tracing::info!("Setting panel {} type to {}", panel_id, type_id);
         let config = PanelCreateConfig {
             shell: self.workspace.settings.default_shell.clone(),
@@ -376,6 +377,8 @@ impl WorkspaceView {
                 notebook.set_tab_label(&widget, Some(&new_label));
             }
         }
+        // markdown and code_editor need configuration (file/directory)
+        matches!(type_id, "markdown" | "code_editor")
     }
 
     /// Get a reference to the panel registry.
