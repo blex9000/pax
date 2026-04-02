@@ -275,43 +275,46 @@ impl PanelHost {
         footer_bar.append(&footer_label);
         footer_bar.set_visible(false); // Hidden until content is set
 
-        // Collapsed view: shown when panel is minimized
-        let collapsed_view = gtk4::Box::new(gtk4::Orientation::Vertical, 8);
+        // Collapsed view: shown when panel is minimized — icon only, name in tooltip
+        let collapsed_view = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
         collapsed_view.set_halign(gtk4::Align::Center);
         collapsed_view.set_valign(gtk4::Align::Center);
         collapsed_view.set_vexpand(true);
+        collapsed_view.set_hexpand(true);
         collapsed_view.set_visible(false);
         {
             let collapsed_icon = gtk4::Image::from_icon_name("utilities-terminal-symbolic");
-            collapsed_icon.set_pixel_size(32);
+            collapsed_icon.set_pixel_size(24);
+            collapsed_icon.add_css_class("dim-label");
             collapsed_view.append(&collapsed_icon);
-            let collapsed_label = gtk4::Label::new(Some(name));
-            collapsed_label.add_css_class("dim-label");
-            collapsed_label.add_css_class("caption");
-            collapsed_label.set_ellipsize(gtk4::pango::EllipsizeMode::End);
-            collapsed_label.set_max_width_chars(6);
-            collapsed_view.append(&collapsed_label);
         }
         collapsed_view.set_tooltip_text(Some(&format!("Click to expand: {}", name)));
-        {
-            let cb_ref = action_cb_ref.clone();
-            let pid = panel_id.to_string();
-            let gesture = gtk4::GestureClick::new();
-            gesture.set_button(1);
-            gesture.connect_released(move |_, _, _, _| {
-                if let Ok(borrowed) = cb_ref.try_borrow() {
-                    if let Some(ref cb) = *borrowed {
-                        cb(&pid, PanelAction::Collapse);
-                    }
-                }
-            });
-            collapsed_view.add_controller(gesture);
-        }
 
         let outer = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
         outer.append(&container);
         outer.append(&collapsed_view);
         outer.append(&footer_bar);
+
+        // Click anywhere on the outer box when collapsed → expand
+        {
+            let cb_ref = action_cb_ref.clone();
+            let pid = panel_id.to_string();
+            let container_ref = container.clone();
+            let gesture = gtk4::GestureClick::new();
+            gesture.set_button(1);
+            gesture.connect_released(move |g, _, _, _| {
+                // Only handle when collapsed (container hidden)
+                if !container_ref.is_visible() {
+                    if let Ok(borrowed) = cb_ref.try_borrow() {
+                        if let Some(ref cb) = *borrowed {
+                            cb(&pid, PanelAction::Collapse);
+                        }
+                    }
+                    g.set_state(gtk4::EventSequenceState::Claimed);
+                }
+            });
+            outer.add_controller(gesture);
+        }
         outer.add_css_class("panel-frame");
         outer.set_widget_name(panel_id);
         outer.set_size_request(80, 60);
@@ -508,9 +511,6 @@ impl PanelHost {
             paned.allocation().height()
         };
 
-        // Update collapsed_view layout based on orientation
-        self.update_collapsed_view_orientation(orient);
-
         if self.is_collapsed() {
             // ── EXPAND ──
             let saved = self.saved_min_size.get();
@@ -574,40 +574,6 @@ impl PanelHost {
         !self.container.is_visible()
     }
 
-    /// Update collapsed_view layout based on Paned orientation.
-    fn update_collapsed_view_orientation(&self, orient: gtk4::Orientation) {
-        if let Some(child) = self.collapsed_view.first_child() {
-            if let Some(next) = child.next_sibling() {
-                if let Some(label) = next.downcast_ref::<gtk4::Label>() {
-                    let name = self.title_label.text().to_string();
-                    if orient == gtk4::Orientation::Horizontal {
-                        // Vertical strip: icon on top, name written vertically
-                        self.collapsed_view.set_orientation(gtk4::Orientation::Vertical);
-                        self.collapsed_view.set_halign(gtk4::Align::Center);
-                        self.collapsed_view.set_valign(gtk4::Align::Center);
-                        // Insert newline between each character
-                        let vertical: String = name.chars()
-                            .take(10)
-                            .map(|c| c.to_string())
-                            .collect::<Vec<_>>()
-                            .join("\n");
-                        label.set_text(&vertical);
-                        label.set_justify(gtk4::Justification::Center);
-                        label.set_wrap(false);
-                        label.set_max_width_chars(-1);
-                    } else {
-                        // Horizontal strip: icon + name side by side
-                        self.collapsed_view.set_orientation(gtk4::Orientation::Horizontal);
-                        self.collapsed_view.set_halign(gtk4::Align::Center);
-                        self.collapsed_view.set_valign(gtk4::Align::Center);
-                        label.set_text(&name);
-                        label.set_wrap(false);
-                        label.set_max_width_chars(20);
-                    }
-                }
-            }
-        }
-    }
 
     /// Update collapse button icon based on orientation and position.
     fn update_collapse_icon(&self, orient: gtk4::Orientation, is_start: bool, collapsed: bool) {
