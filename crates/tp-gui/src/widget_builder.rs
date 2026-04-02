@@ -384,118 +384,7 @@ fn setup_paned_ratio(paned: &gtk4::Paned, ratio: f64, orientation: gtk4::Orienta
     });
 }
 
-/// Monitor Paned position changes to auto-collapse/expand panels at threshold.
-fn setup_paned_auto_collapse(paned: &gtk4::Paned, hosts: &HashMap<String, PanelHost>) {
-    let find_host_id = |child: &gtk4::Widget, hosts: &HashMap<String, PanelHost>| -> Option<String> {
-        let name = child.widget_name();
-        let name_str = name.as_str();
-        if hosts.contains_key(name_str) {
-            return Some(name_str.to_string());
-        }
-        None
-    };
 
-    let start_id = paned.start_child().and_then(|c| find_host_id(&c, hosts));
-    let end_id = paned.end_child().and_then(|c| find_host_id(&c, hosts));
-
-    if start_id.is_none() && end_id.is_none() { return; }
-
-    // Store the outer widgets + collapsed_view refs directly (GTK widgets are Rc-based)
-    struct CollapseWidgets {
-        container: gtk4::Box,
-        footer: gtk4::Box,
-        collapsed_view: gtk4::Box,
-        outer: gtk4::Box,
-        collapse_btn: gtk4::Button,
-    }
-
-    impl CollapseWidgets {
-        fn is_collapsed(&self) -> bool {
-            !self.container.is_visible()
-        }
-        fn apply_visual(&self, collapsed: bool) {
-            if self.is_collapsed() == collapsed { return; }
-            if collapsed {
-                self.container.set_visible(false);
-                self.footer.set_visible(false);
-                self.collapsed_view.set_visible(true);
-                self.outer.set_size_request(44, 44);
-                self.collapse_btn.set_icon_name("go-next-symbolic");
-                self.collapse_btn.set_tooltip_text(Some("Expand panel"));
-            } else {
-                // Use minimal size during drag expand — don't force the large
-                // configured min_size which would snap the Paned back
-                self.outer.set_size_request(-1, -1);
-                self.container.set_visible(true);
-                self.collapsed_view.set_visible(false);
-                self.collapse_btn.set_icon_name("go-previous-symbolic");
-                self.collapse_btn.set_tooltip_text(Some("Collapse panel"));
-            }
-        }
-    }
-
-    let make_cw = |id: &Option<String>| -> Option<std::rc::Rc<CollapseWidgets>> {
-        let host = id.as_ref().and_then(|i| hosts.get(i))?;
-        Some(std::rc::Rc::new(CollapseWidgets {
-            container: host.container.clone(),
-            footer: host.footer_bar.clone(),
-            collapsed_view: host.collapsed_view.clone(),
-            outer: host.outer.clone(),
-            collapse_btn: host.collapse_button.clone(),
-        }))
-    };
-
-    let start_cw = make_cw(&start_id);
-    let end_cw = make_cw(&end_id);
-    let orient = paned.orientation();
-
-    let guard = std::rc::Rc::new(std::cell::Cell::new(false));
-
-
-    paned.connect_notify_local(Some("position"), move |paned, _| {
-        if guard.get() { return; }
-        guard.set(true);
-
-        let pos = paned.position();
-        let total = if orient == gtk4::Orientation::Horizontal {
-            paned.allocation().width()
-        } else {
-            paned.allocation().height()
-        };
-
-        if total > 0 {
-            let min = 44;
-            let start_size = pos;
-            let end_size = total - pos;
-
-            // Start child: collapse at min, expand above min, clamp to min
-            if let Some(ref cw) = start_cw {
-                if start_size <= min {
-                    cw.apply_visual(true);
-                    if start_size < min {
-                        paned.set_position(min);
-                    }
-                } else {
-                    cw.apply_visual(false);
-                }
-            }
-
-            // End child: collapse at min, expand above min, clamp to min
-            if let Some(ref cw) = end_cw {
-                if end_size <= min {
-                    cw.apply_visual(true);
-                    if end_size < min {
-                        paned.set_position(total - min);
-                    }
-                } else {
-                    cw.apply_visual(false);
-                }
-            }
-        }
-
-        guard.set(false);
-    });
-}
 
 fn build_paned(
     children: &[LayoutNode],
@@ -532,7 +421,7 @@ fn build_paned(
         paned.set_resize_start_child(!c1_fixed || !c2_fixed);
         paned.set_resize_end_child(!c2_fixed || !c1_fixed);
         setup_paned_ratio(&paned, normalized[0], orientation);
-        setup_paned_auto_collapse(&paned, hosts);
+        update_collapse_icons_for_paned(&paned, hosts, orientation);
         return paned.upcast::<gtk4::Widget>();
     }
 
@@ -549,8 +438,33 @@ fn build_paned(
     paned.set_resize_start_child(true);
     paned.set_resize_end_child(true);
     setup_paned_ratio(&paned, normalized[0], orientation);
-    setup_paned_auto_collapse(&paned, hosts);
+    // Set collapse button icons for direct panel children
+    update_collapse_icons_for_paned(&paned, hosts, orientation);
     paned.upcast::<gtk4::Widget>()
+}
+
+/// Set initial collapse button icon direction based on panel position in Paned.
+fn update_collapse_icons_for_paned(
+    paned: &gtk4::Paned,
+    hosts: &HashMap<String, PanelHost>,
+    orientation: gtk4::Orientation,
+) {
+    let set_icon = |child: Option<gtk4::Widget>, is_start: bool| {
+        if let Some(c) = child {
+            let name = c.widget_name();
+            if let Some(host) = hosts.get(name.as_str()) {
+                let icon = match (orientation, is_start) {
+                    (gtk4::Orientation::Horizontal, true) => "go-previous-symbolic",
+                    (gtk4::Orientation::Horizontal, false) => "go-next-symbolic",
+                    (_, true) => "go-up-symbolic",
+                    (_, false) => "go-down-symbolic",
+                };
+                host.collapse_button.set_icon_name(icon);
+            }
+        }
+    };
+    set_icon(paned.start_child(), true);
+    set_icon(paned.end_child(), false);
 }
 
 pub fn apply_min_size(host: &PanelHost, cfg: &PanelConfig) {

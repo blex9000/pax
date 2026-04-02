@@ -475,10 +475,69 @@ impl PanelHost {
 
     /// Toggle collapsed state from button click. Returns true if now collapsed.
     pub fn toggle_collapsed(&self) -> bool {
-        let collapsing = !self.is_collapsed();
-        self.apply_collapsed_visual(collapsing);
-        self.adjust_paned(collapsing);
-        collapsing
+        use gtk4::prelude::*;
+
+        // Find parent Paned and whether we're start or end child
+        let mut widget = self.outer.parent();
+        let mut paned_ref: Option<gtk4::Paned> = None;
+        let mut is_start = false;
+        while let Some(w) = widget {
+            if let Some(paned) = w.downcast_ref::<gtk4::Paned>() {
+                is_start = paned.start_child()
+                    .map(|c| self.outer.is_ancestor(&c) || c.eq(self.outer.upcast_ref::<gtk4::Widget>()))
+                    .unwrap_or(false);
+                paned_ref = Some(paned.clone());
+                break;
+            }
+            widget = w.parent();
+        }
+        let Some(paned) = paned_ref else { return false };
+
+        let orient = paned.orientation();
+        let total = if orient == gtk4::Orientation::Horizontal {
+            paned.allocation().width()
+        } else {
+            paned.allocation().height()
+        };
+
+        if self.is_collapsed() {
+            // ── EXPAND ──
+            let saved = self.saved_min_size.get();
+            // Restore position
+            if is_start {
+                paned.set_position(saved.0);
+            } else {
+                paned.set_position(total - saved.0);
+            }
+            self.container.set_visible(true);
+            self.footer_bar.set_visible(false); // footer managed by backend
+            self.collapsed_view.set_visible(false);
+            self.outer.set_size_request(-1, -1);
+            self.update_collapse_icon(orient, is_start, false);
+            false
+        } else {
+            // ── COLLAPSE ──
+            // Save current size for restore
+            let current_size = if is_start {
+                paned.position()
+            } else {
+                total - paned.position()
+            };
+            self.saved_min_size.set((current_size, current_size));
+
+            // Move separator
+            if is_start {
+                paned.set_position(44);
+            } else {
+                paned.set_position(total - 44);
+            }
+            self.container.set_visible(false);
+            self.footer_bar.set_visible(false);
+            self.collapsed_view.set_visible(true);
+            self.outer.set_size_request(44, 44);
+            self.update_collapse_icon(orient, is_start, true);
+            true
+        }
     }
 
     /// Whether the panel is collapsed (container hidden).
@@ -486,63 +545,23 @@ impl PanelHost {
         !self.container.is_visible()
     }
 
-    /// Apply the visual collapsed/expanded state (hide/show widgets).
-    pub fn apply_collapsed_visual(&self, collapsed: bool) {
-        if collapsed {
-            // Save current min size before overriding
-            let (w, h) = self.outer.size_request();
-            if w > 44 || h > 44 {
-                self.saved_min_size.set((w, h));
-            }
-            self.container.set_visible(false);
-            self.footer_bar.set_visible(false);
-            self.collapsed_view.set_visible(true);
-            self.outer.set_size_request(44, 44);
-            self.collapse_button.set_icon_name("go-next-symbolic");
-            self.collapse_button.set_tooltip_text(Some("Expand panel"));
-        } else {
-            // Use minimal size request — don't force the configured min_size
-            // which would snap the Paned. Min_size is reapplied on rebuild.
-            self.outer.set_size_request(-1, -1);
-            self.container.set_visible(true);
-            self.collapsed_view.set_visible(false);
-            self.collapse_button.set_icon_name("go-previous-symbolic");
-            self.collapse_button.set_tooltip_text(Some("Collapse panel"));
-        }
-    }
-
-    /// Move the parent Paned separator for collapse/expand.
-    fn adjust_paned(&self, collapse: bool) {
-        use gtk4::prelude::*;
-        let mut widget = self.outer.parent();
-        while let Some(w) = widget {
-            if let Some(paned) = w.downcast_ref::<gtk4::Paned>() {
-                let total = if paned.orientation() == gtk4::Orientation::Horizontal {
-                    paned.allocation().width()
-                } else {
-                    paned.allocation().height()
-                };
-                let is_start = paned.start_child()
-                    .map(|c| self.outer.is_ancestor(&c) || c.eq(self.outer.upcast_ref::<gtk4::Widget>()))
-                    .unwrap_or(false);
-
-                if collapse {
-                    if is_start {
-                        paned.set_position(44);
-                    } else {
-                        paned.set_position(total - 44);
-                    }
-                } else {
-                    if is_start {
-                        paned.set_position(total * 2 / 5);
-                    } else {
-                        paned.set_position(total * 3 / 5);
-                    }
-                }
-                return;
-            }
-            widget = w.parent();
-        }
+    /// Update collapse button icon based on orientation and position.
+    fn update_collapse_icon(&self, orient: gtk4::Orientation, is_start: bool, collapsed: bool) {
+        let icon = match (orient, is_start, collapsed) {
+            // Horizontal split
+            (gtk4::Orientation::Horizontal, true, false)  => "go-previous-symbolic",  // collapse left
+            (gtk4::Orientation::Horizontal, true, true)   => "go-next-symbolic",      // expand right
+            (gtk4::Orientation::Horizontal, false, false) => "go-next-symbolic",       // collapse right
+            (gtk4::Orientation::Horizontal, false, true)  => "go-previous-symbolic",   // expand left
+            // Vertical split
+            (_, true, false)  => "go-up-symbolic",     // collapse up
+            (_, true, true)   => "go-down-symbolic",   // expand down
+            (_, false, false) => "go-down-symbolic",   // collapse down
+            (_, false, true)  => "go-up-symbolic",     // expand up
+        };
+        let tip = if collapsed { "Expand panel" } else { "Collapse panel" };
+        self.collapse_button.set_icon_name(icon);
+        self.collapse_button.set_tooltip_text(Some(tip));
     }
 
     /// Whether the panel is collapsed.
