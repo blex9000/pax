@@ -350,12 +350,28 @@ fn setup_workspace_ui(
                     let ws3 = ws_for_cb.clone();
                     let win2 = win_for_cb.clone();
                     let sa2 = sa_for_cb.clone();
-                    // Share saved SSH configs with the dialog
-                    let saved_ssh = {
+                    // Shared SSH configs — backed by workspace data, changes persist immediately
+                    let saved_ssh: std::rc::Rc<std::cell::RefCell<Vec<pax_core::workspace::NamedSshConfig>>> = {
                         let view = ws_for_cb.borrow();
                         std::rc::Rc::new(std::cell::RefCell::new(view.workspace().ssh_configs.clone()))
                     };
-                    let saved_ssh_for_save = saved_ssh.clone();
+                    // Sync changes back to workspace whenever the Rc is modified
+                    let ws_sync = ws_for_cb.clone();
+                    let saved_ssh_sync = saved_ssh.clone();
+                    // Poll for changes every 500ms while dialog is open
+                    let last_len = std::rc::Rc::new(std::cell::Cell::new(saved_ssh.borrow().len()));
+                    let sync_active = std::rc::Rc::new(std::cell::Cell::new(true));
+                    let sync_flag = sync_active.clone();
+                    gtk4::glib::timeout_add_local(std::time::Duration::from_millis(500), move || {
+                        if !sync_flag.get() { return gtk4::glib::ControlFlow::Break; }
+                        let current = saved_ssh_sync.borrow().len();
+                        if current != last_len.get() {
+                            last_len.set(current);
+                            ws_sync.borrow_mut().workspace_mut().ssh_configs = saved_ssh_sync.borrow().clone();
+                        }
+                        gtk4::glib::ControlFlow::Continue
+                    });
+                    let sync_stop = sync_active.clone();
                     crate::dialogs::panel_config::show_panel_config_dialog(
                         &*win_for_cb,
                         &pname,
@@ -368,8 +384,7 @@ fn setup_workspace_ui(
                         pmh,
                         saved_ssh,
                         move |new_name, new_type, new_cwd, new_ssh, new_cmds, new_close, new_mw, new_mh| {
-                            // Save updated SSH configs back to workspace
-                            ws3.borrow_mut().workspace_mut().ssh_configs = saved_ssh_for_save.borrow().clone();
+                            sync_stop.set(false); // Stop polling
                             ws2.borrow_mut().apply_panel_config(&pid, new_name, new_type, new_cwd, new_ssh, new_cmds, new_close, new_mw, new_mh);
                             actions::update_dirty_ui(&ws2, &win2, &sa2);
                         },
