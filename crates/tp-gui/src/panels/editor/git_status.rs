@@ -181,6 +181,24 @@ impl GitStatusView {
             }
             row.append(&stage_btn);
 
+            // Revert button (only for tracked files, not untracked ??)
+            if entry.status != "??" {
+                let revert_btn = gtk4::Button::new();
+                revert_btn.set_icon_name("edit-undo-symbolic");
+                revert_btn.add_css_class("flat");
+                revert_btn.set_tooltip_text(Some("Revert changes"));
+                let path = entry.path.clone();
+                let root = self.root_dir.clone();
+                revert_btn.connect_clicked(move |_| {
+                    let rel = path.strip_prefix(&root).unwrap_or(&path);
+                    let _ = std::process::Command::new("git")
+                        .args(["checkout", "--", &rel.to_string_lossy()])
+                        .current_dir(&root)
+                        .output();
+                });
+                row.append(&revert_btn);
+            }
+
             self.list_box.append(&row);
         }
 
