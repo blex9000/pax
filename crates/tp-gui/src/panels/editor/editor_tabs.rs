@@ -525,6 +525,16 @@ impl EditorTabs {
             let cs = self.content_stack.clone();
             let path_for_close = path.to_path_buf();
             close_btn.connect_clicked(move |_| {
+                // Don't close if file has unsaved changes
+                {
+                    let st = state_c.borrow();
+                    if let Some(f) = st.open_files.iter().find(|f| f.path == path_for_close) {
+                        if f.modified {
+                            tracing::info!("Cannot close: file has unsaved changes");
+                            return;
+                        }
+                    }
+                }
                 let (empty_after, new_idx);
                 {
                     let mut st = state_c.borrow_mut();
