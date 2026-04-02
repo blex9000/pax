@@ -506,16 +506,13 @@ impl EditorTabs {
             let dot_c = dot.clone();
             let mod_label = self.status_modified.clone();
             let path_for_dirty = path.to_path_buf();
-            buf.connect_changed(move |buf| {
+            buf.connect_changed(move |_buf| {
+                // Mark as modified on any edit
+                dot_c.set_text("\u{25CF} ");
+                mod_label.set_text("\u{25CF} Modified");
                 if let Ok(mut st) = state_c.try_borrow_mut() {
                     if let Some(file_idx) = st.open_files.iter().position(|f| f.path == path_for_dirty) {
-                        let was_modified = st.open_files[file_idx].modified;
-                        let is_modified = buf.can_undo();
-                        st.open_files[file_idx].modified = is_modified;
-                        if is_modified != was_modified {
-                            dot_c.set_text(if is_modified { "\u{25CF} " } else { "" });
-                            mod_label.set_text(if is_modified { "\u{25CF} Modified" } else { "" });
-                        }
+                        st.open_files[file_idx].modified = true;
                     }
                 }
             });

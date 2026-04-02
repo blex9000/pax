@@ -671,7 +671,11 @@ fn show_terminal_config(
         }
     });
 
-    dialog.set_child(Some(&vbox));
+    let scroll = gtk4::ScrolledWindow::new();
+    scroll.set_child(Some(&vbox));
+    scroll.set_propagate_natural_height(true);
+    scroll.set_max_content_height(600);
+    dialog.set_child(Some(&scroll));
     dialog.present();
 }
 
@@ -1030,8 +1034,6 @@ fn add_ssh_save_load_buttons(
         let pwe = pass_entry.clone();
         let ke = key_entry.clone();
         load_btn.connect_clicked(move |btn| {
-            let configs = saved.borrow().clone();
-            if configs.is_empty() { return; }
 
             let dialog = gtk4::Window::builder()
                 .title("Saved SSH Configs")
@@ -1056,7 +1058,16 @@ fn add_ssh_save_load_buttons(
                 let saved = saved.clone();
                 Rc::new(move || {
                     while let Some(child) = lb.first_child() { lb.remove(&child); }
-                    for cfg in saved.borrow().iter() {
+                    let configs = saved.borrow();
+                    if configs.is_empty() {
+                        let empty = gtk4::Label::new(Some("No saved SSH configs.\nUse \"Save\" to store a config."));
+                        empty.add_css_class("dim-label");
+                        empty.set_margin_top(32);
+                        empty.set_justify(gtk4::Justification::Center);
+                        lb.append(&empty);
+                        return;
+                    }
+                    for cfg in configs.iter() {
                         let row_box = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
                         row_box.set_margin_start(8);
                         row_box.set_margin_end(8);
@@ -1107,7 +1118,7 @@ fn add_ssh_save_load_buttons(
             let populate_ref = populate.clone();
             let saved_for_poll = saved.clone();
             let lb_for_poll = list_box.clone();
-            let last_count = Rc::new(std::cell::Cell::new(configs.len()));
+            let last_count = Rc::new(std::cell::Cell::new(saved_for_poll.borrow().len()));
             gtk4::glib::timeout_add_local(std::time::Duration::from_millis(200), move || {
                 let current = saved_for_poll.borrow().len();
                 if current != last_count.get() {
