@@ -48,6 +48,8 @@ pub struct PanelHost {
     pub(crate) collapse_button: gtk4::Button,
     pub(crate) collapsed_view: gtk4::Box,
     pub(crate) footer_bar: gtk4::Box,
+    /// Saved min size before collapse (to restore on expand)
+    saved_min_size: std::cell::Cell<(i32, i32)>,
     footer_label: gtk4::Label,
     widget: gtk4::Widget,
     panel_id: String,
@@ -343,6 +345,7 @@ impl PanelHost {
             panel_id: panel_id.to_string(),
             backend: RefCell::new(None),
             focused: RefCell::new(false),
+            saved_min_size: std::cell::Cell::new((80, 60)),
             action_cb_ref,
             #[cfg(feature = "vte")]
             sync_cb_ref: Rc::new(RefCell::new(None)),
@@ -486,6 +489,11 @@ impl PanelHost {
     /// Apply the visual collapsed/expanded state (hide/show widgets).
     pub fn apply_collapsed_visual(&self, collapsed: bool) {
         if collapsed {
+            // Save current min size before overriding
+            let (w, h) = self.outer.size_request();
+            if w > 44 || h > 44 {
+                self.saved_min_size.set((w, h));
+            }
             self.container.set_visible(false);
             self.footer_bar.set_visible(false);
             self.collapsed_view.set_visible(true);
@@ -495,7 +503,9 @@ impl PanelHost {
         } else {
             self.container.set_visible(true);
             self.collapsed_view.set_visible(false);
-            self.outer.set_size_request(80, 60);
+            // Restore saved min size
+            let (w, h) = self.saved_min_size.get();
+            self.outer.set_size_request(w, h);
             self.collapse_button.set_icon_name("go-previous-symbolic");
             self.collapse_button.set_tooltip_text(Some("Collapse panel"));
         }
