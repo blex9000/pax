@@ -48,5 +48,5 @@
   <style name="def:special-char"            foreground="nord12"/>
   <style name="def:operator"                foreground="nord9"/>
   <style name="def:statement"               foreground="nord9"/>
-  <style name="search-match"               background="rgba(255,230,100,0.35)"/>
+  <style name="search-match"               background="#rgba(255,230,100,0.35)"/>
 </style-scheme>
