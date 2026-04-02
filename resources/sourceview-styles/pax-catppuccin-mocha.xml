@@ -52,4 +52,5 @@
   <style name="def:special-char"            foreground="pink"/>
   <style name="def:operator"                foreground="sky"/>
   <style name="def:statement"               foreground="mauve"/>
+  <style name="search-match"               background="#ff8c00" foreground="#000000"/>
 </style-scheme>
