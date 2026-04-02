@@ -175,26 +175,30 @@ impl CodeEditorPanel {
         history_btn.set_tooltip_text(Some("Git History"));
         history_btn.set_group(Some(&files_btn));
 
-        // Spacer to push more button to the right
+        // Spacer to push nav buttons to the right
         let bar_spacer = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
         bar_spacer.set_hexpand(true);
 
-        let more_btn = gtk4::MenuButton::new();
-        more_btn.set_icon_name("view-more-symbolic");
-        more_btn.add_css_class("flat");
-        more_btn.set_tooltip_text(Some("More actions"));
-        let more_menu = gtk4::gio::Menu::new();
-        more_menu.append(Some("Recent Files (Ctrl+E)"), None);
-        more_menu.append(Some("Go Back (Alt+←)"), None);
-        more_menu.append(Some("Go Forward (Alt+→)"), None);
-        more_btn.set_menu_model(Some(&more_menu));
+        let nav_back_btn = gtk4::Button::from_icon_name("go-previous-symbolic");
+        nav_back_btn.add_css_class("flat");
+        nav_back_btn.set_tooltip_text(Some("Go Back (Alt+←)"));
+
+        let nav_fwd_btn = gtk4::Button::from_icon_name("go-next-symbolic");
+        nav_fwd_btn.add_css_class("flat");
+        nav_fwd_btn.set_tooltip_text(Some("Go Forward (Alt+→)"));
+
+        let recent_btn = gtk4::Button::from_icon_name("document-open-recent-symbolic");
+        recent_btn.add_css_class("flat");
+        recent_btn.set_tooltip_text(Some("Recent Files (Ctrl+E)"));
 
         activity_bar.append(&files_btn);
         activity_bar.append(&git_btn);
         activity_bar.append(&history_btn);
         activity_bar.append(&search_btn);
         activity_bar.append(&bar_spacer);
-        activity_bar.append(&more_btn);
+        activity_bar.append(&nav_back_btn);
+        activity_bar.append(&nav_fwd_btn);
+        activity_bar.append(&recent_btn);
         sidebar.append(&activity_bar);
         sidebar.append(&gtk4::Separator::new(gtk4::Orientation::Horizontal));
 
@@ -469,6 +473,29 @@ impl CodeEditorPanel {
                 gtk4::glib::Propagation::Proceed
             });
             widget.add_controller(key_ctrl);
+        }
+
+        // Wire navigation buttons
+        {
+            let sc = state.clone();
+            let tc = tabs_rc.clone();
+            nav_back_btn.connect_clicked(move |_| {
+                navigate_history(&sc, &tc, false);
+            });
+        }
+        {
+            let sc = state.clone();
+            let tc = tabs_rc.clone();
+            nav_fwd_btn.connect_clicked(move |_| {
+                navigate_history(&sc, &tc, true);
+            });
+        }
+        {
+            let sc = state.clone();
+            let tc = tabs_rc.clone();
+            recent_btn.connect_clicked(move |_| {
+                show_recent_files_popup(&sc, &tc);
+            });
         }
 
         // Check git status immediately for the button indicator
