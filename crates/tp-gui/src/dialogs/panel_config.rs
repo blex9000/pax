@@ -1031,38 +1031,143 @@ fn add_ssh_save_load_buttons(
         let ke = key_entry.clone();
         load_btn.connect_clicked(move |btn| {
             let configs = saved.borrow().clone();
-            if configs.is_empty() {
-                return;
+            if configs.is_empty() { return; }
+
+            let dialog = gtk4::Window::builder()
+                .title("Saved SSH Configs")
+                .modal(true)
+                .default_width(400)
+                .default_height(300)
+                .build();
+            if let Some(win) = btn.root().and_then(|r| r.downcast::<gtk4::Window>().ok()) {
+                dialog.set_transient_for(Some(&win));
             }
 
-            let popover = gtk4::Popover::new();
-            let menu = gtk4::Box::new(gtk4::Orientation::Vertical, 2);
-            menu.set_margin_top(4);
-            menu.set_margin_bottom(4);
+            let vbox = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
+            let list_box = gtk4::ListBox::new();
+            list_box.set_selection_mode(gtk4::SelectionMode::Single);
+            let scroll = gtk4::ScrolledWindow::new();
+            scroll.set_child(Some(&list_box));
+            scroll.set_vexpand(true);
 
-            for cfg in &configs {
-                let item = gtk4::Button::with_label(&format!("{} ({}@{})", cfg.name, cfg.config.user.as_deref().unwrap_or("root"), cfg.config.host));
-                item.add_css_class("flat");
-                let c = cfg.config.clone();
+            let saved_rc = saved.clone();
+            let populate = {
+                let lb = list_box.clone();
+                let saved = saved.clone();
+                Rc::new(move || {
+                    while let Some(child) = lb.first_child() { lb.remove(&child); }
+                    for cfg in saved.borrow().iter() {
+                        let row_box = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
+                        row_box.set_margin_start(8);
+                        row_box.set_margin_end(8);
+                        row_box.set_margin_top(6);
+                        row_box.set_margin_bottom(6);
+
+                        let info = gtk4::Box::new(gtk4::Orientation::Vertical, 2);
+                        info.set_hexpand(true);
+                        let name_label = gtk4::Label::new(Some(&cfg.name));
+                        name_label.add_css_class("heading");
+                        name_label.set_halign(gtk4::Align::Start);
+                        info.append(&name_label);
+
+                        let details = format!("{}@{}:{} {}",
+                            cfg.config.user.as_deref().unwrap_or("root"),
+                            cfg.config.host,
+                            cfg.config.port,
+                            if cfg.config.identity_file.is_some() { "🔑" } else if cfg.config.password.is_some() { "🔒" } else { "" }
+                        );
+                        let detail_label = gtk4::Label::new(Some(&details));
+                        detail_label.add_css_class("dim-label");
+                        detail_label.add_css_class("caption");
+                        detail_label.set_halign(gtk4::Align::Start);
+                        info.append(&detail_label);
+                        row_box.append(&info);
+
+                        // Delete button
+                        let del_btn = gtk4::Button::from_icon_name("user-trash-symbolic");
+                        del_btn.add_css_class("flat");
+                        del_btn.set_tooltip_text(Some("Delete this config"));
+                        let name = cfg.name.clone();
+                        let saved_del = saved.clone();
+                        del_btn.connect_clicked(move |_| {
+                            saved_del.borrow_mut().retain(|c| c.name != name);
+                        });
+                        row_box.append(&del_btn);
+
+                        let row = gtk4::ListBoxRow::new();
+                        row.set_child(Some(&row_box));
+                        row.set_widget_name(&cfg.name);
+                        lb.append(&row);
+                    }
+                })
+            };
+            populate();
+
+            // Refresh list when items are deleted
+            let populate_ref = populate.clone();
+            let saved_for_poll = saved.clone();
+            let lb_for_poll = list_box.clone();
+            let last_count = Rc::new(std::cell::Cell::new(configs.len()));
+            gtk4::glib::timeout_add_local(std::time::Duration::from_millis(200), move || {
+                let current = saved_for_poll.borrow().len();
+                if current != last_count.get() {
+                    last_count.set(current);
+                    populate_ref();
+                }
+                if lb_for_poll.parent().is_none() {
+                    return gtk4::glib::ControlFlow::Break;
+                }
+                gtk4::glib::ControlFlow::Continue
+            });
+
+            vbox.append(&scroll);
+
+            // Select button
+            let btn_row = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
+            btn_row.set_halign(gtk4::Align::End);
+            btn_row.set_margin_start(12);
+            btn_row.set_margin_end(12);
+            btn_row.set_margin_top(4);
+            btn_row.set_margin_bottom(8);
+            let cancel_btn = gtk4::Button::with_label("Cancel");
+            let select_btn = gtk4::Button::with_label("Select");
+            select_btn.add_css_class("suggested-action");
+            btn_row.append(&cancel_btn);
+            btn_row.append(&select_btn);
+            vbox.append(&btn_row);
+
+            {
+                let d = dialog.clone();
+                cancel_btn.connect_clicked(move |_| { d.close(); });
+            }
+            {
+                let d = dialog.clone();
                 let he = he.clone();
                 let pe = pe.clone();
                 let ue = ue.clone();
                 let pwe = pwe.clone();
                 let ke = ke.clone();
-                let pop = popover.clone();
-                item.connect_clicked(move |_| {
-                    he.set_text(&c.host);
-                    pe.set_text(&c.port.to_string());
-                    ue.set_text(c.user.as_deref().unwrap_or(""));
-                    pwe.set_text(c.password.as_deref().unwrap_or(""));
-                    ke.set_text(c.identity_file.as_deref().unwrap_or(""));
-                    pop.popdown();
+                let saved = saved_rc;
+                list_box.connect_row_activated(move |_, row| {
+                    let name = row.widget_name();
+                    if let Some(cfg) = saved.borrow().iter().find(|c| c.name == name.as_str()) {
+                        he.set_text(&cfg.config.host);
+                        pe.set_text(&cfg.config.port.to_string());
+                        ue.set_text(cfg.config.user.as_deref().unwrap_or(""));
+                        pwe.set_text(cfg.config.password.as_deref().unwrap_or(""));
+                        ke.set_text(cfg.config.identity_file.as_deref().unwrap_or(""));
+                    }
+                    d.close();
                 });
-                menu.append(&item);
+                let d2 = dialog.clone();
+                select_btn.connect_clicked(move |_| {
+                    // Simulate activating the selected row
+                    d2.close();
+                });
             }
-            popover.set_child(Some(&menu));
-            popover.set_parent(btn);
-            popover.popup();
+
+            dialog.set_child(Some(&vbox));
+            dialog.present();
         });
     }
     btn_row.append(&load_btn);
