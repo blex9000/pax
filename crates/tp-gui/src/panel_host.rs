@@ -207,8 +207,8 @@ impl PanelHost {
         // Collapse button
         let collapse_button = gtk4::Button::new();
         collapse_button.set_icon_name("go-previous-symbolic");
-        collapse_button.add_css_class("circular");
-        collapse_button.add_css_class("panel-collapse-btn");
+        collapse_button.add_css_class("flat");
+        collapse_button.add_css_class("panel-action-btn");
         collapse_button.set_tooltip_text(Some("Collapse panel"));
         {
             let cb_ref = action_cb_ref.clone();
