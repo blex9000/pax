@@ -601,7 +601,20 @@ fn navigate_history(state: &Rc<RefCell<EditorState>>, tabs: &Rc<editor_tabs::Edi
     };
 
     if let Some(pos) = target {
-        // Switch to file
+        // Check if file exists
+        let file_exists = state.borrow().backend.file_exists(&pos.path);
+        if !file_exists {
+            // Remove all entries for this file from both stacks
+            let mut st = state.borrow_mut();
+            st.nav_back.retain(|p| p.path != pos.path);
+            st.nav_forward.retain(|p| p.path != pos.path);
+            // Try next entry
+            drop(st);
+            navigate_history(state, tabs, forward);
+            return;
+        }
+
+        // Switch to file (reopen if closed)
         let already_open = {
             let st = state.borrow();
             st.open_files.iter().position(|f| f.path == pos.path)
@@ -610,12 +623,14 @@ fn navigate_history(state: &Rc<RefCell<EditorState>>, tabs: &Rc<editor_tabs::Edi
             tabs.notebook.set_current_page(Some(idx as u32));
             tabs.switch_to_buffer(idx, state);
         } else {
-            // Open file — but undo the nav push it causes
+            // File is closed — reopen it, undo the nav push it causes
             tabs.open_file(&pos.path, state);
             let mut st = state.borrow_mut();
             st.nav_back.pop(); // undo the push from open_file
         }
+
         // Scroll to saved line (deferred so layout has time to complete)
+        // If line doesn't exist, go to last line
         let line = pos.line;
         let sv = tabs.source_view.clone();
         let state_c = state.clone();
@@ -623,8 +638,10 @@ fn navigate_history(state: &Rc<RefCell<EditorState>>, tabs: &Rc<editor_tabs::Edi
             let st = state_c.borrow();
             if let Some(idx) = st.active_tab {
                 if let Some(f) = st.open_files.get(idx) {
-                    if let Some(iter) = f.buffer.iter_at_line(line) {
-                        f.buffer.place_cursor(&iter);
+                    let buf = &f.buffer;
+                    let target_line = if line < buf.line_count() { line } else { buf.line_count() - 1 };
+                    if let Some(iter) = buf.iter_at_line(target_line) {
+                        buf.place_cursor(&iter);
                         sv.scroll_to_iter(&mut iter.clone(), 0.1, false, 0.0, 0.0);
                     }
                 }
