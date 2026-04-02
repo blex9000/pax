@@ -248,7 +248,8 @@ paned > separator { min-width: 1px; min-height: 1px; }
 .dirty-indicator { color: #ff8c00; }
 .editor-tabs { border-bottom: 1px solid alpha(@borders, 0.3); }
 .editor-sidebar { border-right: 1px solid alpha(@borders, 0.3); }
-.git-has-changes { background-color: alpha(#ff8c00, 0.2); border-radius: 4px; }
+button.git-has-changes, togglebutton.git-has-changes { background-color: alpha(#ff8c00, 0.25); border-radius: 4px; }
+button.git-has-changes:hover, togglebutton.git-has-changes:hover { background-color: alpha(#ff8c00, 0.35); }
 popover > contents { background-color: @popover_bg_color; color: @popover_fg_color; }
 popover > arrow { background-color: @popover_bg_color; }
 popover label, popover button, popover .flat, popover modelbutton { color: @popover_fg_color; }
