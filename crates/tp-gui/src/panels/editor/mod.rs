@@ -396,11 +396,9 @@ impl CodeEditorPanel {
                     move |git_output: String| {
                         let has_changes = !git_output.trim().is_empty();
                         if has_changes {
-                            git_btn.set_label("\u{25CF}");
-                            git_btn.add_css_class("dirty-indicator");
+                            git_btn.add_css_class("git-has-changes");
                         } else {
-                            git_btn.set_label("");
-                            git_btn.remove_css_class("dirty-indicator");
+                            git_btn.remove_css_class("git-has-changes");
                         }
                         git_status_view.update(&git_output);
                     }
