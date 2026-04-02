@@ -222,8 +222,12 @@ impl PanelHost {
             });
         }
 
-        // Layout: [collapse][icon][title][spacer][sync][zoom][menu]
+        // Layout: [collapse] | [icon][title][spacer][sync][zoom][menu]
         title_bar.append(&collapse_button);
+        let collapse_sep = gtk4::Separator::new(gtk4::Orientation::Vertical);
+        collapse_sep.set_margin_start(2);
+        collapse_sep.set_margin_end(2);
+        title_bar.append(&collapse_sep);
         title_bar.append(&type_icon);
         title_bar.append(&title_stack);
         let spacer = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
