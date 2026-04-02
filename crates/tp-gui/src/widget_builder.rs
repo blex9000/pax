@@ -403,47 +403,51 @@ fn setup_paned_auto_collapse(paned: &gtk4::Paned, hosts: &HashMap<String, PanelH
     if start_id.is_none() && end_id.is_none() { return; }
 
     // Store the outer widgets + collapsed_view refs directly (GTK widgets are Rc-based)
-    struct CollapseState {
+    struct CollapseWidgets {
         container: gtk4::Box,
         footer: gtk4::Box,
         collapsed_view: gtk4::Box,
         outer: gtk4::Box,
         collapse_btn: gtk4::Button,
-        is_collapsed: std::cell::Cell<bool>,
     }
 
-    let make_state = |id: &Option<String>| -> Option<std::rc::Rc<CollapseState>> {
+    impl CollapseWidgets {
+        fn is_collapsed(&self) -> bool {
+            !self.container.is_visible()
+        }
+        fn set_collapsed(&self, collapsed: bool) {
+            if self.is_collapsed() == collapsed { return; }
+            if collapsed {
+                self.container.set_visible(false);
+                self.footer.set_visible(false);
+                self.collapsed_view.set_visible(true);
+                self.outer.set_size_request(44, 44);
+                self.collapse_btn.set_icon_name("go-next-symbolic");
+                self.collapse_btn.set_tooltip_text(Some("Expand panel"));
+            } else {
+                self.container.set_visible(true);
+                self.collapsed_view.set_visible(false);
+                self.outer.set_size_request(80, 60);
+                self.collapse_btn.set_icon_name("go-previous-symbolic");
+                self.collapse_btn.set_tooltip_text(Some("Collapse panel"));
+            }
+        }
+    }
+
+    let make_cw = |id: &Option<String>| -> Option<std::rc::Rc<CollapseWidgets>> {
         let host = id.as_ref().and_then(|i| hosts.get(i))?;
-        Some(std::rc::Rc::new(CollapseState {
+        Some(std::rc::Rc::new(CollapseWidgets {
             container: host.container.clone(),
             footer: host.footer_bar.clone(),
             collapsed_view: host.collapsed_view.clone(),
             outer: host.outer.clone(),
             collapse_btn: host.collapse_button.clone(),
-            is_collapsed: std::cell::Cell::new(host.is_collapsed()),
         }))
     };
 
-    let start_state = make_state(&start_id);
-    let end_state = make_state(&end_id);
+    let start_cw = make_cw(&start_id);
+    let end_cw = make_cw(&end_id);
     let orient = paned.orientation();
-
-    let set_collapsed = |state: &CollapseState, collapsed: bool| {
-        if state.is_collapsed.get() == collapsed { return; }
-        state.is_collapsed.set(collapsed);
-        if collapsed {
-            state.container.set_visible(false);
-            state.footer.set_visible(false);
-            state.collapsed_view.set_visible(true);
-            state.outer.set_size_request(44, 44);
-            state.collapse_btn.set_icon_name("go-next-symbolic");
-        } else {
-            state.container.set_visible(true);
-            state.collapsed_view.set_visible(false);
-            state.outer.set_size_request(80, 60);
-            state.collapse_btn.set_icon_name("go-previous-symbolic");
-        }
-    };
 
     paned.connect_notify_local(Some("position"), move |paned, _| {
         let pos = paned.position();
@@ -455,11 +459,11 @@ fn setup_paned_auto_collapse(paned: &gtk4::Paned, hosts: &HashMap<String, PanelH
         if total <= 0 { return; }
         let end_size = total - pos;
 
-        if let Some(ref s) = start_state {
-            set_collapsed(s, pos < COLLAPSE_THRESHOLD);
+        if let Some(ref cw) = start_cw {
+            cw.set_collapsed(pos < COLLAPSE_THRESHOLD);
         }
-        if let Some(ref s) = end_state {
-            set_collapsed(s, end_size < COLLAPSE_THRESHOLD);
+        if let Some(ref cw) = end_cw {
+            cw.set_collapsed(end_size < COLLAPSE_THRESHOLD);
         }
     });
 }
