@@ -119,14 +119,36 @@ impl CodeEditorPanel {
         sidebar.append(&activity_bar);
         sidebar.append(&gtk4::Separator::new(gtk4::Orientation::Horizontal));
 
-        // File tree
+        // Git log (history) view — created early so file tree can reference it
+        let git_log_view = Rc::new(git_log::GitLogView::new(
+            &PathBuf::from(root_dir),
+            Rc::new({
+                let root_c = PathBuf::from(root_dir);
+                let tabs_c = tabs_rc.clone();
+                move |hash| {
+                    tabs_c.show_commit_diff(&root_c, hash);
+                }
+            }),
+        ));
+
+        // File tree with context menu
         let state_for_open = state.clone();
         let tabs_for_open = tabs_rc.clone();
-        let file_tree = file_tree::FileTree::new(
+        let root_for_ctx = PathBuf::from(root_dir);
+        let glv_for_ctx = git_log_view.clone();
+        let history_btn_for_ctx = history_btn.clone();
+        let file_tree = file_tree::FileTree::new_with_context(
             &PathBuf::from(root_dir),
             Rc::new(move |path| {
                 tabs_for_open.open_file(path, &state_for_open);
             }),
+            Some(Rc::new(move |action, path| {
+                if action == "git-history" {
+                    let rel = path.strip_prefix(&root_for_ctx).unwrap_or(path);
+                    glv_for_ctx.filter_by_file(&rel.to_string_lossy());
+                    history_btn_for_ctx.set_active(true); // switches sidebar to history
+                }
+            })),
         );
 
         // Git status view
@@ -171,18 +193,6 @@ impl CodeEditorPanel {
             }),
         );
 
-        // Git log (history) view
-        let git_log_view = git_log::GitLogView::new(
-            &PathBuf::from(root_dir),
-            Rc::new({
-                let root_c = PathBuf::from(root_dir);
-                let tabs_c = tabs_rc.clone();
-                move |hash| {
-                    tabs_c.show_commit_diff(&root_c, hash);
-                }
-            }),
-        );
-
         // Sidebar stack to switch between file tree, git view, history, and search
         let sidebar_stack = gtk4::Stack::new();
         sidebar_stack.add_named(&file_tree.widget, Some("files"));
@@ -206,7 +216,7 @@ impl CodeEditorPanel {
         }
         {
             let stack = sidebar_stack.clone();
-            let glv = git_log_view;
+            let glv = git_log_view.clone();
             history_btn.connect_toggled(move |btn| {
                 if btn.is_active() {
                     stack.set_visible_child_name("history");

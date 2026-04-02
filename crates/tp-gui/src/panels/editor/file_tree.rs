@@ -1,11 +1,12 @@
 use gtk4::prelude::*;
-use gtk4::gio;
 use std::cell::RefCell;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
 /// Callback when a file is opened in the tree.
 pub type OnFileOpen = Rc<dyn Fn(&Path)>;
+/// Callback for context menu actions: (action, file_path)
+pub type OnContextAction = Rc<dyn Fn(&str, &Path)>;
 
 /// File tree widget with gitignore-aware traversal and expand/collapse.
 pub struct FileTree {
@@ -18,6 +19,8 @@ pub struct FileTree {
     /// Flat list of all file paths for fuzzy finder indexing.
     pub file_index: Rc<RefCell<Vec<PathBuf>>>,
     entries: Rc<RefCell<Vec<FileEntry>>>,
+    #[allow(dead_code)]
+    on_context_action: Option<OnContextAction>,
 }
 
 #[derive(Debug, Clone)]
@@ -31,6 +34,10 @@ struct FileEntry {
 
 impl FileTree {
     pub fn new(root_dir: &Path, on_file_open: OnFileOpen) -> Self {
+        Self::new_with_context(root_dir, on_file_open, None)
+    }
+
+    pub fn new_with_context(root_dir: &Path, on_file_open: OnFileOpen, on_context_action: Option<OnContextAction>) -> Self {
         let container = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
 
         // Action buttons bar at bottom
@@ -108,15 +115,85 @@ impl FileTree {
             });
         }
 
-        // Right-click context menu
-        let menu = gio::Menu::new();
-        menu.append(Some("New File"), Some("editor.new-file"));
-        menu.append(Some("New Folder"), Some("editor.new-folder"));
-        menu.append(Some("Rename"), Some("editor.rename"));
-        menu.append(Some("Delete"), Some("editor.delete"));
-        menu.append(Some("Copy Path"), Some("editor.copy-path"));
-        let popover = gtk4::PopoverMenu::from_model(Some(&menu));
-        popover.set_parent(&container);
+        // Right-click context menu on files
+        {
+            let entries_c = entries.clone();
+            let root = root_dir.to_path_buf();
+            let ctx_cb = on_context_action.clone();
+            let gesture = gtk4::GestureClick::new();
+            gesture.set_button(3); // right-click
+            gesture.connect_pressed(move |g, _n, x, y| {
+                let Some(widget) = g.widget() else { return };
+                let Some(lb) = widget.downcast_ref::<gtk4::ListBox>() else { return };
+                let Some(row) = lb.row_at_y(y as i32) else { return };
+                let idx = row.index() as usize;
+                let ents = entries_c.borrow();
+                let Some(entry) = ents.get(idx) else { return };
+                if entry.is_dir { return; }
+
+                let path = entry.path.clone();
+                let rel = path.strip_prefix(&root).unwrap_or(&path).to_path_buf();
+
+                // Build popover menu
+                let menu_box = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
+                menu_box.set_margin_top(4);
+                menu_box.set_margin_bottom(4);
+                menu_box.set_margin_start(4);
+                menu_box.set_margin_end(4);
+
+                // Copy Path
+                let copy_btn = gtk4::Button::with_label("Copy Path");
+                copy_btn.add_css_class("flat");
+                {
+                    let rel_str = rel.to_string_lossy().to_string();
+                    copy_btn.connect_clicked(move |btn| {
+                        if let Some(display) = gtk4::gdk::Display::default() {
+                            display.clipboard().set_text(&rel_str);
+                        }
+                        if let Some(p) = btn.ancestor(gtk4::Popover::static_type()) {
+                            p.downcast_ref::<gtk4::Popover>().unwrap().popdown();
+                        }
+                    });
+                }
+                menu_box.append(&copy_btn);
+
+                // Git History
+                if let Some(ref ctx) = ctx_cb {
+                    let history_btn = gtk4::Button::with_label("Git History");
+                    history_btn.add_css_class("flat");
+                    let cb = ctx.clone();
+                    let p = path.clone();
+                    history_btn.connect_clicked(move |btn| {
+                        cb("git-history", &p);
+                        if let Some(pop) = btn.ancestor(gtk4::Popover::static_type()) {
+                            pop.downcast_ref::<gtk4::Popover>().unwrap().popdown();
+                        }
+                    });
+                    menu_box.append(&history_btn);
+                }
+
+                // Delete
+                let delete_btn = gtk4::Button::with_label("Delete");
+                delete_btn.add_css_class("flat");
+                {
+                    let p = path.clone();
+                    delete_btn.connect_clicked(move |btn| {
+                        let _ = std::fs::remove_file(&p);
+                        if let Some(pop) = btn.ancestor(gtk4::Popover::static_type()) {
+                            pop.downcast_ref::<gtk4::Popover>().unwrap().popdown();
+                        }
+                    });
+                }
+                menu_box.append(&delete_btn);
+
+                let popover = gtk4::Popover::new();
+                popover.set_child(Some(&menu_box));
+                popover.set_parent(&row);
+                popover.set_pointing_to(Some(&gtk4::gdk::Rectangle::new(x as i32, 0, 1, 1)));
+                popover.popup();
+            });
+            list_box.add_controller(gesture);
+        }
 
         // Collapse all button
         {
@@ -175,6 +252,7 @@ impl FileTree {
             on_file_open: Some(on_file_open),
             file_index,
             entries,
+            on_context_action,
         }
     }
 
