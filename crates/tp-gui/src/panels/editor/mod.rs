@@ -392,6 +392,7 @@ impl CodeEditorPanel {
         {
             let state_c = state.clone();
             let key_ctrl = gtk4::EventControllerKey::new();
+            key_ctrl.set_propagation_phase(gtk4::PropagationPhase::Capture);
             let tabs_ref = tabs_rc.clone();
             let sidebar_ref = sidebar.clone();
             let fuzzy_finder_ref = Rc::new(fuzzy_finder);
