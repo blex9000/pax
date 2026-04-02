@@ -245,28 +245,19 @@ fn setup_workspace_ui(
         let win = window_rc.clone();
         let sa = save_action.clone();
         let cb: crate::panels::chooser::OnTypeChosen = Rc::new(move |panel_id, type_id| {
-            let needs_config = ws.borrow_mut().set_panel_type(panel_id, type_id);
-            sb.borrow().set_message(&format!("{} → {}", panel_id, type_id));
-            actions::update_dirty_ui(&ws, &win, &sa);
+            let needs_config = type_id == "markdown" || type_id == "code_editor";
 
-            // Auto-open config dialog for panels that need initial setup
             if needs_config {
-                let (pname, ptype, pcwd, pssh, pcmds, pclose, pmw, pmh) = {
-                    let view = ws.borrow();
-                    let wks = view.workspace();
-                    let pcfg = wks.panel(panel_id);
-                    (
-                        pcfg.map(|p| p.name.clone()).unwrap_or_default(),
-                        pcfg.map(|p| p.effective_type()).unwrap_or(pax_core::workspace::PanelType::Terminal),
-                        pcfg.and_then(|p| p.cwd.clone()),
-                        pcfg.and_then(|p| p.effective_ssh()),
-                        pcfg.map(|p| p.startup_commands.clone()).unwrap_or_default(),
-                        pcfg.and_then(|p| p.before_close.clone()),
-                        pcfg.map(|p| p.min_width).unwrap_or(0),
-                        pcfg.map(|p| p.min_height).unwrap_or(0),
-                    )
+                // For panels that need a file/directory, show config FIRST
+                let default_type = match type_id {
+                    "markdown" => pax_core::workspace::PanelType::Markdown { file: String::new() },
+                    "code_editor" => pax_core::workspace::PanelType::CodeEditor {
+                        root_dir: String::new(), ssh: None, remote_path: None, poll_interval: None,
+                    },
+                    _ => pax_core::workspace::PanelType::Terminal,
                 };
                 let pid = panel_id.to_string();
+                let tid = type_id.to_string();
                 let ws2 = ws.clone();
                 let win2 = win.clone();
                 let sa2 = sa.clone();
@@ -274,14 +265,20 @@ fn setup_workspace_ui(
                     let view = ws.borrow();
                     std::rc::Rc::new(std::cell::RefCell::new(view.workspace().ssh_configs.clone()))
                 };
+                let tid2 = tid.clone();
                 crate::dialogs::panel_config::show_panel_config_dialog(
-                    &*win, &pname, &ptype, pcwd.as_deref(), pssh.as_ref(),
-                    &pcmds, pclose.as_deref(), pmw, pmh, saved_ssh,
+                    &*win, &tid, &default_type, None, None,
+                    &[], None, 0, 0, saved_ssh,
                     move |new_name, new_type, new_cwd, new_ssh, new_cmds, new_close, new_mw, new_mh| {
+                        ws2.borrow_mut().set_panel_type(&pid, &tid2);
                         ws2.borrow_mut().apply_panel_config(&pid, new_name, new_type, new_cwd, new_ssh, new_cmds, new_close, new_mw, new_mh);
                         actions::update_dirty_ui(&ws2, &win2, &sa2);
                     },
                 );
+            } else {
+                ws.borrow_mut().set_panel_type(panel_id, type_id);
+                sb.borrow().set_message(&format!("{} → {}", panel_id, type_id));
+                actions::update_dirty_ui(&ws, &win, &sa);
             }
         });
         ws_view.borrow_mut().set_type_chosen_callback(cb);
