@@ -3,6 +3,8 @@ use std::cell::RefCell;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
+use super::file_backend::FileBackend;
+
 /// Callback when a search result is clicked: (file_path, line_number, search_query)
 pub type OnResultClick = Rc<dyn Fn(&Path, u32, &str)>;
 
@@ -29,7 +31,7 @@ struct SearchResult {
 }
 
 impl ProjectSearch {
-    pub fn new(root_dir: &Path, on_click: OnResultClick) -> Self {
+    pub fn new(root_dir: &Path, on_click: OnResultClick, backend: Rc<dyn FileBackend>) -> Self {
         let container = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
 
         let header = gtk4::Label::new(Some("Search in Files"));
@@ -90,6 +92,7 @@ impl ProjectSearch {
         // Search on Enter
         {
             let root = root_dir.to_path_buf();
+            let be = backend.clone();
             let results_list_c = results_list.clone();
             let results_s = results_store.clone();
             let status_l = status_label.clone();
@@ -104,7 +107,7 @@ impl ProjectSearch {
                     results_list_c.remove(&child);
                 }
 
-                let results = search_in_files(&root, &query);
+                let results = search_in_files(&root, &query, &*be);
                 let count = results.len();
                 status_l.set_text(&format!("{} matches", count));
 
@@ -159,6 +162,7 @@ impl ProjectSearch {
         // Replace All in files
         {
             let root = root_dir.to_path_buf();
+            let be = backend.clone();
             let se = search_entry.clone();
             let re = replace_entry.clone();
             let status_l = status_label.clone();
@@ -169,7 +173,7 @@ impl ProjectSearch {
                 let replacement = re.text().to_string();
                 if query.is_empty() { return; }
 
-                let count = replace_in_files(&root, &query, &replacement);
+                let count = replace_in_files(&root, &query, &replacement, &*be);
                 status_l.set_text(&format!("{} replaced in files", count));
 
                 // Clear results (they're stale now)
@@ -212,52 +216,77 @@ fn build_highlight_markup(text: &str, query: &str) -> String {
     result
 }
 
-/// Search for a query string across project files using the `ignore` crate.
-fn search_in_files(root: &Path, query: &str) -> Vec<SearchResult> {
-    let mut results = Vec::new();
-    let query_lower = query.to_lowercase();
-
-    let walker = ignore::WalkBuilder::new(root).build();
-
-    for entry in walker.flatten() {
-        if !entry.file_type().map(|ft| ft.is_file()).unwrap_or(false) {
-            continue;
-        }
-        let path = entry.path();
-
-        // Skip binary files
-        if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
-            match ext {
-                "png" | "jpg" | "jpeg" | "gif" | "ico" | "woff" | "woff2" | "ttf" |
-                "otf" | "eot" | "zip" | "tar" | "gz" | "bz2" | "xz" | "7z" |
-                "exe" | "dll" | "so" | "dylib" | "o" | "a" | "class" | "pyc" |
-                "db" | "sqlite" | "lock" => continue,
-                _ => {}
+/// Search for a query string across project files.
+/// For remote backends, uses backend.search_files(). For local, uses ignore::WalkBuilder.
+fn search_in_files(root: &Path, query: &str, backend: &dyn FileBackend) -> Vec<SearchResult> {
+    if backend.is_remote() {
+        // Use backend search for remote
+        let query_lower = query.to_lowercase();
+        match backend.search_files(&query_lower) {
+            Ok(hits) => {
+                hits.into_iter()
+                    .take(500)
+                    .map(|(path_str, line_num, line_text)| {
+                        let path = root.join(&path_str);
+                        let match_start = line_text.to_lowercase().find(&query_lower).unwrap_or(0);
+                        SearchResult {
+                            path,
+                            line_num: line_num as u32,
+                            line_text,
+                            match_start,
+                            match_len: query.len(),
+                        }
+                    })
+                    .collect()
             }
+            Err(_) => Vec::new(),
         }
+    } else {
+        let mut results = Vec::new();
+        let query_lower = query.to_lowercase();
 
-        if let Ok(content) = std::fs::read_to_string(path) {
-            for (line_idx, line) in content.lines().enumerate() {
-                let line_lower = line.to_lowercase();
-                if let Some(pos) = line_lower.find(&query_lower) {
-                    results.push(SearchResult {
-                        path: path.to_path_buf(),
-                        line_num: (line_idx + 1) as u32,
-                        line_text: line.to_string(),
-                        match_start: pos,
-                        match_len: query.len(),
-                    });
-                    if results.len() > 500 { return results; }
+        let walker = ignore::WalkBuilder::new(root).build();
+
+        for entry in walker.flatten() {
+            if !entry.file_type().map(|ft| ft.is_file()).unwrap_or(false) {
+                continue;
+            }
+            let path = entry.path();
+
+            // Skip binary files
+            if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
+                match ext {
+                    "png" | "jpg" | "jpeg" | "gif" | "ico" | "woff" | "woff2" | "ttf" |
+                    "otf" | "eot" | "zip" | "tar" | "gz" | "bz2" | "xz" | "7z" |
+                    "exe" | "dll" | "so" | "dylib" | "o" | "a" | "class" | "pyc" |
+                    "db" | "sqlite" | "lock" => continue,
+                    _ => {}
+                }
+            }
+
+            if let Ok(content) = backend.read_file(path) {
+                for (line_idx, line) in content.lines().enumerate() {
+                    let line_lower = line.to_lowercase();
+                    if let Some(pos) = line_lower.find(&query_lower) {
+                        results.push(SearchResult {
+                            path: path.to_path_buf(),
+                            line_num: (line_idx + 1) as u32,
+                            line_text: line.to_string(),
+                            match_start: pos,
+                            match_len: query.len(),
+                        });
+                        if results.len() > 500 { return results; }
+                    }
                 }
             }
         }
-    }
 
-    results
+        results
+    }
 }
 
 /// Replace all occurrences of query with replacement across project files.
-fn replace_in_files(root: &Path, query: &str, replacement: &str) -> usize {
+fn replace_in_files(root: &Path, query: &str, replacement: &str, backend: &dyn FileBackend) -> usize {
     let mut total = 0;
     let query_lower = query.to_lowercase();
 
@@ -279,7 +308,7 @@ fn replace_in_files(root: &Path, query: &str, replacement: &str) -> usize {
             }
         }
 
-        if let Ok(content) = std::fs::read_to_string(path) {
+        if let Ok(content) = backend.read_file(path) {
             if content.to_lowercase().contains(&query_lower) {
                 // Case-insensitive replace preserving structure
                 let mut new_content = String::new();
@@ -293,7 +322,7 @@ fn replace_in_files(root: &Path, query: &str, replacement: &str) -> usize {
                     last = abs_pos + query.len();
                 }
                 new_content.push_str(&content[last..]);
-                let _ = std::fs::write(path, &new_content);
+                let _ = backend.write_file(path, &new_content);
             }
         }
     }

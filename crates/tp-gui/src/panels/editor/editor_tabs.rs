@@ -611,17 +611,11 @@ impl EditorTabs {
 
     /// Show a side-by-side diff view for the given file.
     /// The diff replaces the content_stack view. Close button goes back to editor.
-    pub fn show_diff(&self, root: &Path, file_path: &Path) {
+    pub fn show_diff(&self, root: &Path, file_path: &Path, backend: Rc<dyn super::file_backend::FileBackend>) {
         let rel = file_path.strip_prefix(root).unwrap_or(file_path);
-        let old_content = std::process::Command::new("git")
-            .args(["show", &format!("HEAD:{}", rel.to_string_lossy())])
-            .current_dir(root)
-            .output()
-            .ok()
-            .filter(|o| o.status.success())
-            .map(|o| String::from_utf8_lossy(&o.stdout).to_string())
+        let old_content = backend.git_show(&format!("HEAD:{}", rel.to_string_lossy()))
             .unwrap_or_default();
-        let new_content = std::fs::read_to_string(file_path).unwrap_or_default();
+        let new_content = backend.read_file(file_path).unwrap_or_default();
 
         let old_buf = sourceview5::Buffer::new(None::<&gtk4::TextTagTable>);
         old_buf.set_text(&old_content);
@@ -756,12 +750,9 @@ impl EditorTabs {
         stage_btn.set_tooltip_text(Some("Stage this file"));
         {
             let fp = file_path.to_path_buf();
-            let root_c = root.to_path_buf();
+            let be = backend.clone();
             stage_btn.connect_clicked(move |_| {
-                let _ = std::process::Command::new("git")
-                    .args(["add", &fp.to_string_lossy()])
-                    .current_dir(&root_c)
-                    .output();
+                let _ = be.git_command(&["add", &fp.to_string_lossy()]);
             });
         }
         header.append(&stage_btn);
@@ -775,12 +766,10 @@ impl EditorTabs {
             let root_c = root.to_path_buf();
             let cs = self.content_stack.clone();
             let nb = self.notebook.clone();
+            let be = backend.clone();
             revert_btn.connect_clicked(move |_| {
                 let rel = fp.strip_prefix(&root_c).unwrap_or(&fp);
-                let _ = std::process::Command::new("git")
-                    .args(["checkout", "--", &rel.to_string_lossy()])
-                    .current_dir(&root_c)
-                    .output();
+                let _ = be.git_command(&["checkout", "--", &rel.to_string_lossy()]);
                 if nb.n_pages() > 0 {
                     cs.set_visible_child_name("editor");
                 } else {
@@ -816,11 +805,12 @@ impl EditorTabs {
         {
             let fp = file_path.to_path_buf();
             let nb = new_buf.clone();
+            let be = backend.clone();
             let key_ctrl = gtk4::EventControllerKey::new();
             key_ctrl.connect_key_pressed(move |_, key, _, modifier| {
                 if modifier.contains(gtk4::gdk::ModifierType::CONTROL_MASK) && key == gtk4::gdk::Key::s {
                     let text = nb.text(&nb.start_iter(), &nb.end_iter(), false).to_string();
-                    let _ = std::fs::write(&fp, &text);
+                    let _ = be.write_file(&fp, &text);
                     tracing::info!("Diff: saved working copy");
                     return gtk4::glib::Propagation::Stop;
                 }
@@ -1020,15 +1010,9 @@ impl EditorTabs {
         }
     }
     /// Show a commit's diff: header with info, file list, click file for side-by-side diff.
-    pub fn show_commit_diff(&self, root: &Path, commit_hash: &str) {
+    pub fn show_commit_diff(&self, _root: &Path, commit_hash: &str, backend: Rc<dyn super::file_backend::FileBackend>) {
         // Get commit info
-        let info = std::process::Command::new("git")
-            .args(["log", "-1", "--format=%H%n%s%n%an%n%ar", commit_hash])
-            .current_dir(root)
-            .output()
-            .ok()
-            .filter(|o| o.status.success())
-            .map(|o| String::from_utf8_lossy(&o.stdout).to_string())
+        let info = backend.git_command(&["log", "-1", "--format=%H%n%s%n%an%n%ar", commit_hash])
             .unwrap_or_default();
 
         let info_lines: Vec<&str> = info.lines().collect();
@@ -1038,23 +1022,11 @@ impl EditorTabs {
         let date = info_lines.get(3).copied().unwrap_or("");
 
         // Get list of changed files with status
-        let diff_stat = std::process::Command::new("git")
-            .args(["diff-tree", "--no-commit-id", "-r", "--name-status", commit_hash])
-            .current_dir(root)
-            .output()
-            .ok()
-            .filter(|o| o.status.success())
-            .map(|o| String::from_utf8_lossy(&o.stdout).to_string())
+        let diff_stat = backend.git_command(&["diff-tree", "--no-commit-id", "-r", "--name-status", commit_hash])
             .unwrap_or_default();
 
         // Get numeric stats (additions/deletions per file)
-        let numstat = std::process::Command::new("git")
-            .args(["diff-tree", "--no-commit-id", "-r", "--numstat", commit_hash])
-            .current_dir(root)
-            .output()
-            .ok()
-            .filter(|o| o.status.success())
-            .map(|o| String::from_utf8_lossy(&o.stdout).to_string())
+        let numstat = backend.git_command(&["diff-tree", "--no-commit-id", "-r", "--numstat", commit_hash])
             .unwrap_or_default();
         let stats: std::collections::HashMap<&str, (String, String)> = numstat.lines().filter_map(|line| {
             let parts: Vec<&str> = line.splitn(3, '\t').collect();
@@ -1105,13 +1077,10 @@ impl EditorTabs {
         revert_commit_btn.add_css_class("flat");
         revert_commit_btn.set_tooltip_text(Some("Revert this commit (git revert)"));
         {
-            let root_c = root.to_path_buf();
+            let be = backend.clone();
             let hash = commit_hash.to_string();
             revert_commit_btn.connect_clicked(move |_| {
-                let _ = std::process::Command::new("git")
-                    .args(["revert", "--no-edit", &hash])
-                    .current_dir(&root_c)
-                    .output();
+                let _ = be.git_command(&["revert", "--no-edit", &hash]);
             });
         }
         header.append(&revert_commit_btn);
@@ -1161,13 +1130,13 @@ impl EditorTabs {
                 }
             }
             {
-                let root_c = root.to_path_buf();
                 let hash = commit_hash.to_string();
                 let cs = self.content_stack.clone();
                 let nb = self.notebook.clone();
                 let fp = file_path_str.to_string();
+                let be = backend.clone();
                 name_btn.connect_clicked(move |_| {
-                    show_commit_file_diff(&cs, &nb, &root_c, &hash, &fp);
+                    show_commit_file_diff(&cs, &nb, &hash, &fp, be.clone());
                 });
             }
             row_box.append(&name_btn);
@@ -1217,27 +1186,15 @@ impl EditorTabs {
 fn show_commit_file_diff(
     content_stack: &gtk4::Stack,
     _notebook: &gtk4::Notebook,
-    root: &Path,
     commit_hash: &str,
     file_rel: &str,
+    backend: Rc<dyn super::file_backend::FileBackend>,
 ) {
     // Get old version (parent commit) and new version (this commit)
     let parent = format!("{}~1", commit_hash);
-    let old_content = std::process::Command::new("git")
-        .args(["show", &format!("{}:{}", parent, file_rel)])
-        .current_dir(root)
-        .output()
-        .ok()
-        .filter(|o| o.status.success())
-        .map(|o| String::from_utf8_lossy(&o.stdout).to_string())
+    let old_content = backend.git_show(&format!("{}:{}", parent, file_rel))
         .unwrap_or_default();
-    let new_content = std::process::Command::new("git")
-        .args(["show", &format!("{}:{}", commit_hash, file_rel)])
-        .current_dir(root)
-        .output()
-        .ok()
-        .filter(|o| o.status.success())
-        .map(|o| String::from_utf8_lossy(&o.stdout).to_string())
+    let new_content = backend.git_show(&format!("{}:{}", commit_hash, file_rel))
         .unwrap_or_default();
 
     let old_buf = sourceview5::Buffer::new(None::<&gtk4::TextTagTable>);
@@ -1362,15 +1319,12 @@ fn show_commit_file_diff(
     revert_btn.add_css_class("flat");
     revert_btn.set_tooltip_text(Some("Revert this file to before this commit"));
     {
-        let root_c = root.to_path_buf();
+        let be = backend.clone();
         let parent_c = parent.clone();
         let fp = file_rel.to_string();
         let cs = content_stack.clone();
         revert_btn.connect_clicked(move |_| {
-            let _ = std::process::Command::new("git")
-                .args(["checkout", &parent_c, "--", &fp])
-                .current_dir(&root_c)
-                .output();
+            let _ = be.git_command(&["checkout", &parent_c, "--", &fp]);
             cs.set_visible_child_name("commit-diff");
         });
     }
