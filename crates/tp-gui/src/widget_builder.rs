@@ -367,8 +367,6 @@ pub fn build_layout_widget_inner(
     }
 }
 
-const COLLAPSE_THRESHOLD: i32 = 52;
-
 fn setup_paned_ratio(paned: &gtk4::Paned, ratio: f64, orientation: gtk4::Orientation) {
     use gtk4::glib;
     paned.set_position((ratio * 800.0) as i32);
@@ -449,7 +447,12 @@ fn setup_paned_auto_collapse(paned: &gtk4::Paned, hosts: &HashMap<String, PanelH
     let end_cw = make_cw(&end_id);
     let orient = paned.orientation();
 
+    let clamping = std::rc::Rc::new(std::cell::Cell::new(false));
+
     paned.connect_notify_local(Some("position"), move |paned, _| {
+        // Prevent re-entry from our own set_position calls
+        if clamping.get() { return; }
+
         let pos = paned.position();
         let total = if orient == gtk4::Orientation::Horizontal {
             paned.allocation().width()
@@ -457,13 +460,39 @@ fn setup_paned_auto_collapse(paned: &gtk4::Paned, hosts: &HashMap<String, PanelH
             paned.allocation().height()
         };
         if total <= 0 { return; }
+
+        let min = 44;
         let end_size = total - pos;
 
+        // Clamp: don't allow either side below min
+        if pos < min && !start_cw.as_ref().map_or(false, |cw| cw.is_collapsed()) {
+            clamping.set(true);
+            paned.set_position(min);
+            clamping.set(false);
+        }
+        if end_size < min && !end_cw.as_ref().map_or(false, |cw| cw.is_collapsed()) {
+            clamping.set(true);
+            paned.set_position(total - min);
+            clamping.set(false);
+        }
+
+        let pos = paned.position();
+        let end_size = total - pos;
+
+        // Toggle collapse at exact threshold
         if let Some(ref cw) = start_cw {
-            cw.apply_visual(pos < COLLAPSE_THRESHOLD);
+            if pos <= min && !cw.is_collapsed() {
+                cw.apply_visual(true);
+            } else if pos > min && cw.is_collapsed() {
+                cw.apply_visual(false);
+            }
         }
         if let Some(ref cw) = end_cw {
-            cw.apply_visual(end_size < COLLAPSE_THRESHOLD);
+            if end_size <= min && !cw.is_collapsed() {
+                cw.apply_visual(true);
+            } else if end_size > min && cw.is_collapsed() {
+                cw.apply_visual(false);
+            }
         }
     });
 }
