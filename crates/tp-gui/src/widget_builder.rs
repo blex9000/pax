@@ -386,17 +386,17 @@ fn setup_paned_ratio(paned: &gtk4::Paned, ratio: f64, orientation: gtk4::Orienta
 
 /// Monitor Paned position changes to auto-collapse/expand panels at threshold.
 fn setup_paned_auto_collapse(paned: &gtk4::Paned, hosts: &HashMap<String, PanelHost>) {
-    let find_host_id = |child: &gtk4::Widget| -> Option<String> {
+    let find_host_id = |child: &gtk4::Widget, hosts: &HashMap<String, PanelHost>| -> Option<String> {
         let name = child.widget_name();
         let name_str = name.as_str();
-        if !name_str.is_empty() && name_str.starts_with('p') {
+        if hosts.contains_key(name_str) {
             return Some(name_str.to_string());
         }
         None
     };
 
-    let start_id = paned.start_child().and_then(|c| find_host_id(&c));
-    let end_id = paned.end_child().and_then(|c| find_host_id(&c));
+    let start_id = paned.start_child().and_then(|c| find_host_id(&c, hosts));
+    let end_id = paned.end_child().and_then(|c| find_host_id(&c, hosts));
 
     if start_id.is_none() && end_id.is_none() { return; }
 
@@ -448,6 +448,7 @@ fn setup_paned_auto_collapse(paned: &gtk4::Paned, hosts: &HashMap<String, PanelH
     let orient = paned.orientation();
 
     let guard = std::rc::Rc::new(std::cell::Cell::new(false));
+
 
     paned.connect_notify_local(Some("position"), move |paned, _| {
         if guard.get() { return; }
