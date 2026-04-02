@@ -11,6 +11,8 @@ pub mod file_watcher;
 pub mod fuzzy_finder;
 #[cfg(feature = "sourceview")]
 pub mod project_search;
+#[cfg(feature = "sourceview")]
+pub mod git_log;
 
 use std::cell::RefCell;
 use std::path::PathBuf;
@@ -104,8 +106,15 @@ impl CodeEditorPanel {
         search_btn.set_tooltip_text(Some("Search in files (Ctrl+Shift+F)"));
         search_btn.set_group(Some(&files_btn));
 
+        let history_btn = gtk4::ToggleButton::new();
+        history_btn.set_icon_name("document-open-recent-symbolic");
+        history_btn.add_css_class("flat");
+        history_btn.set_tooltip_text(Some("Git History"));
+        history_btn.set_group(Some(&files_btn));
+
         activity_bar.append(&files_btn);
         activity_bar.append(&git_btn);
+        activity_bar.append(&history_btn);
         activity_bar.append(&search_btn);
         sidebar.append(&activity_bar);
         sidebar.append(&gtk4::Separator::new(gtk4::Orientation::Horizontal));
@@ -162,10 +171,23 @@ impl CodeEditorPanel {
             }),
         );
 
-        // Sidebar stack to switch between file tree, git view, and search
+        // Git log (history) view
+        let git_log_view = git_log::GitLogView::new(
+            &PathBuf::from(root_dir),
+            Rc::new({
+                let root_c = PathBuf::from(root_dir);
+                let tabs_c = tabs_rc.clone();
+                move |hash| {
+                    tabs_c.show_commit_diff(&root_c, hash);
+                }
+            }),
+        );
+
+        // Sidebar stack to switch between file tree, git view, history, and search
         let sidebar_stack = gtk4::Stack::new();
         sidebar_stack.add_named(&file_tree.widget, Some("files"));
         sidebar_stack.add_named(&git_status_view.widget, Some("git"));
+        sidebar_stack.add_named(&git_log_view.widget, Some("history"));
         sidebar_stack.add_named(&project_search.widget, Some("search"));
         sidebar.append(&sidebar_stack);
 
@@ -180,6 +202,16 @@ impl CodeEditorPanel {
             let stack = sidebar_stack.clone();
             git_btn.connect_toggled(move |btn| {
                 if btn.is_active() { stack.set_visible_child_name("git"); }
+            });
+        }
+        {
+            let stack = sidebar_stack.clone();
+            let glv = git_log_view;
+            history_btn.connect_toggled(move |btn| {
+                if btn.is_active() {
+                    stack.set_visible_child_name("history");
+                    glv.refresh();
+                }
             });
         }
         {

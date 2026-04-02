@@ -1023,6 +1023,348 @@ impl EditorTabs {
             }
         }
     }
+    /// Show a commit's diff: header with info, file list, click file for side-by-side diff.
+    pub fn show_commit_diff(&self, root: &Path, commit_hash: &str) {
+        // Get commit info
+        let info = std::process::Command::new("git")
+            .args(["log", "-1", "--format=%H%n%s%n%an%n%ar", commit_hash])
+            .current_dir(root)
+            .output()
+            .ok()
+            .filter(|o| o.status.success())
+            .map(|o| String::from_utf8_lossy(&o.stdout).to_string())
+            .unwrap_or_default();
+
+        let info_lines: Vec<&str> = info.lines().collect();
+        let full_hash = info_lines.first().copied().unwrap_or(commit_hash);
+        let subject = info_lines.get(1).copied().unwrap_or("");
+        let author = info_lines.get(2).copied().unwrap_or("");
+        let date = info_lines.get(3).copied().unwrap_or("");
+
+        // Get list of changed files with stats
+        let diff_stat = std::process::Command::new("git")
+            .args(["diff-tree", "--no-commit-id", "-r", "--name-status", commit_hash])
+            .current_dir(root)
+            .output()
+            .ok()
+            .filter(|o| o.status.success())
+            .map(|o| String::from_utf8_lossy(&o.stdout).to_string())
+            .unwrap_or_default();
+
+        // Build UI
+        let commit_box = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
+        commit_box.set_vexpand(true);
+
+        // Header: back button + commit info
+        let header = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
+        header.set_margin_start(8);
+        header.set_margin_end(8);
+        header.set_margin_top(4);
+        header.set_margin_bottom(4);
+
+        let back_btn = gtk4::Button::from_icon_name("go-previous-symbolic");
+        back_btn.add_css_class("flat");
+        back_btn.set_tooltip_text(Some("Back to editor"));
+        header.append(&back_btn);
+
+        let info_box = gtk4::Box::new(gtk4::Orientation::Vertical, 2);
+        info_box.set_hexpand(true);
+
+        let title_row = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
+        let hash_label = gtk4::Label::new(Some(&full_hash[..full_hash.len().min(8)]));
+        hash_label.add_css_class("dim-label");
+        hash_label.add_css_class("monospace");
+        title_row.append(&hash_label);
+        let subject_label = gtk4::Label::new(Some(subject));
+        subject_label.add_css_class("heading");
+        subject_label.set_halign(gtk4::Align::Start);
+        subject_label.set_ellipsize(gtk4::pango::EllipsizeMode::End);
+        title_row.append(&subject_label);
+        info_box.append(&title_row);
+
+        let meta_label = gtk4::Label::new(Some(&format!("{} · {}", author, date)));
+        meta_label.add_css_class("dim-label");
+        meta_label.add_css_class("caption");
+        meta_label.set_halign(gtk4::Align::Start);
+        info_box.append(&meta_label);
+
+        header.append(&info_box);
+        commit_box.append(&header);
+        commit_box.append(&gtk4::Separator::new(gtk4::Orientation::Horizontal));
+
+        // File list
+        let file_list = gtk4::ListBox::new();
+        file_list.set_selection_mode(gtk4::SelectionMode::Single);
+        file_list.add_css_class("boxed-list");
+        file_list.set_margin_start(8);
+        file_list.set_margin_end(8);
+        file_list.set_margin_top(4);
+
+        for line in diff_stat.lines() {
+            let parts: Vec<&str> = line.splitn(2, '\t').collect();
+            if parts.len() != 2 { continue; }
+            let status_char = parts[0];
+            let file_path = parts[1];
+
+            let row_box = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
+            row_box.set_margin_start(8);
+            row_box.set_margin_end(8);
+            row_box.set_margin_top(4);
+            row_box.set_margin_bottom(4);
+
+            let status_label = gtk4::Label::new(Some(status_char));
+            status_label.add_css_class("monospace");
+            status_label.set_width_request(20);
+            match status_char {
+                "A" => status_label.add_css_class("success"),
+                "D" => status_label.add_css_class("error"),
+                "M" => status_label.add_css_class("warning"),
+                _ => status_label.add_css_class("dim-label"),
+            }
+            row_box.append(&status_label);
+
+            let name_label = gtk4::Label::new(Some(file_path));
+            name_label.set_halign(gtk4::Align::Start);
+            name_label.set_hexpand(true);
+            name_label.set_ellipsize(gtk4::pango::EllipsizeMode::Start);
+            name_label.set_tooltip_text(Some(file_path));
+            row_box.append(&name_label);
+
+            let row = gtk4::ListBoxRow::new();
+            row.set_child(Some(&row_box));
+            row.set_widget_name(file_path);
+            file_list.append(&row);
+        }
+
+        // Click on file → show side-by-side diff for that file in this commit
+        {
+            let root_c = root.to_path_buf();
+            let hash = commit_hash.to_string();
+            let cs = self.content_stack.clone();
+            let nb = self.notebook.clone();
+            file_list.connect_row_activated(move |_, row| {
+                let file_rel = row.widget_name();
+                let file_rel_str = file_rel.as_str();
+                if file_rel_str.is_empty() { return; }
+                show_commit_file_diff(&cs, &nb, &root_c, &hash, file_rel_str);
+            });
+        }
+
+        let scroll = gtk4::ScrolledWindow::new();
+        scroll.set_child(Some(&file_list));
+        scroll.set_vexpand(true);
+        commit_box.append(&scroll);
+
+        // Add to content stack
+        if let Some(old) = self.content_stack.child_by_name("commit-diff") {
+            self.content_stack.remove(&old);
+        }
+        self.content_stack.add_named(&commit_box, Some("commit-diff"));
+        self.content_stack.set_visible_child_name("commit-diff");
+
+        // Back button
+        {
+            let cs = self.content_stack.clone();
+            let nb = self.notebook.clone();
+            back_btn.connect_clicked(move |_| {
+                if nb.n_pages() > 0 {
+                    cs.set_visible_child_name("editor");
+                } else {
+                    cs.set_visible_child_name("welcome");
+                }
+            });
+        }
+    }
+}
+
+/// Show a side-by-side diff for a single file within a commit.
+fn show_commit_file_diff(
+    content_stack: &gtk4::Stack,
+    _notebook: &gtk4::Notebook,
+    root: &Path,
+    commit_hash: &str,
+    file_rel: &str,
+) {
+    // Get old version (parent commit) and new version (this commit)
+    let parent = format!("{}~1", commit_hash);
+    let old_content = std::process::Command::new("git")
+        .args(["show", &format!("{}:{}", parent, file_rel)])
+        .current_dir(root)
+        .output()
+        .ok()
+        .filter(|o| o.status.success())
+        .map(|o| String::from_utf8_lossy(&o.stdout).to_string())
+        .unwrap_or_default();
+    let new_content = std::process::Command::new("git")
+        .args(["show", &format!("{}:{}", commit_hash, file_rel)])
+        .current_dir(root)
+        .output()
+        .ok()
+        .filter(|o| o.status.success())
+        .map(|o| String::from_utf8_lossy(&o.stdout).to_string())
+        .unwrap_or_default();
+
+    let old_buf = sourceview5::Buffer::new(None::<&gtk4::TextTagTable>);
+    old_buf.set_text(&old_content);
+    old_buf.set_highlight_syntax(true);
+    let new_buf = sourceview5::Buffer::new(None::<&gtk4::TextTagTable>);
+    new_buf.set_text(&new_content);
+    new_buf.set_highlight_syntax(true);
+
+    // Syntax highlighting
+    let lang_manager = sourceview5::LanguageManager::default();
+    let file_path = Path::new(file_rel);
+    if let Some(lang) = lang_manager.guess_language(Some(file_path), None::<&str>) {
+        old_buf.set_language(Some(&lang));
+        new_buf.set_language(Some(&lang));
+    }
+    let theme = crate::theme::current_theme();
+    let scheme_id = theme.sourceview_scheme();
+    let fallback_id = theme.sourceview_scheme_fallback();
+    let scheme_manager = sourceview5::StyleSchemeManager::default();
+    if let Some(scheme) = scheme_manager.scheme(scheme_id)
+        .or_else(|| scheme_manager.scheme(fallback_id))
+    {
+        old_buf.set_style_scheme(Some(&scheme));
+        new_buf.set_style_scheme(Some(&scheme));
+    }
+
+    // Highlight diff
+    {
+        let diff = similar::TextDiff::from_lines(&old_content, &new_content);
+        let ensure_tags = |buf: &sourceview5::Buffer| {
+            let tt = buf.tag_table();
+            if tt.lookup("diff-del").is_none() {
+                let tag = gtk4::TextTag::new(Some("diff-del"));
+                tag.set_paragraph_background(Some("rgba(220, 50, 47, 0.25)"));
+                tt.add(&tag);
+            }
+            if tt.lookup("diff-add").is_none() {
+                let tag = gtk4::TextTag::new(Some("diff-add"));
+                tag.set_paragraph_background(Some("rgba(40, 180, 60, 0.25)"));
+                tt.add(&tag);
+            }
+        };
+        ensure_tags(&old_buf);
+        ensure_tags(&new_buf);
+
+        let mut old_line = 0i32;
+        let mut new_line = 0i32;
+        for change in diff.iter_all_changes() {
+            match change.tag() {
+                similar::ChangeTag::Equal => { old_line += 1; new_line += 1; }
+                similar::ChangeTag::Delete => {
+                    if let Some(start) = old_buf.iter_at_line(old_line) {
+                        let mut end = start.clone();
+                        end.forward_to_line_end();
+                        end.forward_char();
+                        old_buf.apply_tag_by_name("diff-del", &start, &end);
+                    }
+                    old_line += 1;
+                }
+                similar::ChangeTag::Insert => {
+                    if let Some(start) = new_buf.iter_at_line(new_line) {
+                        let mut end = start.clone();
+                        end.forward_to_line_end();
+                        end.forward_char();
+                        new_buf.apply_tag_by_name("diff-add", &start, &end);
+                    }
+                    new_line += 1;
+                }
+            }
+        }
+    }
+
+    let make_sv = |buf: &sourceview5::Buffer| -> gtk4::ScrolledWindow {
+        let view = sourceview5::View::with_buffer(buf);
+        view.set_editable(false);
+        view.set_show_line_numbers(true);
+        view.set_monospace(true);
+        view.set_left_margin(4);
+        let scroll = gtk4::ScrolledWindow::new();
+        scroll.set_child(Some(&view));
+        scroll.set_vexpand(true);
+        scroll.set_hexpand(true);
+        scroll
+    };
+
+    let old_scroll = make_sv(&old_buf);
+    let new_scroll = make_sv(&new_buf);
+
+    // Sync scrolling
+    let syncing = Rc::new(std::cell::Cell::new(false));
+    {
+        let ns = new_scroll.clone();
+        let s = syncing.clone();
+        old_scroll.vadjustment().connect_value_changed(move |adj| {
+            if !s.get() { s.set(true); ns.vadjustment().set_value(adj.value()); s.set(false); }
+        });
+    }
+    {
+        let os = old_scroll.clone();
+        let s = syncing;
+        new_scroll.vadjustment().connect_value_changed(move |adj| {
+            if !s.get() { s.set(true); os.vadjustment().set_value(adj.value()); s.set(false); }
+        });
+    }
+
+    // Build diff view
+    let diff_box = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
+    diff_box.set_vexpand(true);
+
+    let header = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
+    header.set_margin_start(8);
+    header.set_margin_end(8);
+    header.set_margin_top(4);
+    header.set_margin_bottom(4);
+
+    let back_btn = gtk4::Button::from_icon_name("go-previous-symbolic");
+    back_btn.add_css_class("flat");
+    back_btn.set_tooltip_text(Some("Back to commit"));
+    header.append(&back_btn);
+
+    let file_label = gtk4::Label::new(Some(&format!("{}  {} → {}", file_rel, &parent[..parent.len().min(8)], &commit_hash[..commit_hash.len().min(8)])));
+    file_label.add_css_class("heading");
+    file_label.set_hexpand(true);
+    file_label.set_halign(gtk4::Align::Start);
+    header.append(&file_label);
+
+    diff_box.append(&header);
+
+    // Column labels
+    let labels = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
+    let old_label = gtk4::Label::new(Some(&format!("{} ({})", file_rel, &parent[..parent.len().min(8)])));
+    old_label.add_css_class("dim-label");
+    old_label.set_hexpand(true);
+    old_label.set_margin_start(8);
+    let new_label = gtk4::Label::new(Some(&format!("{} ({})", file_rel, &commit_hash[..commit_hash.len().min(8)])));
+    new_label.add_css_class("dim-label");
+    new_label.set_hexpand(true);
+    new_label.set_margin_start(8);
+    labels.append(&old_label);
+    labels.append(&new_label);
+    diff_box.append(&labels);
+
+    let paned = gtk4::Paned::new(gtk4::Orientation::Horizontal);
+    paned.set_vexpand(true);
+    paned.set_start_child(Some(&old_scroll));
+    paned.set_end_child(Some(&new_scroll));
+    diff_box.append(&paned);
+
+    // Replace content
+    if let Some(old) = content_stack.child_by_name("commit-file-diff") {
+        content_stack.remove(&old);
+    }
+    content_stack.add_named(&diff_box, Some("commit-file-diff"));
+    content_stack.set_visible_child_name("commit-file-diff");
+
+    // Back goes to commit-diff view
+    {
+        let cs = content_stack.clone();
+        back_btn.connect_clicked(move |_| {
+            cs.set_visible_child_name("commit-diff");
+        });
+    }
 }
 
 fn get_mtime(path: &Path) -> u64 {
