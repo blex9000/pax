@@ -884,9 +884,21 @@ impl EditorTabs {
                     open_file.last_disk_mtime = get_mtime(&open_file.path);
                     buf.set_enable_undo(false);
                     buf.set_enable_undo(true);
+                    // Clear the modified indicator in tab and status bar
+                    if let Some(page) = self.notebook.nth_page(Some(idx as u32)) {
+                        if let Some(tab_label) = self.notebook.tab_label(&page) {
+                            // Tab label is a Box: [dot, icon, name, close_btn]
+                            if let Some(dot) = tab_label.first_child() {
+                                if let Some(label) = dot.downcast_ref::<gtk4::Label>() {
+                                    label.set_text("");
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }
+        self.status_modified.set_text("");
         self.update_gutter_marks(root, state);
     }
 
