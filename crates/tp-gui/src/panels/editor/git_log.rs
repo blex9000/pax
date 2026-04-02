@@ -123,8 +123,12 @@ fn populate_list(list_box: &gtk4::ListBox, commits: &[CommitEntry], on_click: &O
 
         let row = gtk4::ListBoxRow::new();
         row.set_child(Some(&row_box));
-        // Store hash in widget name for retrieval on click
         row.set_widget_name(&commit.hash);
+        // Tooltip with full commit info
+        row.set_tooltip_text(Some(&format!(
+            "{}\n\n{}\n\n{}  ·  {}",
+            commit.hash, commit.subject, commit.author, commit.date
+        )));
         list_box.append(&row);
     }
 

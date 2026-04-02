@@ -799,11 +799,11 @@ impl EditorTabs {
 
         // Column labels
         let labels = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
-        let old_label = gtk4::Label::new(Some(&format!("{} (HEAD)", rel.to_string_lossy())));
+        let old_label = gtk4::Label::new(Some(&format!("← PRIMA  {}  (HEAD)", rel.to_string_lossy())));
         old_label.add_css_class("dim-label");
         old_label.set_hexpand(true);
         old_label.set_margin_start(8);
-        let new_label = gtk4::Label::new(Some(&format!("{} (working)", rel.to_string_lossy())));
+        let new_label = gtk4::Label::new(Some(&format!("→ DOPO  {}  (working)", rel.to_string_lossy())));
         new_label.add_css_class("dim-label");
         new_label.set_hexpand(true);
         new_label.set_margin_start(8);
@@ -1333,11 +1333,11 @@ fn show_commit_file_diff(
 
     // Column labels
     let labels = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
-    let old_label = gtk4::Label::new(Some(&format!("{} ({})", file_rel, &parent[..parent.len().min(8)])));
+    let old_label = gtk4::Label::new(Some(&format!("← PRIMA  {}  ({})", file_rel, &parent[..parent.len().min(8)])));
     old_label.add_css_class("dim-label");
     old_label.set_hexpand(true);
     old_label.set_margin_start(8);
-    let new_label = gtk4::Label::new(Some(&format!("{} ({})", file_rel, &commit_hash[..commit_hash.len().min(8)])));
+    let new_label = gtk4::Label::new(Some(&format!("→ DOPO  {}  ({})", file_rel, &commit_hash[..commit_hash.len().min(8)])));
     new_label.add_css_class("dim-label");
     new_label.set_hexpand(true);
     new_label.set_margin_start(8);
