@@ -1,4 +1,6 @@
 use gtk4::prelude::*;
+use gtk4::glib;
+use std::cell::Cell;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
@@ -15,6 +17,8 @@ pub struct GitStatusView {
     commit_btn: gtk4::Button,
     root_dir: PathBuf,
     on_diff_open: OnDiffOpen,
+    /// Signal handler ID for row-activated, to avoid stacking handlers on each update.
+    row_activated_handler: Rc<Cell<Option<glib::SignalHandlerId>>>,
 }
 
 #[derive(Debug, Clone)]
@@ -98,13 +102,33 @@ impl GitStatusView {
             });
         }
 
-        Self {
+        let view = Self {
             widget: container,
             list_box,
             commit_entry,
             commit_btn,
             root_dir: root_dir.to_path_buf(),
             on_diff_open,
+            row_activated_handler: Rc::new(Cell::new(None)),
+        };
+
+        // Initial population
+        view.refresh();
+
+        view
+    }
+
+    /// Refresh by running git status.
+    pub fn refresh(&self) {
+        let output = std::process::Command::new("git")
+            .args(["status", "--porcelain"])
+            .current_dir(&self.root_dir)
+            .output();
+        if let Ok(o) = output {
+            if o.status.success() {
+                let stdout = String::from_utf8_lossy(&o.stdout).to_string();
+                self.update(&stdout);
+            }
         }
     }
 
@@ -232,16 +256,22 @@ impl GitStatusView {
             self.list_box.append(&row);
         }
 
+        // Disconnect previous handler to avoid stacking
+        if let Some(old_id) = self.row_activated_handler.take() {
+            self.list_box.disconnect(old_id);
+        }
+
         // Make rows clickable to open diff
         {
             let entries_c = entries.clone();
             let on_diff = self.on_diff_open.clone();
-            self.list_box.connect_row_activated(move |_, row| {
+            let handler_id = self.list_box.connect_row_activated(move |_, row| {
                 let idx = row.index() as usize;
                 if let Some(entry) = entries_c.get(idx) {
                     on_diff(&entry.path, &entry.status);
                 }
             });
+            self.row_activated_handler.set(Some(handler_id));
         }
     }
 }
