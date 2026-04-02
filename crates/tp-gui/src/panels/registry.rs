@@ -163,6 +163,12 @@ pub fn build_default_registry() -> PanelRegistry {
                     format!("ssh {}", ssh_target)
                 };
                 panel.send_commands(&[cmd]);
+                // cd to remote path if specified
+                if let Some(cwd) = config.cwd.as_deref() {
+                    if !cwd.is_empty() {
+                        panel.send_commands(&[format!("cd '{}'", cwd)]);
+                    }
+                }
             }
             // Startup script commands
             if let Some(cmds_str) = config.extra.get("__startup_commands__") {
