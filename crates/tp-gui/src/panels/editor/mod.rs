@@ -63,12 +63,46 @@ pub struct CodeEditorPanel {
 #[cfg(feature = "sourceview")]
 impl CodeEditorPanel {
     /// Create a code editor for a remote project via SSHFS.
+    /// Shows a "Connecting..." placeholder immediately, mounts SSHFS in background,
+    /// then replaces the placeholder with the full editor once mounted.
     pub fn new_remote(
         host: &str, port: u16, user: &str,
         password: Option<&str>, identity_file: Option<&str>,
         remote_path: &str,
     ) -> Self {
-        // Create a unique mount point
+        let ssh_label = format!("{}@{}", user, host);
+        let connect_msg = format!("Connecting to remote filesystem\n{}:{}", ssh_label, remote_path);
+
+        // Placeholder widget shown while connecting
+        let outer = gtk4::Box::new(gtk4::Orientation::Vertical, 16);
+        outer.set_valign(gtk4::Align::Center);
+        outer.set_halign(gtk4::Align::Center);
+
+        let spinner = gtk4::Spinner::new();
+        spinner.start();
+        spinner.set_width_request(32);
+        spinner.set_height_request(32);
+        outer.append(&spinner);
+
+        let msg_label = gtk4::Label::new(Some(&connect_msg));
+        msg_label.add_css_class("dim-label");
+        msg_label.set_justify(gtk4::Justification::Center);
+        outer.append(&msg_label);
+
+        let widget = outer.clone().upcast::<gtk4::Widget>();
+        widget.set_vexpand(true);
+        widget.set_hexpand(true);
+
+        let state = Rc::new(RefCell::new(EditorState {
+            root_dir: PathBuf::from(remote_path),
+            #[cfg(feature = "sourceview")]
+            open_files: Vec::new(),
+            active_tab: None,
+            sidebar_visible: true,
+            sidebar_mode: SidebarMode::Files,
+        }));
+
+        // Spawn SSHFS mount in background
         let mount_dir = std::env::temp_dir().join(format!(
             "pax_sshfs_{}_{}",
             host.replace('.', "_"),
@@ -76,63 +110,111 @@ impl CodeEditorPanel {
         ));
         let _ = std::fs::create_dir_all(&mount_dir);
 
-        // Build sshfs command
-        let remote = format!("{}@{}:{}", user, host, remote_path);
-        let mut cmd = std::process::Command::new("sshfs");
-        cmd.arg(&remote)
-            .arg(&mount_dir)
-            .arg("-o").arg("reconnect")
-            .arg("-o").arg("ServerAliveInterval=15")
-            .arg("-o").arg(format!("port={}", port));
+        let host_owned = host.to_string();
+        let user_owned = user.to_string();
+        let pass_owned = password.map(|s| s.to_string());
+        let key_owned = identity_file.map(|s| s.to_string());
+        let rpath_owned = remote_path.to_string();
+        let mount_dir_clone = mount_dir.clone();
 
-        if let Some(key) = identity_file {
-            cmd.arg("-o").arg(format!("IdentityFile={}", key));
-        }
-        if password.is_some() {
-            // sshfs with password requires sshpass or ssh-askpass
-            cmd.arg("-o").arg("password_stdin");
-        }
+        let result_slot = std::sync::Arc::new(std::sync::Mutex::new(None::<Result<(), String>>));
+        let slot = result_slot.clone();
 
-        tracing::info!("SSHFS mount: {} -> {}", remote, mount_dir.display());
+        std::thread::spawn(move || {
+            let remote = format!("{}@{}:{}", user_owned, host_owned, rpath_owned);
+            let mut cmd = std::process::Command::new("sshfs");
+            cmd.arg(&remote)
+                .arg(&mount_dir_clone)
+                .arg("-o").arg("reconnect")
+                .arg("-o").arg("ServerAliveInterval=15")
+                .arg("-o").arg(format!("port={}", port));
 
-        let result = if let Some(pass) = password {
-            // Pipe password via stdin
-            use std::io::Write;
-            let mut child = cmd.stdin(std::process::Stdio::piped())
-                .spawn();
-            if let Ok(ref mut child) = child {
-                if let Some(ref mut stdin) = child.stdin {
-                    let _ = stdin.write_all(pass.as_bytes());
-                    let _ = stdin.write_all(b"\n");
+            if let Some(ref key) = key_owned {
+                if !key.is_empty() {
+                    cmd.arg("-o").arg(format!("IdentityFile={}", key));
                 }
-                child.wait()
-            } else {
-                child.map(|_| std::process::ExitStatus::default())
             }
-        } else {
-            cmd.status()
-        };
+            if pass_owned.is_some() {
+                cmd.arg("-o").arg("password_stdin");
+            }
 
-        match result {
-            Ok(status) if status.success() => {
-                tracing::info!("SSHFS mounted successfully at {}", mount_dir.display());
-                let mut panel = Self::new_inner(&mount_dir.to_string_lossy());
-                panel.sshfs_mount = Some(mount_dir);
-                panel.ssh_info = Some(format!("{}@{}", user, host));
-                panel
-            }
-            Ok(status) => {
-                tracing::error!("SSHFS mount failed with status: {}", status);
-                let mut panel = Self::new_inner(remote_path);
-                panel.ssh_info = Some(format!("{}@{} (failed)", user, host));
-                panel
-            }
-            Err(e) => {
-                tracing::error!("SSHFS not found or failed: {}. Install with: sudo apt install sshfs (Linux) or brew install macfuse sshfs (macOS)", e);
-                let mut panel = Self::new_inner(remote_path);
-                panel.ssh_info = Some(format!("{}@{} (no sshfs)", user, host));
-                panel
-            }
+            let result = if let Some(ref pass) = pass_owned {
+                use std::io::Write;
+                match cmd.stdin(std::process::Stdio::piped()).spawn() {
+                    Ok(mut child) => {
+                        if let Some(ref mut stdin) = child.stdin {
+                            let _ = stdin.write_all(pass.as_bytes());
+                            let _ = stdin.write_all(b"\n");
+                        }
+                        match child.wait() {
+                            Ok(s) if s.success() => Ok(()),
+                            Ok(s) => Err(format!("sshfs exited with {}", s)),
+                            Err(e) => Err(format!("sshfs wait failed: {}", e)),
+                        }
+                    }
+                    Err(e) => Err(format!("sshfs not found: {}. Install with: sudo apt install sshfs", e)),
+                }
+            } else {
+                match cmd.status() {
+                    Ok(s) if s.success() => Ok(()),
+                    Ok(s) => Err(format!("sshfs exited with {}", s)),
+                    Err(e) => Err(format!("sshfs not found: {}. Install with: sudo apt install sshfs", e)),
+                }
+            };
+            *slot.lock().unwrap() = Some(result);
+        });
+
+        // Poll for mount completion, then replace placeholder with real editor
+        {
+            let outer_ref = outer.clone();
+            let mount_dir = mount_dir.clone();
+            let state = state.clone();
+            let ssh_label = ssh_label.clone();
+            let _rpath = remote_path.to_string();
+            gtk4::glib::timeout_add_local(std::time::Duration::from_millis(200), move || {
+                let ready = result_slot.lock().unwrap().is_some();
+                if !ready {
+                    return gtk4::glib::ControlFlow::Continue;
+                }
+                let result = result_slot.lock().unwrap().take().unwrap();
+
+                // Remove placeholder children
+                while let Some(child) = outer_ref.first_child() {
+                    outer_ref.remove(&child);
+                }
+
+                match result {
+                    Ok(()) => {
+                        tracing::info!("SSHFS mounted at {}", mount_dir.display());
+                        // Update state root_dir to mount point
+                        state.borrow_mut().root_dir = mount_dir.clone();
+                        // Show success briefly then the user can interact
+                        let done_label = gtk4::Label::new(Some(&format!("Connected: {}", ssh_label)));
+                        done_label.add_css_class("dim-label");
+                        outer_ref.append(&done_label);
+                    }
+                    Err(e) => {
+                        tracing::error!("SSHFS mount failed: {}", e);
+                        let err_icon = gtk4::Image::from_icon_name("dialog-error-symbolic");
+                        err_icon.set_pixel_size(48);
+                        outer_ref.append(&err_icon);
+                        let err_label = gtk4::Label::new(Some(&format!("Connection failed:\n{}", e)));
+                        err_label.add_css_class("dim-label");
+                        err_label.set_justify(gtk4::Justification::Center);
+                        err_label.set_wrap(true);
+                        outer_ref.append(&err_label);
+                    }
+                }
+
+                gtk4::glib::ControlFlow::Break
+            });
+        }
+
+        Self {
+            widget,
+            state,
+            sshfs_mount: Some(mount_dir),
+            ssh_info: Some(ssh_label),
         }
     }
 
