@@ -13,6 +13,7 @@ pub mod fuzzy_finder;
 pub mod project_search;
 #[cfg(feature = "sourceview")]
 pub mod git_log;
+pub mod file_backend;
 
 use std::cell::RefCell;
 use std::path::PathBuf;
@@ -30,6 +31,9 @@ pub struct EditorState {
     pub active_tab: Option<usize>,
     pub sidebar_visible: bool,
     pub sidebar_mode: SidebarMode,
+    /// True when editing a remote project via SSHFS.
+    /// Watchers use longer intervals and file tree avoids deep traversal.
+    pub is_remote: bool,
 }
 
 #[cfg(feature = "sourceview")]
@@ -110,6 +114,7 @@ impl CodeEditorPanel {
             active_tab: None,
             sidebar_visible: true,
             sidebar_mode: SidebarMode::Files,
+            is_remote: true,
         }));
 
         // Spawn SSHFS in background
@@ -238,6 +243,7 @@ impl CodeEditorPanel {
             active_tab: None,
             sidebar_visible: true,
             sidebar_mode: SidebarMode::Files,
+            is_remote: false,
         }));
 
         let tabs = editor_tabs::EditorTabs::new(state.clone());
