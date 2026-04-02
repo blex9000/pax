@@ -391,8 +391,19 @@ impl CodeEditorPanel {
                 Rc::new(move || {
                     file_tree_ref.refresh();
                 }),
-                Rc::new(move |git_output: String| {
-                    git_status_view.update(&git_output);
+                Rc::new({
+                    let git_btn = git_btn.clone();
+                    move |git_output: String| {
+                        let has_changes = !git_output.trim().is_empty();
+                        if has_changes {
+                            git_btn.set_label("\u{25CF}");
+                            git_btn.add_css_class("dirty-indicator");
+                        } else {
+                            git_btn.set_label("");
+                            git_btn.remove_css_class("dirty-indicator");
+                        }
+                        git_status_view.update(&git_output);
+                    }
                 }),
             );
         }
