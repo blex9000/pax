@@ -58,49 +58,62 @@ jobs:
           files: Pax-*.AppImage
           generate_release_notes: true
 
-  # ── macOS build (disabled until macOS support is complete) ──
-  # build-macos:
-  #   name: Build macOS (arm64)
-  #   runs-on: macos-latest
-  #
-  #   steps:
-  #     - name: Checkout
-  #       uses: actions/checkout@v4
-  #
-  #     - name: Install Rust
-  #       uses: dtolnay/rust-toolchain@stable
-  #
-  #     - name: Cache Cargo
-  #       uses: actions/cache@v4
-  #       with:
-  #         path: |
-  #           ~/.cargo/registry
-  #           ~/.cargo/git
-  #           target
-  #         key: cargo-macos-release-${{ hashFiles('**/Cargo.lock') }}
-  #         restore-keys: cargo-macos-release-
-  #
-  #     - name: Install system dependencies
-  #       run: brew install gtk4 libadwaita gtksourceview5 pkg-config
-  #
-  #     - name: Build
-  #       run: cargo build --release --no-default-features --features sourceview
-  #
-  #     - name: Package
-  #       run: |
-  #         mkdir -p Pax.app/Contents/MacOS
-  #         cp target/release/pax Pax.app/Contents/MacOS/
-  #         cp -r resources Pax.app/Contents/MacOS/
-  #         tar czf Pax-macos-arm64.tar.gz Pax.app
-  #
-  #     - name: Upload artifact
-  #       uses: actions/upload-artifact@v4
-  #       with:
-  #         name: Pax-macOS-arm64
-  #         path: Pax-macos-arm64.tar.gz
-  #
-  #     - name: Add to GitHub Release
-  #       if: startsWith(github.ref, 'refs/tags/')
-  #       uses: softprops/action-gh-release@v2
-  #       with:
-  #         files: Pax-macos-arm64.tar.gz
+  build-macos:
+    name: Build macOS (arm64)
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: cargo-macos-release-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: cargo-macos-release-
+
+      - name: Install system dependencies
+        run: brew install gtk4 libadwaita gtksourceview5 pkg-config
+
+      - name: Build
+        run: cargo build --release --no-default-features --features sourceview
+
+      - name: Package
+        run: |
+          mkdir -p Pax.app/Contents/MacOS
+          mkdir -p Pax.app/Contents/Resources
+          cp target/release/pax Pax.app/Contents/MacOS/
+          cp -r resources/* Pax.app/Contents/Resources/
+          cat > Pax.app/Contents/Info.plist << 'PLIST'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>CFBundleName</key><string>Pax</string>
+            <key>CFBundleIdentifier</key><string>com.sinelec.pax</string>
+            <key>CFBundleExecutable</key><string>pax</string>
+            <key>CFBundleVersion</key><string>0.1.0</string>
+            <key>CFBundlePackageType</key><string>APPL</string>
+          </dict>
+          </plist>
+          PLIST
+          tar czf Pax-macos-arm64.tar.gz Pax.app
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Pax-macOS-arm64
+          path: Pax-macos-arm64.tar.gz
+
+      - name: Add to GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: Pax-macos-arm64.tar.gz
