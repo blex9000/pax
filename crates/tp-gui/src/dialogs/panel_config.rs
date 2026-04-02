@@ -355,6 +355,65 @@ fn show_terminal_config(
     let ssh_id_entry = add_field(&ssh_container, "Identity file:", ssh.and_then(|s| s.identity_file.as_deref()).unwrap_or(""), "~/.ssh/id_rsa");
     let ssh_tmux_entry = add_field(&ssh_container, "Tmux session:", ssh.and_then(|s| s.tmux_session.as_deref()).unwrap_or(""), "(optional)");
 
+    // Remote working directory with browse button
+    let remote_cwd_row = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
+    let remote_cwd_label = gtk4::Label::new(Some("Remote dir:"));
+    remote_cwd_label.set_width_chars(15);
+    remote_cwd_label.set_halign(gtk4::Align::Start);
+    let remote_cwd_entry = gtk4::Entry::new();
+    remote_cwd_entry.set_placeholder_text(Some("/home/user (default: home)"));
+    remote_cwd_entry.set_hexpand(true);
+    // Pre-fill from cwd if it looks like a remote path
+    if let Some(c) = cwd {
+        if ssh.is_some() {
+            remote_cwd_entry.set_text(c);
+        }
+    }
+    let remote_browse_btn = gtk4::Button::from_icon_name("folder-open-symbolic");
+    remote_browse_btn.add_css_class("flat");
+    remote_browse_btn.set_tooltip_text(Some("Browse remote directories"));
+    remote_browse_btn.set_sensitive(ssh_enabled);
+    remote_cwd_row.append(&remote_cwd_label);
+    remote_cwd_row.append(&remote_cwd_entry);
+    remote_cwd_row.append(&remote_browse_btn);
+    ssh_container.append(&remote_cwd_row);
+
+    // Enable browse when host is filled
+    {
+        let btn = remote_browse_btn.clone();
+        let host = ssh_host_entry.clone();
+        ssh_host_entry.connect_changed(move |_| {
+            btn.set_sensitive(!host.text().is_empty());
+        });
+    }
+
+    // Browse remote dirs
+    {
+        let host_e = ssh_host_entry.clone();
+        let user_e = ssh_user_entry.clone();
+        let pass_e = ssh_pw_entry.clone();
+        let key_e = ssh_id_entry.clone();
+        let port_e = ssh_port_entry.clone();
+        let path_e = remote_cwd_entry.clone();
+        remote_browse_btn.connect_clicked(move |btn| {
+            let host = host_e.text().to_string();
+            let user = user_e.text().to_string();
+            let user = if user.is_empty() { "root".to_string() } else { user };
+            let password = pass_e.text().to_string();
+            let key = key_e.text().to_string();
+            let port = port_e.text().to_string();
+            let current = path_e.text().to_string();
+            let start = if current.is_empty() { "/".to_string() } else { current };
+
+            let pe = path_e.clone();
+            if let Some(win) = btn.root().and_then(|r| r.downcast::<gtk4::Window>().ok()) {
+                show_remote_browse_dialog(&win, &host, &user, &password, &key, &port, &start, move |selected| {
+                    pe.set_text(&selected);
+                });
+            }
+        });
+    }
+
     let ssh_warn = gtk4::Label::new(Some("Password stored in plain text in workspace file."));
     ssh_warn.add_css_class("dim-label");
     ssh_warn.add_css_class("caption");
@@ -522,10 +581,19 @@ fn show_terminal_config(
     let ssh_pw = ssh_pw_entry.clone();
     let ssh_id = ssh_id_entry.clone();
     let ssh_tmux = ssh_tmux_entry.clone();
+    let rcwd = remote_cwd_entry.clone();
     add_buttons(&vbox, &dialog, move || {
         let name = ne.text().to_string();
         let cwd_text = ce.text().to_string();
-        let cwd = if cwd_text.trim().is_empty() { None } else { Some(cwd_text) };
+        let remote_cwd_text = rcwd.text().to_string();
+        // Use remote dir as cwd when SSH is active
+        let cwd = if ssh_chk.is_active() && !remote_cwd_text.trim().is_empty() {
+            Some(remote_cwd_text)
+        } else if cwd_text.trim().is_empty() {
+            None
+        } else {
+            Some(cwd_text)
+        };
         let selected = id.selected() as usize;
         let interpreter = interps.get(selected).cloned().unwrap_or_else(|| "/bin/bash".to_string());
         let mw = mw_spin.value() as u32;
@@ -752,7 +820,7 @@ fn show_code_editor_config(
     let ssh_header_row = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
     ssh_header_row.set_margin_top(8);
     ssh_header_row.set_margin_bottom(4);
-    let ssh_header = gtk4::Label::new(Some("Remote (SSHFS)"));
+    let ssh_header = gtk4::Label::new(Some("Remote (SSH)"));
     ssh_header.add_css_class("heading");
     ssh_header.set_halign(gtk4::Align::Start);
     ssh_header.set_hexpand(true);
