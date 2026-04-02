@@ -40,7 +40,7 @@ impl GitStatusView {
         scroll.set_vexpand(true);
 
         let list_box = gtk4::ListBox::new();
-        list_box.add_css_class("navigation-sidebar");
+        list_box.set_selection_mode(gtk4::SelectionMode::Single);
         scroll.set_child(Some(&list_box));
         container.append(&scroll);
 
