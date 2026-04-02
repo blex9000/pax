@@ -739,13 +739,83 @@ fn show_code_editor_config(
         });
     }
 
+    // ── SSH / Remote section ──
+    vbox.append(&gtk4::Separator::new(gtk4::Orientation::Horizontal));
+    let ssh_header = gtk4::Label::new(Some("Remote (SSH)"));
+    ssh_header.add_css_class("heading");
+    ssh_header.set_halign(gtk4::Align::Start);
+    ssh_header.set_margin_top(8);
+    vbox.append(&ssh_header);
+    let ssh_hint = gtk4::Label::new(Some("Leave empty for local project. Fill in to edit remote files via SSHFS."));
+    ssh_hint.add_css_class("dim-label");
+    ssh_hint.add_css_class("caption");
+    ssh_hint.set_halign(gtk4::Align::Start);
+    ssh_hint.set_margin_bottom(4);
+    vbox.append(&ssh_hint);
+
+    let ssh_host_entry = add_field(&vbox, "SSH Host:", "", "server.example.com");
+    let ssh_user_entry = add_field(&vbox, "User:", "", "root");
+    let ssh_pass_entry = {
+        let row = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
+        let label = gtk4::Label::new(Some("Password:"));
+        label.set_width_chars(15);
+        label.set_halign(gtk4::Align::Start);
+        let entry = gtk4::PasswordEntry::new();
+        entry.set_show_peek_icon(true);
+        entry.set_hexpand(true);
+        row.append(&label);
+        row.append(&entry);
+        vbox.append(&row);
+        entry
+    };
+    let ssh_key_entry = add_field(&vbox, "Identity file:", "", "~/.ssh/id_rsa");
+    let ssh_port_entry = add_field(&vbox, "Port:", "22", "22");
+    let remote_path_entry = add_field(&vbox, "Remote path:", "", "/home/user/project");
+
+    vbox.append(&gtk4::Separator::new(gtk4::Orientation::Horizontal));
+
     let (mw_spin, mh_spin) = add_min_size_fields(&vbox, min_width, min_height);
 
     add_buttons(&vbox, &dialog, move || {
         let name = name_entry.text().to_string();
         let root_dir = dir_entry.text().to_string();
         let root_dir = if root_dir.is_empty() { ".".to_string() } else { root_dir };
-        on_done(name, PanelType::CodeEditor { root_dir, ssh: None, remote_path: None }, None, None, vec![], None, mw_spin.value() as u32, mh_spin.value() as u32);
+
+        // Build SSH config if host is set
+        let host_text = ssh_host_entry.text().to_string();
+        let ssh = if !host_text.trim().is_empty() {
+            let port_text = ssh_port_entry.text().to_string();
+            let port: u16 = port_text.trim().parse().unwrap_or(22);
+            let user = {
+                let u = ssh_user_entry.text().to_string();
+                if u.trim().is_empty() { None } else { Some(u) }
+            };
+            let password = {
+                let p = ssh_pass_entry.text().to_string();
+                if p.is_empty() { None } else { Some(p) }
+            };
+            let identity = {
+                let k = ssh_key_entry.text().to_string();
+                if k.trim().is_empty() { None } else { Some(k) }
+            };
+            Some(pax_core::workspace::SshConfig {
+                host: host_text,
+                port,
+                user,
+                password,
+                identity_file: identity,
+                tmux_session: None,
+            })
+        } else {
+            None
+        };
+
+        let remote_path = {
+            let rp = remote_path_entry.text().to_string();
+            if rp.trim().is_empty() { None } else { Some(rp) }
+        };
+
+        on_done(name, PanelType::CodeEditor { root_dir, ssh, remote_path }, None, None, vec![], None, mw_spin.value() as u32, mh_spin.value() as u32);
     });
 
     dialog.set_child(Some(&vbox));
