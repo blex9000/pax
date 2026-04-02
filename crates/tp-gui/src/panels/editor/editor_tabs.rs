@@ -749,15 +749,32 @@ impl EditorTabs {
         file_label.set_halign(gtk4::Align::Start);
         header.append(&file_label);
 
-        let revert_all_btn = gtk4::Button::from_icon_name("edit-undo-symbolic");
-        revert_all_btn.add_css_class("flat");
-        revert_all_btn.set_tooltip_text(Some("Revert all changes"));
+        // Stage button
+        let stage_btn = gtk4::Button::from_icon_name("list-add-symbolic");
+        stage_btn.add_css_class("flat");
+        stage_btn.set_tooltip_text(Some("Stage this file"));
+        {
+            let fp = file_path.to_path_buf();
+            let root_c = root.to_path_buf();
+            stage_btn.connect_clicked(move |_| {
+                let _ = std::process::Command::new("git")
+                    .args(["add", &fp.to_string_lossy()])
+                    .current_dir(&root_c)
+                    .output();
+            });
+        }
+        header.append(&stage_btn);
+
+        // Revert button
+        let revert_btn = gtk4::Button::from_icon_name("edit-undo-symbolic");
+        revert_btn.add_css_class("flat");
+        revert_btn.set_tooltip_text(Some("Revert all changes"));
         {
             let fp = file_path.to_path_buf();
             let root_c = root.to_path_buf();
             let cs = self.content_stack.clone();
             let nb = self.notebook.clone();
-            revert_all_btn.connect_clicked(move |_| {
+            revert_btn.connect_clicked(move |_| {
                 let rel = fp.strip_prefix(&root_c).unwrap_or(&fp);
                 let _ = std::process::Command::new("git")
                     .args(["checkout", "--", &rel.to_string_lossy()])
@@ -770,7 +787,7 @@ impl EditorTabs {
                 }
             });
         }
-        header.append(&revert_all_btn);
+        header.append(&revert_btn);
         diff_box.append(&header);
 
         // Column labels
