@@ -1146,9 +1146,7 @@ impl EditorTabs {
             row_box.append(&name_btn);
 
             // Revert button — checkout this file from the parent commit
-            let revert_btn = gtk4::Button::new();
-            revert_btn.set_icon_name("edit-undo-symbolic");
-            revert_btn.set_label("Revert");
+            let revert_btn = gtk4::Button::from_icon_name("edit-undo-symbolic");
             revert_btn.add_css_class("flat");
             revert_btn.set_tooltip_text(Some("Revert this file to before this commit"));
             {
