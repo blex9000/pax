@@ -1092,10 +1092,8 @@ impl EditorTabs {
         commit_box.append(&header);
         commit_box.append(&gtk4::Separator::new(gtk4::Orientation::Horizontal));
 
-        // File list
-        let file_list = gtk4::ListBox::new();
-        file_list.set_selection_mode(gtk4::SelectionMode::Single);
-        file_list.add_css_class("boxed-list");
+        // File list (plain Box, no ListBox background)
+        let file_list = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
         file_list.set_margin_start(8);
         file_list.set_margin_end(8);
         file_list.set_margin_top(4);
@@ -1104,17 +1102,17 @@ impl EditorTabs {
             let parts: Vec<&str> = line.splitn(2, '\t').collect();
             if parts.len() != 2 { continue; }
             let status_char = parts[0];
-            let file_path = parts[1];
+            let file_path_str = parts[1];
 
-            let row_box = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
-            row_box.set_margin_start(8);
-            row_box.set_margin_end(8);
+            let row_box = gtk4::Box::new(gtk4::Orientation::Horizontal, 6);
+            row_box.set_margin_start(4);
+            row_box.set_margin_end(4);
             row_box.set_margin_top(4);
             row_box.set_margin_bottom(4);
 
+            // Status badge
             let status_label = gtk4::Label::new(Some(status_char));
             status_label.add_css_class("monospace");
-            status_label.set_width_request(20);
             match status_char {
                 "A" => status_label.add_css_class("success"),
                 "D" => status_label.add_css_class("error"),
@@ -1123,31 +1121,51 @@ impl EditorTabs {
             }
             row_box.append(&status_label);
 
-            let name_label = gtk4::Label::new(Some(file_path));
-            name_label.set_halign(gtk4::Align::Start);
-            name_label.set_hexpand(true);
-            name_label.set_ellipsize(gtk4::pango::EllipsizeMode::Start);
-            name_label.set_tooltip_text(Some(file_path));
-            row_box.append(&name_label);
+            // Clickable filename → opens diff
+            let name_btn = gtk4::Button::with_label(file_path_str);
+            name_btn.add_css_class("flat");
+            name_btn.set_hexpand(true);
+            name_btn.set_halign(gtk4::Align::Start);
+            name_btn.set_tooltip_text(Some(file_path_str));
+            if let Some(child) = name_btn.child() {
+                if let Some(label) = child.downcast_ref::<gtk4::Label>() {
+                    label.set_ellipsize(gtk4::pango::EllipsizeMode::Start);
+                    label.set_halign(gtk4::Align::Start);
+                }
+            }
+            {
+                let root_c = root.to_path_buf();
+                let hash = commit_hash.to_string();
+                let cs = self.content_stack.clone();
+                let nb = self.notebook.clone();
+                let fp = file_path_str.to_string();
+                name_btn.connect_clicked(move |_| {
+                    show_commit_file_diff(&cs, &nb, &root_c, &hash, &fp);
+                });
+            }
+            row_box.append(&name_btn);
 
-            let row = gtk4::ListBoxRow::new();
-            row.set_child(Some(&row_box));
-            row.set_widget_name(file_path);
-            file_list.append(&row);
-        }
+            // Revert button — checkout this file from the parent commit
+            let revert_btn = gtk4::Button::new();
+            revert_btn.set_icon_name("edit-undo-symbolic");
+            revert_btn.set_label("Revert");
+            revert_btn.add_css_class("flat");
+            revert_btn.set_tooltip_text(Some("Revert this file to before this commit"));
+            {
+                let root_c = root.to_path_buf();
+                let parent = format!("{}~1", commit_hash);
+                let fp = file_path_str.to_string();
+                revert_btn.connect_clicked(move |_| {
+                    let _ = std::process::Command::new("git")
+                        .args(["checkout", &parent, "--", &fp])
+                        .current_dir(&root_c)
+                        .output();
+                });
+            }
+            row_box.append(&revert_btn);
 
-        // Click on file → show side-by-side diff for that file in this commit
-        {
-            let root_c = root.to_path_buf();
-            let hash = commit_hash.to_string();
-            let cs = self.content_stack.clone();
-            let nb = self.notebook.clone();
-            file_list.connect_row_activated(move |_, row| {
-                let file_rel = row.widget_name();
-                let file_rel_str = file_rel.as_str();
-                if file_rel_str.is_empty() { return; }
-                show_commit_file_diff(&cs, &nb, &root_c, &hash, file_rel_str);
-            });
+            file_list.append(&row_box);
+            file_list.append(&gtk4::Separator::new(gtk4::Orientation::Horizontal));
         }
 
         let scroll = gtk4::ScrolledWindow::new();
