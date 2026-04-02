@@ -206,9 +206,9 @@ impl PanelHost {
 
         // Collapse button
         let collapse_button = gtk4::Button::new();
-        collapse_button.set_icon_name("media-seek-backward-symbolic");
+        collapse_button.set_icon_name("go-previous-symbolic");
         collapse_button.add_css_class("flat");
-        collapse_button.add_css_class("panel-action-btn");
+        collapse_button.add_css_class("panel-menu-btn");
         collapse_button.set_tooltip_text(Some("Collapse panel"));
         {
             let cb_ref = action_cb_ref.clone();
@@ -602,16 +602,14 @@ impl PanelHost {
     /// Update collapse button icon based on orientation and position.
     fn update_collapse_icon(&self, orient: gtk4::Orientation, is_start: bool, collapsed: bool) {
         let icon = match (orient, is_start, collapsed) {
-            // Horizontal: use media-seek (double chevron)
-            (gtk4::Orientation::Horizontal, true, false)  => "media-seek-backward-symbolic",
-            (gtk4::Orientation::Horizontal, true, true)   => "media-seek-forward-symbolic",
-            (gtk4::Orientation::Horizontal, false, false) => "media-seek-forward-symbolic",
-            (gtk4::Orientation::Horizontal, false, true)  => "media-seek-backward-symbolic",
-            // Vertical: use pan (single arrow, no double vertical in GTK)
-            (_, true, false)  => "pan-up-symbolic",
-            (_, true, true)   => "pan-down-symbolic",
-            (_, false, false) => "pan-down-symbolic",
-            (_, false, true)  => "pan-up-symbolic",
+            (gtk4::Orientation::Horizontal, true, false)  => "go-previous-symbolic",
+            (gtk4::Orientation::Horizontal, true, true)   => "go-next-symbolic",
+            (gtk4::Orientation::Horizontal, false, false) => "go-next-symbolic",
+            (gtk4::Orientation::Horizontal, false, true)  => "go-previous-symbolic",
+            (_, true, false)  => "go-up-symbolic",
+            (_, true, true)   => "go-down-symbolic",
+            (_, false, false) => "go-down-symbolic",
+            (_, false, true)  => "go-up-symbolic",
         };
         let tip = if collapsed { "Expand panel" } else { "Collapse panel" };
         self.collapse_button.set_icon_name(icon);

@@ -454,10 +454,10 @@ fn update_collapse_icons_for_paned(
             let name = c.widget_name();
             if let Some(host) = hosts.get(name.as_str()) {
                 let icon = match (orientation, is_start) {
-                    (gtk4::Orientation::Horizontal, true) => "media-seek-backward-symbolic",
-                    (gtk4::Orientation::Horizontal, false) => "media-seek-forward-symbolic",
-                    (_, true) => "pan-up-symbolic",
-                    (_, false) => "pan-down-symbolic",
+                    (gtk4::Orientation::Horizontal, true) => "go-previous-symbolic",
+                    (gtk4::Orientation::Horizontal, false) => "go-next-symbolic",
+                    (_, true) => "go-up-symbolic",
+                    (_, false) => "go-down-symbolic",
                 };
                 host.collapse_button.set_icon_name(icon);
             }
