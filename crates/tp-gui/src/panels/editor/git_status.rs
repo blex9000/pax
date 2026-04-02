@@ -126,34 +126,63 @@ impl GitStatusView {
         }
 
         for entry in &entries {
-            let row = gtk4::Box::new(gtk4::Orientation::Horizontal, 4);
-            row.set_margin_start(4);
+            let row = gtk4::Box::new(gtk4::Orientation::Horizontal, 6);
+            row.set_margin_start(6);
             row.set_margin_end(4);
-            row.set_margin_top(2);
-            row.set_margin_bottom(2);
+            row.set_margin_top(3);
+            row.set_margin_bottom(3);
 
-            // Status badge
-            let status_label = gtk4::Label::new(Some(&entry.status));
-            status_label.set_width_chars(2);
-            let color_class = match entry.status.as_str() {
-                "M" | "MM" => "warning",
-                "A" => "success",
-                "D" => "error",
-                "??" => "dim-label",
-                _ => "dim-label",
+            // Status badge with colored background
+            let (badge_text, badge_class) = match entry.status.as_str() {
+                "M" | "MM" => ("M", "warning"),
+                "A" => ("A", "success"),
+                "D" => ("D", "error"),
+                "R" => ("R", "accent"),
+                "??" => ("U", "dim-label"),
+                other => (other, "dim-label"),
             };
-            status_label.add_css_class(color_class);
-            row.append(&status_label);
+            let badge = gtk4::Label::new(Some(badge_text));
+            badge.add_css_class("monospace");
+            badge.add_css_class(badge_class);
+            badge.set_width_request(20);
+            badge.set_halign(gtk4::Align::Center);
+            row.append(&badge);
 
-            // File name
+            // File icon + name
             let rel = entry.path.strip_prefix(&self.root_dir).unwrap_or(&entry.path);
-            let name_label = gtk4::Label::new(Some(&rel.to_string_lossy()));
-            name_label.set_halign(gtk4::Align::Start);
-            name_label.set_hexpand(true);
-            name_label.set_ellipsize(gtk4::pango::EllipsizeMode::Start);
-            row.append(&name_label);
+            let rel_str = rel.to_string_lossy();
 
-            // Stage/unstage button
+            let file_icon = gtk4::Image::from_icon_name("text-x-generic-symbolic");
+            file_icon.set_pixel_size(14);
+            row.append(&file_icon);
+
+            // Show just the filename, with directory in dim
+            let file_name = rel.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+            let dir_part = rel.parent().map(|p| p.to_string_lossy().to_string()).unwrap_or_default();
+
+            let name_box = gtk4::Box::new(gtk4::Orientation::Horizontal, 4);
+            name_box.set_hexpand(true);
+
+            let name_label = gtk4::Label::new(Some(&file_name));
+            name_label.set_halign(gtk4::Align::Start);
+            name_label.set_ellipsize(gtk4::pango::EllipsizeMode::End);
+            name_box.append(&name_label);
+
+            if !dir_part.is_empty() {
+                let dir_label = gtk4::Label::new(Some(&dir_part));
+                dir_label.add_css_class("dim-label");
+                dir_label.add_css_class("caption");
+                dir_label.set_halign(gtk4::Align::Start);
+                dir_label.set_ellipsize(gtk4::pango::EllipsizeMode::Start);
+                name_box.append(&dir_label);
+            }
+
+            name_box.set_tooltip_text(Some(&rel_str));
+            row.append(&name_box);
+
+            // Action buttons
+            let btn_box = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
+
             let stage_btn = gtk4::Button::new();
             stage_btn.add_css_class("flat");
             if entry.staged {
@@ -179,9 +208,9 @@ impl GitStatusView {
                         .output();
                 });
             }
-            row.append(&stage_btn);
+            btn_box.append(&stage_btn);
 
-            // Revert button (only for tracked files, not untracked ??)
+            // Revert button (only for tracked files)
             if entry.status != "??" {
                 let revert_btn = gtk4::Button::new();
                 revert_btn.set_icon_name("edit-undo-symbolic");
@@ -196,9 +225,10 @@ impl GitStatusView {
                         .current_dir(&root)
                         .output();
                 });
-                row.append(&revert_btn);
+                btn_box.append(&revert_btn);
             }
 
+            row.append(&btn_box);
             self.list_box.append(&row);
         }
 
