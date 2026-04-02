@@ -229,8 +229,8 @@ impl PanelHost {
         let collapse_sep = gtk4::Separator::new(gtk4::Orientation::Vertical);
         collapse_sep.set_margin_start(2);
         collapse_sep.set_margin_end(2);
-        collapse_sep.set_margin_top(4);
-        collapse_sep.set_margin_bottom(4);
+        collapse_sep.set_margin_top(5);
+        collapse_sep.set_margin_bottom(5);
         title_bar.append(&collapse_sep);
         title_bar.append(&type_icon);
         title_bar.append(&title_stack);
