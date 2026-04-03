@@ -3,6 +3,9 @@ use gtk4::glib;
 use std::cell::RefCell;
 use std::rc::Rc;
 
+/// Minimum size in pixels for a collapsed panel.
+pub const COLLAPSE_SIZE: i32 = 44;
+
 use crate::panels::PanelBackend;
 
 /// Actions that can be triggered from panel/tab menus.
@@ -207,7 +210,7 @@ impl PanelHost {
         let popover = build_panel_menu(panel_id, action_cb);
         menu_button.set_popover(Some(&popover));
 
-        // Collapse button
+        // Collapse button — smart: direct collapse if 1 Paned, popup if 2+
         let collapse_button = gtk4::Button::new();
         collapse_button.set_icon_name("go-previous-symbolic");
         collapse_button.add_css_class("flat");
@@ -536,11 +539,89 @@ impl PanelHost {
         }
     }
 
+    /// Find all Paned ancestors with orientation and position info.
+    fn find_paned_ancestors(&self) -> Vec<(gtk4::Paned, bool, gtk4::Orientation)> {
+        use gtk4::prelude::*;
+        let mut result = Vec::new();
+        let mut widget = self.outer.parent();
+        while let Some(w) = widget {
+            if let Some(paned) = w.downcast_ref::<gtk4::Paned>() {
+                let is_start = paned.start_child()
+                    .map(|c| self.outer.is_ancestor(&c) || c.eq(self.outer.upcast_ref::<gtk4::Widget>()))
+                    .unwrap_or(false);
+                result.push((paned.clone(), is_start, paned.orientation()));
+            }
+            widget = w.parent();
+        }
+        result
+    }
+
+    /// Collapse in a specific Paned direction.
+    pub fn collapse_in_paned(&self, paned: &gtk4::Paned, is_start: bool) -> bool {
+        use gtk4::prelude::*;
+        let orient = paned.orientation();
+        let total = if orient == gtk4::Orientation::Horizontal {
+            paned.allocation().width()
+        } else {
+            paned.allocation().height()
+        };
+
+        // Check if sibling is collapsed and remember it
+        let sibling = if is_start { paned.end_child() } else { paned.start_child() };
+        let mut sib_was_collapsed = false;
+        if let Some(ref sib) = sibling {
+            if let Ok(sib_box) = sib.clone().downcast::<gtk4::Box>() {
+                if let Some(first) = sib_box.first_child() {
+                    if let Ok(container_box) = first.downcast::<gtk4::Box>() {
+                        if !container_box.is_visible() {
+                            sib_was_collapsed = true;
+                            container_box.set_visible(true);
+                            if let Some(second) = sib_box.first_child().and_then(|f| f.next_sibling()) {
+                                second.set_visible(false);
+                            }
+                            sib_box.set_size_request(-1, -1);
+                            Self::update_sibling_collapse_icon(&sib_box, orient, !is_start, false);
+                        }
+                    }
+                }
+            }
+        }
+        self.sibling_was_collapsed.set(sib_was_collapsed);
+
+        let current_size = if is_start { paned.position() } else { total - paned.position() };
+        self.saved_min_size.set((current_size, current_size));
+
+        if is_start {
+            paned.set_shrink_start_child(true);
+            paned.set_position(COLLAPSE_SIZE);
+        } else {
+            paned.set_shrink_end_child(true);
+            paned.set_position(total - COLLAPSE_SIZE);
+        }
+        self.container.set_visible(false);
+        self.footer_bar.set_visible(false);
+        self.collapsed_view.set_visible(true);
+        self.outer.set_size_request(COLLAPSE_SIZE, COLLAPSE_SIZE);
+        self.update_collapse_icon(orient, is_start, true);
+        let expand_icon = match (orient, is_start) {
+            (gtk4::Orientation::Horizontal, true) => "go-next-symbolic",
+            (gtk4::Orientation::Horizontal, false) => "go-previous-symbolic",
+            (_, true) => "go-down-symbolic",
+            (_, false) => "go-up-symbolic",
+        };
+        if let Some(child) = self.collapsed_view.first_child() {
+            if let Some(img) = child.downcast_ref::<gtk4::Image>() {
+                img.set_icon_name(Some(expand_icon));
+            }
+        }
+        true
+    }
+
     /// Toggle collapsed state from button click. Returns true if now collapsed.
     pub fn toggle_collapsed(&self) -> bool {
         use gtk4::prelude::*;
 
-        // Find parent Paned and whether we're start or end child
+        // Find first parent Paned (for expand) and all ancestors (for collapse popup)
         let mut widget = self.outer.parent();
         let mut paned_ref: Option<gtk4::Paned> = None;
         let mut is_start = false;
@@ -572,9 +653,9 @@ impl PanelHost {
                 // Sibling was collapsed before — re-collapse it
                 // Give sibling 44px and us the rest
                 if is_start {
-                    paned.set_position(total - 44);
+                    paned.set_position(total - COLLAPSE_SIZE);
                 } else {
-                    paned.set_position(44);
+                    paned.set_position(COLLAPSE_SIZE);
                 }
                 // Re-collapse sibling visually
                 let sibling = if is_start { paned.end_child() } else { paned.start_child() };
@@ -586,7 +667,7 @@ impl PanelHost {
                                 if let Some(second) = sib_box.first_child().and_then(|f| f.next_sibling()) {
                                     second.set_visible(true);
                                 }
-                                sib_box.set_size_request(44, 44);
+                                sib_box.set_size_request(COLLAPSE_SIZE, COLLAPSE_SIZE);
                                 Self::update_sibling_collapse_icon(&sib_box, orient, !is_start, true);
                             }
                         }
@@ -610,67 +691,95 @@ impl PanelHost {
             false
         } else {
             // ── COLLAPSE ──
-            // Check if sibling is collapsed and remember it
-            let sibling = if is_start { paned.end_child() } else { paned.start_child() };
-            let mut sib_was_collapsed = false;
-            if let Some(ref sib) = sibling {
-                if let Ok(sib_box) = sib.clone().downcast::<gtk4::Box>() {
-                    if let Some(first) = sib_box.first_child() {
-                        if let Ok(container_box) = first.downcast::<gtk4::Box>() {
-                            if !container_box.is_visible() {
-                                sib_was_collapsed = true;
-                                // Expand sibling temporarily so we can collapse
-                                container_box.set_visible(true);
-                                if let Some(second) = sib_box.first_child().and_then(|f| f.next_sibling()) {
-                                    second.set_visible(false);
-                                }
-                                sib_box.set_size_request(-1, -1);
-                                Self::update_sibling_collapse_icon(&sib_box, orient, !is_start, false);
-                            }
+            // Find ALL Paned ancestors for multi-direction collapse
+            let ancestors = self.find_paned_ancestors();
+
+            if ancestors.len() <= 1 {
+                // Single Paned — collapse directly
+                return self.collapse_in_paned(&paned, is_start);
+            }
+
+            // Multiple Paned ancestors — show direction popup
+            let popover = gtk4::Popover::new();
+            let menu = gtk4::Box::new(gtk4::Orientation::Vertical, 2);
+            menu.set_margin_top(4);
+            menu.set_margin_bottom(4);
+            menu.set_margin_start(4);
+            menu.set_margin_end(4);
+
+            for (anc_paned, anc_is_start, anc_orient) in &ancestors {
+                let (icon, label) = match (anc_orient, anc_is_start) {
+                    (gtk4::Orientation::Horizontal, true) => ("go-previous-symbolic", "Collapse Left"),
+                    (gtk4::Orientation::Horizontal, false) => ("go-next-symbolic", "Collapse Right"),
+                    (_, true) => ("go-up-symbolic", "Collapse Up"),
+                    (_, false) => ("go-down-symbolic", "Collapse Down"),
+                };
+                let btn = gtk4::Button::new();
+                btn.add_css_class("flat");
+                let content = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
+                content.set_margin_start(4);
+                content.set_margin_end(8);
+                let img = gtk4::Image::from_icon_name(icon);
+                img.set_pixel_size(16);
+                content.append(&img);
+                let lbl = gtk4::Label::new(Some(label));
+                lbl.set_halign(gtk4::Align::Start);
+                content.append(&lbl);
+                btn.set_child(Some(&content));
+
+                let p = anc_paned.clone();
+                let s = *anc_is_start;
+                let outer = self.outer.clone();
+                let container = self.container.clone();
+                let footer = self.footer_bar.clone();
+                let collapsed_view = self.collapsed_view.clone();
+                let collapse_btn = self.collapse_button.clone();
+                let saved = self.saved_min_size.clone();
+                let sib_flag = self.sibling_was_collapsed.clone();
+                let pop = popover.clone();
+                btn.connect_clicked(move |_| {
+                    pop.popdown();
+                    // Perform collapse in the selected Paned
+                    let o = p.orientation();
+                    let total = if o == gtk4::Orientation::Horizontal {
+                        p.allocation().width()
+                    } else {
+                        p.allocation().height()
+                    };
+                    let current_size = if s { p.position() } else { total - p.position() };
+                    saved.set((current_size, current_size));
+                    sib_flag.set(false);
+                    if s {
+                        p.set_shrink_start_child(true);
+                        p.set_position(44);
+                    } else {
+                        p.set_shrink_end_child(true);
+                        p.set_position(total - 44);
+                    }
+                    container.set_visible(false);
+                    footer.set_visible(false);
+                    collapsed_view.set_visible(true);
+                    outer.set_size_request(COLLAPSE_SIZE, COLLAPSE_SIZE);
+                    let expand_icon = match (o, s) {
+                        (gtk4::Orientation::Horizontal, true) => "go-next-symbolic",
+                        (gtk4::Orientation::Horizontal, false) => "go-previous-symbolic",
+                        (_, true) => "go-down-symbolic",
+                        (_, false) => "go-up-symbolic",
+                    };
+                    collapse_btn.set_icon_name(expand_icon);
+                    if let Some(child) = collapsed_view.first_child() {
+                        if let Some(img) = child.downcast_ref::<gtk4::Image>() {
+                            img.set_icon_name(Some(expand_icon));
                         }
                     }
-                }
+                });
+                menu.append(&btn);
             }
-            self.sibling_was_collapsed.set(sib_was_collapsed);
 
-            let current_size = if is_start {
-                paned.position()
-            } else {
-                total - paned.position()
-            };
-            self.saved_min_size.set((current_size, current_size));
-
-            // Allow shrinking for the collapse to work
-            if is_start {
-                paned.set_shrink_start_child(true);
-            } else {
-                paned.set_shrink_end_child(true);
-            }
-            // Set position to give sibling all space except our 44px
-            if is_start {
-                paned.set_position(44);
-            } else {
-                paned.set_position(total - 44);
-            }
-            self.container.set_visible(false);
-            self.footer_bar.set_visible(false);
-            // Show collapsed_view after hiding container to prevent visibility race
-            self.collapsed_view.set_visible(true);
-            self.outer.set_size_request(44, 44);
-            self.update_collapse_icon(orient, is_start, true);
-            // Update collapsed view arrow to point in expand direction
-            let expand_icon = match (orient, is_start) {
-                (gtk4::Orientation::Horizontal, true) => "go-next-symbolic",
-                (gtk4::Orientation::Horizontal, false) => "go-previous-symbolic",
-                (_, true) => "go-down-symbolic",
-                (_, false) => "go-up-symbolic",
-            };
-            if let Some(child) = self.collapsed_view.first_child() {
-                if let Some(img) = child.downcast_ref::<gtk4::Image>() {
-                    img.set_icon_name(Some(expand_icon));
-                }
-            }
-            true
+            popover.set_child(Some(&menu));
+            popover.set_parent(&self.collapse_button);
+            popover.popup();
+            return false; // Not collapsed yet — user picks direction
         }
     }
 

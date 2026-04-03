@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use pax_core::workspace::{LayoutNode, PanelConfig, Workspace};
 
 use crate::backend_factory::panel_type_to_id;
-use crate::panel_host::{PanelAction, PanelActionCallback, PanelHost};
+use crate::panel_host::{PanelAction, PanelActionCallback, PanelHost, COLLAPSE_SIZE};
 
 // ── Widget helpers ───────────────────────────────────────────────────────────
 
@@ -250,9 +250,9 @@ fn setup_notebook_menu_widget(notebook: &gtk4::Notebook, action_cb: Option<Panel
                             paned.set_shrink_end_child(true);
                         }
                         if is_start {
-                            paned.set_position(44);
+                            paned.set_position(COLLAPSE_SIZE);
                         } else {
-                            paned.set_position(total - 44);
+                            paned.set_position(total - COLLAPSE_SIZE);
                         }
                         let icon = match (orient, is_start) {
                             (gtk4::Orientation::Horizontal, true) => "go-next-symbolic",
@@ -633,7 +633,7 @@ fn update_collapse_icons_for_paned(
 
 /// Monitor Paned drag to auto-collapse when dragged to threshold and auto-expand when dragged away.
 fn setup_paned_drag_collapse(paned: &gtk4::Paned, hosts: &HashMap<String, PanelHost>) {
-    const THRESHOLD: i32 = 52;
+    let threshold = COLLAPSE_SIZE + 8; // slightly above collapse size for drag detection
 
     // Find PanelHost for start/end children
     let find_host = |child: &Option<gtk4::Widget>, hosts: &HashMap<String, PanelHost>| -> Option<(gtk4::Box, gtk4::Box, gtk4::Box, gtk4::Button)> {
@@ -667,13 +667,13 @@ fn setup_paned_drag_collapse(paned: &gtk4::Paned, hosts: &HashMap<String, PanelH
         let end_size = total - pos;
 
         // Clamp: don't allow either side below 44px
-        if start_size < 44 && start.is_some() {
-            paned.set_position(44);
+        if start_size < COLLAPSE_SIZE && start.is_some() {
+            paned.set_position(COLLAPSE_SIZE);
             guard.set(false);
             return;
         }
-        if end_size < 44 && end.is_some() {
-            paned.set_position(total - 44);
+        if end_size < COLLAPSE_SIZE && end.is_some() {
+            paned.set_position(total - COLLAPSE_SIZE);
             guard.set(false);
             return;
         }
@@ -681,11 +681,11 @@ fn setup_paned_drag_collapse(paned: &gtk4::Paned, hosts: &HashMap<String, PanelH
         // Auto-collapse/expand start child
         if let Some((ref outer, ref container, ref collapsed_view, ref collapse_btn)) = start {
             let is_collapsed = !container.is_visible();
-            if start_size <= THRESHOLD && !is_collapsed {
+            if start_size <= threshold && !is_collapsed {
                 // Collapse
                 container.set_visible(false);
                 collapsed_view.set_visible(true);
-                outer.set_size_request(44, 44);
+                outer.set_size_request(COLLAPSE_SIZE, COLLAPSE_SIZE);
                 let icon = match orient {
                     gtk4::Orientation::Horizontal => "go-next-symbolic",
                     _ => "go-down-symbolic",
@@ -694,7 +694,7 @@ fn setup_paned_drag_collapse(paned: &gtk4::Paned, hosts: &HashMap<String, PanelH
                 if let Some(img) = collapsed_view.first_child().and_then(|c| c.downcast::<gtk4::Image>().ok()) {
                     img.set_icon_name(Some(icon));
                 }
-            } else if start_size > THRESHOLD && is_collapsed {
+            } else if start_size > threshold && is_collapsed {
                 // Expand
                 collapsed_view.set_visible(false);
                 container.set_visible(true);
@@ -710,10 +710,10 @@ fn setup_paned_drag_collapse(paned: &gtk4::Paned, hosts: &HashMap<String, PanelH
         // Auto-collapse/expand end child
         if let Some((ref outer, ref container, ref collapsed_view, ref collapse_btn)) = end {
             let is_collapsed = !container.is_visible();
-            if end_size <= THRESHOLD && !is_collapsed {
+            if end_size <= threshold && !is_collapsed {
                 container.set_visible(false);
                 collapsed_view.set_visible(true);
-                outer.set_size_request(44, 44);
+                outer.set_size_request(COLLAPSE_SIZE, COLLAPSE_SIZE);
                 let icon = match orient {
                     gtk4::Orientation::Horizontal => "go-previous-symbolic",
                     _ => "go-up-symbolic",
@@ -722,7 +722,7 @@ fn setup_paned_drag_collapse(paned: &gtk4::Paned, hosts: &HashMap<String, PanelH
                 if let Some(img) = collapsed_view.first_child().and_then(|c| c.downcast::<gtk4::Image>().ok()) {
                     img.set_icon_name(Some(icon));
                 }
-            } else if end_size > THRESHOLD && is_collapsed {
+            } else if end_size > threshold && is_collapsed {
                 collapsed_view.set_visible(false);
                 container.set_visible(true);
                 outer.set_size_request(-1, -1);
