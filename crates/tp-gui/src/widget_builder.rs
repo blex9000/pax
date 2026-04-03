@@ -466,14 +466,16 @@ pub fn build_layout_widget_inner(
                 }
             }
 
-            // Click on notebook tab area when collapsed → expand
-
-            // Click on notebook tab area when collapsed → expand
+            // Click on notebook tab area when collapsed → expand + update icon
             {
                 let nb = notebook.clone();
                 let gesture = gtk4::GestureClick::new();
                 gesture.set_button(1);
                 gesture.connect_released(move |_, _, _, _| {
+                    // Find the collapse button (action widget on Start side)
+                    let collapse_btn = nb.action_widget(gtk4::PackType::Start)
+                        .and_then(|w| w.downcast::<gtk4::Button>().ok());
+
                     let mut widget = nb.parent();
                     while let Some(w) = widget {
                         if let Some(paned) = w.downcast_ref::<gtk4::Paned>() {
@@ -492,6 +494,17 @@ pub fn build_layout_widget_inner(
                                     paned.set_position(total * 2 / 5);
                                 } else {
                                     paned.set_position(total * 3 / 5);
+                                }
+                                // Update collapse button icon to collapse direction
+                                if let Some(ref btn) = collapse_btn {
+                                    let icon = match (orient, is_start) {
+                                        (gtk4::Orientation::Horizontal, true) => "go-previous-symbolic",
+                                        (gtk4::Orientation::Horizontal, false) => "go-next-symbolic",
+                                        (_, true) => "go-up-symbolic",
+                                        (_, false) => "go-down-symbolic",
+                                    };
+                                    btn.set_icon_name(icon);
+                                    btn.set_tooltip_text(Some("Collapse tab split"));
                                 }
                             }
                             break;
