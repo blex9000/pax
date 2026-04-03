@@ -414,9 +414,15 @@ impl PanelHost {
         panel_widget.set_hexpand(true);
         self.container.append(&panel_widget);
 
-        // If this is a VTE terminal, connect directory tracking
+        // If this is a VTE terminal, connect directory tracking and show footer
         #[cfg(feature = "vte")]
-        self.setup_vte_directory_tracking(&panel_widget);
+        {
+            self.setup_vte_directory_tracking(&panel_widget);
+            // Show footer immediately with a placeholder — VTE will update it
+            if panel_widget.clone().downcast::<vte4::Terminal>().is_ok() {
+                self.footer_bar.set_visible(true);
+            }
+        }
 
         // Show SSH indicator if backend is remote
         if let Some(ssh_label) = backend.ssh_label() {
