@@ -202,10 +202,12 @@ fn setup_notebook_menu_widget(notebook: &gtk4::Notebook, action_cb: Option<Panel
     let action_box = gtk4::Box::new(gtk4::Orientation::Horizontal, 2);
 
     // Collapse button for the tab split
-    let collapse_btn = gtk4::Button::from_icon_name("go-previous-symbolic");
+    let collapse_btn = gtk4::Button::from_icon_name("view-sidebar-symbolic");
     collapse_btn.add_css_class("flat");
     collapse_btn.add_css_class("panel-action-btn");
     collapse_btn.set_tooltip_text(Some("Collapse tab split"));
+    collapse_btn.set_margin_start(2);
+    collapse_btn.set_margin_end(2);
     let saved_pos = std::rc::Rc::new(std::cell::Cell::new(0i32));
     {
         let nb = notebook.clone();
@@ -262,8 +264,6 @@ fn setup_notebook_menu_widget(notebook: &gtk4::Notebook, action_cb: Option<Panel
             }
         });
     }
-    action_box.append(&collapse_btn);
-
     // Add tab button
     let add_btn = gtk4::Button::new();
     add_btn.set_icon_name("tab-new-symbolic");
@@ -286,6 +286,33 @@ fn setup_notebook_menu_widget(notebook: &gtk4::Notebook, action_cb: Option<Panel
     action_box.append(&add_btn);
 
     notebook.set_action_widget(&action_box, gtk4::PackType::End);
+    notebook.set_action_widget(&collapse_btn, gtk4::PackType::Start);
+
+    // Set correct initial collapse icon after layout is done
+    {
+        let nb = notebook.clone();
+        let btn = collapse_btn;
+        gtk4::glib::idle_add_local_once(move || {
+            let mut widget = nb.parent();
+            while let Some(w) = widget {
+                if let Some(paned) = w.downcast_ref::<gtk4::Paned>() {
+                    let orient = paned.orientation();
+                    let is_start = paned.start_child()
+                        .map(|c| nb.is_ancestor(&c) || c.eq(nb.upcast_ref::<gtk4::Widget>()))
+                        .unwrap_or(false);
+                    let icon = match (orient, is_start) {
+                        (gtk4::Orientation::Horizontal, true) => "go-previous-symbolic",
+                        (gtk4::Orientation::Horizontal, false) => "go-next-symbolic",
+                        (_, true) => "go-up-symbolic",
+                        (_, false) => "go-down-symbolic",
+                    };
+                    btn.set_icon_name(icon);
+                    break;
+                }
+                widget = w.parent();
+            }
+        });
+    }
 }
 
 pub fn find_panel_id_recursive(widget: &gtk4::Widget, callback: &dyn Fn(&str)) {
