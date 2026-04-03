@@ -666,6 +666,18 @@ fn setup_paned_drag_collapse(paned: &gtk4::Paned, hosts: &HashMap<String, PanelH
         let start_size = pos;
         let end_size = total - pos;
 
+        // Clamp: don't allow either side below 44px
+        if start_size < 44 && start.is_some() {
+            paned.set_position(44);
+            guard.set(false);
+            return;
+        }
+        if end_size < 44 && end.is_some() {
+            paned.set_position(total - 44);
+            guard.set(false);
+            return;
+        }
+
         // Auto-collapse/expand start child
         if let Some((ref outer, ref container, ref collapsed_view, ref collapse_btn)) = start {
             let is_collapsed = !container.is_visible();
