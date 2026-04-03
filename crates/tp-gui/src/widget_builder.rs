@@ -583,6 +583,7 @@ fn build_paned(
         paned.set_resize_end_child(!c2_fixed || !c1_fixed);
         setup_paned_ratio(&paned, normalized[0], orientation);
         update_collapse_icons_for_paned(&paned, hosts, orientation);
+        setup_paned_drag_collapse(&paned, hosts);
         return paned.upcast::<gtk4::Widget>();
     }
 
@@ -601,6 +602,7 @@ fn build_paned(
     setup_paned_ratio(&paned, normalized[0], orientation);
     // Set collapse button icons for direct panel children
     update_collapse_icons_for_paned(&paned, hosts, orientation);
+    setup_paned_drag_collapse(&paned, hosts);
     paned.upcast::<gtk4::Widget>()
 }
 
@@ -627,6 +629,101 @@ fn update_collapse_icons_for_paned(
     };
     set_icon(paned.start_child(), true);
     set_icon(paned.end_child(), false);
+}
+
+/// Monitor Paned drag to auto-collapse when dragged to threshold and auto-expand when dragged away.
+fn setup_paned_drag_collapse(paned: &gtk4::Paned, hosts: &HashMap<String, PanelHost>) {
+    const THRESHOLD: i32 = 52;
+
+    // Find PanelHost for start/end children
+    let find_host = |child: &Option<gtk4::Widget>, hosts: &HashMap<String, PanelHost>| -> Option<(gtk4::Box, gtk4::Box, gtk4::Box, gtk4::Button)> {
+        let c = child.as_ref()?;
+        let name = c.widget_name();
+        let host = hosts.get(name.as_str())?;
+        Some((host.outer.clone(), host.container.clone(), host.collapsed_view.clone(), host.collapse_button.clone()))
+    };
+
+    let start = find_host(&paned.start_child(), hosts);
+    let end = find_host(&paned.end_child(), hosts);
+    let orient = paned.orientation();
+
+    if start.is_none() && end.is_none() { return; }
+
+    let guard = std::rc::Rc::new(std::cell::Cell::new(false));
+
+    paned.connect_notify_local(Some("position"), move |paned, _| {
+        if guard.get() { return; }
+        guard.set(true);
+
+        let total = if orient == gtk4::Orientation::Horizontal {
+            paned.allocation().width()
+        } else {
+            paned.allocation().height()
+        };
+        if total <= 0 { guard.set(false); return; }
+
+        let pos = paned.position();
+        let start_size = pos;
+        let end_size = total - pos;
+
+        // Auto-collapse/expand start child
+        if let Some((ref outer, ref container, ref collapsed_view, ref collapse_btn)) = start {
+            let is_collapsed = !container.is_visible();
+            if start_size <= THRESHOLD && !is_collapsed {
+                // Collapse
+                container.set_visible(false);
+                collapsed_view.set_visible(true);
+                outer.set_size_request(44, 44);
+                let icon = match orient {
+                    gtk4::Orientation::Horizontal => "go-next-symbolic",
+                    _ => "go-down-symbolic",
+                };
+                collapse_btn.set_icon_name(icon);
+                if let Some(img) = collapsed_view.first_child().and_then(|c| c.downcast::<gtk4::Image>().ok()) {
+                    img.set_icon_name(Some(icon));
+                }
+            } else if start_size > THRESHOLD && is_collapsed {
+                // Expand
+                collapsed_view.set_visible(false);
+                container.set_visible(true);
+                outer.set_size_request(-1, -1);
+                let icon = match orient {
+                    gtk4::Orientation::Horizontal => "go-previous-symbolic",
+                    _ => "go-up-symbolic",
+                };
+                collapse_btn.set_icon_name(icon);
+            }
+        }
+
+        // Auto-collapse/expand end child
+        if let Some((ref outer, ref container, ref collapsed_view, ref collapse_btn)) = end {
+            let is_collapsed = !container.is_visible();
+            if end_size <= THRESHOLD && !is_collapsed {
+                container.set_visible(false);
+                collapsed_view.set_visible(true);
+                outer.set_size_request(44, 44);
+                let icon = match orient {
+                    gtk4::Orientation::Horizontal => "go-previous-symbolic",
+                    _ => "go-up-symbolic",
+                };
+                collapse_btn.set_icon_name(icon);
+                if let Some(img) = collapsed_view.first_child().and_then(|c| c.downcast::<gtk4::Image>().ok()) {
+                    img.set_icon_name(Some(icon));
+                }
+            } else if end_size > THRESHOLD && is_collapsed {
+                collapsed_view.set_visible(false);
+                container.set_visible(true);
+                outer.set_size_request(-1, -1);
+                let icon = match orient {
+                    gtk4::Orientation::Horizontal => "go-next-symbolic",
+                    _ => "go-down-symbolic",
+                };
+                collapse_btn.set_icon_name(icon);
+            }
+        }
+
+        guard.set(false);
+    });
 }
 
 pub fn apply_min_size(host: &PanelHost, cfg: &PanelConfig) {
