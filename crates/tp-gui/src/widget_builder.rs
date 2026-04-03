@@ -199,25 +199,93 @@ fn find_tab_labels_for_notebook(node: &LayoutNode, n_pages: u32) -> Option<Vec<S
 }
 
 fn setup_notebook_menu_widget(notebook: &gtk4::Notebook, action_cb: Option<PanelActionCallback>) {
-    let btn = gtk4::Button::new();
-    btn.set_icon_name("tab-new-symbolic");
-    btn.add_css_class("flat");
-    btn.set_margin_end(14);
-    btn.set_tooltip_text(Some("Add tab"));
+    let action_box = gtk4::Box::new(gtk4::Orientation::Horizontal, 2);
 
-    let nb = notebook.clone();
-    let cb = action_cb;
-    btn.connect_clicked(move |_| {
-        if let Some(ref cb) = cb {
-            if let Some(page) = nb.nth_page(nb.current_page()) {
-                find_panel_id_recursive(&page, &|panel_id| {
-                    cb(&format!("nb:{}", panel_id), PanelAction::AddTabToNotebook);
-                });
+    // Collapse button for the tab split
+    let collapse_btn = gtk4::Button::from_icon_name("go-previous-symbolic");
+    collapse_btn.add_css_class("flat");
+    collapse_btn.add_css_class("panel-action-btn");
+    collapse_btn.set_tooltip_text(Some("Collapse tab split"));
+    let saved_pos = std::rc::Rc::new(std::cell::Cell::new(0i32));
+    {
+        let nb = notebook.clone();
+        let sp = saved_pos;
+        collapse_btn.connect_clicked(move |btn| {
+            let mut widget = nb.parent();
+            while let Some(w) = widget {
+                if let Some(paned) = w.downcast_ref::<gtk4::Paned>() {
+                    let orient = paned.orientation();
+                    let total = if orient == gtk4::Orientation::Horizontal {
+                        paned.allocation().width()
+                    } else {
+                        paned.allocation().height()
+                    };
+                    let is_start = paned.start_child()
+                        .map(|c| nb.is_ancestor(&c) || c.eq(nb.upcast_ref::<gtk4::Widget>()))
+                        .unwrap_or(false);
+                    let my_size = if is_start { paned.position() } else { total - paned.position() };
+
+                    if my_size <= 60 {
+                        let saved = sp.get();
+                        if is_start {
+                            paned.set_position(if saved > 60 { saved } else { total * 2 / 5 });
+                        } else {
+                            paned.set_position(if saved > 60 { total - saved } else { total * 3 / 5 });
+                        }
+                        let icon = match (orient, is_start) {
+                            (gtk4::Orientation::Horizontal, true) => "go-previous-symbolic",
+                            (gtk4::Orientation::Horizontal, false) => "go-next-symbolic",
+                            (_, true) => "go-up-symbolic",
+                            (_, false) => "go-down-symbolic",
+                        };
+                        btn.set_icon_name(icon);
+                        btn.set_tooltip_text(Some("Collapse tab split"));
+                    } else {
+                        sp.set(my_size);
+                        if is_start {
+                            paned.set_position(44);
+                        } else {
+                            paned.set_position(total - 44);
+                        }
+                        let icon = match (orient, is_start) {
+                            (gtk4::Orientation::Horizontal, true) => "go-next-symbolic",
+                            (gtk4::Orientation::Horizontal, false) => "go-previous-symbolic",
+                            (_, true) => "go-down-symbolic",
+                            (_, false) => "go-up-symbolic",
+                        };
+                        btn.set_icon_name(icon);
+                        btn.set_tooltip_text(Some("Expand tab split"));
+                    }
+                    break;
+                }
+                widget = w.parent();
             }
-        }
-    });
+        });
+    }
+    action_box.append(&collapse_btn);
 
-    notebook.set_action_widget(&btn, gtk4::PackType::End);
+    // Add tab button
+    let add_btn = gtk4::Button::new();
+    add_btn.set_icon_name("tab-new-symbolic");
+    add_btn.add_css_class("flat");
+    add_btn.set_margin_end(4);
+    add_btn.set_tooltip_text(Some("Add tab"));
+    {
+        let nb = notebook.clone();
+        let cb = action_cb;
+        add_btn.connect_clicked(move |_| {
+            if let Some(ref cb) = cb {
+                if let Some(page) = nb.nth_page(nb.current_page()) {
+                    find_panel_id_recursive(&page, &|panel_id| {
+                        cb(&format!("nb:{}", panel_id), PanelAction::AddTabToNotebook);
+                    });
+                }
+            }
+        });
+    }
+    action_box.append(&add_btn);
+
+    notebook.set_action_widget(&action_box, gtk4::PackType::End);
 }
 
 pub fn find_panel_id_recursive(widget: &gtk4::Widget, callback: &dyn Fn(&str)) {
@@ -364,88 +432,7 @@ pub fn build_layout_widget_inner(
                 }
             }
 
-            // Collapse button on the tab bar — add to existing action widget
-            {
-                let collapse_btn = gtk4::Button::from_icon_name("go-previous-symbolic");
-                collapse_btn.add_css_class("flat");
-                collapse_btn.add_css_class("panel-action-btn");
-                collapse_btn.set_tooltip_text(Some("Collapse tab split"));
-
-                // Wrap existing action widget + collapse button together
-                if let Some(existing) = notebook.action_widget(gtk4::PackType::End) {
-                    let action_box = gtk4::Box::new(gtk4::Orientation::Horizontal, 2);
-                    // Reparent existing
-                    existing.unparent();
-                    action_box.append(&collapse_btn);
-                    action_box.append(&existing);
-                    notebook.set_action_widget(&action_box, gtk4::PackType::End);
-                } else {
-                    notebook.set_action_widget(&collapse_btn, gtk4::PackType::End);
-                }
-
-                // Saved position for restore
-                let saved_pos = std::rc::Rc::new(std::cell::Cell::new(0i32));
-
-                let nb = notebook.clone();
-                let sp = saved_pos.clone();
-                collapse_btn.connect_clicked(move |btn| {
-                    let mut widget = nb.parent();
-                    while let Some(w) = widget {
-                        if let Some(paned) = w.downcast_ref::<gtk4::Paned>() {
-                            let orient = paned.orientation();
-                            let total = if orient == gtk4::Orientation::Horizontal {
-                                paned.allocation().width()
-                            } else {
-                                paned.allocation().height()
-                            };
-                            let is_start = paned.start_child()
-                                .map(|c| nb.is_ancestor(&c) || c.eq(nb.upcast_ref::<gtk4::Widget>()))
-                                .unwrap_or(false);
-                            let my_size = if is_start { paned.position() } else { total - paned.position() };
-
-                            if my_size <= 60 {
-                                // Already collapsed → expand
-                                let saved = sp.get();
-                                if is_start {
-                                    paned.set_position(if saved > 60 { saved } else { total * 2 / 5 });
-                                } else {
-                                    paned.set_position(if saved > 60 { total - saved } else { total * 3 / 5 });
-                                }
-                                // Update icon
-                                let icon = match (orient, is_start) {
-                                    (gtk4::Orientation::Horizontal, true) => "go-previous-symbolic",
-                                    (gtk4::Orientation::Horizontal, false) => "go-next-symbolic",
-                                    (_, true) => "go-up-symbolic",
-                                    (_, false) => "go-down-symbolic",
-                                };
-                                btn.set_icon_name(icon);
-                                btn.set_tooltip_text(Some("Collapse tab split"));
-                            } else {
-                                // Collapse
-                                sp.set(my_size);
-                                if is_start {
-                                    paned.set_position(44);
-                                } else {
-                                    paned.set_position(total - 44);
-                                }
-                                // Update icon to expand direction
-                                let icon = match (orient, is_start) {
-                                    (gtk4::Orientation::Horizontal, true) => "go-next-symbolic",
-                                    (gtk4::Orientation::Horizontal, false) => "go-previous-symbolic",
-                                    (_, true) => "go-down-symbolic",
-                                    (_, false) => "go-up-symbolic",
-                                };
-                                btn.set_icon_name(icon);
-                                btn.set_tooltip_text(Some("Expand tab split"));
-                            }
-                            break;
-                        }
-                        widget = w.parent();
-                    }
-                });
-
-                notebook.set_action_widget(&collapse_btn, gtk4::PackType::End);
-            }
+            // Click on notebook tab area when collapsed → expand
 
             // Click on notebook tab area when collapsed → expand
             {
