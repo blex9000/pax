@@ -364,12 +364,24 @@ pub fn build_layout_widget_inner(
                 }
             }
 
-            // Collapse button on the tab bar (right side) — collapses the entire tab split
+            // Collapse button on the tab bar — add to existing action widget
             {
                 let collapse_btn = gtk4::Button::from_icon_name("go-previous-symbolic");
                 collapse_btn.add_css_class("flat");
                 collapse_btn.add_css_class("panel-action-btn");
                 collapse_btn.set_tooltip_text(Some("Collapse tab split"));
+
+                // Wrap existing action widget + collapse button together
+                if let Some(existing) = notebook.action_widget(gtk4::PackType::End) {
+                    let action_box = gtk4::Box::new(gtk4::Orientation::Horizontal, 2);
+                    // Reparent existing
+                    existing.unparent();
+                    action_box.append(&collapse_btn);
+                    action_box.append(&existing);
+                    notebook.set_action_widget(&action_box, gtk4::PackType::End);
+                } else {
+                    notebook.set_action_widget(&collapse_btn, gtk4::PackType::End);
+                }
 
                 // Saved position for restore
                 let saved_pos = std::rc::Rc::new(std::cell::Cell::new(0i32));

@@ -292,7 +292,7 @@ impl PanelHost {
         footer_bar.append(&footer_label);
         footer_bar.set_visible(false); // Hidden until content is set
 
-        // Collapsed view: shown when panel is minimized — icon only, name in tooltip
+        // Collapsed view: shown when panel is minimized — expand arrow, name in tooltip
         let collapsed_view = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
         collapsed_view.set_halign(gtk4::Align::Center);
         collapsed_view.set_valign(gtk4::Align::Center);
@@ -300,8 +300,9 @@ impl PanelHost {
         collapsed_view.set_hexpand(true);
         collapsed_view.set_visible(false);
         {
-            let collapsed_icon = gtk4::Image::from_icon_name("utilities-terminal-symbolic");
-            collapsed_icon.set_pixel_size(24);
+            // Default arrow — updated by toggle_collapsed based on orientation
+            let collapsed_icon = gtk4::Image::from_icon_name("go-next-symbolic");
+            collapsed_icon.set_pixel_size(20);
             collapsed_icon.add_css_class("dim-label");
             collapsed_view.append(&collapsed_icon);
         }
@@ -607,6 +608,18 @@ impl PanelHost {
             self.collapsed_view.set_visible(true);
             self.outer.set_size_request(44, 44);
             self.update_collapse_icon(orient, is_start, true);
+            // Update collapsed view arrow to point in expand direction
+            let expand_icon = match (orient, is_start) {
+                (gtk4::Orientation::Horizontal, true) => "go-next-symbolic",
+                (gtk4::Orientation::Horizontal, false) => "go-previous-symbolic",
+                (_, true) => "go-down-symbolic",
+                (_, false) => "go-up-symbolic",
+            };
+            if let Some(child) = self.collapsed_view.first_child() {
+                if let Some(img) = child.downcast_ref::<gtk4::Image>() {
+                    img.set_icon_name(Some(expand_icon));
+                }
+            }
             true
         }
     }
