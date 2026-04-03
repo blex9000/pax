@@ -573,18 +573,18 @@ impl PanelHost {
             // If the sibling is also collapsed, expand it first
             let sibling = if is_start { paned.end_child() } else { paned.start_child() };
             if let Some(ref sib) = sibling {
-                // Check if sibling's container is hidden (collapsed)
                 if let Ok(sib_box) = sib.clone().downcast::<gtk4::Box>() {
                     if let Some(first) = sib_box.first_child() {
                         if let Ok(container_box) = first.downcast::<gtk4::Box>() {
                             if !container_box.is_visible() {
-                                // Sibling is collapsed — expand it by making its content visible
                                 container_box.set_visible(true);
-                                // Hide its collapsed_view (second child)
                                 if let Some(second) = sib_box.first_child().and_then(|f| f.next_sibling()) {
                                     second.set_visible(false);
                                 }
                                 sib_box.set_size_request(-1, -1);
+                                // Update sibling's collapse button icon
+                                // Find the collapse button (first child of title_bar area)
+                                Self::update_sibling_collapse_icon(&sib_box, orient, !is_start, false);
                             }
                         }
                     }
@@ -598,6 +598,7 @@ impl PanelHost {
             };
             self.saved_min_size.set((current_size, current_size));
 
+            // Set position to give sibling all space except our 44px
             if is_start {
                 paned.set_position(44);
             } else {
@@ -647,7 +648,32 @@ impl PanelHost {
         self.collapse_button.set_tooltip_text(Some(tip));
     }
 
-    /// Whether the panel is collapsed.
+    /// Update the collapse icon on a sibling panel's outer box (without having
+    /// a PanelHost reference — walk the widget tree to find the button).
+    fn update_sibling_collapse_icon(outer: &gtk4::Box, orient: gtk4::Orientation, is_start: bool, collapsed: bool) {
+        // The collapse_button is inside: outer > container > title_bar > collapse_button (first child of title_bar)
+        // title_bar is the first child of container, which is the first child of outer
+        if let Some(container) = outer.first_child() {
+            if let Some(title_bar) = container.first_child() {
+                if let Some(first_btn) = title_bar.first_child() {
+                    if let Some(btn) = first_btn.downcast_ref::<gtk4::Button>() {
+                        let icon = match (orient, is_start, collapsed) {
+                            (gtk4::Orientation::Horizontal, true, false)  => "go-previous-symbolic",
+                            (gtk4::Orientation::Horizontal, true, true)   => "go-next-symbolic",
+                            (gtk4::Orientation::Horizontal, false, false) => "go-next-symbolic",
+                            (gtk4::Orientation::Horizontal, false, true)  => "go-previous-symbolic",
+                            (_, true, false)  => "go-up-symbolic",
+                            (_, true, true)   => "go-down-symbolic",
+                            (_, false, false) => "go-down-symbolic",
+                            (_, false, true)  => "go-up-symbolic",
+                        };
+                        btn.set_icon_name(icon);
+                    }
+                }
+            }
+        }
+    }
+
     /// Update sync button visual state.
     pub fn set_sync_active(&self, active: bool) {
         if active {
