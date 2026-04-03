@@ -288,12 +288,14 @@ fn setup_notebook_menu_widget(notebook: &gtk4::Notebook, action_cb: Option<Panel
     notebook.set_action_widget(&action_box, gtk4::PackType::End);
     notebook.set_action_widget(&collapse_btn, gtk4::PackType::Start);
 
-    // Set correct initial collapse icon after layout is done
+    // Set correct initial collapse icon after layout is done.
+    // If no parent Paned exists (root of layout), hide the button.
     {
         let nb = notebook.clone();
         let btn = collapse_btn;
         gtk4::glib::idle_add_local_once(move || {
             let mut widget = nb.parent();
+            let mut found = false;
             while let Some(w) = widget {
                 if let Some(paned) = w.downcast_ref::<gtk4::Paned>() {
                     let orient = paned.orientation();
@@ -307,9 +309,14 @@ fn setup_notebook_menu_widget(notebook: &gtk4::Notebook, action_cb: Option<Panel
                         (_, false) => "go-down-symbolic",
                     };
                     btn.set_icon_name(icon);
+                    found = true;
                     break;
                 }
                 widget = w.parent();
+            }
+            if !found {
+                // No Paned parent — this is the root, can't collapse
+                btn.set_visible(false);
             }
         });
     }
