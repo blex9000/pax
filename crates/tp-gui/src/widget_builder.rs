@@ -362,6 +362,43 @@ pub fn build_layout_widget_inner(
                 }
             }
 
+            // Click on notebook when collapsed (in a narrow Paned) → expand
+            {
+                let nb = notebook.clone();
+                let gesture = gtk4::GestureClick::new();
+                gesture.set_button(1);
+                gesture.connect_released(move |_, _, _, _| {
+                    // Find parent Paned and check if we're collapsed
+                    let mut widget = nb.parent();
+                    while let Some(w) = widget {
+                        if let Some(paned) = w.downcast_ref::<gtk4::Paned>() {
+                            let orient = paned.orientation();
+                            let total = if orient == gtk4::Orientation::Horizontal {
+                                paned.allocation().width()
+                            } else {
+                                paned.allocation().height()
+                            };
+                            let is_start = paned.start_child()
+                                .map(|c| nb.is_ancestor(&c) || c.eq(nb.upcast_ref::<gtk4::Widget>()))
+                                .unwrap_or(false);
+                            let my_size = if is_start { paned.position() } else { total - paned.position() };
+
+                            if my_size <= 60 {
+                                // Collapsed — expand to 40%
+                                if is_start {
+                                    paned.set_position(total * 2 / 5);
+                                } else {
+                                    paned.set_position(total * 3 / 5);
+                                }
+                            }
+                            break;
+                        }
+                        widget = w.parent();
+                    }
+                });
+                notebook.add_controller(gesture);
+            }
+
             notebook.upcast::<gtk4::Widget>()
         }
     }
