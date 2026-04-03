@@ -726,6 +726,14 @@ impl WorkspaceView {
         self.rebuild_layout();
         self.rebuild_focus_order();
 
+        // Focus the newly created tab
+        if let Some(host) = self.hosts.get(&new_id) {
+            if let Some(notebook) = find_notebook_ancestor(host.widget()) {
+                let page_num = notebook.page_num(host.widget());
+                notebook.set_current_page(page_num);
+            }
+        }
+
         Some(new_id)
     }
 
@@ -752,6 +760,14 @@ impl WorkspaceView {
         // Rebuild widget tree
         self.rebuild_layout();
         self.rebuild_focus_order();
+
+        // Focus the newly created tab
+        if let Some(host) = self.hosts.get(&new_id) {
+            if let Some(notebook) = find_notebook_ancestor(host.widget()) {
+                let page_num = notebook.page_num(host.widget());
+                notebook.set_current_page(page_num);
+            }
+        }
 
         Some(new_id)
     }
