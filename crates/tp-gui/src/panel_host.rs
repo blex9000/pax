@@ -598,6 +598,12 @@ impl PanelHost {
             };
             self.saved_min_size.set((current_size, current_size));
 
+            // Allow shrinking for the collapse to work
+            if is_start {
+                paned.set_shrink_start_child(true);
+            } else {
+                paned.set_shrink_end_child(true);
+            }
             // Set position to give sibling all space except our 44px
             if is_start {
                 paned.set_position(44);
