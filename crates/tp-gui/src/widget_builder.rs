@@ -430,6 +430,9 @@ pub fn build_layout_widget_inner(
         LayoutNode::Panel { id } => {
             if let Some(host) = hosts.get(id) {
                 host.set_title_visible(true);
+                // Hide collapse button by default — it gets shown by
+                // update_collapse_icons_for_paned when placed in a split
+                host.collapse_button.set_visible(false);
                 let type_id = get_panel_type_id(node, panels);
                 host.set_type_icon(type_id);
                 host.widget().clone()
@@ -613,6 +616,7 @@ fn update_collapse_icons_for_paned(
                     (_, false) => "go-down-symbolic",
                 };
                 host.collapse_button.set_icon_name(icon);
+                host.collapse_button.set_visible(true);
             }
         }
     };
