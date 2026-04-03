@@ -51,6 +51,8 @@ pub struct PanelHost {
     pub(crate) footer_bar: gtk4::Box,
     /// Saved min size before collapse (to restore on expand)
     saved_min_size: std::cell::Cell<(i32, i32)>,
+    /// Whether the sibling was collapsed when we collapsed (to re-collapse it on expand)
+    sibling_was_collapsed: std::cell::Cell<bool>,
     footer_label: gtk4::Label,
     widget: gtk4::Widget,
     panel_id: String,
@@ -376,6 +378,7 @@ impl PanelHost {
             backend: RefCell::new(None),
             focused: RefCell::new(false),
             saved_min_size: std::cell::Cell::new((80, 60)),
+            sibling_was_collapsed: std::cell::Cell::new(false),
             action_cb_ref,
             #[cfg(feature = "vte")]
             sync_cb_ref: Rc::new(RefCell::new(None)),
@@ -563,45 +566,72 @@ impl PanelHost {
         if self.is_collapsed() {
             // ── EXPAND ──
             let saved = self.saved_min_size.get();
-            if is_start {
-                paned.set_position(saved.0);
+            let sib_was_collapsed = self.sibling_was_collapsed.get();
+
+            if sib_was_collapsed {
+                // Sibling was collapsed before — re-collapse it
+                // Give sibling 44px and us the rest
+                if is_start {
+                    paned.set_position(total - 44);
+                } else {
+                    paned.set_position(44);
+                }
+                // Re-collapse sibling visually
+                let sibling = if is_start { paned.end_child() } else { paned.start_child() };
+                if let Some(ref sib) = sibling {
+                    if let Ok(sib_box) = sib.clone().downcast::<gtk4::Box>() {
+                        if let Some(first) = sib_box.first_child() {
+                            if let Ok(container_box) = first.downcast::<gtk4::Box>() {
+                                container_box.set_visible(false);
+                                if let Some(second) = sib_box.first_child().and_then(|f| f.next_sibling()) {
+                                    second.set_visible(true);
+                                }
+                                sib_box.set_size_request(44, 44);
+                                Self::update_sibling_collapse_icon(&sib_box, orient, !is_start, true);
+                            }
+                        }
+                    }
+                }
             } else {
-                paned.set_position(total - saved.0);
+                // Normal expand — restore saved position
+                if is_start {
+                    paned.set_position(saved.0);
+                } else {
+                    paned.set_position(total - saved.0);
+                }
             }
+
             self.collapsed_view.set_visible(false);
             self.container.set_visible(true);
             self.footer_bar.set_visible(false);
             self.outer.set_size_request(-1, -1);
             self.update_collapse_icon(orient, is_start, false);
+            self.sibling_was_collapsed.set(false);
             false
         } else {
             // ── COLLAPSE ──
-            // If the sibling is also collapsed, expand it first
+            // Check if sibling is collapsed and remember it
             let sibling = if is_start { paned.end_child() } else { paned.start_child() };
+            let mut sib_was_collapsed = false;
             if let Some(ref sib) = sibling {
                 if let Ok(sib_box) = sib.clone().downcast::<gtk4::Box>() {
                     if let Some(first) = sib_box.first_child() {
                         if let Ok(container_box) = first.downcast::<gtk4::Box>() {
                             if !container_box.is_visible() {
+                                sib_was_collapsed = true;
+                                // Expand sibling temporarily so we can collapse
                                 container_box.set_visible(true);
                                 if let Some(second) = sib_box.first_child().and_then(|f| f.next_sibling()) {
                                     second.set_visible(false);
                                 }
                                 sib_box.set_size_request(-1, -1);
-                                // Update sibling's collapse button icon
-                                // Find the collapse button (first child of title_bar area)
                                 Self::update_sibling_collapse_icon(&sib_box, orient, !is_start, false);
                             }
                         }
                     }
                 }
-                // Also handle Notebook siblings (tab splits)
-                // Notebook doesn't need visibility toggle — just ensure its size_request is reset
-                if sib.clone().downcast::<gtk4::Notebook>().is_ok() {
-                    // Notebook is always "expanded" — no visibility fix needed
-                    // Just ensure no stale size constraint
-                }
             }
+            self.sibling_was_collapsed.set(sib_was_collapsed);
 
             let current_size = if is_start {
                 paned.position()
