@@ -358,17 +358,25 @@ pub fn build_layout_widget_inner(
                 if let LayoutNode::Panel { id } = child {
                     if let Some(host) = hosts.get(id) {
                         host.set_title_visible(false);
+                        // Hide panel-level collapse — tab split has its own
+                        host.collapse_button.set_visible(false);
                     }
                 }
             }
 
-            // Click on notebook when collapsed (in a narrow Paned) → expand
+            // Collapse button on the tab bar (right side) — collapses the entire tab split
             {
+                let collapse_btn = gtk4::Button::from_icon_name("go-previous-symbolic");
+                collapse_btn.add_css_class("flat");
+                collapse_btn.add_css_class("panel-action-btn");
+                collapse_btn.set_tooltip_text(Some("Collapse tab split"));
+
+                // Saved position for restore
+                let saved_pos = std::rc::Rc::new(std::cell::Cell::new(0i32));
+
                 let nb = notebook.clone();
-                let gesture = gtk4::GestureClick::new();
-                gesture.set_button(1);
-                gesture.connect_released(move |_, _, _, _| {
-                    // Find parent Paned and check if we're collapsed
+                let sp = saved_pos.clone();
+                collapse_btn.connect_clicked(move |btn| {
                     let mut widget = nb.parent();
                     while let Some(w) = widget {
                         if let Some(paned) = w.downcast_ref::<gtk4::Paned>() {
@@ -384,7 +392,69 @@ pub fn build_layout_widget_inner(
                             let my_size = if is_start { paned.position() } else { total - paned.position() };
 
                             if my_size <= 60 {
-                                // Collapsed — expand to 40%
+                                // Already collapsed → expand
+                                let saved = sp.get();
+                                if is_start {
+                                    paned.set_position(if saved > 60 { saved } else { total * 2 / 5 });
+                                } else {
+                                    paned.set_position(if saved > 60 { total - saved } else { total * 3 / 5 });
+                                }
+                                // Update icon
+                                let icon = match (orient, is_start) {
+                                    (gtk4::Orientation::Horizontal, true) => "go-previous-symbolic",
+                                    (gtk4::Orientation::Horizontal, false) => "go-next-symbolic",
+                                    (_, true) => "go-up-symbolic",
+                                    (_, false) => "go-down-symbolic",
+                                };
+                                btn.set_icon_name(icon);
+                                btn.set_tooltip_text(Some("Collapse tab split"));
+                            } else {
+                                // Collapse
+                                sp.set(my_size);
+                                if is_start {
+                                    paned.set_position(44);
+                                } else {
+                                    paned.set_position(total - 44);
+                                }
+                                // Update icon to expand direction
+                                let icon = match (orient, is_start) {
+                                    (gtk4::Orientation::Horizontal, true) => "go-next-symbolic",
+                                    (gtk4::Orientation::Horizontal, false) => "go-previous-symbolic",
+                                    (_, true) => "go-down-symbolic",
+                                    (_, false) => "go-up-symbolic",
+                                };
+                                btn.set_icon_name(icon);
+                                btn.set_tooltip_text(Some("Expand tab split"));
+                            }
+                            break;
+                        }
+                        widget = w.parent();
+                    }
+                });
+
+                notebook.set_action_widget(&collapse_btn, gtk4::PackType::End);
+            }
+
+            // Click on notebook tab area when collapsed → expand
+            {
+                let nb = notebook.clone();
+                let gesture = gtk4::GestureClick::new();
+                gesture.set_button(1);
+                gesture.connect_released(move |_, _, _, _| {
+                    let mut widget = nb.parent();
+                    while let Some(w) = widget {
+                        if let Some(paned) = w.downcast_ref::<gtk4::Paned>() {
+                            let orient = paned.orientation();
+                            let total = if orient == gtk4::Orientation::Horizontal {
+                                paned.allocation().width()
+                            } else {
+                                paned.allocation().height()
+                            };
+                            let is_start = paned.start_child()
+                                .map(|c| nb.is_ancestor(&c) || c.eq(nb.upcast_ref::<gtk4::Widget>()))
+                                .unwrap_or(false);
+                            let my_size = if is_start { paned.position() } else { total - paned.position() };
+                            if my_size <= 60 {
                                 if is_start {
                                     paned.set_position(total * 2 / 5);
                                 } else {
