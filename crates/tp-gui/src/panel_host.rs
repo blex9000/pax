@@ -568,9 +568,9 @@ impl PanelHost {
             } else {
                 paned.set_position(total - saved.0);
             }
+            self.collapsed_view.set_visible(false);
             self.container.set_visible(true);
             self.footer_bar.set_visible(false);
-            self.collapsed_view.set_visible(false);
             self.outer.set_size_request(-1, -1);
             self.update_collapse_icon(orient, is_start, false);
             false
@@ -595,6 +595,12 @@ impl PanelHost {
                         }
                     }
                 }
+                // Also handle Notebook siblings (tab splits)
+                // Notebook doesn't need visibility toggle — just ensure its size_request is reset
+                if sib.clone().downcast::<gtk4::Notebook>().is_ok() {
+                    // Notebook is always "expanded" — no visibility fix needed
+                    // Just ensure no stale size constraint
+                }
             }
 
             let current_size = if is_start {
@@ -618,6 +624,7 @@ impl PanelHost {
             }
             self.container.set_visible(false);
             self.footer_bar.set_visible(false);
+            // Show collapsed_view after hiding container to prevent visibility race
             self.collapsed_view.set_visible(true);
             self.outer.set_size_request(44, 44);
             self.update_collapse_icon(orient, is_start, true);

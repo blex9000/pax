@@ -142,7 +142,7 @@ impl CodeEditorPanel {
 
         // Sidebar: activity bar + file tree
         let sidebar = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
-        sidebar.set_width_request(200);
+        sidebar.set_width_request(150);
 
         // Activity bar: Files / Git toggle
         let activity_bar = gtk4::Box::new(gtk4::Orientation::Horizontal, 2);
@@ -413,7 +413,7 @@ impl CodeEditorPanel {
         }
 
         // Paned: sidebar | editor
-        editor_area.set_width_request(300);
+        editor_area.set_width_request(-1);
         let paned = gtk4::Paned::new(gtk4::Orientation::Horizontal);
         paned.set_start_child(Some(&sidebar));
         paned.set_end_child(Some(&editor_area));

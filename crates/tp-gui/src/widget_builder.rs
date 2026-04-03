@@ -245,6 +245,11 @@ fn setup_notebook_menu_widget(notebook: &gtk4::Notebook, action_cb: Option<Panel
                     } else {
                         sp.set(my_size);
                         if is_start {
+                            paned.set_shrink_start_child(true);
+                        } else {
+                            paned.set_shrink_end_child(true);
+                        }
+                        if is_start {
                             paned.set_position(44);
                         } else {
                             paned.set_position(total - 44);
