@@ -244,7 +244,7 @@ box.panel-title-bar { padding: 2px 6px; margin: 0; min-height: 20px; border-bott
 .markdown-panel { font-family: sans-serif; font-size: 12px; }
 .markdown-toolbar { border-bottom: 1px solid alpha(@borders, 0.3); }
 .tab-close-btn { min-height: 14px; min-width: 14px; padding: 1px; }
-paned > separator { min-width: 1px; min-height: 1px; background-color: alpha(@borders, 0.4); }
+paned > separator { min-width: 1px; min-height: 1px; background-color: alpha(@borders, 0.4); padding: 0; margin: 0; border: none; box-shadow: none; -gtk-icon-shadow: none; }
 .dirty-indicator { color: #ff8c00; }
 .editor-tabs { border-bottom: 1px solid alpha(@borders, 0.3); }
 .editor-sidebar { border-right: 1px solid alpha(@borders, 0.3); }
