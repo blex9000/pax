@@ -237,7 +237,7 @@ box.panel-title-bar { padding: 2px 6px; margin: 0; min-height: 20px; border-bott
 .panel-focused { border: none; }
 .panel-unfocused { border: none; }
 .panel-type-btn { min-width: 120px; }
-.panel-footer-bar { padding: 1px 8px 1px 12px; min-height: 18px; border-top: 1px solid alpha(@borders, 0.4); border-bottom: 1px solid alpha(@borders, 0.4); }
+.panel-footer-bar { padding: 1px 8px 1px 12px; min-height: 18px; border-top: 1px solid alpha(@borders, 0.4); }
 .panel-footer { font-size: 10px; }
 .status-bar { padding: 2px 8px; min-height: 22px; }
 .status-mode { font-weight: bold; padding: 0 6px; }
