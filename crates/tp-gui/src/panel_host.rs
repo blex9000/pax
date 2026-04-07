@@ -606,6 +606,7 @@ impl PanelHost {
                 let flag = propagating;
                 let cb_ref = self.sync_cb_ref.clone();
                 vte.connect_commit(move |_vte, text, _size| {
+                    tracing::trace!("VTE commit: panel={}, text_len={}, propagating={}", pid, text.len(), flag.get());
                     if flag.get() {
                         return;
                     }
