@@ -782,6 +782,8 @@ fn setup_paned_drag_collapse(paned: &gtk4::Paned, hosts: &HashMap<String, PanelH
     if start.is_none() && end.is_none() { return; }
 
     let guard = std::rc::Rc::new(std::cell::Cell::new(false));
+    // Saved position before collapse — restored on expand
+    let saved_pos = std::rc::Rc::new(std::cell::Cell::new(0i32));
 
     paned.connect_notify_local(Some("position"), move |paned, _| {
         if guard.get() { return; }
@@ -808,6 +810,13 @@ fn setup_paned_drag_collapse(paned: &gtk4::Paned, hosts: &HashMap<String, PanelH
             paned.set_position(total - COLLAPSE_SIZE);
             guard.set(false);
             return;
+        }
+
+        // Track position while not collapsed (for restore on expand)
+        let start_collapsed = start.as_ref().map_or(false, |t| t.is_collapsed());
+        let end_collapsed = end.as_ref().map_or(false, |t| t.is_collapsed());
+        if !start_collapsed && !end_collapsed && start_size > threshold && end_size > threshold {
+            saved_pos.set(pos);
         }
 
         // Helper: collapse a target
@@ -850,8 +859,10 @@ fn setup_paned_drag_collapse(paned: &gtk4::Paned, hosts: &HashMap<String, PanelH
             } else if start_size > threshold && t.is_collapsed() {
                 tracing::debug!("drag-expand: start, orient={:?}, size={}", orient, start_size);
                 do_expand(t, true);
-                // Snap to 50% so the panel doesn't stay at threshold size
-                paned.set_position(total / 2);
+                // Restore to saved position (or 50%) after drag ends
+                let restore = saved_pos.get().max(total / 2);
+                let p = paned.clone();
+                gtk4::glib::idle_add_local_once(move || { p.set_position(restore); });
             }
         }
 
@@ -863,8 +874,10 @@ fn setup_paned_drag_collapse(paned: &gtk4::Paned, hosts: &HashMap<String, PanelH
             } else if end_size > threshold && t.is_collapsed() {
                 tracing::debug!("drag-expand: end, orient={:?}, size={}", orient, end_size);
                 do_expand(t, false);
-                // Snap to 50% so the panel doesn't stay at threshold size
-                paned.set_position(total / 2);
+                // Restore to saved position (or 50%) after drag ends
+                let restore = saved_pos.get().min(total / 2);
+                let p = paned.clone();
+                gtk4::glib::idle_add_local_once(move || { p.set_position(restore); });
             }
         }
 
