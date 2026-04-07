@@ -710,18 +710,6 @@ fn setup_paned_drag_collapse(paned: &gtk4::Paned, hosts: &HashMap<String, PanelH
         let start_size = pos;
         let end_size = total - pos;
 
-        // Clamp: don't allow either side below COLLAPSE_SIZE
-        if start_size < COLLAPSE_SIZE && start.is_some() {
-            paned.set_position(COLLAPSE_SIZE);
-            guard.set(false);
-            return;
-        }
-        if end_size < COLLAPSE_SIZE && end.is_some() {
-            paned.set_position(total - COLLAPSE_SIZE);
-            guard.set(false);
-            return;
-        }
-
         // Helper: collapse a target
         let do_collapse = |target: &DragCollapseTarget, is_start: bool| {
             target.content.set_visible(false);
