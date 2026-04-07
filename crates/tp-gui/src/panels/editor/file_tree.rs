@@ -362,12 +362,47 @@ impl FileTree {
             backend,
         };
 
-        // Remote backends: show placeholder, tree loads on first refresh (file_watcher)
+        // Remote backends: show placeholder, retry periodically until connected
         if is_remote {
             let placeholder = gtk4::Label::new(Some("Connecting to remote host..."));
             placeholder.add_css_class("dim-label");
             placeholder.set_margin_top(16);
             tree.list_box.append(&placeholder);
+
+            let entries_ref = tree.entries.clone();
+            let index_ref = tree.file_index.clone();
+            let lb_ref = tree.list_box.clone();
+            let root = tree.root_dir.clone();
+            let be = tree.backend.clone();
+            gtk4::glib::timeout_add_local(std::time::Duration::from_secs(3), move || {
+                // Stop retrying once we have entries
+                if !entries_ref.borrow().is_empty() {
+                    return gtk4::glib::ControlFlow::Break;
+                }
+                // Try to load — ssh_exec returns Err instantly if not connected
+                let mut ents = Vec::new();
+                let mut idx = Vec::new();
+                build_file_entries(&root, &root, &mut ents, &mut idx, 0, &*be);
+                if !ents.is_empty() {
+                    // Connected! Populate the tree
+                    *entries_ref.borrow_mut() = ents;
+                    *index_ref.borrow_mut() = idx;
+                    populate_list_box(&lb_ref, &entries_ref.borrow(), &root);
+                    return gtk4::glib::ControlFlow::Break;
+                }
+                // Still not connected — update placeholder
+                while let Some(child) = lb_ref.first_child() { lb_ref.remove(&child); }
+                let msg = if be.is_remote() {
+                    "SSH not connected — retrying..."
+                } else {
+                    "Loading..."
+                };
+                let lbl = gtk4::Label::new(Some(msg));
+                lbl.add_css_class("dim-label");
+                lbl.set_margin_top(16);
+                lb_ref.append(&lbl);
+                gtk4::glib::ControlFlow::Continue
+            });
         }
 
         tree
