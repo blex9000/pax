@@ -690,34 +690,10 @@ fn setup_paned_drag_collapse(paned: &gtk4::Paned, hosts: &HashMap<String, PanelH
 
     if start.is_none() && end.is_none() { return; }
 
-    // On drag release: snap collapsed panels to COLLAPSE_SIZE.
-    // Safe here because the drag gesture is finished — no loop risk.
-    {
-        let start_ref = start.clone();
-        let end_ref = end.clone();
-        let p = paned.clone();
-        let gesture = gtk4::GestureDrag::new();
-        gesture.connect_drag_end(move |_, _, _| {
-            let total = if orient == gtk4::Orientation::Horizontal {
-                p.allocation().width()
-            } else {
-                p.allocation().height()
-            };
-            if total <= 0 { return; }
-            let pos = p.position();
-            let start_collapsed = start_ref.as_ref().map_or(false, |t| t.is_collapsed());
-            let end_collapsed = end_ref.as_ref().map_or(false, |t| t.is_collapsed());
-            if start_collapsed && pos < COLLAPSE_SIZE {
-                p.set_position(COLLAPSE_SIZE);
-            }
-            if end_collapsed && (total - pos) < COLLAPSE_SIZE {
-                p.set_position(total - COLLAPSE_SIZE);
-            }
-        });
-        paned.add_controller(gesture);
-    }
-
     let guard = std::rc::Rc::new(std::cell::Cell::new(false));
+    // Pending snap correction scheduled after drag ends (debounced).
+    // When Some, a timeout is pending. The u32 is the source ID.
+    let snap_pending = std::rc::Rc::new(std::cell::Cell::new(0u32));
 
     // The guard prevents re-entrant calls within the same stack frame.
     // GTK may fire position notify synchronously from set_size_request,
@@ -780,6 +756,30 @@ fn setup_paned_drag_collapse(paned: &gtk4::Paned, hosts: &HashMap<String, PanelH
             } else if end_size > threshold && t.is_collapsed() {
                 do_expand(t);
             }
+        }
+
+        // Schedule snap correction: if a collapsed panel is below COLLAPSE_SIZE,
+        // fix position after drag ends. Debounced: only fires when position
+        // stops changing (100ms without updates = drag ended).
+        let sc = start.as_ref().map_or(false, |t| t.is_collapsed());
+        let ec = end.as_ref().map_or(false, |t| t.is_collapsed());
+        if (sc && start_size < COLLAPSE_SIZE) || (ec && end_size < COLLAPSE_SIZE) {
+            let p = paned.clone();
+            let sp = snap_pending.clone();
+            // Increment counter to invalidate previous pending snap
+            let gen = sp.get() + 1;
+            sp.set(gen);
+            let snap_start = sc && start_size < COLLAPSE_SIZE;
+            let snap_end = ec && end_size < COLLAPSE_SIZE;
+            gtk4::glib::timeout_add_local_once(std::time::Duration::from_millis(100), move || {
+                // Only execute if no newer snap was scheduled
+                if sp.get() != gen { return; }
+                sp.set(0);
+                let t = if orient == gtk4::Orientation::Horizontal { p.allocation().width() } else { p.allocation().height() };
+                if t <= 0 { return; }
+                if snap_start { p.set_position(COLLAPSE_SIZE); }
+                if snap_end { p.set_position(t - COLLAPSE_SIZE); }
+            });
         }
 
         guard.set(false);
