@@ -181,9 +181,9 @@ pub struct SshFileBackend {
     password: Option<String>,
     identity_file: Option<String>,
     control_path: String,
-    /// True only after first successful SSH command — prevents blocking
-    /// while ControlMaster is still authenticating.
-    verified: std::cell::Cell<bool>,
+    /// True only after ControlMaster background thread confirms connection.
+    /// AtomicBool because it's set from a background std::thread.
+    connected: std::sync::Arc<std::sync::atomic::AtomicBool>,
 }
 
 impl SshFileBackend {
@@ -194,6 +194,7 @@ impl SshFileBackend {
     ) -> Self {
         let control_path = format!("/tmp/pax_ssh_{}_{}", host.replace('.', "_"), std::process::id());
 
+        let connected = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
         let backend = Self {
             root_dir: PathBuf::from(root_dir),
             host: host.to_string(),
@@ -202,7 +203,7 @@ impl SshFileBackend {
             password: password.map(|s| s.to_string()),
             identity_file: identity_file.filter(|s| !s.is_empty()).map(|s| s.to_string()),
             control_path,
-            verified: std::cell::Cell::new(false),
+            connected,
         };
 
         // Establish the ControlMaster connection in background
@@ -212,20 +213,27 @@ impl SshFileBackend {
     }
 
     /// Establish a persistent SSH ControlMaster connection.
-    /// Non-blocking: spawns the SSH process in the background.
-    /// Connection errors will surface in subsequent ssh_exec calls.
+    /// Non-blocking: spawns SSH in a background std::thread.
+    /// Sets `connected` flag to true only after successful connection.
     fn setup_control_master(&self) {
+        let flag = self.connected.clone();
         let mut cmd = self.base_ssh_command();
         cmd.args(["-fNM"]); // fork to background, no command, master mode
-        // Spawn without waiting — don't block the UI thread
-        match cmd.spawn() {
-            Ok(_child) => {
-                tracing::debug!("SSH ControlMaster spawn started for {}@{}", self.user, self.host);
+        let label = format!("{}@{}", self.user, self.host);
+        std::thread::spawn(move || {
+            match cmd.status() {
+                Ok(s) if s.success() => {
+                    flag.store(true, std::sync::atomic::Ordering::Relaxed);
+                    tracing::info!("SSH ControlMaster connected: {}", label);
+                }
+                Ok(s) => {
+                    tracing::warn!("SSH ControlMaster failed for {}: exit {}", label, s);
+                }
+                Err(e) => {
+                    tracing::warn!("SSH ControlMaster spawn failed for {}: {}", label, e);
+                }
             }
-            Err(e) => {
-                tracing::warn!("SSH ControlMaster spawn failed for {}@{}: {}", self.user, self.host, e);
-            }
-        }
+        });
     }
 
     /// Build base SSH command with common options.
@@ -255,37 +263,13 @@ impl SshFileBackend {
         cmd
     }
 
-    /// Check if SSH connection is verified and ready.
-    /// Returns true only after the first successful SSH command.
+    /// Check if SSH connection is ready. Zero-cost: just reads an atomic bool.
     fn is_connected(&self) -> bool {
-        if self.verified.get() {
-            return true;
-        }
-        // Socket must exist first
-        if !std::path::Path::new(&self.control_path).exists() {
-            return false;
-        }
-        // Non-blocking check: ask ControlMaster if it's ready
-        let status = std::process::Command::new("ssh")
-            .args([
-                "-o", &format!("ControlPath={}", self.control_path),
-                "-O", "check",
-                &format!("{}@{}", self.user, self.host),
-            ])
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .status();
-        match status {
-            Ok(s) if s.success() => {
-                self.verified.set(true);
-                true
-            }
-            _ => false,
-        }
+        self.connected.load(std::sync::atomic::Ordering::Relaxed)
     }
 
     /// Execute a remote command and return stdout.
-    /// Returns Err immediately if SSH connection is not verified.
+    /// Returns Err immediately if SSH connection is not ready.
     fn ssh_exec(&self, remote_cmd: &str) -> Result<String, String> {
         if !self.is_connected() {
             return Err("SSH not connected yet".to_string());
@@ -297,9 +281,8 @@ impl SshFileBackend {
             Ok(String::from_utf8_lossy(&output.stdout).to_string())
         } else {
             let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-            // If connection dropped, reset verified flag
             if stderr.contains("Connection") || stderr.contains("closed") {
-                self.verified.set(false);
+                self.connected.store(false, std::sync::atomic::Ordering::Relaxed);
             }
             Err(if stderr.is_empty() { format!("exit {}", output.status) } else { stderr })
         }

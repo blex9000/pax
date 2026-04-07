@@ -694,11 +694,6 @@ fn setup_paned_drag_collapse(paned: &gtk4::Paned, hosts: &HashMap<String, PanelH
     if start.is_none() && end.is_none() { return; }
 
     let guard = std::rc::Rc::new(std::cell::Cell::new(false));
-    // Saved position before collapse — restored on expand
-    let saved_pos = std::rc::Rc::new(std::cell::Cell::new(0i32));
-    // Snap target: when > 0, clamp position toward this value until drag ends
-    // Positive = clamp start (pos >= snap), Negative = clamp end (pos <= -snap)
-    let snap_target = std::rc::Rc::new(std::cell::Cell::new(0i32));
 
     paned.connect_notify_local(Some("position"), move |paned, _| {
         if guard.get() { return; }
@@ -715,28 +710,6 @@ fn setup_paned_drag_collapse(paned: &gtk4::Paned, hosts: &HashMap<String, PanelH
         let start_size = pos;
         let end_size = total - pos;
 
-        // Enforce snap target (active briefly after drag-expand)
-        let snap = snap_target.get();
-        if snap != 0 {
-            // If both sides are now expanded (e.g. click-expand happened),
-            // clear snap immediately
-            let sc = start.as_ref().map_or(false, |t| t.is_collapsed());
-            let ec = end.as_ref().map_or(false, |t| t.is_collapsed());
-            if !sc && !ec {
-                snap_target.set(0);
-            } else if snap > 0 && pos < snap {
-                paned.set_position(snap);
-                guard.set(false);
-                return;
-            } else if snap < 0 && pos > -snap {
-                paned.set_position(-snap);
-                guard.set(false);
-                return;
-            } else {
-                snap_target.set(0);
-            }
-        }
-
         // Clamp: don't allow either side below COLLAPSE_SIZE
         if start_size < COLLAPSE_SIZE && start.is_some() {
             paned.set_position(COLLAPSE_SIZE);
@@ -749,19 +722,8 @@ fn setup_paned_drag_collapse(paned: &gtk4::Paned, hosts: &HashMap<String, PanelH
             return;
         }
 
-        // Track position while not collapsed (for restore on expand)
-        let start_collapsed = start.as_ref().map_or(false, |t| t.is_collapsed());
-        let end_collapsed = end.as_ref().map_or(false, |t| t.is_collapsed());
-        if !start_collapsed && !end_collapsed && start_size > threshold && end_size > threshold {
-            saved_pos.set(pos);
-        }
-
         // Helper: collapse a target
-        let do_collapse = |target: &DragCollapseTarget, is_start: bool, pre_size: i32| {
-            // Save pre-collapse size on PanelHost so click-expand restores it
-            if let Some(ref cell) = target.host_saved_size {
-                cell.set((pre_size, pre_size));
-            }
+        let do_collapse = |target: &DragCollapseTarget, is_start: bool| {
             target.content.set_visible(false);
             if let Some(ref f) = target.footer { f.set_visible(false); }
             target.collapsed_view.set_visible(true);
@@ -772,55 +734,36 @@ fn setup_paned_drag_collapse(paned: &gtk4::Paned, hosts: &HashMap<String, PanelH
                 (_, true) => "go-down-symbolic",
                 (_, false) => "go-up-symbolic",
             };
-            if let Some(ref btn) = target.collapse_btn { btn.set_icon_name(icon); }
             if let Some(img) = target.collapsed_view.first_child().and_then(|c| c.downcast::<gtk4::Image>().ok()) {
                 img.set_icon_name(Some(icon));
             }
         };
 
         // Helper: expand a target
-        let do_expand = |target: &DragCollapseTarget, is_start: bool| {
+        let do_expand = |target: &DragCollapseTarget| {
             target.collapsed_view.set_visible(false);
             target.content.set_visible(true);
             target.outer.set_size_request(-1, -1);
-            // Restore footer if it has content (VTE terminal directory)
             if let (Some(ref f), Some(ref lbl)) = (&target.footer, &target.footer_label) {
                 f.set_visible(!lbl.text().is_empty());
             }
-            let icon = match (orient, is_start) {
-                (gtk4::Orientation::Horizontal, true) => "go-previous-symbolic",
-                (gtk4::Orientation::Horizontal, false) => "go-next-symbolic",
-                (_, true) => "go-up-symbolic",
-                (_, false) => "go-down-symbolic",
-            };
-            if let Some(ref btn) = target.collapse_btn { btn.set_icon_name(icon); }
-        };
-
-        // Saved position, validated — fall back to 50% if never set or out of range
-        let valid_saved = {
-            let s = saved_pos.get();
-            if s > threshold && s < total - threshold { s } else { total / 2 }
         };
 
         // Auto-collapse/expand start child
         if let Some(ref t) = start {
             if start_size <= threshold && !t.is_collapsed() {
-                do_collapse(t, true, valid_saved);
+                do_collapse(t, true);
             } else if start_size > threshold && t.is_collapsed() {
-                do_expand(t, true);
-                snap_target.set(valid_saved);
-                paned.set_position(valid_saved);
+                do_expand(t);
             }
         }
 
         // Auto-collapse/expand end child
         if let Some(ref t) = end {
             if end_size <= threshold && !t.is_collapsed() {
-                do_collapse(t, false, total - valid_saved);
+                do_collapse(t, false);
             } else if end_size > threshold && t.is_collapsed() {
-                do_expand(t, false);
-                snap_target.set(-valid_saved);
-                paned.set_position(valid_saved);
+                do_expand(t);
             }
         }
 
