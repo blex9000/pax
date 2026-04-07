@@ -56,7 +56,7 @@ pub struct PanelHost {
     pub(crate) saved_min_size: std::cell::Cell<(i32, i32)>,
     /// Whether the sibling was collapsed when we collapsed (to re-collapse it on expand)
     sibling_was_collapsed: std::cell::Cell<bool>,
-    footer_label: gtk4::Label,
+    pub(crate) footer_label: gtk4::Label,
     widget: gtk4::Widget,
     panel_id: String,
     backend: RefCell<Option<Box<dyn PanelBackend>>>,
@@ -683,20 +683,14 @@ impl PanelHost {
                     }
                 }
             } else {
-                // Normal expand — restore saved position, or 50% if saved is too small
-                // (drag-collapse may not update saved_min_size)
-                let min_reasonable = total / 4;
-                let restore = if saved.0 > min_reasonable { saved.0 } else { total / 2 };
-                if is_start {
-                    paned.set_position(restore);
-                } else {
-                    paned.set_position(total - restore);
-                }
+                // Normal expand — always restore to 50% for reliability
+                paned.set_position(total / 2);
             }
 
             self.collapsed_view.set_visible(false);
             self.container.set_visible(true);
-            self.footer_bar.set_visible(false);
+            // Restore footer if it has content (e.g. VTE terminal directory)
+            self.footer_bar.set_visible(!self.footer_label.text().is_empty());
             self.outer.set_size_request(-1, -1);
             self.update_collapse_icon(orient, is_start, false);
             self.sibling_was_collapsed.set(false);

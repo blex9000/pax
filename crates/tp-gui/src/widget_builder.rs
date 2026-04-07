@@ -749,6 +749,8 @@ struct DragCollapseTarget {
     collapse_btn: Option<gtk4::Button>,
     /// PanelHost saved_min_size — updated on drag-collapse so click-expand works
     host_saved_size: Option<std::cell::Cell<(i32, i32)>>,
+    /// Footer label (for restoring footer visibility on expand)
+    footer_label: Option<gtk4::Label>,
 }
 
 impl DragCollapseTarget {
@@ -771,6 +773,7 @@ fn find_collapse_target(child: &Option<gtk4::Widget>, hosts: &HashMap<String, Pa
             collapsed_view: host.collapsed_view.clone(),
             collapse_btn: Some(host.collapse_button.clone()),
             host_saved_size: Some(host.saved_min_size.clone()),
+            footer_label: Some(host.footer_label.clone()),
         });
     }
 
@@ -787,6 +790,7 @@ fn find_collapse_target(child: &Option<gtk4::Widget>, hosts: &HashMap<String, Pa
                 collapsed_view,
                 collapse_btn: None,
                 host_saved_size: None,
+                footer_label: None,
             });
         }
     }
@@ -800,6 +804,7 @@ fn find_collapse_target(child: &Option<gtk4::Widget>, hosts: &HashMap<String, Pa
         collapsed_view: host.collapsed_view.clone(),
         collapse_btn: Some(host.collapse_button.clone()),
         host_saved_size: Some(host.saved_min_size.clone()),
+        footer_label: Some(host.footer_label.clone()),
     })
 }
 
@@ -908,6 +913,10 @@ fn setup_paned_drag_collapse(paned: &gtk4::Paned, hosts: &HashMap<String, PanelH
             target.collapsed_view.set_visible(false);
             target.content.set_visible(true);
             target.outer.set_size_request(-1, -1);
+            // Restore footer if it has content (VTE terminal directory)
+            if let (Some(ref f), Some(ref lbl)) = (&target.footer, &target.footer_label) {
+                f.set_visible(!lbl.text().is_empty());
+            }
             let icon = match (orient, is_start) {
                 (gtk4::Orientation::Horizontal, true) => "go-previous-symbolic",
                 (gtk4::Orientation::Horizontal, false) => "go-next-symbolic",

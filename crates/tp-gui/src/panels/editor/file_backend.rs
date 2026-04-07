@@ -208,10 +208,20 @@ impl SshFileBackend {
     }
 
     /// Establish a persistent SSH ControlMaster connection.
+    /// Non-blocking: spawns the SSH process in the background.
+    /// Connection errors will surface in subsequent ssh_exec calls.
     fn setup_control_master(&self) {
         let mut cmd = self.base_ssh_command();
         cmd.args(["-fNM"]); // fork to background, no command, master mode
-        let _ = self.run_with_password(&mut cmd);
+        // Spawn without waiting — don't block the UI thread
+        match cmd.spawn() {
+            Ok(_child) => {
+                tracing::debug!("SSH ControlMaster spawn started for {}@{}", self.user, self.host);
+            }
+            Err(e) => {
+                tracing::warn!("SSH ControlMaster spawn failed for {}@{}: {}", self.user, self.host, e);
+            }
+        }
     }
 
     /// Build base SSH command with common options.
