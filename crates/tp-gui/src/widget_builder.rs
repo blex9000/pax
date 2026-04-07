@@ -615,19 +615,37 @@ fn build_paned(
 }
 
 /// Set initial collapse button icon direction based on panel position in Paned.
+/// Icon for minimize/collapse button when panel has multiple Paned ancestors (shows popup).
+const COLLAPSE_MULTI_ICON: &str = "window-minimize-symbolic";
+
 fn update_collapse_icons_for_paned(
     paned: &gtk4::Paned,
     hosts: &HashMap<String, PanelHost>,
     orientation: gtk4::Orientation,
 ) {
+    // Check if this Paned is nested inside another Paned (panel would have 2+ ancestors)
+    let has_parent_paned = {
+        let mut w = paned.parent();
+        let mut found = false;
+        while let Some(p) = w {
+            if p.downcast_ref::<gtk4::Paned>().is_some() { found = true; break; }
+            w = p.parent();
+        }
+        found
+    };
+
     let set_icon = |child: Option<gtk4::Widget>, is_start: bool| {
         if let Some(c) = child {
             if let Some(host) = find_panel_host_in(&c, hosts) {
-                let icon = match (orientation, is_start) {
-                    (gtk4::Orientation::Horizontal, true) => "go-previous-symbolic",
-                    (gtk4::Orientation::Horizontal, false) => "go-next-symbolic",
-                    (_, true) => "go-up-symbolic",
-                    (_, false) => "go-down-symbolic",
+                let icon = if has_parent_paned {
+                    COLLAPSE_MULTI_ICON
+                } else {
+                    match (orientation, is_start) {
+                        (gtk4::Orientation::Horizontal, true) => "go-previous-symbolic",
+                        (gtk4::Orientation::Horizontal, false) => "go-next-symbolic",
+                        (_, true) => "go-up-symbolic",
+                        (_, false) => "go-down-symbolic",
+                    }
                 };
                 host.collapse_button.set_icon_name(icon);
                 host.collapse_button.set_visible(true);
