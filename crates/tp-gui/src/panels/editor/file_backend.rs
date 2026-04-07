@@ -251,8 +251,17 @@ impl SshFileBackend {
         cmd
     }
 
+    /// Check if the ControlMaster socket is ready (non-blocking).
+    fn is_connected(&self) -> bool {
+        std::path::Path::new(&self.control_path).exists()
+    }
+
     /// Execute a remote command and return stdout.
+    /// Returns Err immediately if ControlMaster socket doesn't exist yet.
     fn ssh_exec(&self, remote_cmd: &str) -> Result<String, String> {
+        if !self.is_connected() {
+            return Err("SSH not connected yet".to_string());
+        }
         let mut cmd = self.base_ssh_command();
         cmd.arg(remote_cmd);
         let output = cmd.output().map_err(|e| format!("SSH exec failed: {}", e))?;
@@ -266,6 +275,9 @@ impl SshFileBackend {
 
     /// Execute a command that needs stdin (for write_file).
     fn ssh_exec_with_stdin(&self, remote_cmd: &str, input: &str) -> Result<(), String> {
+        if !self.is_connected() {
+            return Err("SSH not connected yet".to_string());
+        }
         use std::io::Write;
         let mut cmd = self.base_ssh_command();
         cmd.arg(remote_cmd);
