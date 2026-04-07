@@ -53,7 +53,7 @@ pub struct PanelHost {
     ssh_indicator: gtk4::Box,
     pub(crate) footer_bar: gtk4::Box,
     /// Saved min size before collapse (to restore on expand)
-    saved_min_size: std::cell::Cell<(i32, i32)>,
+    pub(crate) saved_min_size: std::cell::Cell<(i32, i32)>,
     /// Whether the sibling was collapsed when we collapsed (to re-collapse it on expand)
     sibling_was_collapsed: std::cell::Cell<bool>,
     footer_label: gtk4::Label,
@@ -683,11 +683,14 @@ impl PanelHost {
                     }
                 }
             } else {
-                // Normal expand — restore saved position
+                // Normal expand — restore saved position, or 50% if saved is too small
+                // (drag-collapse may not update saved_min_size)
+                let min_reasonable = total / 4;
+                let restore = if saved.0 > min_reasonable { saved.0 } else { total / 2 };
                 if is_start {
-                    paned.set_position(saved.0);
+                    paned.set_position(restore);
                 } else {
-                    paned.set_position(total - saved.0);
+                    paned.set_position(total - restore);
                 }
             }
 

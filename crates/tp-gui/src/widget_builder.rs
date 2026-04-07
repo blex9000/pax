@@ -686,6 +686,38 @@ fn wrap_layout_for_collapse(child: gtk4::Widget) -> gtk4::Widget {
     collapsed_view.set_tooltip_text(Some("Click to expand"));
     wrapper.append(&collapsed_view);
 
+    // Click on wrapper when collapsed → expand
+    {
+        let content_ref = child.clone();
+        let cv_ref = collapsed_view.clone();
+        let wrapper_ref = wrapper.clone();
+        let gesture = gtk4::GestureClick::new();
+        gesture.set_button(1);
+        gesture.connect_released(move |g, _, _, _| {
+            // Only act when collapsed (content hidden)
+            if !content_ref.is_visible() {
+                content_ref.set_visible(true);
+                cv_ref.set_visible(false);
+                wrapper_ref.set_size_request(-1, -1);
+                // Find parent Paned and set position to 50%
+                if let Some(parent) = wrapper_ref.parent() {
+                    if let Some(paned) = parent.downcast_ref::<gtk4::Paned>() {
+                        let total = if paned.orientation() == gtk4::Orientation::Horizontal {
+                            paned.allocation().width()
+                        } else {
+                            paned.allocation().height()
+                        };
+                        if total > 0 {
+                            paned.set_position(total / 2);
+                        }
+                    }
+                }
+                g.set_state(gtk4::EventSequenceState::Claimed);
+            }
+        });
+        wrapper.add_controller(gesture);
+    }
+
     wrapper.upcast()
 }
 
@@ -715,6 +747,8 @@ struct DragCollapseTarget {
     collapsed_view: gtk4::Box,
     /// Collapse button to update icon (only for PanelHost)
     collapse_btn: Option<gtk4::Button>,
+    /// PanelHost saved_min_size — updated on drag-collapse so click-expand works
+    host_saved_size: Option<std::cell::Cell<(i32, i32)>>,
 }
 
 impl DragCollapseTarget {
@@ -736,6 +770,7 @@ fn find_collapse_target(child: &Option<gtk4::Widget>, hosts: &HashMap<String, Pa
             footer: Some(host.footer_bar.clone()),
             collapsed_view: host.collapsed_view.clone(),
             collapse_btn: Some(host.collapse_button.clone()),
+            host_saved_size: Some(host.saved_min_size.clone()),
         });
     }
 
@@ -751,6 +786,7 @@ fn find_collapse_target(child: &Option<gtk4::Widget>, hosts: &HashMap<String, Pa
                 footer: None,
                 collapsed_view,
                 collapse_btn: None,
+                host_saved_size: None,
             });
         }
     }
@@ -763,6 +799,7 @@ fn find_collapse_target(child: &Option<gtk4::Widget>, hosts: &HashMap<String, Pa
         footer: Some(host.footer_bar.clone()),
         collapsed_view: host.collapsed_view.clone(),
         collapse_btn: Some(host.collapse_button.clone()),
+        host_saved_size: Some(host.saved_min_size.clone()),
     })
 }
 
@@ -845,7 +882,11 @@ fn setup_paned_drag_collapse(paned: &gtk4::Paned, hosts: &HashMap<String, PanelH
         }
 
         // Helper: collapse a target
-        let do_collapse = |target: &DragCollapseTarget, is_start: bool| {
+        let do_collapse = |target: &DragCollapseTarget, is_start: bool, pre_size: i32| {
+            // Save pre-collapse size on PanelHost so click-expand restores it
+            if let Some(ref cell) = target.host_saved_size {
+                cell.set((pre_size, pre_size));
+            }
             target.content.set_visible(false);
             if let Some(ref f) = target.footer { f.set_visible(false); }
             target.collapsed_view.set_visible(true);
@@ -879,7 +920,8 @@ fn setup_paned_drag_collapse(paned: &gtk4::Paned, hosts: &HashMap<String, PanelH
         // Auto-collapse/expand start child
         if let Some(ref t) = start {
             if start_size <= threshold && !t.is_collapsed() {
-                do_collapse(t, true);
+                let pre = saved_pos.get().max(total / 2);
+                do_collapse(t, true, pre);
             } else if start_size > threshold && t.is_collapsed() {
                 do_expand(t, true);
                 // Snap: force position to saved/50% — clamp stays active until user drags past it
@@ -892,7 +934,8 @@ fn setup_paned_drag_collapse(paned: &gtk4::Paned, hosts: &HashMap<String, PanelH
         // Auto-collapse/expand end child
         if let Some(ref t) = end {
             if end_size <= threshold && !t.is_collapsed() {
-                do_collapse(t, false);
+                let pre = total - saved_pos.get().min(total / 2);
+                do_collapse(t, false, pre);
             } else if end_size > threshold && t.is_collapsed() {
                 do_expand(t, false);
                 // Snap: force position to saved/50% — negative means end-expand
