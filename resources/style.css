@@ -18,6 +18,7 @@
     background-color: alpha(@headerbar_bg_color, 0.8);
     padding: 2px 6px;
     min-height: 20px;
+    border-bottom: 1px solid alpha(@borders, 0.4);
 }
 
 .panel-title {
