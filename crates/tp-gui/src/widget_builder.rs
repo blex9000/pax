@@ -616,10 +616,6 @@ struct DragCollapseTarget {
     footer: Option<gtk4::Box>,
     /// Overlay to show when collapsed
     collapsed_view: gtk4::Box,
-    /// Collapse button to update icon (only for PanelHost)
-    collapse_btn: Option<gtk4::Button>,
-    /// PanelHost saved_min_size — updated on drag-collapse so click-expand works
-    host_saved_size: Option<std::cell::Cell<(i32, i32)>>,
     /// Footer label (for restoring footer visibility on expand)
     footer_label: Option<gtk4::Label>,
 }
@@ -642,8 +638,6 @@ fn find_collapse_target(child: &Option<gtk4::Widget>, hosts: &HashMap<String, Pa
             content: host.container.clone().upcast(),
             footer: Some(host.footer_bar.clone()),
             collapsed_view: host.collapsed_view.clone(),
-            collapse_btn: Some(host.collapse_button.clone()),
-            host_saved_size: Some(host.saved_min_size.clone()),
             footer_label: Some(host.footer_label.clone()),
         });
     }
@@ -659,8 +653,6 @@ fn find_collapse_target(child: &Option<gtk4::Widget>, hosts: &HashMap<String, Pa
                 content,
                 footer: None,
                 collapsed_view,
-                collapse_btn: None,
-                host_saved_size: None,
                 footer_label: None,
             });
         }
@@ -673,8 +665,6 @@ fn find_collapse_target(child: &Option<gtk4::Widget>, hosts: &HashMap<String, Pa
         content: host.container.clone().upcast(),
         footer: Some(host.footer_bar.clone()),
         collapsed_view: host.collapsed_view.clone(),
-        collapse_btn: Some(host.collapse_button.clone()),
-        host_saved_size: Some(host.saved_min_size.clone()),
         footer_label: Some(host.footer_label.clone()),
     })
 }

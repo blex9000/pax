@@ -310,11 +310,6 @@ impl SshFileBackend {
         }
     }
 
-    /// Run a command, handling password via sshpass if needed.
-    fn run_with_password(&self, cmd: &mut std::process::Command) -> Result<(), String> {
-        let status = cmd.status().map_err(|e| e.to_string())?;
-        if status.success() { Ok(()) } else { Err(format!("exit {}", status)) }
-    }
 }
 
 impl FileBackend for SshFileBackend {
@@ -397,13 +392,22 @@ impl FileBackend for SshFileBackend {
 
 impl Drop for SshFileBackend {
     fn drop(&mut self) {
-        // Close the ControlMaster connection
-        let _ = std::process::Command::new("ssh")
-            .args([
-                "-o", &format!("ControlPath={}", self.control_path),
-                "-O", "exit",
-                &format!("{}@{}", self.user, self.host),
-            ])
-            .status();
+        // Close the ControlMaster connection using proper options
+        let mut cmd = if self.password.is_some() {
+            let mut c = std::process::Command::new("sshpass");
+            c.args(["-p", self.password.as_deref().unwrap_or(""), "ssh"]);
+            c
+        } else {
+            std::process::Command::new("ssh")
+        };
+        cmd.args([
+            "-o", &format!("ControlPath={}", self.control_path),
+            "-O", "exit",
+        ]);
+        if let Some(ref key) = self.identity_file {
+            cmd.args(["-i", key]);
+        }
+        cmd.arg(&format!("{}@{}", self.user, self.host));
+        let _ = cmd.status();
     }
 }

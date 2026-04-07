@@ -475,7 +475,7 @@ fn setup_workspace_ui(
                 PanelAction::Collapse => {
                     let view = ws_for_cb.borrow();
                     if let Some(host) = view.hosts().get(panel_id) {
-                        host.toggle_collapsed();
+                        host.expand_collapsed();
                     }
                 }
                 PanelAction::Focus => {
@@ -724,7 +724,7 @@ fn setup_workspace_ui(
                         let view = ws.borrow();
                         if let Some(id) = view.focused_panel_id() {
                             if let Some(host) = view.hosts().get(id) {
-                                host.toggle_collapsed();
+                                host.expand_collapsed();
                             }
                         }
                         return glib::Propagation::Stop;
