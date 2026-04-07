@@ -691,35 +691,8 @@ fn setup_paned_drag_collapse(paned: &gtk4::Paned, hosts: &HashMap<String, PanelH
     if start.is_none() && end.is_none() { return; }
 
     let guard = std::rc::Rc::new(std::cell::Cell::new(false));
-    // 0 = no snap needed, 1 = snap start, 2 = snap end
-    let snap_pending = std::rc::Rc::new(std::cell::Cell::new(0u32));
-
-    // On mouse button release: snap collapsed panel to COLLAPSE_SIZE.
-    // This fires AFTER the drag gesture ends — safe to call set_position.
-    {
-        let sp = snap_pending.clone();
-        let p = paned.clone();
-        let ctrl = gtk4::EventControllerLegacy::new();
-        ctrl.connect_event(move |_, event| {
-            if event.event_type() == gtk4::gdk::EventType::ButtonRelease {
-                let snap = sp.get();
-                if snap != 0 {
-                    sp.set(0);
-                    let t = if orient == gtk4::Orientation::Horizontal {
-                        p.allocation().width()
-                    } else {
-                        p.allocation().height()
-                    };
-                    if t > 0 {
-                        if snap == 1 { p.set_position(COLLAPSE_SIZE); }
-                        if snap == 2 { p.set_position(t - COLLAPSE_SIZE); }
-                    }
-                }
-            }
-            gtk4::glib::Propagation::Proceed
-        });
-        paned.add_controller(ctrl);
-    }
+    // Generation counter for snap-after-drag. Only the last scheduled idle fires.
+    let snap_gen = std::rc::Rc::new(std::cell::Cell::new(0u32));
 
     // The guard prevents re-entrant calls within the same stack frame.
     // GTK may fire position notify synchronously from set_size_request,
@@ -784,16 +757,25 @@ fn setup_paned_drag_collapse(paned: &gtk4::Paned, hosts: &HashMap<String, PanelH
             }
         }
 
-        // Track if snap is needed (collapsed panel below COLLAPSE_SIZE).
-        // Actual snap happens on button release (see EventControllerLegacy below).
+        // If a collapsed panel is below COLLAPSE_SIZE, schedule an idle
+        // correction. During drag, the next motion event overrides it.
+        // After drag release, no more motion → set_position sticks.
         let sc = start.as_ref().map_or(false, |t| t.is_collapsed());
         let ec = end.as_ref().map_or(false, |t| t.is_collapsed());
-        if sc && start_size < COLLAPSE_SIZE {
-            snap_pending.set(1); // 1 = snap start
-        } else if ec && end_size < COLLAPSE_SIZE {
-            snap_pending.set(2); // 2 = snap end
-        } else {
-            snap_pending.set(0);
+        let need_snap_start = sc && start_size < COLLAPSE_SIZE;
+        let need_snap_end = ec && end_size < COLLAPSE_SIZE;
+        if need_snap_start || need_snap_end {
+            let gen = snap_gen.get().wrapping_add(1);
+            snap_gen.set(gen);
+            let sg = snap_gen.clone();
+            let p = paned.clone();
+            gtk4::glib::idle_add_local_once(move || {
+                if sg.get() != gen { return; } // superseded by newer event
+                let t = if orient == gtk4::Orientation::Horizontal { p.allocation().width() } else { p.allocation().height() };
+                if t <= 0 { return; }
+                if need_snap_start { p.set_position(COLLAPSE_SIZE); }
+                if need_snap_end { p.set_position(t - COLLAPSE_SIZE); }
+            });
         }
 
         guard.set(false);
