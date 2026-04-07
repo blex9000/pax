@@ -245,20 +245,14 @@ impl PanelHost {
             ssh_indicator.append(&ssh_lbl);
         }
 
-        // Layout: [collapse] | [icon][ssh][title][spacer][sync][zoom][menu]
-        title_bar.append(&collapse_button);
-        let collapse_sep = gtk4::Separator::new(gtk4::Orientation::Vertical);
-        collapse_sep.set_margin_start(2);
-        collapse_sep.set_margin_end(2);
-        collapse_sep.set_margin_top(5);
-        collapse_sep.set_margin_bottom(5);
-        title_bar.append(&collapse_sep);
+        // Layout: [icon][ssh][title][spacer][collapse][sync][zoom][menu]
         title_bar.append(&type_icon);
         title_bar.append(&ssh_indicator);
         title_bar.append(&title_stack);
         let spacer = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
         spacer.set_hexpand(true);
         title_bar.append(&spacer);
+        title_bar.append(&collapse_button);
         title_bar.append(&sync_button);
         title_bar.append(&zoom_button);
         title_bar.append(&menu_button);
