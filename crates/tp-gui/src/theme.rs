@@ -224,7 +224,7 @@ impl Theme {
 
 /// Minimal CSS — only layout, no colors.
 pub const BASE_CSS: &str = "
-box.panel-frame { border: none; border-radius: 0; margin: 0; padding: 0; }
+box.panel-frame { border: none; border-bottom: 1px solid alpha(@borders, 0.4); border-radius: 0; margin: 0; padding: 0; }
 box.panel-frame > box { margin: 0; padding: 0; }
 box.panel-title-bar { padding: 2px 6px; margin: 0; min-height: 20px; border-bottom: 1px solid alpha(@borders, 0.4); border-top: 1px solid alpha(@borders, 0.4); }
 .panel-title { font-size: 11px; font-weight: bold; }
