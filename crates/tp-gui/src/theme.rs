@@ -226,7 +226,7 @@ impl Theme {
 pub const BASE_CSS: &str = "
 box.panel-frame { border: none; border-radius: 0; margin: 0; padding: 0; }
 box.panel-frame > box { margin: 0; padding: 0; }
-box.panel-title-bar { padding: 2px 6px; margin: 0; min-height: 20px; border-bottom: 1px solid alpha(@borders, 0.4); border-top: 1px solid alpha(@borders, 0.4); }
+box.panel-title-bar { padding: 2px 6px; margin: 0; min-height: 20px; border-bottom: 1px solid alpha(@borders, 0.4); }
 .panel-title { font-size: 11px; font-weight: bold; }
 .panel-type-icon { min-height: 14px; min-width: 14px; opacity: 0.6; margin-right: 2px; }
 .panel-menu-btn { min-height: 16px; min-width: 16px; padding: 2px; }
