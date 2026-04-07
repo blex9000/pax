@@ -299,16 +299,20 @@ impl PanelHost {
 
         // Collapsed view: shown when panel is minimized — expand arrow, name in tooltip
         let collapsed_view = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
-        collapsed_view.set_halign(gtk4::Align::Center);
-        collapsed_view.set_valign(gtk4::Align::Center);
+        collapsed_view.set_halign(gtk4::Align::Fill);
+        collapsed_view.set_valign(gtk4::Align::Fill);
         collapsed_view.set_vexpand(true);
         collapsed_view.set_hexpand(true);
         collapsed_view.set_visible(false);
+        collapsed_view.add_css_class("panel-collapsed-overlay");
         {
             // Default arrow — updated by toggle_collapsed based on orientation
             let collapsed_icon = gtk4::Image::from_icon_name("go-next-symbolic");
-            collapsed_icon.set_pixel_size(20);
-            collapsed_icon.add_css_class("dim-label");
+            collapsed_icon.set_pixel_size(24);
+            collapsed_icon.set_halign(gtk4::Align::Center);
+            collapsed_icon.set_valign(gtk4::Align::Center);
+            collapsed_icon.set_vexpand(true);
+            collapsed_icon.set_hexpand(true);
             collapsed_view.append(&collapsed_icon);
         }
         collapsed_view.set_tooltip_text(Some(&format!("Click to expand: {}", name)));
@@ -565,6 +569,10 @@ impl PanelHost {
         } else {
             paned.allocation().height()
         };
+        tracing::debug!(
+            "collapse_in_paned: panel={}, orient={:?}, is_start={}, total={}",
+            self.panel_id, orient, is_start, total
+        );
 
         // Check if sibling is collapsed and remember it
         let sibling = if is_start { paned.end_child() } else { paned.start_child() };
@@ -620,6 +628,7 @@ impl PanelHost {
     /// Toggle collapsed state from button click. Returns true if now collapsed.
     pub fn toggle_collapsed(&self) -> bool {
         use gtk4::prelude::*;
+        tracing::debug!("toggle_collapsed: panel={}, is_collapsed={}", self.panel_id, self.is_collapsed());
 
         // Find first parent Paned (for expand) and all ancestors (for collapse popup)
         let mut widget = self.outer.parent();
@@ -751,10 +760,10 @@ impl PanelHost {
                     sib_flag.set(false);
                     if s {
                         p.set_shrink_start_child(true);
-                        p.set_position(44);
+                        p.set_position(COLLAPSE_SIZE);
                     } else {
                         p.set_shrink_end_child(true);
-                        p.set_position(total - 44);
+                        p.set_position(total - COLLAPSE_SIZE);
                     }
                     container.set_visible(false);
                     footer.set_visible(false);
