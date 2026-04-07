@@ -683,7 +683,11 @@ impl PanelHost {
                     }
                 }
             } else {
-                // Normal expand — always restore to 50% for reliability
+                // Normal expand — always restore to 50%
+                tracing::debug!(
+                    "toggle_collapsed EXPAND: panel={}, orient={:?}, is_start={}, total={}, setting pos={}",
+                    self.panel_id, orient, is_start, total, total / 2
+                );
                 paned.set_position(total / 2);
             }
 

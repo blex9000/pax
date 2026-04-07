@@ -699,6 +699,8 @@ fn wrap_layout_for_collapse(child: gtk4::Widget) -> gtk4::Widget {
                 content_ref.set_visible(true);
                 cv_ref.set_visible(false);
                 wrapper_ref.set_size_request(-1, -1);
+                // Reset any collapsed PanelHosts inside the nested layout
+                reset_collapsed_children(&content_ref);
                 // Find parent Paned and set position to 50%
                 if let Some(parent) = wrapper_ref.parent() {
                     if let Some(paned) = parent.downcast_ref::<gtk4::Paned>() {
@@ -719,6 +721,34 @@ fn wrap_layout_for_collapse(child: gtk4::Widget) -> gtk4::Widget {
     }
 
     wrapper.upcast()
+}
+
+/// Reset any collapsed PanelHosts inside a widget subtree.
+/// Called when a wrapper is expanded to clear inner collapsed states.
+fn reset_collapsed_children(widget: &gtk4::Widget) {
+    // PanelHost outer boxes have CSS class "panel-frame" and children:
+    // container (Box) + collapsed_view (Box) + footer_bar (Box)
+    if let Ok(bx) = widget.clone().downcast::<gtk4::Box>() {
+        if bx.has_css_class("panel-frame") {
+            // This looks like a PanelHost outer box — check if collapsed
+            if let Some(container) = bx.first_child() {
+                if !container.is_visible() {
+                    // Collapsed: restore container, hide collapsed_view
+                    container.set_visible(true);
+                    if let Some(cv) = container.next_sibling() {
+                        cv.set_visible(false);
+                    }
+                    bx.set_size_request(-1, -1);
+                }
+            }
+        }
+    }
+    // Recurse into children
+    let mut child = widget.first_child();
+    while let Some(c) = child {
+        reset_collapsed_children(&c);
+        child = c.next_sibling();
+    }
 }
 
 /// If the widget is a collapse wrapper, return its content child. Otherwise return the widget.
@@ -845,26 +875,26 @@ fn setup_paned_drag_collapse(paned: &gtk4::Paned, hosts: &HashMap<String, PanelH
         let start_size = pos;
         let end_size = total - pos;
 
-        // Enforce snap target (active after drag-expand, cleared when user moves beyond it)
+        // Enforce snap target (active briefly after drag-expand)
         let snap = snap_target.get();
-        if snap > 0 {
-            // Start was expanded — force position >= snap
-            if pos < snap {
+        if snap != 0 {
+            // If both sides are now expanded (e.g. click-expand happened),
+            // clear snap immediately
+            let sc = start.as_ref().map_or(false, |t| t.is_collapsed());
+            let ec = end.as_ref().map_or(false, |t| t.is_collapsed());
+            if !sc && !ec {
+                snap_target.set(0);
+            } else if snap > 0 && pos < snap {
                 paned.set_position(snap);
                 guard.set(false);
                 return;
-            }
-            // User dragged past snap point — done snapping
-            snap_target.set(0);
-        } else if snap < 0 {
-            // End was expanded — force position <= |snap|
-            let max_pos = -snap;
-            if pos > max_pos {
-                paned.set_position(max_pos);
+            } else if snap < 0 && pos > -snap {
+                paned.set_position(-snap);
                 guard.set(false);
                 return;
+            } else {
+                snap_target.set(0);
             }
-            snap_target.set(0);
         }
 
         // Clamp: don't allow either side below COLLAPSE_SIZE
