@@ -732,12 +732,8 @@ fn setup_paned_drag_collapse(paned: &gtk4::Paned, hosts: &HashMap<String, PanelH
         if let Some(ref t) = start {
             if start_size <= threshold && !t.is_collapsed() {
                 do_collapse(t, true);
-                // Lock: GTK won't allow resize below COLLAPSE_SIZE now
-                paned.set_shrink_start_child(false);
             } else if start_size > threshold && t.is_collapsed() {
                 do_expand(t);
-                // Unlock: allow resize again
-                paned.set_shrink_start_child(true);
             }
         }
 
@@ -745,10 +741,8 @@ fn setup_paned_drag_collapse(paned: &gtk4::Paned, hosts: &HashMap<String, PanelH
         if let Some(ref t) = end {
             if end_size <= threshold && !t.is_collapsed() {
                 do_collapse(t, false);
-                paned.set_shrink_end_child(false);
             } else if end_size > threshold && t.is_collapsed() {
                 do_expand(t);
-                paned.set_shrink_end_child(true);
             }
         }
 
