@@ -58,6 +58,8 @@ pub enum PanelAction {
     Rename(String),
     /// Rename only the tab label (for layout tabs), not the child panels
     RenameTab(String),
+    /// Reset panel to type chooser
+    Reset,
     /// Collapse/expand panel to icon
     Collapse,
     /// Focus this panel
@@ -707,6 +709,7 @@ fn build_panel_menu(panel_id: &str, action_cb: Option<PanelActionCallback>) -> g
         ("Split Horizontal", "New panel below", PanelAction::SplitH),
         ("Split Vertical", "New panel to the right", PanelAction::SplitV),
         ("Add Tab", "New panel as tab", PanelAction::AddTab),
+        ("Reset Panel", "Reset to type chooser", PanelAction::Reset),
         ("Close Panel", "Close this panel", PanelAction::Close),
     ];
 
@@ -724,6 +727,7 @@ fn build_panel_menu(panel_id: &str, action_cb: Option<PanelActionCallback>) -> g
             PanelAction::SplitH => "view-dual-symbolic",
             PanelAction::SplitV => "view-dual-symbolic",
             PanelAction::AddTab => "tab-new-symbolic",
+            PanelAction::Reset => "edit-clear-symbolic",
             PanelAction::Close => "window-close-symbolic",
             PanelAction::AddTabToNotebook => "tab-new-symbolic",
             PanelAction::RemoveTab => "window-close-symbolic",
@@ -745,6 +749,7 @@ fn build_panel_menu(panel_id: &str, action_cb: Option<PanelActionCallback>) -> g
             PanelAction::SplitH => "Ctrl+Shift+H",
             PanelAction::SplitV => "Ctrl+Shift+J",
             PanelAction::AddTab => "Ctrl+Shift+T",
+            PanelAction::Reset => "",
             PanelAction::Close => "Ctrl+Shift+W",
             PanelAction::AddTabToNotebook => "",
             PanelAction::RemoveTab => "",

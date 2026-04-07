@@ -328,6 +328,21 @@ impl WorkspaceView {
         }
     }
 
+    /// Reset a panel back to the type chooser (empty state).
+    pub fn reset_panel(&mut self, panel_id: &str) {
+        let backend = self.create_chooser_backend(panel_id);
+        if let Some(host) = self.hosts.get(panel_id) {
+            host.set_backend(backend);
+            host.set_title("New Panel");
+            host.set_type_icon("chooser");
+        }
+        if let Some(panel_cfg) = self.workspace.panels.iter_mut().find(|p| p.id == panel_id) {
+            panel_cfg.panel_type = PanelType::Empty;
+            panel_cfg.name = "New Panel".to_string();
+        }
+        self.dirty = true;
+    }
+
     /// Change a panel's type. Swaps the backend in the existing PanelHost.
     /// Returns true if the panel needs immediate configuration (markdown, code_editor).
     pub fn set_panel_type(&mut self, panel_id: &str, type_id: &str) -> bool {

@@ -351,6 +351,10 @@ fn setup_workspace_ui(
                         sb_for_cb.borrow().set_message(&format!("TabSplit → {}", new_id));
                     }
                 }
+                PanelAction::Reset => {
+                    ws_for_cb.borrow_mut().reset_panel(panel_id);
+                    sb_for_cb.borrow().set_message("Panel reset");
+                }
                 PanelAction::Close => {
                     if ws_for_cb.borrow_mut().close_focused() {
                         if let Some(id) = ws_for_cb.borrow().focused_panel_id() {
