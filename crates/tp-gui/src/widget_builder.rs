@@ -669,9 +669,12 @@ fn find_collapse_target(child: &Option<gtk4::Widget>, hosts: &HashMap<String, Pa
     })
 }
 
+/// Minimum margin above title bar height for collapse threshold.
+const COLLAPSE_THRESHOLD_MARGIN: i32 = 10;
+
 /// Monitor Paned drag to auto-collapse when dragged to threshold and auto-expand when dragged away.
 fn setup_paned_drag_collapse(paned: &gtk4::Paned, hosts: &HashMap<String, PanelHost>) {
-    let threshold = COLLAPSE_SIZE + 8; // slightly above collapse size for drag detection
+    // Threshold computed dynamically inside handler from actual title bar height
 
     let start = find_collapse_target(&paned.start_child(), hosts);
     let end = find_collapse_target(&paned.end_child(), hosts);
@@ -700,6 +703,24 @@ fn setup_paned_drag_collapse(paned: &gtk4::Paned, hosts: &HashMap<String, PanelH
         let pos = paned.position();
         let start_size = pos;
         let end_size = total - pos;
+
+        // Compute threshold from actual title bar height of the largest target.
+        // Title bar = first child of content (which is the PanelHost container).
+        // For wrappers, use COLLAPSE_SIZE as fallback.
+        let compute_threshold = |target: &DragCollapseTarget| -> i32 {
+            // content is the PanelHost container — its first child is the title_bar
+            if let Some(title_bar) = target.content.first_child() {
+                let h = title_bar.allocation().height();
+                if h > 0 {
+                    return h + COLLAPSE_THRESHOLD_MARGIN;
+                }
+            }
+            COLLAPSE_SIZE + COLLAPSE_THRESHOLD_MARGIN
+        };
+        let threshold = std::cmp::max(
+            start.as_ref().map_or(COLLAPSE_SIZE, compute_threshold),
+            end.as_ref().map_or(COLLAPSE_SIZE, compute_threshold),
+        );
 
         // Helper: collapse a target
         let do_collapse = |target: &DragCollapseTarget, is_start: bool| {
