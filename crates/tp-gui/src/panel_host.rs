@@ -339,7 +339,7 @@ impl PanelHost {
         }
         outer.add_css_class("panel-frame");
         outer.set_widget_name(panel_id);
-        outer.set_size_request(80, 60);
+        outer.set_size_request(COLLAPSE_SIZE, COLLAPSE_SIZE);
 
         // Click anywhere in the panel → focus it
         {

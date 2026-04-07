@@ -452,10 +452,10 @@ fn build_paned(
         let c2_fixed = subtree_has_min_size(&children[1], panels);
         paned.set_start_child(Some(&w1));
         paned.set_end_child(Some(&w2));
-        paned.set_shrink_start_child(!c1_fixed);
-        paned.set_shrink_end_child(!c2_fixed);
-        paned.set_resize_start_child(!c1_fixed || !c2_fixed);
-        paned.set_resize_end_child(!c2_fixed || !c1_fixed);
+        paned.set_shrink_start_child(true);
+        paned.set_shrink_end_child(true);
+        paned.set_resize_start_child(true);
+        paned.set_resize_end_child(true);
         setup_paned_ratio(&paned, normalized[0], orientation);
         setup_paned_drag_collapse(&paned, hosts);
         return paned.upcast::<gtk4::Widget>();
@@ -469,8 +469,8 @@ fn build_paned(
     let rest_fixed = rest_nodes.iter().any(|n| subtree_has_min_size(n, panels));
     paned.set_start_child(Some(&w1));
     paned.set_end_child(Some(&rest));
-    paned.set_shrink_start_child(!c1_fixed);
-    paned.set_shrink_end_child(!rest_fixed);
+    paned.set_shrink_start_child(true);
+    paned.set_shrink_end_child(true);
     paned.set_resize_start_child(true);
     paned.set_resize_end_child(true);
     setup_paned_ratio(&paned, normalized[0], orientation);
@@ -505,6 +505,7 @@ fn wrap_layout_for_collapse(child: gtk4::Widget) -> gtk4::Widget {
     wrapper.add_css_class(COLLAPSE_WRAPPER_CLASS);
     wrapper.set_vexpand(true);
     wrapper.set_hexpand(true);
+    wrapper.set_size_request(COLLAPSE_SIZE, COLLAPSE_SIZE);
     wrapper.append(&child);
 
     let collapsed_view = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
@@ -741,8 +742,12 @@ fn setup_paned_drag_collapse(paned: &gtk4::Paned, hosts: &HashMap<String, PanelH
         if let Some(ref t) = start {
             if start_size <= threshold && !t.is_collapsed() {
                 do_collapse(t, true);
+                // Lock: GTK won't allow resize below COLLAPSE_SIZE now
+                paned.set_shrink_start_child(false);
             } else if start_size > threshold && t.is_collapsed() {
                 do_expand(t);
+                // Unlock: allow resize again
+                paned.set_shrink_start_child(true);
             }
         }
 
@@ -750,8 +755,10 @@ fn setup_paned_drag_collapse(paned: &gtk4::Paned, hosts: &HashMap<String, PanelH
         if let Some(ref t) = end {
             if end_size <= threshold && !t.is_collapsed() {
                 do_collapse(t, false);
+                paned.set_shrink_end_child(false);
             } else if end_size > threshold && t.is_collapsed() {
                 do_expand(t);
+                paned.set_shrink_end_child(true);
             }
         }
 
