@@ -690,6 +690,33 @@ fn setup_paned_drag_collapse(paned: &gtk4::Paned, hosts: &HashMap<String, PanelH
 
     if start.is_none() && end.is_none() { return; }
 
+    // On drag release: snap collapsed panels to COLLAPSE_SIZE.
+    // Safe here because the drag gesture is finished — no loop risk.
+    {
+        let start_ref = start.clone();
+        let end_ref = end.clone();
+        let p = paned.clone();
+        let gesture = gtk4::GestureDrag::new();
+        gesture.connect_drag_end(move |_, _, _| {
+            let total = if orient == gtk4::Orientation::Horizontal {
+                p.allocation().width()
+            } else {
+                p.allocation().height()
+            };
+            if total <= 0 { return; }
+            let pos = p.position();
+            let start_collapsed = start_ref.as_ref().map_or(false, |t| t.is_collapsed());
+            let end_collapsed = end_ref.as_ref().map_or(false, |t| t.is_collapsed());
+            if start_collapsed && pos < COLLAPSE_SIZE {
+                p.set_position(COLLAPSE_SIZE);
+            }
+            if end_collapsed && (total - pos) < COLLAPSE_SIZE {
+                p.set_position(total - COLLAPSE_SIZE);
+            }
+        });
+        paned.add_controller(gesture);
+    }
+
     let guard = std::rc::Rc::new(std::cell::Cell::new(false));
 
     // The guard prevents re-entrant calls within the same stack frame.
