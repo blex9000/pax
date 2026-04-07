@@ -784,6 +784,9 @@ fn setup_paned_drag_collapse(paned: &gtk4::Paned, hosts: &HashMap<String, PanelH
     let guard = std::rc::Rc::new(std::cell::Cell::new(false));
     // Saved position before collapse — restored on expand
     let saved_pos = std::rc::Rc::new(std::cell::Cell::new(0i32));
+    // Snap target: when > 0, clamp position toward this value until drag ends
+    // Positive = clamp start (pos >= snap), Negative = clamp end (pos <= -snap)
+    let snap_target = std::rc::Rc::new(std::cell::Cell::new(0i32));
 
     paned.connect_notify_local(Some("position"), move |paned, _| {
         if guard.get() { return; }
@@ -799,6 +802,28 @@ fn setup_paned_drag_collapse(paned: &gtk4::Paned, hosts: &HashMap<String, PanelH
         let pos = paned.position();
         let start_size = pos;
         let end_size = total - pos;
+
+        // Enforce snap target (active after drag-expand, cleared when user moves beyond it)
+        let snap = snap_target.get();
+        if snap > 0 {
+            // Start was expanded — force position >= snap
+            if pos < snap {
+                paned.set_position(snap);
+                guard.set(false);
+                return;
+            }
+            // User dragged past snap point — done snapping
+            snap_target.set(0);
+        } else if snap < 0 {
+            // End was expanded — force position <= |snap|
+            let max_pos = -snap;
+            if pos > max_pos {
+                paned.set_position(max_pos);
+                guard.set(false);
+                return;
+            }
+            snap_target.set(0);
+        }
 
         // Clamp: don't allow either side below COLLAPSE_SIZE
         if start_size < COLLAPSE_SIZE && start.is_some() {
@@ -854,30 +879,30 @@ fn setup_paned_drag_collapse(paned: &gtk4::Paned, hosts: &HashMap<String, PanelH
         // Auto-collapse/expand start child
         if let Some(ref t) = start {
             if start_size <= threshold && !t.is_collapsed() {
-                tracing::debug!("drag-collapse: start, orient={:?}, size={}", orient, start_size);
                 do_collapse(t, true);
             } else if start_size > threshold && t.is_collapsed() {
-                tracing::debug!("drag-expand: start, orient={:?}, size={}", orient, start_size);
                 do_expand(t, true);
-                // Restore to saved position (or 50%) after drag ends
-                let restore = saved_pos.get().max(total / 2);
-                let p = paned.clone();
-                gtk4::glib::idle_add_local_once(move || { p.set_position(restore); });
+                // Snap: force position to saved/50% — clamp stays active until user drags past it
+                let restore = if saved_pos.get() > threshold { saved_pos.get() } else { total / 2 };
+                snap_target.set(restore);
+                paned.set_position(restore);
             }
         }
 
         // Auto-collapse/expand end child
         if let Some(ref t) = end {
             if end_size <= threshold && !t.is_collapsed() {
-                tracing::debug!("drag-collapse: end, orient={:?}, size={}", orient, end_size);
                 do_collapse(t, false);
             } else if end_size > threshold && t.is_collapsed() {
-                tracing::debug!("drag-expand: end, orient={:?}, size={}", orient, end_size);
                 do_expand(t, false);
-                // Restore to saved position (or 50%) after drag ends
-                let restore = saved_pos.get().min(total / 2);
-                let p = paned.clone();
-                gtk4::glib::idle_add_local_once(move || { p.set_position(restore); });
+                // Snap: force position to saved/50% — negative means end-expand
+                let restore = if saved_pos.get() > threshold && saved_pos.get() < total - threshold {
+                    saved_pos.get()
+                } else {
+                    total / 2
+                };
+                snap_target.set(-restore);
+                paned.set_position(restore);
             }
         }
 
