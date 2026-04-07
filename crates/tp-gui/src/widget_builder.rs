@@ -202,7 +202,7 @@ fn setup_notebook_menu_widget(notebook: &gtk4::Notebook, action_cb: Option<Panel
     let action_box = gtk4::Box::new(gtk4::Orientation::Horizontal, 2);
 
     // Collapse button for the tab split
-    let collapse_btn = gtk4::Button::from_icon_name("view-sidebar-symbolic");
+    let collapse_btn = gtk4::Button::from_icon_name(COLLAPSE_MULTI_ICON);
     collapse_btn.add_css_class("flat");
     collapse_btn.add_css_class("panel-action-btn");
     collapse_btn.set_tooltip_text(Some("Collapse tab split"));
@@ -293,8 +293,7 @@ fn setup_notebook_menu_widget(notebook: &gtk4::Notebook, action_cb: Option<Panel
     notebook.set_action_widget(&action_box, gtk4::PackType::End);
     notebook.set_action_widget(&collapse_btn, gtk4::PackType::Start);
 
-    // Set correct initial collapse icon after layout is done.
-    // If no parent Paned exists (root of layout), hide the button.
+    // Hide collapse button if no parent Paned (root of layout).
     {
         let nb = notebook.clone();
         let btn = collapse_btn;
@@ -302,25 +301,13 @@ fn setup_notebook_menu_widget(notebook: &gtk4::Notebook, action_cb: Option<Panel
             let mut widget = nb.parent();
             let mut found = false;
             while let Some(w) = widget {
-                if let Some(paned) = w.downcast_ref::<gtk4::Paned>() {
-                    let orient = paned.orientation();
-                    let is_start = paned.start_child()
-                        .map(|c| nb.is_ancestor(&c) || c.eq(nb.upcast_ref::<gtk4::Widget>()))
-                        .unwrap_or(false);
-                    let icon = match (orient, is_start) {
-                        (gtk4::Orientation::Horizontal, true) => "go-previous-symbolic",
-                        (gtk4::Orientation::Horizontal, false) => "go-next-symbolic",
-                        (_, true) => "go-up-symbolic",
-                        (_, false) => "go-down-symbolic",
-                    };
-                    btn.set_icon_name(icon);
+                if w.downcast_ref::<gtk4::Paned>().is_some() {
                     found = true;
                     break;
                 }
                 widget = w.parent();
             }
             if !found {
-                // No Paned parent — this is the root, can't collapse
                 btn.set_visible(false);
             }
         });
@@ -465,13 +452,8 @@ pub fn build_layout_widget_inner(
                 let label = build_tab_label(&label_text, panel_type_id, action_cb, &child_widget);
                 notebook.append_page(&child_widget, Some(&label));
 
-                if let LayoutNode::Panel { id } = child {
-                    if let Some(host) = hosts.get(id) {
-                        host.set_title_visible(false);
-                        // Hide panel-level collapse — tab split has its own
-                        host.collapse_button.set_visible(false);
-                    }
-                }
+                // Panels inside tabs keep their title bar visible
+                // (includes collapse button at top-left)
             }
 
             // Click on notebook tab area when collapsed → expand + update icon
