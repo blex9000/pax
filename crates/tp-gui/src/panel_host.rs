@@ -3,8 +3,37 @@ use gtk4::glib;
 use std::cell::RefCell;
 use std::rc::Rc;
 
-/// Minimum size in pixels for a collapsed panel.
+/// Minimum size in pixels for a collapsed panel overlay.
 pub const COLLAPSE_SIZE: i32 = 44;
+
+// ── KNOWN LIMITATIONS: Drag Collapse/Expand ──────────────────────────────
+//
+// The drag-collapse system (setup_paned_drag_collapse in widget_builder.rs)
+// monitors Paned position changes and toggles panel visibility at a threshold.
+//
+// CONSTRAINT: No set_position() inside the position notify handler.
+//   Calling set_position() triggers another notify, which fights with GTK's
+//   drag gesture causing an infinite loop that freezes the UI.
+//   Attempted and reverted: clamp logic, snap_target, saved_pos restore.
+//
+// CONSTRAINT: No set_shrink toggling between collapse/expand.
+//   Setting shrink=false after collapse prevents resize below COLLAPSE_SIZE
+//   (good), but if expand happens via click instead of drag, the shrink=false
+//   persists and blocks ALL future resize on that side.
+//   Attempted and reverted: shrink=false on collapse, shrink=true on expand.
+//
+// CURRENT BEHAVIOR:
+//   - Panels collapse when dragged to threshold (COLLAPSE_SIZE + 8 = 52px)
+//   - Panels expand when dragged above threshold from collapsed state
+//   - User CAN drag below COLLAPSE_SIZE after collapse (cosmetic only —
+//     overlay may get squished but no functional issue)
+//   - Click on collapsed overlay expands to 50% via expand_collapsed()
+//
+// POTENTIAL IMPROVEMENT:
+//   To prevent resize below COLLAPSE_SIZE without the above issues, would need
+//   a GTK-native approach like a custom Paned widget or a drag gesture that
+//   intercepts motion events before GTK's built-in handler.
+// ─────────────────────────────────────────────────────────────────────────
 
 use crate::panels::PanelBackend;
 

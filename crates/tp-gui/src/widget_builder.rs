@@ -669,7 +669,13 @@ fn find_collapse_target(child: &Option<gtk4::Widget>, hosts: &HashMap<String, Pa
     })
 }
 
-/// Monitor Paned drag to auto-collapse when dragged to threshold and auto-expand when dragged away.
+/// Monitor Paned drag to auto-collapse/expand at threshold.
+///
+/// IMPORTANT: This handler must NEVER call set_position() or toggle set_shrink_*_child().
+/// See panel_host.rs header comment for full explanation of constraints.
+///
+/// The handler only toggles visibility (set_visible) and size requests (set_size_request).
+/// These do not trigger position notify loops or block future resize.
 fn setup_paned_drag_collapse(paned: &gtk4::Paned, hosts: &HashMap<String, PanelHost>) {
     let threshold = COLLAPSE_SIZE + 8; // slightly above collapse size for drag detection
 
@@ -686,6 +692,9 @@ fn setup_paned_drag_collapse(paned: &gtk4::Paned, hosts: &HashMap<String, PanelH
 
     let guard = std::rc::Rc::new(std::cell::Cell::new(false));
 
+    // The guard prevents re-entrant calls within the same stack frame.
+    // GTK may fire position notify synchronously from set_size_request,
+    // so guard is essential to avoid infinite recursion.
     paned.connect_notify_local(Some("position"), move |paned, _| {
         if guard.get() { return; }
         guard.set(true);
