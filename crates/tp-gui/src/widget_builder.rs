@@ -917,35 +917,31 @@ fn setup_paned_drag_collapse(paned: &gtk4::Paned, hosts: &HashMap<String, PanelH
             if let Some(ref btn) = target.collapse_btn { btn.set_icon_name(icon); }
         };
 
+        // Saved position, validated — fall back to 50% if never set or out of range
+        let valid_saved = {
+            let s = saved_pos.get();
+            if s > threshold && s < total - threshold { s } else { total / 2 }
+        };
+
         // Auto-collapse/expand start child
         if let Some(ref t) = start {
             if start_size <= threshold && !t.is_collapsed() {
-                let pre = saved_pos.get().max(total / 2);
-                do_collapse(t, true, pre);
+                do_collapse(t, true, valid_saved);
             } else if start_size > threshold && t.is_collapsed() {
                 do_expand(t, true);
-                // Snap: force position to saved/50% — clamp stays active until user drags past it
-                let restore = if saved_pos.get() > threshold { saved_pos.get() } else { total / 2 };
-                snap_target.set(restore);
-                paned.set_position(restore);
+                snap_target.set(valid_saved);
+                paned.set_position(valid_saved);
             }
         }
 
         // Auto-collapse/expand end child
         if let Some(ref t) = end {
             if end_size <= threshold && !t.is_collapsed() {
-                let pre = total - saved_pos.get().min(total / 2);
-                do_collapse(t, false, pre);
+                do_collapse(t, false, total - valid_saved);
             } else if end_size > threshold && t.is_collapsed() {
                 do_expand(t, false);
-                // Snap: force position to saved/50% — negative means end-expand
-                let restore = if saved_pos.get() > threshold && saved_pos.get() < total - threshold {
-                    saved_pos.get()
-                } else {
-                    total / 2
-                };
-                snap_target.set(-restore);
-                paned.set_position(restore);
+                snap_target.set(-valid_saved);
+                paned.set_position(valid_saved);
             }
         }
 
