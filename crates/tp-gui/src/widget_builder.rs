@@ -199,77 +199,7 @@ fn find_tab_labels_for_notebook(node: &LayoutNode, n_pages: u32) -> Option<Vec<S
 }
 
 fn setup_notebook_menu_widget(notebook: &gtk4::Notebook, action_cb: Option<PanelActionCallback>) {
-    let action_box = gtk4::Box::new(gtk4::Orientation::Horizontal, 2);
-
-    // Collapse button for the tab split
-    let collapse_btn = gtk4::Button::from_icon_name(COLLAPSE_MULTI_ICON);
-    collapse_btn.add_css_class("flat");
-    collapse_btn.add_css_class("panel-action-btn");
-    collapse_btn.set_tooltip_text(Some("Collapse tab split"));
-    collapse_btn.set_margin_start(2);
-    collapse_btn.set_margin_end(2);
-    let saved_pos = std::rc::Rc::new(std::cell::Cell::new(0i32));
-    {
-        let nb = notebook.clone();
-        let sp = saved_pos;
-        collapse_btn.connect_clicked(move |btn| {
-            let mut widget = nb.parent();
-            while let Some(w) = widget {
-                if let Some(paned) = w.downcast_ref::<gtk4::Paned>() {
-                    let orient = paned.orientation();
-                    let total = if orient == gtk4::Orientation::Horizontal {
-                        paned.allocation().width()
-                    } else {
-                        paned.allocation().height()
-                    };
-                    let is_start = paned.start_child()
-                        .map(|c| nb.is_ancestor(&c) || c.eq(nb.upcast_ref::<gtk4::Widget>()))
-                        .unwrap_or(false);
-                    let my_size = if is_start { paned.position() } else { total - paned.position() };
-
-                    if my_size <= 60 {
-                        let saved = sp.get();
-                        if is_start {
-                            paned.set_position(if saved > 60 { saved } else { total * 2 / 5 });
-                        } else {
-                            paned.set_position(if saved > 60 { total - saved } else { total * 3 / 5 });
-                        }
-                        let icon = match (orient, is_start) {
-                            (gtk4::Orientation::Horizontal, true) => "go-previous-symbolic",
-                            (gtk4::Orientation::Horizontal, false) => "go-next-symbolic",
-                            (_, true) => "go-up-symbolic",
-                            (_, false) => "go-down-symbolic",
-                        };
-                        btn.set_icon_name(icon);
-                        btn.set_tooltip_text(Some("Collapse tab split"));
-                    } else {
-                        sp.set(my_size);
-                        if is_start {
-                            paned.set_shrink_start_child(true);
-                        } else {
-                            paned.set_shrink_end_child(true);
-                        }
-                        if is_start {
-                            paned.set_position(COLLAPSE_SIZE);
-                        } else {
-                            paned.set_position(total - COLLAPSE_SIZE);
-                        }
-                        let icon = match (orient, is_start) {
-                            (gtk4::Orientation::Horizontal, true) => "go-next-symbolic",
-                            (gtk4::Orientation::Horizontal, false) => "go-previous-symbolic",
-                            (_, true) => "go-down-symbolic",
-                            (_, false) => "go-up-symbolic",
-                        };
-                        btn.set_icon_name(icon);
-                        btn.set_tooltip_text(Some("Expand tab split"));
-                    }
-                    break;
-                }
-                widget = w.parent();
-            }
-        });
-    }
-    // Add tab button
+    // Add tab button only — collapse is handled by drag resize
     let add_btn = gtk4::Button::new();
     add_btn.set_icon_name("tab-new-symbolic");
     add_btn.add_css_class("flat");
@@ -288,30 +218,7 @@ fn setup_notebook_menu_widget(notebook: &gtk4::Notebook, action_cb: Option<Panel
             }
         });
     }
-    action_box.append(&add_btn);
-
-    notebook.set_action_widget(&action_box, gtk4::PackType::End);
-    notebook.set_action_widget(&collapse_btn, gtk4::PackType::Start);
-
-    // Hide collapse button if no parent Paned (root of layout).
-    {
-        let nb = notebook.clone();
-        let btn = collapse_btn;
-        gtk4::glib::idle_add_local_once(move || {
-            let mut widget = nb.parent();
-            let mut found = false;
-            while let Some(w) = widget {
-                if w.downcast_ref::<gtk4::Paned>().is_some() {
-                    found = true;
-                    break;
-                }
-                widget = w.parent();
-            }
-            if !found {
-                btn.set_visible(false);
-            }
-        });
-    }
+    notebook.set_action_widget(&add_btn, gtk4::PackType::End);
 }
 
 pub fn find_panel_id_recursive(widget: &gtk4::Widget, callback: &dyn Fn(&str)) {
@@ -422,9 +329,6 @@ pub fn build_layout_widget_inner(
         LayoutNode::Panel { id } => {
             if let Some(host) = hosts.get(id) {
                 host.set_title_visible(true);
-                // Hide collapse button by default — it gets shown by
-                // update_collapse_icons_for_paned when placed in a split
-                host.collapse_button.set_visible(false);
                 let type_id = get_panel_type_id(node, panels);
                 host.set_type_icon(type_id);
                 host.widget().clone()
@@ -456,21 +360,16 @@ pub fn build_layout_widget_inner(
                 // (includes collapse button at top-left)
             }
 
-            // Click on notebook tab area when collapsed → expand + update icon
+            // Click on notebook tab area when collapsed → expand to 50%
             {
                 let nb = notebook.clone();
                 let gesture = gtk4::GestureClick::new();
                 gesture.set_button(1);
                 gesture.connect_released(move |_, _, _, _| {
-                    // Find the collapse button (action widget on Start side)
-                    let collapse_btn = nb.action_widget(gtk4::PackType::Start)
-                        .and_then(|w| w.downcast::<gtk4::Button>().ok());
-
                     let mut widget = nb.parent();
                     while let Some(w) = widget {
                         if let Some(paned) = w.downcast_ref::<gtk4::Paned>() {
-                            let orient = paned.orientation();
-                            let total = if orient == gtk4::Orientation::Horizontal {
+                            let total = if paned.orientation() == gtk4::Orientation::Horizontal {
                                 paned.allocation().width()
                             } else {
                                 paned.allocation().height()
@@ -480,22 +379,7 @@ pub fn build_layout_widget_inner(
                                 .unwrap_or(false);
                             let my_size = if is_start { paned.position() } else { total - paned.position() };
                             if my_size <= 60 {
-                                if is_start {
-                                    paned.set_position(total * 2 / 5);
-                                } else {
-                                    paned.set_position(total * 3 / 5);
-                                }
-                                // Update collapse button icon to collapse direction
-                                if let Some(ref btn) = collapse_btn {
-                                    let icon = match (orient, is_start) {
-                                        (gtk4::Orientation::Horizontal, true) => "go-previous-symbolic",
-                                        (gtk4::Orientation::Horizontal, false) => "go-next-symbolic",
-                                        (_, true) => "go-up-symbolic",
-                                        (_, false) => "go-down-symbolic",
-                                    };
-                                    btn.set_icon_name(icon);
-                                    btn.set_tooltip_text(Some("Collapse tab split"));
-                                }
+                                paned.set_position(total / 2);
                             }
                             break;
                         }
@@ -573,7 +457,6 @@ fn build_paned(
         paned.set_resize_start_child(!c1_fixed || !c2_fixed);
         paned.set_resize_end_child(!c2_fixed || !c1_fixed);
         setup_paned_ratio(&paned, normalized[0], orientation);
-        update_collapse_icons_for_paned(&paned, hosts, orientation);
         setup_paned_drag_collapse(&paned, hosts);
         return paned.upcast::<gtk4::Widget>();
     }
@@ -591,51 +474,8 @@ fn build_paned(
     paned.set_resize_start_child(true);
     paned.set_resize_end_child(true);
     setup_paned_ratio(&paned, normalized[0], orientation);
-    update_collapse_icons_for_paned(&paned, hosts, orientation);
     setup_paned_drag_collapse(&paned, hosts);
     paned.upcast::<gtk4::Widget>()
-}
-
-/// Set initial collapse button icon direction based on panel position in Paned.
-/// Icon for minimize/collapse button when panel has multiple Paned ancestors (shows popup).
-const COLLAPSE_MULTI_ICON: &str = "window-minimize-symbolic";
-
-fn update_collapse_icons_for_paned(
-    paned: &gtk4::Paned,
-    hosts: &HashMap<String, PanelHost>,
-    orientation: gtk4::Orientation,
-) {
-    // Check if this Paned is nested inside another Paned (panel would have 2+ ancestors)
-    let has_parent_paned = {
-        let mut w = paned.parent();
-        let mut found = false;
-        while let Some(p) = w {
-            if p.downcast_ref::<gtk4::Paned>().is_some() { found = true; break; }
-            w = p.parent();
-        }
-        found
-    };
-
-    let set_icon = |child: Option<gtk4::Widget>, is_start: bool| {
-        if let Some(c) = child {
-            if let Some(host) = find_panel_host_in(&c, hosts) {
-                let icon = if has_parent_paned {
-                    COLLAPSE_MULTI_ICON
-                } else {
-                    match (orientation, is_start) {
-                        (gtk4::Orientation::Horizontal, true) => "go-previous-symbolic",
-                        (gtk4::Orientation::Horizontal, false) => "go-next-symbolic",
-                        (_, true) => "go-up-symbolic",
-                        (_, false) => "go-down-symbolic",
-                    }
-                };
-                host.collapse_button.set_icon_name(icon);
-                host.collapse_button.set_visible(true);
-            }
-        }
-    };
-    set_icon(paned.start_child(), true);
-    set_icon(paned.end_child(), false);
 }
 
 /// Recursively find the first PanelHost inside a widget subtree.

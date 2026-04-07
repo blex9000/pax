@@ -245,14 +245,9 @@ impl PanelHost {
             ssh_indicator.append(&ssh_lbl);
         }
 
-        // Layout: [collapse] | [icon][ssh][title][spacer][sync][zoom][menu]
-        title_bar.append(&collapse_button);
-        let collapse_sep = gtk4::Separator::new(gtk4::Orientation::Vertical);
-        collapse_sep.set_margin_start(2);
-        collapse_sep.set_margin_end(2);
-        collapse_sep.set_margin_top(5);
-        collapse_sep.set_margin_bottom(5);
-        title_bar.append(&collapse_sep);
+        // Layout: [icon][ssh][title][spacer][sync][zoom][menu]
+        // Collapse button hidden — collapse only via drag resize
+        collapse_button.set_visible(false);
         title_bar.append(&type_icon);
         title_bar.append(&ssh_indicator);
         title_bar.append(&title_stack);
