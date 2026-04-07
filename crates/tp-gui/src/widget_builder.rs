@@ -691,9 +691,35 @@ fn setup_paned_drag_collapse(paned: &gtk4::Paned, hosts: &HashMap<String, PanelH
     if start.is_none() && end.is_none() { return; }
 
     let guard = std::rc::Rc::new(std::cell::Cell::new(false));
-    // Pending snap correction scheduled after drag ends (debounced).
-    // When Some, a timeout is pending. The u32 is the source ID.
+    // 0 = no snap needed, 1 = snap start, 2 = snap end
     let snap_pending = std::rc::Rc::new(std::cell::Cell::new(0u32));
+
+    // On mouse button release: snap collapsed panel to COLLAPSE_SIZE.
+    // This fires AFTER the drag gesture ends — safe to call set_position.
+    {
+        let sp = snap_pending.clone();
+        let p = paned.clone();
+        let ctrl = gtk4::EventControllerLegacy::new();
+        ctrl.connect_event(move |_, event| {
+            if event.event_type() == gtk4::gdk::EventType::ButtonRelease {
+                let snap = sp.get();
+                if snap != 0 {
+                    sp.set(0);
+                    let t = if orient == gtk4::Orientation::Horizontal {
+                        p.allocation().width()
+                    } else {
+                        p.allocation().height()
+                    };
+                    if t > 0 {
+                        if snap == 1 { p.set_position(COLLAPSE_SIZE); }
+                        if snap == 2 { p.set_position(t - COLLAPSE_SIZE); }
+                    }
+                }
+            }
+            gtk4::glib::Propagation::Proceed
+        });
+        paned.add_controller(ctrl);
+    }
 
     // The guard prevents re-entrant calls within the same stack frame.
     // GTK may fire position notify synchronously from set_size_request,
@@ -758,28 +784,16 @@ fn setup_paned_drag_collapse(paned: &gtk4::Paned, hosts: &HashMap<String, PanelH
             }
         }
 
-        // Schedule snap correction: if a collapsed panel is below COLLAPSE_SIZE,
-        // fix position after drag ends. Debounced: only fires when position
-        // stops changing (100ms without updates = drag ended).
+        // Track if snap is needed (collapsed panel below COLLAPSE_SIZE).
+        // Actual snap happens on button release (see EventControllerLegacy below).
         let sc = start.as_ref().map_or(false, |t| t.is_collapsed());
         let ec = end.as_ref().map_or(false, |t| t.is_collapsed());
-        if (sc && start_size < COLLAPSE_SIZE) || (ec && end_size < COLLAPSE_SIZE) {
-            let p = paned.clone();
-            let sp = snap_pending.clone();
-            // Increment counter to invalidate previous pending snap
-            let gen = sp.get() + 1;
-            sp.set(gen);
-            let snap_start = sc && start_size < COLLAPSE_SIZE;
-            let snap_end = ec && end_size < COLLAPSE_SIZE;
-            gtk4::glib::timeout_add_local_once(std::time::Duration::from_millis(100), move || {
-                // Only execute if no newer snap was scheduled
-                if sp.get() != gen { return; }
-                sp.set(0);
-                let t = if orient == gtk4::Orientation::Horizontal { p.allocation().width() } else { p.allocation().height() };
-                if t <= 0 { return; }
-                if snap_start { p.set_position(COLLAPSE_SIZE); }
-                if snap_end { p.set_position(t - COLLAPSE_SIZE); }
-            });
+        if sc && start_size < COLLAPSE_SIZE {
+            snap_pending.set(1); // 1 = snap start
+        } else if ec && end_size < COLLAPSE_SIZE {
+            snap_pending.set(2); // 2 = snap end
+        } else {
+            snap_pending.set(0);
         }
 
         guard.set(false);
