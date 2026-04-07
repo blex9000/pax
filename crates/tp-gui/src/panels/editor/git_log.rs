@@ -104,7 +104,10 @@ impl GitLogView {
             });
         }
 
-        view.refresh();
+        // Deferred for remote backends to avoid blocking UI
+        if !view.backend.is_remote() {
+            view.refresh();
+        }
         view
     }
 

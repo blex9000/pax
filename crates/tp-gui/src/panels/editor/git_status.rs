@@ -102,8 +102,10 @@ impl GitStatusView {
             on_git_action,
         };
 
-        // Initial population
-        view.refresh();
+        // Initial population — deferred for remote backends to avoid blocking UI
+        if !view.backend.is_remote() {
+            view.refresh();
+        }
 
         view
     }

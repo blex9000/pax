@@ -591,8 +591,8 @@ impl CodeEditorPanel {
             });
         }
 
-        // Check git status immediately for the button indicator
-        {
+        // Check git status for the button indicator (deferred, skip for remote to avoid blocking)
+        if !backend.is_remote() {
             let git_btn_init = git_btn.clone();
             let be = backend.clone();
             gtk4::glib::idle_add_local_once(move || {

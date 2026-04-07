@@ -362,24 +362,12 @@ impl FileTree {
             backend,
         };
 
-        // Deferred initial load for remote backends — show UI first, load tree later
+        // Remote backends: show placeholder, tree loads on first refresh (file_watcher)
         if is_remote {
-            // Show a "Connecting..." placeholder
             let placeholder = gtk4::Label::new(Some("Connecting to remote host..."));
             placeholder.add_css_class("dim-label");
             placeholder.set_margin_top(16);
             tree.list_box.append(&placeholder);
-
-            // Schedule load after UI is shown — still on main thread but after first paint
-            let entries_ref = tree.entries.clone();
-            let index_ref = tree.file_index.clone();
-            let lb_ref = tree.list_box.clone();
-            let root = tree.root_dir.clone();
-            let be = tree.backend.clone();
-            gtk4::glib::timeout_add_local_once(std::time::Duration::from_millis(500), move || {
-                build_file_entries(&root, &root, &mut entries_ref.borrow_mut(), &mut index_ref.borrow_mut(), 0, &*be);
-                populate_list_box(&lb_ref, &entries_ref.borrow(), &root);
-            });
         }
 
         tree
