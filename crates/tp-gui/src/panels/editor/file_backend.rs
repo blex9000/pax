@@ -181,6 +181,9 @@ pub struct SshFileBackend {
     password: Option<String>,
     identity_file: Option<String>,
     control_path: String,
+    /// True only after first successful SSH command — prevents blocking
+    /// while ControlMaster is still authenticating.
+    verified: std::cell::Cell<bool>,
 }
 
 impl SshFileBackend {
@@ -199,6 +202,7 @@ impl SshFileBackend {
             password: password.map(|s| s.to_string()),
             identity_file: identity_file.filter(|s| !s.is_empty()).map(|s| s.to_string()),
             control_path,
+            verified: std::cell::Cell::new(false),
         };
 
         // Establish the ControlMaster connection in background
@@ -236,7 +240,7 @@ impl SshFileBackend {
 
         cmd.args([
             "-o", "StrictHostKeyChecking=no",
-            "-o", "ConnectTimeout=10",
+            "-o", "ConnectTimeout=3",
             "-o", &format!("ControlPath={}", self.control_path),
             "-o", "ControlMaster=auto",
             "-o", "ControlPersist=300",
@@ -251,13 +255,37 @@ impl SshFileBackend {
         cmd
     }
 
-    /// Check if the ControlMaster socket is ready (non-blocking).
+    /// Check if SSH connection is verified and ready.
+    /// Returns true only after the first successful SSH command.
     fn is_connected(&self) -> bool {
-        std::path::Path::new(&self.control_path).exists()
+        if self.verified.get() {
+            return true;
+        }
+        // Socket must exist first
+        if !std::path::Path::new(&self.control_path).exists() {
+            return false;
+        }
+        // Non-blocking check: ask ControlMaster if it's ready
+        let status = std::process::Command::new("ssh")
+            .args([
+                "-o", &format!("ControlPath={}", self.control_path),
+                "-O", "check",
+                &format!("{}@{}", self.user, self.host),
+            ])
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status();
+        match status {
+            Ok(s) if s.success() => {
+                self.verified.set(true);
+                true
+            }
+            _ => false,
+        }
     }
 
     /// Execute a remote command and return stdout.
-    /// Returns Err immediately if ControlMaster socket doesn't exist yet.
+    /// Returns Err immediately if SSH connection is not verified.
     fn ssh_exec(&self, remote_cmd: &str) -> Result<String, String> {
         if !self.is_connected() {
             return Err("SSH not connected yet".to_string());
@@ -269,6 +297,10 @@ impl SshFileBackend {
             Ok(String::from_utf8_lossy(&output.stdout).to_string())
         } else {
             let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+            // If connection dropped, reset verified flag
+            if stderr.contains("Connection") || stderr.contains("closed") {
+                self.verified.set(false);
+            }
             Err(if stderr.is_empty() { format!("exit {}", output.status) } else { stderr })
         }
     }
