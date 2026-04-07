@@ -850,6 +850,8 @@ fn setup_paned_drag_collapse(paned: &gtk4::Paned, hosts: &HashMap<String, PanelH
             } else if start_size > threshold && t.is_collapsed() {
                 tracing::debug!("drag-expand: start, orient={:?}, size={}", orient, start_size);
                 do_expand(t, true);
+                // Snap to 50% so the panel doesn't stay at threshold size
+                paned.set_position(total / 2);
             }
         }
 
@@ -861,6 +863,8 @@ fn setup_paned_drag_collapse(paned: &gtk4::Paned, hosts: &HashMap<String, PanelH
             } else if end_size > threshold && t.is_collapsed() {
                 tracing::debug!("drag-expand: end, orient={:?}, size={}", orient, end_size);
                 do_expand(t, false);
+                // Snap to 50% so the panel doesn't stay at threshold size
+                paned.set_position(total / 2);
             }
         }
 
