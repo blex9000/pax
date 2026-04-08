@@ -1,4 +1,5 @@
 use anyhow::Result;
+use rusqlite::{params, OptionalExtension};
 
 use crate::Database;
 
@@ -28,6 +29,59 @@ impl Database {
                 config_path = COALESCE(excluded.config_path, workspace_metadata.config_path)",
             rusqlite::params![name, config_path, record_key],
         )?;
+        Ok(())
+    }
+
+    /// Update or promote a workspace record to a persisted config path without
+    /// counting it as a new open. This keeps welcome/recent lists clickable
+    /// after the first save of an unsaved workspace.
+    pub fn sync_workspace_path(&self, name: &str, config_path: &str) -> Result<()> {
+        let record_key = format!("path:{config_path}");
+        let legacy_key = format!("name:{name}");
+
+        let path_count: Option<i64> = self
+            .conn
+            .query_row(
+                "SELECT open_count FROM workspace_metadata WHERE record_key = ?1",
+                [&record_key],
+                |row| row.get(0),
+            )
+            .optional()?;
+
+        let legacy_record: Option<(i64, i64)> = self
+            .conn
+            .query_row(
+                "SELECT id, open_count
+                 FROM workspace_metadata
+                 WHERE record_key = ?1
+                   AND (config_path IS NULL OR trim(config_path) = '')",
+                [&legacy_key],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .optional()?;
+
+        let open_count = path_count
+            .or_else(|| legacy_record.as_ref().map(|(_, count)| *count))
+            .unwrap_or(1);
+
+        self.conn.execute(
+            "INSERT INTO workspace_metadata (name, config_path, record_key, open_count)
+             VALUES (?1, ?2, ?3, ?4)
+             ON CONFLICT(record_key) DO UPDATE SET
+                name = excluded.name,
+                config_path = excluded.config_path,
+                last_opened = datetime('now'),
+                open_count = MAX(workspace_metadata.open_count, excluded.open_count)",
+            params![name, config_path, record_key, open_count],
+        )?;
+
+        if let Some((legacy_id, _)) = legacy_record {
+            self.conn.execute(
+                "DELETE FROM workspace_metadata WHERE id = ?1 AND record_key <> ?2",
+                params![legacy_id, record_key],
+            )?;
+        }
+
         Ok(())
     }
 
@@ -90,5 +144,33 @@ mod tests {
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].open_count, 2);
         assert_eq!(rows[0].name, "dev-renamed");
+    }
+
+    #[test]
+    fn sync_workspace_path_promotes_unsaved_record_without_increment() {
+        let db = Database::open_memory().unwrap();
+
+        db.record_workspace_open("draft", None).unwrap();
+        db.sync_workspace_path("draft", "/tmp/draft.json").unwrap();
+
+        let rows = db.list_workspaces_limit(10).unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].name, "draft");
+        assert_eq!(rows[0].config_path.as_deref(), Some("/tmp/draft.json"));
+        assert_eq!(rows[0].open_count, 1);
+    }
+
+    #[test]
+    fn sync_workspace_path_updates_existing_path_record_name() {
+        let db = Database::open_memory().unwrap();
+
+        db.record_workspace_open("draft", Some("/tmp/draft.json")).unwrap();
+        db.sync_workspace_path("renamed", "/tmp/draft.json").unwrap();
+
+        let rows = db.list_workspaces_limit(10).unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].name, "renamed");
+        assert_eq!(rows[0].config_path.as_deref(), Some("/tmp/draft.json"));
+        assert_eq!(rows[0].open_count, 1);
     }
 }

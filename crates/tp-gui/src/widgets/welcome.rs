@@ -114,8 +114,19 @@ pub fn build_welcome(on_choice: WelcomeCallback) -> gtk4::Widget {
         .ok()
         .and_then(|db| db.list_workspaces_limit(10).ok())
         .unwrap_or_default();
+    let visible_recents: Vec<_> = recents
+        .into_iter()
+        .filter(|record| {
+            record
+                .config_path
+                .as_deref()
+                .map(std::path::Path::new)
+                .map(|path| path.exists())
+                .unwrap_or(false)
+        })
+        .collect();
 
-    if !recents.is_empty() {
+    if !visible_recents.is_empty() {
         let sep = gtk4::Separator::new(gtk4::Orientation::Horizontal);
         sep.set_margin_top(8);
         container.append(&sep);
@@ -129,52 +140,46 @@ pub fn build_welcome(on_choice: WelcomeCallback) -> gtk4::Widget {
         list_box.set_selection_mode(gtk4::SelectionMode::None);
         list_box.add_css_class("boxed-list");
 
-        for record in &recents {
-            if let Some(ref config_path) = record.config_path {
-                let path = std::path::Path::new(config_path);
-                if !path.exists() {
-                    continue;
-                }
+        for record in &visible_recents {
+            let config_path = record.config_path.as_ref().unwrap();
 
-                let row_box = gtk4::Box::new(gtk4::Orientation::Horizontal, 12);
-                row_box.set_margin_top(6);
-                row_box.set_margin_bottom(6);
-                row_box.set_margin_start(8);
-                row_box.set_margin_end(8);
+            let row_box = gtk4::Box::new(gtk4::Orientation::Horizontal, 12);
+            row_box.set_margin_top(6);
+            row_box.set_margin_bottom(6);
+            row_box.set_margin_start(8);
+            row_box.set_margin_end(8);
 
-                let icon = gtk4::Image::from_icon_name("document-open-recent-symbolic");
-                row_box.append(&icon);
+            let icon = gtk4::Image::from_icon_name("document-open-recent-symbolic");
+            row_box.append(&icon);
 
-                let info = gtk4::Box::new(gtk4::Orientation::Vertical, 2);
-                info.set_hexpand(true);
+            let info = gtk4::Box::new(gtk4::Orientation::Vertical, 2);
+            info.set_hexpand(true);
 
-                let name = gtk4::Label::new(Some(&record.name));
-                name.add_css_class("heading");
-                name.set_halign(gtk4::Align::Start);
-                info.append(&name);
+            let name = gtk4::Label::new(Some(&record.name));
+            name.add_css_class("heading");
+            name.set_halign(gtk4::Align::Start);
+            info.append(&name);
 
-                let path_label = gtk4::Label::new(Some(config_path));
-                path_label.add_css_class("dim-label");
-                path_label.add_css_class("caption");
-                path_label.set_halign(gtk4::Align::Start);
-                path_label.set_ellipsize(gtk4::pango::EllipsizeMode::Start);
-                path_label.set_tooltip_text(Some(config_path));
-                info.append(&path_label);
+            let path_label = gtk4::Label::new(Some(config_path));
+            path_label.add_css_class("dim-label");
+            path_label.add_css_class("caption");
+            path_label.set_halign(gtk4::Align::Start);
+            path_label.set_ellipsize(gtk4::pango::EllipsizeMode::Start);
+            path_label.set_tooltip_text(Some(config_path));
+            info.append(&path_label);
 
-                row_box.append(&info);
+            row_box.append(&info);
 
-                // Make the whole row clickable
-                let row = gtk4::ListBoxRow::new();
-                row.set_child(Some(&row_box));
-                row.set_activatable(true);
+            // Make the whole row clickable
+            let row = gtk4::ListBoxRow::new();
+            row.set_child(Some(&row_box));
+            row.set_activatable(true);
 
-                let _cb = on_choice.clone();
-                let cp = config_path.clone();
-                // We'll use ListBox row-activated signal instead
-                row_box.set_widget_name(&cp);
+            let cp = config_path.clone();
+            // We'll use ListBox row-activated signal instead
+            row_box.set_widget_name(&cp);
 
-                list_box.append(&row);
-            }
+            list_box.append(&row);
         }
 
         // Connect row activation

@@ -937,6 +937,7 @@ impl WorkspaceView {
                 tracing::debug!("  {} before_close: {:?}", p.id, &bc[..bc.len().min(80)]);
             }
         }
+        self.sync_saved_workspace_record(&path);
         self.dirty = false;
         Ok(path)
     }
@@ -947,6 +948,7 @@ impl WorkspaceView {
         pax_core::config::save_workspace(&self.workspace, path)
             .map_err(|e| format!("Save failed: {}", e))?;
         self.config_path = Some(path.to_path_buf());
+        self.sync_saved_workspace_record(path);
         self.dirty = false;
         Ok(())
     }
@@ -956,6 +958,14 @@ impl WorkspaceView {
         if let Ok(db) = pax_db::Database::open(&db_path) {
             let config_str = self.config_path.as_ref().map(|p| p.to_string_lossy().to_string());
             db.record_workspace_open(&self.workspace.name, config_str.as_deref()).ok();
+        }
+    }
+
+    fn sync_saved_workspace_record(&self, path: &Path) {
+        let db_path = pax_db::Database::default_path();
+        if let Ok(db) = pax_db::Database::open(&db_path) {
+            let path_str = path.to_string_lossy().to_string();
+            db.sync_workspace_path(&self.workspace.name, &path_str).ok();
         }
     }
 
