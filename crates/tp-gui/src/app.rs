@@ -207,6 +207,7 @@ fn setup_workspace_ui(
     file_section.append(Some("Open Recent…"), Some("app.recent"));
     file_section.append(Some("Save"), Some("app.save"));
     file_section.append(Some("Save As…"), Some("app.save-as"));
+    file_section.append(Some("Auto-save"), Some("app.autosave"));
     menu.append_section(None, &file_section);
     let settings_section = gtk4::gio::Menu::new();
     settings_section.append(Some("Settings…"), Some("app.settings"));
@@ -513,6 +514,9 @@ fn setup_workspace_ui(
         ws_view.borrow_mut().setup_sync_callbacks(sync_cb);
     }
 
+    // Auto-save flag (disabled by default, toggled via menu)
+    let autosave_enabled = std::rc::Rc::new(std::cell::Cell::new(false));
+
     // Register GIO actions
     let action_group = gtk4::gio::SimpleActionGroup::new();
 
@@ -647,6 +651,23 @@ fn setup_workspace_ui(
         let win = window_rc.clone();
         action.connect_activate(move |_, _| {
             show_about_dialog(&win);
+        });
+        action_group.add_action(&action);
+    }
+    {
+        let action = gtk4::gio::SimpleAction::new_stateful(
+            "autosave",
+            None,
+            &false.to_variant(),
+        );
+        let enabled = autosave_enabled.clone();
+        let sb = status_bar.clone();
+        action.connect_activate(move |action, _| {
+            let current = enabled.get();
+            let new_val = !current;
+            enabled.set(new_val);
+            action.set_state(&new_val.to_variant());
+            sb.borrow().set_message(if new_val { "Auto-save enabled" } else { "Auto-save disabled" });
         });
         action_group.add_action(&action);
     }
@@ -851,13 +872,15 @@ fn setup_workspace_ui(
 
     window.add_controller(controller);
 
-    // Auto-save workspace every 30s if dirty and has a config path
+    // Auto-save workspace every 30s if enabled, dirty, and has a config path
     {
         let ws = ws_view.clone();
         let sb = status_bar.clone();
         let win = window_rc.clone();
         let sa = save_action.clone();
+        let enabled = autosave_enabled.clone();
         glib::timeout_add_local(std::time::Duration::from_secs(30), move || {
+            if !enabled.get() { return glib::ControlFlow::Continue; }
             let has_path = ws.borrow().has_config_path();
             let is_dirty = ws.borrow().is_dirty();
             if has_path && is_dirty {
