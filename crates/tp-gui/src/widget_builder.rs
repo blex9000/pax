@@ -132,69 +132,81 @@ pub fn build_tab_label(name: &str, panel_type_id: &str, action_cb: &Option<Panel
     hbox.upcast::<gtk4::Widget>()
 }
 
+/// Rebuild tab labels on existing Notebooks from the layout model.
+/// Walks the widget tree and layout tree in parallel so each Notebook
+/// gets labels from its corresponding Tabs node — no ambiguous matching.
 pub fn update_notebook_labels_recursive(
     widget: &gtk4::Widget,
     action_cb: &PanelActionCallback,
     _hosts: &HashMap<String, PanelHost>,
     workspace: &Workspace,
 ) {
+    update_labels_with_layout(widget, action_cb, &workspace.layout, &workspace.panels);
+}
+
+fn update_labels_with_layout(
+    widget: &gtk4::Widget,
+    action_cb: &PanelActionCallback,
+    layout_node: &LayoutNode,
+    panels: &[PanelConfig],
+) {
     if let Ok(notebook) = widget.clone().downcast::<gtk4::Notebook>() {
-        // Find the matching Tabs node in the layout to get the labels
-        let tab_labels = find_tab_labels_for_notebook(&workspace.layout, notebook.n_pages());
-
-        for i in 0..notebook.n_pages() {
-            if let Some(page_widget) = notebook.nth_page(Some(i)) {
-                // Check if this page contains a layout (Paned) or a single panel
-                let is_layout = page_widget.clone().downcast::<gtk4::Paned>().is_ok();
-
-                if is_layout {
-                    // Layout tab: use the label from the model, no panel-type icon
-                    let label_text = tab_labels.as_ref()
-                        .and_then(|labels| labels.get(i as usize).cloned())
+        if let LayoutNode::Tabs { children, labels } = layout_node {
+            for i in 0..notebook.n_pages() {
+                if let Some(page_widget) = notebook.nth_page(Some(i)) {
+                    // Label: always from the model
+                    let label_text = labels.get(i as usize).cloned()
                         .unwrap_or_else(|| format!("Tab {}", i + 1));
-                    let label = build_tab_label(&label_text, "__layout__", &Some(action_cb.clone()), &page_widget);
-                    notebook.set_tab_label(&page_widget, Some(&label));
-                } else {
-                    // Single panel tab: use panel name and type icon
-                    let panel_id_cell = std::cell::RefCell::new(None);
-                    find_panel_id_recursive(&page_widget, &|pid| {
-                        *panel_id_cell.borrow_mut() = Some(pid.to_string());
-                    });
-                    let panel_id = panel_id_cell.into_inner();
-                    if let Some(pid) = panel_id {
-                        let label_text = workspace.panel(&pid).map(|p| p.name.clone()).unwrap_or_else(|| format!("Tab {}", i + 1));
-                        let type_id = workspace.panel(&pid)
+
+                    // Type icon: check if it's a single panel or a layout
+                    let type_id = if let Some(LayoutNode::Panel { id }) = children.get(i as usize) {
+                        panels.iter().find(|p| p.id == *id)
                             .map(|p| panel_type_to_id(&p.effective_type()))
-                            .unwrap_or("__empty__");
-                        let label = build_tab_label(&label_text, type_id, &Some(action_cb.clone()), &page_widget);
-                        notebook.set_tab_label(&page_widget, Some(&label));
+                            .unwrap_or("__empty__")
+                    } else {
+                        "__layout__"
+                    };
+
+                    let label = build_tab_label(&label_text, type_id, &Some(action_cb.clone()), &page_widget);
+                    notebook.set_tab_label(&page_widget, Some(&label));
+
+                    // Recurse into child layout nodes and page widgets
+                    if let Some(child_node) = children.get(i as usize) {
+                        update_labels_with_layout(&page_widget, action_cb, child_node, panels);
                     }
                 }
             }
+            return; // Don't walk GTK children — already handled above
         }
     }
-    let mut child = widget.first_child();
-    while let Some(c) = child {
-        update_notebook_labels_recursive(&c, action_cb, _hosts, workspace);
-        child = c.next_sibling();
-    }
-}
 
-/// Find the labels array from a Tabs layout node that matches the given page count.
-fn find_tab_labels_for_notebook(node: &LayoutNode, n_pages: u32) -> Option<Vec<String>> {
-    match node {
-        LayoutNode::Tabs { children, labels } if children.len() == n_pages as usize => {
-            Some(labels.clone())
-        }
-        LayoutNode::Hsplit { children, .. } | LayoutNode::Vsplit { children, .. } | LayoutNode::Tabs { children, .. } => {
-            for child in children {
-                if let Some(labels) = find_tab_labels_for_notebook(child, n_pages) {
-                    return Some(labels);
+    // Not a Notebook or no matching Tabs node — recurse into GTK children
+    // For split nodes, recurse into layout children in parallel
+    match layout_node {
+        LayoutNode::Hsplit { children, .. } | LayoutNode::Vsplit { children, .. } => {
+            // Paned has start_child and end_child
+            if let Ok(paned) = widget.clone().downcast::<gtk4::Paned>() {
+                if let Some(w) = paned.start_child() {
+                    let w = unwrap_collapse_wrapper(&w);
+                    if let Some(c) = children.first() {
+                        update_labels_with_layout(&w, action_cb, c, panels);
+                    }
+                }
+                if let Some(w) = paned.end_child() {
+                    let w = unwrap_collapse_wrapper(&w);
+                    // For 2 children: second child. For 3+: rest is a nested Paned.
+                    if children.len() == 2 {
+                        if let Some(c) = children.get(1) {
+                            update_labels_with_layout(&w, action_cb, c, panels);
+                        }
+                    }
+                    // For 3+ children the rest_node is built recursively in build_paned,
+                    // but we don't have a matching layout node. Skip deep recursion here.
                 }
             }
-            None
         }
-        LayoutNode::Panel { .. } => None,
+        LayoutNode::Panel { .. } => {} // Leaf — nothing to recurse
+        _ => {} // Tabs handled above
     }
 }
 

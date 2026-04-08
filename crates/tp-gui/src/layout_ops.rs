@@ -368,4 +368,97 @@ mod tests {
         assert!(ids.contains(&"b".to_string()));
         assert!(ids.contains(&"c".to_string()));
     }
+
+    // ── Label preservation tests ──
+
+    fn get_tab_labels(node: &LayoutNode) -> Option<Vec<String>> {
+        if let LayoutNode::Tabs { labels, .. } = node { Some(labels.clone()) } else { None }
+    }
+
+    /// Find first Tabs node in tree and return its labels
+    fn find_tab_labels(node: &LayoutNode) -> Option<Vec<String>> {
+        if let LayoutNode::Tabs { labels, .. } = node { return Some(labels.clone()); }
+        match node {
+            LayoutNode::Hsplit { children, .. } | LayoutNode::Vsplit { children, .. }
+            | LayoutNode::Tabs { children, .. } => {
+                for c in children { if let Some(l) = find_tab_labels(c) { return Some(l); } }
+                None
+            }
+            _ => None,
+        }
+    }
+
+    #[test]
+    fn rename_tab_then_remove_child_preserves_label() {
+        // Tabs [ Vsplit[a, b], c ] with labels ["custom", "tab_c"]
+        let mut layout = tabs(
+            vec![vsplit(vec![panel("a"), panel("b")]), panel("c")],
+            vec!["custom", "tab_c"],
+        );
+        // Rename first tab
+        update_tab_label_in_layout(&mut layout, "a", "renamed");
+        assert_eq!(get_tab_labels(&layout).unwrap()[0], "renamed");
+
+        // Remove panel b (inside the vsplit that is the first tab)
+        let layout = remove_from_layout(&layout, "b");
+
+        // The first tab should still be "renamed"
+        let labels = find_tab_labels(&layout).unwrap();
+        assert_eq!(labels[0], "renamed", "label must survive child removal");
+        assert_eq!(labels[1], "tab_c");
+    }
+
+    #[test]
+    fn rename_tab_then_add_child_preserves_label() {
+        let mut layout = tabs(
+            vec![panel("a"), panel("b")],
+            vec!["custom_a", "custom_b"],
+        );
+        update_tab_label_in_layout(&mut layout, "a", "renamed_a");
+
+        // Add a new tab
+        add_to_existing_tabs(&mut layout, "a", "c", "new_tab");
+
+        let labels = get_tab_labels(&layout).unwrap();
+        assert_eq!(labels[0], "renamed_a", "renamed label must survive add");
+        assert_eq!(labels[1], "custom_b");
+        assert_eq!(labels[2], "new_tab");
+    }
+
+    #[test]
+    fn remove_first_tab_preserves_remaining_labels() {
+        let layout = tabs(
+            vec![panel("a"), panel("b"), panel("c")],
+            vec!["first", "second", "third"],
+        );
+        let result = remove_from_layout(&layout, "a");
+        let labels = get_tab_labels(&result).unwrap();
+        assert_eq!(labels, vec!["second", "third"]);
+    }
+
+    #[test]
+    fn remove_middle_tab_preserves_remaining_labels() {
+        let layout = tabs(
+            vec![panel("a"), panel("b"), panel("c")],
+            vec!["first", "second", "third"],
+        );
+        let result = remove_from_layout(&layout, "b");
+        let labels = get_tab_labels(&result).unwrap();
+        assert_eq!(labels, vec!["first", "third"]);
+    }
+
+    #[test]
+    fn split_inside_tab_preserves_labels() {
+        let mut layout = tabs(
+            vec![panel("a"), panel("b")],
+            vec!["custom_a", "custom_b"],
+        );
+        // Simulate split: replace panel a with Vsplit[a, c]
+        layout = replace_in_layout(&layout, "a", &|_| {
+            vsplit(vec![panel("a"), panel("c")])
+        });
+        let labels = get_tab_labels(&layout).unwrap();
+        assert_eq!(labels[0], "custom_a", "label must survive split");
+        assert_eq!(labels[1], "custom_b");
+    }
 }
