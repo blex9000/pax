@@ -691,8 +691,6 @@ fn setup_paned_drag_collapse(paned: &gtk4::Paned, hosts: &HashMap<String, PanelH
     if start.is_none() && end.is_none() { return; }
 
     let guard = std::rc::Rc::new(std::cell::Cell::new(false));
-    // Generation counter for snap-after-drag. Only the last scheduled idle fires.
-    let snap_gen = std::rc::Rc::new(std::cell::Cell::new(0u32));
 
     // The guard prevents re-entrant calls within the same stack frame.
     // GTK may fire position notify synchronously from set_size_request,
@@ -755,27 +753,6 @@ fn setup_paned_drag_collapse(paned: &gtk4::Paned, hosts: &HashMap<String, PanelH
             } else if end_size > threshold && t.is_collapsed() {
                 do_expand(t);
             }
-        }
-
-        // If a collapsed panel is below COLLAPSE_SIZE, schedule an idle
-        // correction. During drag, the next motion event overrides it.
-        // After drag release, no more motion → set_position sticks.
-        let sc = start.as_ref().map_or(false, |t| t.is_collapsed());
-        let ec = end.as_ref().map_or(false, |t| t.is_collapsed());
-        let need_snap_start = sc && start_size < COLLAPSE_SIZE;
-        let need_snap_end = ec && end_size < COLLAPSE_SIZE;
-        if need_snap_start || need_snap_end {
-            let gen = snap_gen.get().wrapping_add(1);
-            snap_gen.set(gen);
-            let sg = snap_gen.clone();
-            let p = paned.clone();
-            gtk4::glib::idle_add_local_once(move || {
-                if sg.get() != gen { return; } // superseded by newer event
-                let t = if orient == gtk4::Orientation::Horizontal { p.allocation().width() } else { p.allocation().height() };
-                if t <= 0 { return; }
-                if need_snap_start { p.set_position(COLLAPSE_SIZE); }
-                if need_snap_end { p.set_position(t - COLLAPSE_SIZE); }
-            });
         }
 
         guard.set(false);
