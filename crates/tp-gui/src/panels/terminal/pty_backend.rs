@@ -116,6 +116,7 @@ impl TerminalInner {
         let writer = Arc::new(Mutex::new(writer));
         let input_cb: Rc<RefCell<Option<crate::panels::PanelInputCallback>>> =
             Rc::new(RefCell::new(None));
+        install_shell_bootstrap(&writer);
 
         let (ui_tx, ui_rx) = mpsc::channel::<TerminalUiEvent>();
         let window_size = Arc::new(Mutex::new(GridSize::default().window_size()));
@@ -934,6 +935,25 @@ fn measure_cell_metrics<W: IsA<gtk4::Widget>>(widget: &W) -> Option<CellMetrics>
 
 fn terminal_font_description() -> gtk4::pango::FontDescription {
     gtk4::pango::FontDescription::from_string(&terminal_font_spec())
+}
+
+fn install_shell_bootstrap(writer: &Arc<Mutex<Box<dyn Write + Send>>>) {
+    for command in shell_bootstrap_commands() {
+        let mut line = command;
+        line.push('\n');
+        let _ = write_bytes(writer, line.as_bytes());
+    }
+}
+
+fn shell_bootstrap_commands() -> Vec<String> {
+    vec![
+        "export LS_COLORS='di=38;2;85;136;255:ln=36:so=35:pi=33:ex=32:bd=34;46:cd=34;43:su=30;41:sg=30;46:tw=30;42:ow=34;42'".to_string(),
+        "export CLICOLOR=1".to_string(),
+        "export LSCOLORS='ExFxCxDxBxegedabagacad'".to_string(),
+        "if command -v dircolors >/dev/null 2>&1; then eval \"$(dircolors -b 2>/dev/null)\"; fi".to_string(),
+        "if command ls --color=auto . >/dev/null 2>&1; then alias ls='ls --color=auto'; else alias ls='ls -G'; fi".to_string(),
+        "clear".to_string(),
+    ]
 }
 
 fn point_from_coords<T: EventListener>(

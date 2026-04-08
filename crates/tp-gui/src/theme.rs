@@ -1,5 +1,4 @@
 /// Pax theme system — overrides libadwaita named colors via @define-color.
-
 use std::cell::RefCell;
 
 thread_local! {
@@ -71,7 +70,10 @@ pub fn register_sourceview_buffer(buf: &sourceview5::Buffer) {
     let scheme_id = theme.sourceview_scheme();
     let fallback_id = theme.sourceview_scheme_fallback();
     let manager = sourceview5::StyleSchemeManager::default();
-    if let Some(scheme) = manager.scheme(scheme_id).or_else(|| manager.scheme(fallback_id)) {
+    if let Some(scheme) = manager
+        .scheme(scheme_id)
+        .or_else(|| manager.scheme(fallback_id))
+    {
         buf.set_style_scheme(Some(&scheme));
     }
     SV_BUFFERS.with(|cell| {
@@ -91,7 +93,9 @@ fn apply_theme_to_all_buffers(theme: Theme) {
         let scheme_id = theme.sourceview_scheme();
         let fallback_id = theme.sourceview_scheme_fallback();
         let manager = sourceview5::StyleSchemeManager::default();
-        let scheme = manager.scheme(scheme_id).or_else(|| manager.scheme(fallback_id));
+        let scheme = manager
+            .scheme(scheme_id)
+            .or_else(|| manager.scheme(fallback_id));
         for buf in buffers.iter() {
             buf.set_style_scheme(scheme.as_ref());
         }
@@ -187,7 +191,11 @@ impl Theme {
             Theme::System => {
                 // Follow system dark/light preference
                 let style_manager = libadwaita::StyleManager::default();
-                if style_manager.is_dark() { "Adwaita-dark" } else { "Adwaita" }
+                if style_manager.is_dark() {
+                    "Adwaita-dark"
+                } else {
+                    "Adwaita"
+                }
             }
             Theme::CatppuccinMocha => "pax-catppuccin-mocha",
             Theme::CatppuccinLatte => "pax-catppuccin-latte",
@@ -202,7 +210,11 @@ impl Theme {
         match self {
             Theme::System => {
                 let style_manager = libadwaita::StyleManager::default();
-                if style_manager.is_dark() { "Adwaita-dark" } else { "Adwaita" }
+                if style_manager.is_dark() {
+                    "Adwaita-dark"
+                } else {
+                    "Adwaita"
+                }
             }
             Theme::CatppuccinLatte => "Adwaita",
             _ => "Adwaita-dark",
@@ -213,7 +225,7 @@ impl Theme {
     /// System theme returns empty string (no overrides).
     pub fn css_overrides(&self) -> &str {
         match self {
-            Theme::System => "",
+            Theme::System => SYSTEM_CSS,
             Theme::CatppuccinMocha => CATPPUCCIN_MOCHA_CSS,
             Theme::CatppuccinLatte => CATPPUCCIN_LATTE_CSS,
             Theme::Dracula => DRACULA_CSS,
@@ -224,6 +236,12 @@ impl Theme {
 
 /// Minimal CSS — only layout, no colors.
 pub const BASE_CSS: &str = "
+window, .background { background-color: @window_bg_color; color: @window_fg_color; }
+toolbarview, headerbar, headerbar box, headerbar label { background-color: @headerbar_bg_color; color: @headerbar_fg_color; }
+box.panel-title-bar, box.panel-footer-bar, .status-bar, .markdown-toolbar { background-color: alpha(@headerbar_bg_color, 0.94); color: @headerbar_fg_color; }
+popover, popover contents, popover > contents, popover box { background-color: @popover_bg_color; color: @popover_fg_color; }
+popover > arrow, popover arrow { background-color: @popover_bg_color; color: @popover_bg_color; }
+popover menu, popover menuitem, popover modelbutton { background-color: @popover_bg_color; color: @popover_fg_color; }
 box.panel-frame { border: none; border-radius: 0; margin: 0; padding: 0; }
 box.panel-frame > box { margin: 0; padding: 0; }
 box.panel-title-bar { padding: 2px 6px; margin: 0; min-height: 20px; border-bottom: 1px solid alpha(@borders, 0.4); }
@@ -256,6 +274,16 @@ popover > arrow { background-color: @popover_bg_color; }
 popover label, popover button, popover .flat, popover modelbutton { color: @popover_fg_color; }
 popover separator { background-color: @borders; }
 popover modelbutton:hover { background-color: @accent_bg_color; color: @accent_fg_color; }
+";
+
+const SYSTEM_CSS: &str = "\
+@define-color popover_bg_color alpha(@window_bg_color, 0.98);
+@define-color popover_fg_color @window_fg_color;
+@define-color card_bg_color @view_bg_color;
+@define-color card_fg_color @view_fg_color;
+@define-color borders alpha(@window_fg_color, 0.14);
+@define-color headerbar_border_color alpha(@window_fg_color, 0.14);
+@define-color headerbar_backdrop_color @headerbar_bg_color;
 ";
 
 const CATPPUCCIN_MOCHA_CSS: &str = "\

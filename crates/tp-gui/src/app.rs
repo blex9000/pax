@@ -37,21 +37,9 @@ pub fn run_app(workspace: Option<Workspace>, config_path: Option<&Path>) -> Resu
         // Register custom GtkSourceView style schemes
         #[cfg(feature = "sourceview")]
         {
-            let style_paths = [
-                std::path::PathBuf::from("resources/sourceview-styles"),
-                std::env::current_exe()
-                    .ok()
-                    .and_then(|p| p.parent().map(|d| d.join("../resources/sourceview-styles")))
-                    .unwrap_or_default(),
-                std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-                    .join("../../resources/sourceview-styles"),
-            ];
             let manager = sourceview5::StyleSchemeManager::default();
-            for path in &style_paths {
-                if path.exists() {
-                    manager.append_search_path(&path.to_string_lossy());
-                    break;
-                }
+            for path in sourceview_style_search_paths() {
+                manager.append_search_path(&path.to_string_lossy());
             }
         }
 
@@ -1080,6 +1068,35 @@ fn apply_theme(theme: Theme) {
     THEME_PROVIDER.with(|cell| {
         cell.borrow_mut().replace(provider);
     });
+
+    for widget in gtk4::Window::list_toplevels() {
+        widget.queue_draw();
+    }
+}
+
+#[cfg(feature = "sourceview")]
+fn sourceview_style_search_paths() -> Vec<std::path::PathBuf> {
+    let exe = std::env::current_exe().ok();
+    let candidates = [
+        std::path::PathBuf::from("resources/sourceview-styles"),
+        exe.as_ref()
+            .and_then(|p| p.parent().map(|d| d.join("../Resources/sourceview-styles")))
+            .unwrap_or_default(),
+        exe.as_ref()
+            .and_then(|p| p.parent().map(|d| d.join("../resources/sourceview-styles")))
+            .unwrap_or_default(),
+        std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../resources/sourceview-styles"),
+    ];
+
+    let mut seen = std::collections::HashSet::new();
+    let mut paths = Vec::new();
+    for path in candidates {
+        if path.exists() && seen.insert(path.clone()) {
+            paths.push(path);
+        }
+    }
+    paths
 }
 
 fn show_about_dialog(window: &Rc<adw::ApplicationWindow>) {

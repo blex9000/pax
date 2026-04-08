@@ -43,9 +43,13 @@ impl Clone for Box<dyn CloneablePanelFactory> {
 
 /// Simple factory wrapper for a function pointer.
 #[derive(Clone)]
-pub struct FnFactory<F: Fn(&PanelCreateConfig) -> Box<dyn PanelBackend> + Clone + Send + Sync + 'static>(pub F);
+pub struct FnFactory<
+    F: Fn(&PanelCreateConfig) -> Box<dyn PanelBackend> + Clone + Send + Sync + 'static,
+>(pub F);
 
-impl<F: Fn(&PanelCreateConfig) -> Box<dyn PanelBackend> + Clone + Send + Sync + 'static> CloneablePanelFactory for FnFactory<F> {
+impl<F: Fn(&PanelCreateConfig) -> Box<dyn PanelBackend> + Clone + Send + Sync + 'static>
+    CloneablePanelFactory for FnFactory<F>
+{
     fn create(&self, config: &PanelCreateConfig) -> Box<dyn PanelBackend> {
         (self.0)(config)
     }
@@ -94,7 +98,11 @@ impl PanelRegistry {
     }
 
     /// Create a panel by type ID.
-    pub fn create(&self, type_id: &str, config: &PanelCreateConfig) -> Option<Box<dyn PanelBackend>> {
+    pub fn create(
+        &self,
+        type_id: &str,
+        config: &PanelCreateConfig,
+    ) -> Option<Box<dyn PanelBackend>> {
         self.types
             .iter()
             .find(|t| t.id == type_id)
@@ -119,7 +127,15 @@ pub fn build_default_registry() -> PanelRegistry {
         "utilities-terminal-symbolic",
         true,
         |config| {
-            let shell = if config.shell.is_empty() { "/bin/bash" } else { &config.shell };
+            let default_shell = std::env::var("SHELL")
+                .ok()
+                .filter(|value| !value.trim().is_empty())
+                .unwrap_or_else(|| "/bin/bash".to_string());
+            let shell = if config.shell.is_empty() {
+                default_shell.as_str()
+            } else {
+                &config.shell
+            };
             let ws_dir = config.extra.get("__workspace_dir__").map(|s| s.as_str());
             // Add SSHPASS to env if password configured (never visible in terminal)
             let mut env = config.env.clone();
@@ -212,7 +228,11 @@ pub fn build_default_registry() -> PanelRegistry {
         "text-x-generic-symbolic",
         false,
         |config| {
-            let file = config.extra.get("file").map(|s| s.as_str()).unwrap_or("README.md");
+            let file = config
+                .extra
+                .get("file")
+                .map(|s| s.as_str())
+                .unwrap_or("README.md");
             Box::new(super::markdown::MarkdownPanel::new(file))
         },
     );
@@ -225,8 +245,15 @@ pub fn build_default_registry() -> PanelRegistry {
         "web-browser-symbolic",
         false,
         |config| {
-            let url = config.extra.get("url").map(|s| s.as_str()).unwrap_or("about:blank");
-            let content = format!("# Browser\n\nURL: {}\n\n(WebKitGTK integration pending)", url);
+            let url = config
+                .extra
+                .get("url")
+                .map(|s| s.as_str())
+                .unwrap_or("about:blank");
+            let content = format!(
+                "# Browser\n\nURL: {}\n\n(WebKitGTK integration pending)",
+                url
+            );
             let tmp = std::env::temp_dir().join(format!("pax_browser_{}.md", std::process::id()));
             std::fs::write(&tmp, &content).ok();
             Box::new(super::markdown::MarkdownPanel::new(
@@ -243,12 +270,20 @@ pub fn build_default_registry() -> PanelRegistry {
         "accessories-text-editor-symbolic",
         true,
         |config| {
-            let root_dir = config.extra.get("root_dir").map(|s| s.as_str()).unwrap_or(".");
+            let root_dir = config
+                .extra
+                .get("root_dir")
+                .map(|s| s.as_str())
+                .unwrap_or(".");
             let ssh_host = config.extra.get("ssh_host").cloned();
             let ssh_user = config.extra.get("ssh_user").cloned();
             let ssh_password = config.extra.get("ssh_password").cloned();
             let ssh_identity = config.extra.get("ssh_identity").cloned();
-            let ssh_port = config.extra.get("ssh_port").and_then(|s| s.parse().ok()).unwrap_or(22u16);
+            let ssh_port = config
+                .extra
+                .get("ssh_port")
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(22u16);
             let remote_path = config.extra.get("remote_path").cloned();
 
             if let Some(host) = ssh_host {
@@ -256,8 +291,12 @@ pub fn build_default_registry() -> PanelRegistry {
                 let user = ssh_user.as_deref().unwrap_or("root");
                 let rpath = remote_path.as_deref().unwrap_or(root_dir);
                 Box::new(super::editor::CodeEditorPanel::new_remote(
-                    &host, ssh_port, user, ssh_password.as_deref(),
-                    ssh_identity.as_deref(), rpath,
+                    &host,
+                    ssh_port,
+                    user,
+                    ssh_password.as_deref(),
+                    ssh_identity.as_deref(),
+                    rpath,
                 ))
             } else {
                 Box::new(super::editor::CodeEditorPanel::new(root_dir))

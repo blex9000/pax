@@ -1,12 +1,18 @@
-use gtk4::prelude::*;
 use gtk4::glib;
+use gtk4::prelude::*;
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
+
+#[cfg(feature = "sourceview")]
+use sourceview5::prelude::*;
 
 use super::PanelBackend;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
-enum Mode { Render, Edit }
+enum Mode {
+    Render,
+    Edit,
+}
 
 /// Markdown viewer/editor panel.
 /// Uses GtkSourceView 5 for edit mode when available (Linux),
@@ -171,18 +177,12 @@ impl MarkdownPanel {
         // Edit view — sourceview5 or plain TextView
         #[cfg(feature = "sourceview")]
         let (source_view, source_buffer) = {
-            use sourceview5::prelude::*;
             let buf = sourceview5::Buffer::new(None::<&gtk4::TextTagTable>);
             if let Some(lang) = sourceview5::LanguageManager::default().language("markdown") {
                 buf.set_language(Some(&lang));
             }
             buf.set_highlight_syntax(true);
-            let scheme_manager = sourceview5::StyleSchemeManager::default();
-            if let Some(scheme) = scheme_manager.scheme("Adwaita-dark")
-                .or_else(|| scheme_manager.scheme("classic-dark"))
-            {
-                buf.set_style_scheme(Some(&scheme));
-            }
+            crate::theme::register_sourceview_buffer(&buf);
             let sv = sourceview5::View::with_buffer(&buf);
             sv.set_show_line_numbers(true);
             sv.set_highlight_current_line(true);
@@ -239,9 +239,13 @@ impl MarkdownPanel {
             let ub = undo_btn.clone();
             let rb = redo_btn.clone();
             render_btn.connect_toggled(move |btn| {
-                if !btn.is_active() { return; }
+                if !btn.is_active() {
+                    return;
+                }
                 if m.get() == Mode::Edit {
-                    let text = sbuf.text(&sbuf.start_iter(), &sbuf.end_iter(), false).to_string();
+                    let text = sbuf
+                        .text(&sbuf.start_iter(), &sbuf.end_iter(), false)
+                        .to_string();
                     *ct.borrow_mut() = text.clone();
                     if mod_flag.get() {
                         let _ = std::fs::write(&fp, &text);
@@ -269,7 +273,9 @@ impl MarkdownPanel {
             let ub = undo_btn.clone();
             let rb = redo_btn.clone();
             edit_btn.connect_toggled(move |btn| {
-                if !btn.is_active() { return; }
+                if !btn.is_active() {
+                    return;
+                }
                 m.set(Mode::Edit);
                 fb.set_visible(true);
                 sbuf.set_text(&ct.borrow());
@@ -325,8 +331,12 @@ impl MarkdownPanel {
             let m = mode.clone();
             let mod_flag = modified.clone();
             source_buffer.connect_changed(move |buf| {
-                if m.get() != Mode::Edit { return; }
-                let current = buf.text(&buf.start_iter(), &buf.end_iter(), false).to_string();
+                if m.get() != Mode::Edit {
+                    return;
+                }
+                let current = buf
+                    .text(&buf.start_iter(), &buf.end_iter(), false)
+                    .to_string();
                 let dirty = current != *ct.borrow();
                 mod_flag.set(dirty);
                 sb.set_sensitive(dirty);
@@ -341,7 +351,9 @@ impl MarkdownPanel {
             let mod_flag = modified.clone();
             let sb2 = save_btn.clone();
             save_btn.connect_clicked(move |_| {
-                let text = sbuf.text(&sbuf.start_iter(), &sbuf.end_iter(), false).to_string();
+                let text = sbuf
+                    .text(&sbuf.start_iter(), &sbuf.end_iter(), false)
+                    .to_string();
                 *ct.borrow_mut() = text.clone();
                 let _ = std::fs::write(&fp, &text);
                 mod_flag.set(false);
@@ -380,7 +392,9 @@ impl MarkdownPanel {
             let m = mode.clone();
             let last_mtime = Rc::new(Cell::new(get_mtime(file_path)));
             glib::timeout_add_local(std::time::Duration::from_millis(500), move || {
-                if m.get() == Mode::Edit { return glib::ControlFlow::Continue; }
+                if m.get() == Mode::Edit {
+                    return glib::ControlFlow::Continue;
+                }
                 let mtime = get_mtime(&fp);
                 if mtime != last_mtime.get() {
                     last_mtime.set(mtime);
@@ -395,7 +409,12 @@ impl MarkdownPanel {
             });
         }
 
-        Self { widget, render_view, source_view, file_path: file_path.to_string() }
+        Self {
+            widget,
+            render_view,
+            source_view,
+            file_path: file_path.to_string(),
+        }
     }
 
     pub fn reload(&mut self) {
@@ -406,9 +425,15 @@ impl MarkdownPanel {
 }
 
 impl PanelBackend for MarkdownPanel {
-    fn panel_type(&self) -> &str { "markdown" }
-    fn widget(&self) -> &gtk4::Widget { &self.widget }
-    fn on_focus(&self) { self.source_view.grab_focus(); }
+    fn panel_type(&self) -> &str {
+        "markdown"
+    }
+    fn widget(&self) -> &gtk4::Widget {
+        &self.widget
+    }
+    fn on_focus(&self) {
+        self.source_view.grab_focus();
+    }
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -417,9 +442,15 @@ fn wrap_selection_buf(buf: &gtk4::TextBuffer, marker: &str) {
     if let Some((start, end)) = buf.selection_bounds() {
         let text = buf.text(&start, &end, false).to_string();
         buf.delete(&mut start.clone(), &mut end.clone());
-        buf.insert(&mut buf.iter_at_offset(start.offset()), &format!("{}{}{}", marker, text, marker));
+        buf.insert(
+            &mut buf.iter_at_offset(start.offset()),
+            &format!("{}{}{}", marker, text, marker),
+        );
     } else {
-        buf.insert(&mut buf.iter_at_mark(&buf.get_insert()), &format!("{}text{}", marker, marker));
+        buf.insert(
+            &mut buf.iter_at_mark(&buf.get_insert()),
+            &format!("{}text{}", marker, marker),
+        );
     }
 }
 
@@ -436,7 +467,11 @@ fn insert_at_cursor_buf(buf: &gtk4::TextBuffer, text: &str) {
 fn get_mtime(path: &str) -> u64 {
     std::fs::metadata(path)
         .and_then(|m| m.modified())
-        .map(|t| t.duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs())
+        .map(|t| {
+            t.duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs()
+        })
         .unwrap_or(0)
 }
 
@@ -448,20 +483,57 @@ fn render_markdown_to_view(tv: &gtk4::TextView, content: &str) {
     let tt = buf.tag_table();
 
     let ensure = |name: &str, f: &dyn Fn(&gtk4::TextTag)| {
-        if tt.lookup(name).is_none() { let t = gtk4::TextTag::new(Some(name)); f(&t); tt.add(&t); }
+        if tt.lookup(name).is_none() {
+            let t = gtk4::TextTag::new(Some(name));
+            f(&t);
+            tt.add(&t);
+        }
     };
-    ensure("h1", &|t| { t.set_size_points(20.0); t.set_weight(700); });
-    ensure("h2", &|t| { t.set_size_points(16.0); t.set_weight(700); });
-    ensure("h3", &|t| { t.set_size_points(14.0); t.set_weight(700); });
-    ensure("bold", &|t| { t.set_weight(700); });
-    ensure("italic", &|t| { t.set_style(gtk4::pango::Style::Italic); });
-    ensure("strike", &|t| { t.set_strikethrough(true); });
-    ensure("code", &|t| { t.set_family(Some("monospace")); });
-    ensure("code_block", &|t| { t.set_family(Some("monospace")); t.set_paragraph_background(Some("#2a2a2a")); t.set_left_margin(20); });
-    ensure("link", &|t| { t.set_foreground(Some("#5588ff")); t.set_underline(gtk4::pango::Underline::Single); });
-    ensure("bullet", &|t| { t.set_left_margin(20); });
-    ensure("bq", &|t| { t.set_left_margin(20); t.set_style(gtk4::pango::Style::Italic); t.set_foreground(Some("#888888")); });
-    ensure("sep", &|t| { t.set_foreground(Some("#666666")); t.set_size_points(6.0); });
+    ensure("h1", &|t| {
+        t.set_size_points(20.0);
+        t.set_weight(700);
+    });
+    ensure("h2", &|t| {
+        t.set_size_points(16.0);
+        t.set_weight(700);
+    });
+    ensure("h3", &|t| {
+        t.set_size_points(14.0);
+        t.set_weight(700);
+    });
+    ensure("bold", &|t| {
+        t.set_weight(700);
+    });
+    ensure("italic", &|t| {
+        t.set_style(gtk4::pango::Style::Italic);
+    });
+    ensure("strike", &|t| {
+        t.set_strikethrough(true);
+    });
+    ensure("code", &|t| {
+        t.set_family(Some("monospace"));
+    });
+    ensure("code_block", &|t| {
+        t.set_family(Some("monospace"));
+        t.set_paragraph_background(Some("#2a2a2a"));
+        t.set_left_margin(20);
+    });
+    ensure("link", &|t| {
+        t.set_foreground(Some("#5588ff"));
+        t.set_underline(gtk4::pango::Underline::Single);
+    });
+    ensure("bullet", &|t| {
+        t.set_left_margin(20);
+    });
+    ensure("bq", &|t| {
+        t.set_left_margin(20);
+        t.set_style(gtk4::pango::Style::Italic);
+        t.set_foreground(Some("#888888"));
+    });
+    ensure("sep", &|t| {
+        t.set_foreground(Some("#666666"));
+        t.set_size_points(6.0);
+    });
 
     let mut it = buf.end_iter();
     let mut in_code = false;
@@ -476,14 +548,26 @@ fn render_markdown_to_view(tv: &gtk4::TextView, content: &str) {
             }
             continue;
         }
-        if in_code { buf.insert_with_tags_by_name(&mut it, &format!("{}\n", line), &["code_block"]); continue; }
-        if line.starts_with("### ") { buf.insert_with_tags_by_name(&mut it, &format!("{}\n", &line[4..]), &["h3"]); }
-        else if line.starts_with("## ") { buf.insert_with_tags_by_name(&mut it, &format!("{}\n", &line[3..]), &["h2"]); }
-        else if line.starts_with("# ") { buf.insert_with_tags_by_name(&mut it, &format!("{}\n", &line[2..]), &["h1"]); }
-        else if line.starts_with("---") || line.starts_with("***") { buf.insert_with_tags_by_name(&mut it, "────────────────────\n", &["sep"]); }
-        else if line.starts_with("- ") || line.starts_with("* ") { buf.insert_with_tags_by_name(&mut it, &format!("  • {}\n", &line[2..]), &["bullet"]); }
-        else if line.starts_with("> ") { buf.insert_with_tags_by_name(&mut it, &format!("│ {}\n", &line[2..]), &["bq"]); }
-        else { render_inline(&buf, &mut it, line); buf.insert(&mut it, "\n"); }
+        if in_code {
+            buf.insert_with_tags_by_name(&mut it, &format!("{}\n", line), &["code_block"]);
+            continue;
+        }
+        if line.starts_with("### ") {
+            buf.insert_with_tags_by_name(&mut it, &format!("{}\n", &line[4..]), &["h3"]);
+        } else if line.starts_with("## ") {
+            buf.insert_with_tags_by_name(&mut it, &format!("{}\n", &line[3..]), &["h2"]);
+        } else if line.starts_with("# ") {
+            buf.insert_with_tags_by_name(&mut it, &format!("{}\n", &line[2..]), &["h1"]);
+        } else if line.starts_with("---") || line.starts_with("***") {
+            buf.insert_with_tags_by_name(&mut it, "────────────────────\n", &["sep"]);
+        } else if line.starts_with("- ") || line.starts_with("* ") {
+            buf.insert_with_tags_by_name(&mut it, &format!("  • {}\n", &line[2..]), &["bullet"]);
+        } else if line.starts_with("> ") {
+            buf.insert_with_tags_by_name(&mut it, &format!("│ {}\n", &line[2..]), &["bq"]);
+        } else {
+            render_inline(&buf, &mut it, line);
+            buf.insert(&mut it, "\n");
+        }
     }
 }
 
@@ -493,34 +577,77 @@ fn render_inline(buf: &gtk4::TextBuffer, it: &mut gtk4::TextIter, text: &str) {
     let mut i = 0;
     let mut p = String::new();
     while i < n {
-        if i+1 < n && c[i] == '*' && c[i+1] == '*' {
-            if !p.is_empty() { buf.insert(it, &p); p.clear(); }
-            i += 2; let s = i;
-            while i+1 < n && !(c[i] == '*' && c[i+1] == '*') { i += 1; }
+        if i + 1 < n && c[i] == '*' && c[i + 1] == '*' {
+            if !p.is_empty() {
+                buf.insert(it, &p);
+                p.clear();
+            }
+            i += 2;
+            let s = i;
+            while i + 1 < n && !(c[i] == '*' && c[i + 1] == '*') {
+                i += 1;
+            }
             buf.insert_with_tags_by_name(it, &c[s..i].iter().collect::<String>(), &["bold"]);
-            if i+1 < n { i += 2; }
+            if i + 1 < n {
+                i += 2;
+            }
         } else if c[i] == '*' {
-            if !p.is_empty() { buf.insert(it, &p); p.clear(); }
-            i += 1; let s = i;
-            while i < n && c[i] != '*' { i += 1; }
+            if !p.is_empty() {
+                buf.insert(it, &p);
+                p.clear();
+            }
+            i += 1;
+            let s = i;
+            while i < n && c[i] != '*' {
+                i += 1;
+            }
             buf.insert_with_tags_by_name(it, &c[s..i].iter().collect::<String>(), &["italic"]);
-            if i < n { i += 1; }
+            if i < n {
+                i += 1;
+            }
         } else if c[i] == '`' {
-            if !p.is_empty() { buf.insert(it, &p); p.clear(); }
-            i += 1; let s = i;
-            while i < n && c[i] != '`' { i += 1; }
+            if !p.is_empty() {
+                buf.insert(it, &p);
+                p.clear();
+            }
+            i += 1;
+            let s = i;
+            while i < n && c[i] != '`' {
+                i += 1;
+            }
             buf.insert_with_tags_by_name(it, &c[s..i].iter().collect::<String>(), &["code"]);
-            if i < n { i += 1; }
+            if i < n {
+                i += 1;
+            }
         } else if c[i] == '[' {
-            if !p.is_empty() { buf.insert(it, &p); p.clear(); }
-            i += 1; let s = i;
-            while i < n && c[i] != ']' { i += 1; }
+            if !p.is_empty() {
+                buf.insert(it, &p);
+                p.clear();
+            }
+            i += 1;
+            let s = i;
+            while i < n && c[i] != ']' {
+                i += 1;
+            }
             let lt: String = c[s..i].iter().collect();
-            if i+1 < n && c[i] == ']' && c[i+1] == '(' {
-                i += 2; while i < n && c[i] != ')' { i += 1; } if i < n { i += 1; }
-            } else if i < n { i += 1; }
+            if i + 1 < n && c[i] == ']' && c[i + 1] == '(' {
+                i += 2;
+                while i < n && c[i] != ')' {
+                    i += 1;
+                }
+                if i < n {
+                    i += 1;
+                }
+            } else if i < n {
+                i += 1;
+            }
             buf.insert_with_tags_by_name(it, &lt, &["link"]);
-        } else { p.push(c[i]); i += 1; }
+        } else {
+            p.push(c[i]);
+            i += 1;
+        }
     }
-    if !p.is_empty() { buf.insert(it, &p); }
+    if !p.is_empty() {
+        buf.insert(it, &p);
+    }
 }
