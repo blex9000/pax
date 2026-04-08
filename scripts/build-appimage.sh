@@ -7,7 +7,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 BUILD_TOOLS="$ROOT_DIR/build-tools"
-APPDIR="$ROOT_DIR/AppDir"
+APPDIR="$ROOT_DIR/target/AppDir"
 ARCH="$(uname -m)"
 
 echo "==> Building Pax release binary..."
