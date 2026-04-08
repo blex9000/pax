@@ -195,3 +195,177 @@ pub fn update_tab_label_in_layout(node: &mut LayoutNode, panel_id: &str, new_lab
         LayoutNode::Panel { .. } => {}
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn panel(id: &str) -> LayoutNode {
+        LayoutNode::Panel { id: id.to_string() }
+    }
+
+    fn hsplit(children: Vec<LayoutNode>) -> LayoutNode {
+        let n = children.len();
+        LayoutNode::Hsplit { children, ratios: vec![1.0 / n as f64; n] }
+    }
+
+    fn vsplit(children: Vec<LayoutNode>) -> LayoutNode {
+        let n = children.len();
+        LayoutNode::Vsplit { children, ratios: vec![1.0 / n as f64; n] }
+    }
+
+    fn tabs(children: Vec<LayoutNode>, labels: Vec<&str>) -> LayoutNode {
+        LayoutNode::Tabs {
+            children,
+            labels: labels.into_iter().map(|s| s.to_string()).collect(),
+        }
+    }
+
+    fn panel_ids(node: &LayoutNode) -> Vec<String> {
+        node.panel_ids().into_iter().map(|s| s.to_string()).collect()
+    }
+
+    // ── remove_from_layout ──
+
+    #[test]
+    fn remove_direct_panel_from_hsplit() {
+        let layout = hsplit(vec![panel("a"), panel("b"), panel("c")]);
+        let result = remove_from_layout(&layout, "b");
+        assert_eq!(panel_ids(&result), vec!["a", "c"]);
+    }
+
+    #[test]
+    fn remove_last_leaves_single_panel() {
+        let layout = hsplit(vec![panel("a"), panel("b")]);
+        let result = remove_from_layout(&layout, "b");
+        // Should collapse to single panel
+        assert!(matches!(result, LayoutNode::Panel { id } if id == "a"));
+    }
+
+    #[test]
+    fn remove_nested_panel_keeps_siblings() {
+        // Tabs [ Vsplit[a, b], c ]
+        let layout = tabs(
+            vec![vsplit(vec![panel("a"), panel("b")]), panel("c")],
+            vec!["tab1", "tab2"],
+        );
+        let result = remove_from_layout(&layout, "a");
+        let ids = panel_ids(&result);
+        assert!(ids.contains(&"b".to_string()), "sibling b must survive");
+        assert!(ids.contains(&"c".to_string()), "sibling c must survive");
+        assert!(!ids.contains(&"a".to_string()), "removed a must be gone");
+    }
+
+    #[test]
+    fn remove_deeply_nested_no_orphans() {
+        // Hsplit [ Vsplit[Tabs[a, b], c], d ]
+        let layout = hsplit(vec![
+            vsplit(vec![
+                tabs(vec![panel("a"), panel("b")], vec!["t1", "t2"]),
+                panel("c"),
+            ]),
+            panel("d"),
+        ]);
+        let result = remove_from_layout(&layout, "a");
+        let ids = panel_ids(&result);
+        assert_eq!(ids.len(), 3);
+        assert!(ids.contains(&"b".to_string()));
+        assert!(ids.contains(&"c".to_string()));
+        assert!(ids.contains(&"d".to_string()));
+    }
+
+    #[test]
+    fn remove_panel_from_tabs_collapses() {
+        let layout = tabs(vec![panel("a"), panel("b")], vec!["t1", "t2"]);
+        let result = remove_from_layout(&layout, "a");
+        assert!(matches!(result, LayoutNode::Panel { id } if id == "b"));
+    }
+
+    // ── is_panel_direct vs is_panel_with_id ──
+
+    #[test]
+    fn is_panel_direct_only_matches_exact() {
+        let layout = vsplit(vec![panel("a"), panel("b")]);
+        assert!(!is_panel_direct(&layout, "a")); // vsplit is not panel a
+        assert!(is_panel_direct(&panel("a"), "a"));
+    }
+
+    #[test]
+    fn is_panel_with_id_matches_nested() {
+        let layout = vsplit(vec![panel("a"), panel("b")]);
+        assert!(is_panel_with_id(&layout, "a")); // a is inside vsplit
+        assert!(!is_panel_with_id(&layout, "c"));
+    }
+
+    // ── update_tab_label_in_layout ──
+
+    #[test]
+    fn rename_tab_with_direct_panel() {
+        let mut layout = tabs(vec![panel("a"), panel("b")], vec!["old_a", "old_b"]);
+        update_tab_label_in_layout(&mut layout, "a", "new_a");
+        if let LayoutNode::Tabs { labels, .. } = &layout {
+            assert_eq!(labels[0], "new_a");
+            assert_eq!(labels[1], "old_b");
+        } else {
+            panic!("expected Tabs");
+        }
+    }
+
+    #[test]
+    fn rename_tab_with_nested_panel() {
+        // Tab contains Vsplit[a, b] — renaming by panel a should update tab label
+        let mut layout = tabs(
+            vec![vsplit(vec![panel("a"), panel("b")]), panel("c")],
+            vec!["old_tab", "tab_c"],
+        );
+        update_tab_label_in_layout(&mut layout, "a", "new_tab");
+        if let LayoutNode::Tabs { labels, .. } = &layout {
+            assert_eq!(labels[0], "new_tab");
+            assert_eq!(labels[1], "tab_c");
+        } else {
+            panic!("expected Tabs");
+        }
+    }
+
+    // ── add_to_existing_tabs ──
+
+    #[test]
+    fn add_tab_to_existing_notebook() {
+        let mut layout = tabs(vec![panel("a"), panel("b")], vec!["t1", "t2"]);
+        let added = add_to_existing_tabs(&mut layout, "a", "c", "t3");
+        assert!(added);
+        if let LayoutNode::Tabs { children, labels } = &layout {
+            assert_eq!(children.len(), 3);
+            assert_eq!(labels, &["t1", "t2", "t3"]);
+        } else {
+            panic!("expected Tabs");
+        }
+    }
+
+    #[test]
+    fn add_tab_finds_nested_notebook() {
+        // Hsplit [ Tabs[a, b], c ]
+        let mut layout = hsplit(vec![
+            tabs(vec![panel("a"), panel("b")], vec!["t1", "t2"]),
+            panel("c"),
+        ]);
+        let added = add_to_existing_tabs(&mut layout, "a", "d", "t3");
+        assert!(added);
+        let ids = panel_ids(&layout);
+        assert!(ids.contains(&"d".to_string()));
+    }
+
+    // ── replace_in_layout ──
+
+    #[test]
+    fn replace_panel_in_nested_layout() {
+        let layout = vsplit(vec![panel("a"), panel("b")]);
+        let result = replace_in_layout(&layout, "a", &|_| {
+            hsplit(vec![panel("a"), panel("c")])
+        });
+        let ids = panel_ids(&result);
+        assert!(ids.contains(&"a".to_string()));
+        assert!(ids.contains(&"b".to_string()));
+        assert!(ids.contains(&"c".to_string()));
+    }
+}
