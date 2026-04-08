@@ -1,4 +1,5 @@
 use anyhow::Result;
+use rusqlite::OptionalExtension;
 
 use crate::Database;
 
@@ -20,23 +21,166 @@ pub fn run_migrations(db: &Database) -> Result<()> {
         result
     };
 
-    let migrations: Vec<(&str, &str)> = vec![
-        ("001_initial", MIGRATION_001),
-        ("002_fts5", MIGRATION_002),
-        ("003_workspace_metadata_key", MIGRATION_003),
-    ];
+    apply_sql_migration(db, &applied, "001_initial", MIGRATION_001)?;
+    apply_sql_migration(db, &applied, "002_fts5", MIGRATION_002)?;
+    ensure_workspace_metadata_key_migration(db, &applied)?;
 
-    for (name, sql) in migrations {
-        if !applied.contains(&name.to_string()) {
-            db.conn.execute_batch(sql)?;
-            db.conn.execute(
-                "INSERT INTO _migrations (name) VALUES (?1)",
-                [name],
+    Ok(())
+}
+
+fn apply_sql_migration(db: &Database, applied: &[String], name: &str, sql: &str) -> Result<()> {
+    if !applied.iter().any(|entry| entry == name) {
+        db.conn.execute_batch(sql)?;
+        record_migration(db, name)?;
+    }
+    Ok(())
+}
+
+fn record_migration(db: &Database, name: &str) -> Result<()> {
+    db.conn.execute(
+        "INSERT INTO _migrations (name) VALUES (?1)",
+        [name],
+    )?;
+    Ok(())
+}
+
+fn ensure_workspace_metadata_key_migration(db: &Database, applied: &[String]) -> Result<()> {
+    const NAME: &str = "003_workspace_metadata_key";
+
+    let has_workspace_metadata = table_exists(db, "workspace_metadata")?;
+    let has_workspace_metadata_old = table_exists(db, "workspace_metadata_old")?;
+    let workspace_has_record_key =
+        has_workspace_metadata && table_has_column(db, "workspace_metadata", "record_key")?;
+
+    if has_workspace_metadata_old {
+        let legacy_rows = load_legacy_workspace_rows(db)?;
+
+        if !workspace_has_record_key {
+            db.conn.execute_batch(
+                "DROP TABLE IF EXISTS workspace_metadata;
+                 CREATE TABLE workspace_metadata (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name TEXT NOT NULL,
+                    config_path TEXT,
+                    record_key TEXT NOT NULL UNIQUE,
+                    last_opened TEXT DEFAULT (datetime('now')),
+                    open_count INTEGER DEFAULT 1
+                 );",
             )?;
         }
+
+        for (name, config_path, record_key, last_opened, open_count) in legacy_rows {
+            db.conn.execute(
+                "INSERT INTO workspace_metadata (name, config_path, record_key, last_opened, open_count)
+                 VALUES (?1, ?2, ?3, ?4, ?5)
+                 ON CONFLICT(record_key) DO UPDATE SET
+                    name = excluded.name,
+                    config_path = excluded.config_path,
+                    last_opened = excluded.last_opened,
+                    open_count = CASE
+                        WHEN workspace_metadata.open_count > excluded.open_count THEN workspace_metadata.open_count
+                        ELSE excluded.open_count
+                    END",
+                rusqlite::params![name, config_path, record_key, last_opened, open_count],
+            )?;
+        }
+
+        db.conn.execute_batch(
+            "DROP TABLE IF EXISTS workspace_metadata_old;
+             CREATE INDEX IF NOT EXISTS idx_workspace_last_opened ON workspace_metadata(last_opened);",
+        )?;
+
+        if !applied.iter().any(|entry| entry == NAME) {
+            record_migration(db, NAME)?;
+        }
+        return Ok(());
+    }
+
+    if workspace_has_record_key {
+        db.conn.execute_batch(
+            "CREATE INDEX IF NOT EXISTS idx_workspace_last_opened ON workspace_metadata(last_opened);",
+        )?;
+        if !applied.iter().any(|entry| entry == NAME) {
+            record_migration(db, NAME)?;
+        }
+        return Ok(());
+    }
+
+    if !has_workspace_metadata && !has_workspace_metadata_old {
+        db.conn.execute_batch(
+            "CREATE TABLE workspace_metadata (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                config_path TEXT,
+                record_key TEXT NOT NULL UNIQUE,
+                last_opened TEXT DEFAULT (datetime('now')),
+                open_count INTEGER DEFAULT 1
+            );
+            CREATE INDEX IF NOT EXISTS idx_workspace_last_opened ON workspace_metadata(last_opened);",
+        )?;
+        if !applied.iter().any(|entry| entry == NAME) {
+            record_migration(db, NAME)?;
+        }
+        return Ok(());
+    }
+
+    if has_workspace_metadata {
+        db.conn
+            .execute_batch("ALTER TABLE workspace_metadata RENAME TO workspace_metadata_old;")?;
+        return ensure_workspace_metadata_key_migration(db, applied);
+    }
+
+    if !applied.iter().any(|entry| entry == NAME) {
+        record_migration(db, NAME)?;
     }
 
     Ok(())
+}
+
+fn table_exists(db: &Database, table_name: &str) -> Result<bool> {
+    Ok(db
+        .conn
+        .query_row(
+            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?1 LIMIT 1",
+            [table_name],
+            |_| Ok(()),
+        )
+        .optional()?
+        .is_some())
+}
+
+fn table_has_column(db: &Database, table_name: &str, column_name: &str) -> Result<bool> {
+    let pragma = format!("PRAGMA table_info({table_name})");
+    let mut stmt = db.conn.prepare(&pragma)?;
+    let columns = stmt.query_map([], |row| row.get::<_, String>(1))?;
+    for column in columns {
+        if column? == column_name {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
+fn load_legacy_workspace_rows(
+    db: &Database,
+) -> Result<Vec<(String, Option<String>, String, String, i64)>> {
+    let mut stmt = db.conn.prepare(
+        "SELECT name, config_path, last_opened, open_count FROM workspace_metadata_old",
+    )?;
+    let rows = stmt.query_map([], |row| {
+        let name: String = row.get(0)?;
+        let config_path: Option<String> = row.get(1)?;
+        let last_opened: String = row.get(2)?;
+        let open_count: i64 = row.get(3)?;
+        let record_key = config_path
+            .as_deref()
+            .filter(|path| !path.trim().is_empty())
+            .map(|path| format!("path:{path}"))
+            .unwrap_or_else(|| format!("name:{name}"));
+        Ok((name, config_path, record_key, last_opened, open_count))
+    })?;
+
+    Ok(rows.filter_map(|row| row.ok()).collect())
 }
 
 const MIGRATION_001: &str = "
@@ -92,32 +236,121 @@ CREATE TRIGGER IF NOT EXISTS saved_output_ai AFTER INSERT ON saved_output BEGIN
 END;
 ";
 
-const MIGRATION_003: &str = "
-ALTER TABLE workspace_metadata RENAME TO workspace_metadata_old;
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rusqlite::Connection;
 
-CREATE TABLE workspace_metadata (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT NOT NULL,
-    config_path TEXT,
-    record_key TEXT NOT NULL UNIQUE,
-    last_opened TEXT DEFAULT (datetime('now')),
-    open_count INTEGER DEFAULT 1
-);
+    fn setup_db_without_running_migrations() -> Database {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE _migrations (
+                id INTEGER PRIMARY KEY,
+                name TEXT NOT NULL,
+                applied_at TEXT DEFAULT (datetime('now'))
+            );",
+        )
+        .unwrap();
+        Database { conn }
+    }
 
-INSERT INTO workspace_metadata (id, name, config_path, record_key, last_opened, open_count)
-SELECT
-    id,
-    name,
-    config_path,
-    CASE
-        WHEN config_path IS NOT NULL AND trim(config_path) <> '' THEN 'path:' || config_path
-        ELSE 'name:' || name
-    END,
-    last_opened,
-    open_count
-FROM workspace_metadata_old;
+    #[test]
+    fn migration_003_upgrades_old_workspace_metadata_schema() {
+        let db = setup_db_without_running_migrations();
+        db.conn
+            .execute_batch(MIGRATION_001)
+            .unwrap();
+        record_migration(&db, "001_initial").unwrap();
+        db.conn
+            .execute_batch(MIGRATION_002)
+            .unwrap();
+        record_migration(&db, "002_fts5").unwrap();
+        db.conn
+            .execute(
+                "INSERT INTO workspace_metadata (name, config_path, last_opened, open_count)
+                 VALUES (?1, ?2, datetime('now'), 3)",
+                ["/tmp/demo", "/tmp/demo.json"],
+            )
+            .unwrap();
 
-DROP TABLE workspace_metadata_old;
+        run_migrations(&db).unwrap();
 
-CREATE INDEX IF NOT EXISTS idx_workspace_last_opened ON workspace_metadata(last_opened);
-";
+        assert!(table_has_column(&db, "workspace_metadata", "record_key").unwrap());
+        assert!(!table_exists(&db, "workspace_metadata_old").unwrap());
+        let record_key: String = db
+            .conn
+            .query_row(
+                "SELECT record_key FROM workspace_metadata WHERE config_path = '/tmp/demo.json'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(record_key, "path:/tmp/demo.json");
+    }
+
+    #[test]
+    fn migration_003_recovers_from_leftover_workspace_metadata_old_table() {
+        let db = setup_db_without_running_migrations();
+        db.conn
+            .execute_batch(
+                "CREATE TABLE workspace_metadata (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name TEXT NOT NULL,
+                    config_path TEXT,
+                    record_key TEXT NOT NULL UNIQUE,
+                    last_opened TEXT DEFAULT (datetime('now')),
+                    open_count INTEGER DEFAULT 1
+                );
+                CREATE TABLE workspace_metadata_old (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name TEXT NOT NULL UNIQUE,
+                    config_path TEXT,
+                    last_opened TEXT DEFAULT (datetime('now')),
+                    open_count INTEGER DEFAULT 1
+                );",
+            )
+            .unwrap();
+        db.conn
+            .execute(
+                "INSERT INTO workspace_metadata_old (name, config_path, last_opened, open_count)
+                 VALUES ('legacy', '/tmp/legacy.json', datetime('now'), 7)",
+                [],
+            )
+            .unwrap();
+        db.conn
+            .execute(
+                "INSERT INTO workspace_metadata (name, config_path, record_key, last_opened, open_count)
+                 VALUES ('current', '/tmp/current.json', 'path:/tmp/current.json', datetime('now'), 2)",
+                [],
+            )
+            .unwrap();
+
+        run_migrations(&db).unwrap();
+
+        assert!(table_has_column(&db, "workspace_metadata", "record_key").unwrap());
+        assert!(!table_exists(&db, "workspace_metadata_old").unwrap());
+        let rows: i64 = db
+            .conn
+            .query_row("SELECT COUNT(*) FROM workspace_metadata", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(rows, 2);
+        let legacy_count: i64 = db
+            .conn
+            .query_row(
+                "SELECT open_count FROM workspace_metadata WHERE config_path = '/tmp/legacy.json'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(legacy_count, 7);
+        let applied = db
+            .conn
+            .query_row(
+                "SELECT COUNT(*) FROM _migrations WHERE name = '003_workspace_metadata_key'",
+                [],
+                |row| row.get::<_, i64>(0),
+            )
+            .unwrap();
+        assert_eq!(applied, 1);
+    }
+}
