@@ -699,6 +699,7 @@ impl WorkspaceView {
         self.update_layout_split(&focused_id, &new_id, orientation);
         self.workspace.panels.push(new_cfg);
         self.hosts.insert(new_id.clone(), host);
+        crate::layout_ops::debug_layout_tree(&self.workspace.layout, "BEFORE_REBUILD_SPLIT");
 
         // 3. Rebuild widget tree from model
         self.rebuild_layout();
@@ -881,9 +882,9 @@ impl WorkspaceView {
         self.rebuild_layout();
         self.rebuild_focus_order();
 
-        // 4. Focus next available
+        // 4. Focus the next panel in focus order (stay near closed position)
         if self.focus.index >= self.focus.order.len() {
-            self.focus.index = 0;
+            self.focus.index = self.focus.order.len().saturating_sub(1);
         }
         self.focus.focus_current_pub(&self.hosts);
 
