@@ -1,10 +1,12 @@
+use gtk4::glib;
 use gtk4::prelude::*;
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::Arc;
 
 use super::file_backend::FileBackend;
+use super::task::run_blocking;
 
 /// Callback when a file is opened in the tree.
 pub type OnFileOpen = Rc<dyn Fn(&Path)>;
@@ -26,6 +28,7 @@ pub struct FileTree {
     on_context_action: Option<OnContextAction>,
     #[allow(dead_code)]
     backend: Arc<dyn FileBackend>,
+    request_seq: Rc<Cell<u64>>,
 }
 
 #[derive(Debug, Clone)]
@@ -35,6 +38,12 @@ struct FileEntry {
     is_dir: bool,
     depth: u32,
     expanded: bool,
+}
+
+#[derive(Default)]
+struct TreeSnapshot {
+    entries: Vec<FileEntry>,
+    file_index: Vec<PathBuf>,
 }
 
 impl FileTree {
@@ -67,21 +76,22 @@ impl FileTree {
         actions_bar.append(&new_file_btn);
         actions_bar.append(&new_dir_btn);
 
-        // Build initial file list
-        let file_index = Rc::new(RefCell::new(Vec::new()));
-        let entries = Rc::new(RefCell::new(Vec::new()));
+        let file_index: Rc<RefCell<Vec<PathBuf>>> = Rc::new(RefCell::new(Vec::new()));
+        let entries: Rc<RefCell<Vec<FileEntry>>> = Rc::new(RefCell::new(Vec::new()));
         let is_remote = backend.is_remote();
-        if !is_remote {
-            build_file_entries(root_dir, root_dir, &mut entries.borrow_mut(), &mut file_index.borrow_mut(), 0, &*backend);
-        }
+        let request_seq = Rc::new(Cell::new(0u64));
 
         let list_box = gtk4::ListBox::new();
         list_box.set_selection_mode(gtk4::SelectionMode::Single);
         list_box.add_css_class("navigation-sidebar");
-
-        if !is_remote {
-            populate_list_box(&list_box, &entries.borrow(), root_dir);
-        }
+        populate_message(
+            &list_box,
+            if is_remote {
+                "Connecting to remote host..."
+            } else {
+                "Loading files..."
+            },
+        );
 
         let scroll = gtk4::ScrolledWindow::new();
         scroll.set_child(Some(&list_box));
@@ -116,7 +126,7 @@ impl FileTree {
                     // Save scroll position before rebuilding
                     let vadj = sw.vadjustment();
                     let scroll_pos = vadj.value();
-                    toggle_dir(&entries_c, &fi, &root, idx, depth, expanded, &path, &*be);
+                    toggle_dir(&entries_c, &fi, idx, depth, expanded, &path, &*be);
                     populate_list_box(lb, &entries_c.borrow(), &root);
                     // Restore scroll position after rebuild
                     vadj.set_value(scroll_pos);
@@ -301,35 +311,27 @@ impl FileTree {
 
         // Collapse all button
         {
-            let entries_c = entries.clone();
-            let fi = file_index.clone();
             let root = root_dir.to_path_buf();
             let lb = list_box.clone();
+            let sw = scroll.clone();
+            let entries_c = entries.clone();
+            let fi = file_index.clone();
             let be_ref = backend.clone();
+            let seq = request_seq.clone();
             collapse_btn.connect_clicked(move |_| {
-                // Rebuild with only depth 0 entries (all collapsed)
-                let mut new_entries = Vec::new();
-                let mut new_index = Vec::new();
-                build_file_entries(&root, &root, &mut new_entries, &mut new_index, 0, &*be_ref);
-                // All dirs at depth 0 are collapsed (auto_expand only depth < 1,
-                // but we want everything collapsed, so mark depth 0 dirs as collapsed too)
-                for e in &mut new_entries {
-                    if e.is_dir {
-                        e.expanded = false;
-                    }
-                }
-                // Remove any children that were auto-expanded
-                new_entries.retain(|e| e.depth == 0);
-                // Rebuild file index from only visible files
-                new_index.clear();
-                for e in &new_entries {
-                    if !e.is_dir {
-                        new_index.push(e.path.clone());
-                    }
-                }
-                *fi.borrow_mut() = new_index;
-                *entries_c.borrow_mut() = new_entries;
-                populate_list_box(&lb, &entries_c.borrow(), &root);
+                request_tree_reload(
+                    &lb,
+                    &sw,
+                    &root,
+                    &entries_c,
+                    &fi,
+                    be_ref.clone(),
+                    seq.clone(),
+                    Vec::new(),
+                    false,
+                    "Collapsing files...",
+                    "No files found",
+                );
             });
         }
 
@@ -361,76 +363,45 @@ impl FileTree {
             entries,
             on_context_action,
             backend,
+            request_seq,
         };
 
-        // Remote backends: show placeholder, retry periodically until connected
-        if is_remote {
-            let placeholder = gtk4::Label::new(Some("Connecting to remote host..."));
-            placeholder.add_css_class("dim-label");
-            placeholder.set_margin_top(16);
-            tree.list_box.append(&placeholder);
-
-            let entries_ref = tree.entries.clone();
-            let index_ref = tree.file_index.clone();
-            let lb_ref = tree.list_box.clone();
-            let root = tree.root_dir.clone();
-            let be = tree.backend.clone();
-            gtk4::glib::timeout_add_local(std::time::Duration::from_secs(3), move || {
-                // Stop retrying once we have entries
-                if !entries_ref.borrow().is_empty() {
-                    return gtk4::glib::ControlFlow::Break;
-                }
-                // Try to load — ssh_exec returns Err instantly if not connected
-                let mut ents = Vec::new();
-                let mut idx = Vec::new();
-                build_file_entries(&root, &root, &mut ents, &mut idx, 0, &*be);
-                if !ents.is_empty() {
-                    // Connected! Populate the tree
-                    *entries_ref.borrow_mut() = ents;
-                    *index_ref.borrow_mut() = idx;
-                    populate_list_box(&lb_ref, &entries_ref.borrow(), &root);
-                    return gtk4::glib::ControlFlow::Break;
-                }
-                // Still not connected — update placeholder
-                while let Some(child) = lb_ref.first_child() { lb_ref.remove(&child); }
-                let msg = if be.is_remote() {
-                    "SSH not connected — retrying..."
-                } else {
-                    "Loading..."
-                };
-                let lbl = gtk4::Label::new(Some(msg));
-                lbl.add_css_class("dim-label");
-                lbl.set_margin_top(16);
-                lb_ref.append(&lbl);
-                gtk4::glib::ControlFlow::Continue
-            });
-        }
+        request_tree_reload(
+            &tree.list_box,
+            &tree.scroll,
+            &tree.root_dir,
+            &tree.entries,
+            &tree.file_index,
+            tree.backend.clone(),
+            tree.request_seq.clone(),
+            Vec::new(),
+            !is_remote,
+            if is_remote {
+                "Connecting to remote host..."
+            } else {
+                "Loading files..."
+            },
+            "No files found",
+        );
 
         tree
     }
 
     /// Rebuild the tree. Call when file system changes are detected.
     pub fn refresh(&self) {
-        // Collect expanded dirs to preserve state
-        let expanded_dirs: Vec<PathBuf> = self.entries.borrow().iter()
-            .filter(|e| e.is_dir && e.expanded)
-            .map(|e| e.path.clone())
-            .collect();
-
-        let mut entries = Vec::new();
-        let mut index = Vec::new();
-        build_file_entries(&self.root_dir, &self.root_dir, &mut entries, &mut index, 0, &*self.backend);
-
-        // Restore expanded state
-        restore_expanded(&mut entries, &mut index, &self.root_dir, &expanded_dirs, &*self.backend);
-
-        *self.file_index.borrow_mut() = index;
-        *self.entries.borrow_mut() = entries;
-
-        let vadj = self.scroll.vadjustment();
-        let scroll_pos = vadj.value();
-        populate_list_box(&self.list_box, &self.entries.borrow(), &self.root_dir);
-        vadj.set_value(scroll_pos);
+        request_tree_reload(
+            &self.list_box,
+            &self.scroll,
+            &self.root_dir,
+            &self.entries,
+            &self.file_index,
+            self.backend.clone(),
+            self.request_seq.clone(),
+            collect_expanded_dirs(&self.entries.borrow()),
+            false,
+            "Refreshing files...",
+            "No files found",
+        );
     }
 
     /// Expand all parent directories of the given file and scroll to it.
@@ -460,8 +431,15 @@ impl FileTree {
                         .map(|(i, e)| (i, e.depth))
                 };
                 if let Some((idx, depth)) = idx_and_depth {
-                    toggle_dir(&self.entries, &self.file_index, &self.root_dir,
-                        idx, depth, false, ancestor, &*self.backend);
+                    toggle_dir(
+                        &self.entries,
+                        &self.file_index,
+                        idx,
+                        depth,
+                        false,
+                        ancestor,
+                        &*self.backend,
+                    );
                     changed = true;
                 }
             }
@@ -662,11 +640,111 @@ fn populate_list_box(list_box: &gtk4::ListBox, entries: &[FileEntry], root: &Pat
     }
 }
 
+fn populate_message(list_box: &gtk4::ListBox, message: &str) {
+    while let Some(child) = list_box.first_child() {
+        list_box.remove(&child);
+    }
+
+    let label = gtk4::Label::new(Some(message));
+    label.add_css_class("dim-label");
+    label.set_margin_top(16);
+    list_box.append(&label);
+}
+
+fn collect_expanded_dirs(entries: &[FileEntry]) -> Vec<PathBuf> {
+    entries
+        .iter()
+        .filter(|entry| entry.is_dir && entry.expanded)
+        .map(|entry| entry.path.clone())
+        .collect()
+}
+
+fn request_tree_reload(
+    list_box: &gtk4::ListBox,
+    scroll: &gtk4::ScrolledWindow,
+    root: &Path,
+    entries: &Rc<RefCell<Vec<FileEntry>>>,
+    file_index: &Rc<RefCell<Vec<PathBuf>>>,
+    backend: Arc<dyn FileBackend>,
+    request_seq: Rc<Cell<u64>>,
+    expanded_dirs: Vec<PathBuf>,
+    expand_root_dirs: bool,
+    loading_message: &'static str,
+    empty_message: &'static str,
+) {
+    let request_id = request_seq.get().wrapping_add(1);
+    request_seq.set(request_id);
+    populate_message(list_box, loading_message);
+
+    let root_c = root.to_path_buf();
+    let build_root = root_c.clone();
+    let list_box_c = list_box.clone();
+    let scroll_c = scroll.clone();
+    let entries_c = entries.clone();
+    let file_index_c = file_index.clone();
+    let backend_for_task = backend.clone();
+    let request_seq_c = request_seq.clone();
+    let scroll_pos = scroll.vadjustment().value();
+    let retry_root = root.to_path_buf();
+    let retry_list_box = list_box.clone();
+    let retry_scroll = scroll.clone();
+    let retry_entries = entries.clone();
+    let retry_file_index = file_index.clone();
+    let retry_backend = backend.clone();
+    let retry_seq = request_seq.clone();
+    let retry_expanded_dirs = expanded_dirs.clone();
+
+    run_blocking(
+        move || build_tree_snapshot(&build_root, &expanded_dirs, &*backend_for_task, expand_root_dirs),
+        move |result| {
+            if request_seq_c.get() != request_id {
+                return;
+            }
+
+            match result {
+                Ok(snapshot) if snapshot.entries.is_empty() => {
+                    populate_message(&list_box_c, empty_message);
+                }
+                Ok(snapshot) => {
+                    *entries_c.borrow_mut() = snapshot.entries;
+                    *file_index_c.borrow_mut() = snapshot.file_index;
+                    populate_list_box(&list_box_c, &entries_c.borrow(), &root_c);
+                    scroll_c.vadjustment().set_value(scroll_pos);
+                }
+                Err(_) if backend.is_remote() => {
+                    populate_message(&list_box_c, "SSH not connected — retrying...");
+                    glib::timeout_add_local(std::time::Duration::from_secs(3), move || {
+                        if retry_seq.get() != request_id {
+                            return glib::ControlFlow::Break;
+                        }
+                        request_tree_reload(
+                            &retry_list_box,
+                            &retry_scroll,
+                            &retry_root,
+                            &retry_entries,
+                            &retry_file_index,
+                            retry_backend.clone(),
+                            retry_seq.clone(),
+                            retry_expanded_dirs.clone(),
+                            expand_root_dirs,
+                            "Connecting to remote host...",
+                            empty_message,
+                        );
+                        glib::ControlFlow::Break
+                    });
+                }
+                Err(err) => {
+                    populate_message(&list_box_c, &format!("Unable to load files: {err}"));
+                }
+            }
+        },
+    );
+}
+
 /// Toggle a directory open/closed and rebuild entries list accordingly.
 fn toggle_dir(
     entries: &Rc<RefCell<Vec<FileEntry>>>,
     file_index: &Rc<RefCell<Vec<PathBuf>>>,
-    root: &Path,
     idx: usize,
     depth: u32,
     was_expanded: bool,
@@ -698,7 +776,10 @@ fn toggle_dir(
         ents[idx].expanded = true;
         let mut new_entries = Vec::new();
         let mut new_index = Vec::new();
-        build_file_entries(root, dir_path, &mut new_entries, &mut new_index, depth + 1, backend);
+        if build_file_entries(dir_path, &mut new_entries, &mut new_index, depth + 1, backend).is_err() {
+            ents[idx].expanded = false;
+            return;
+        }
         file_index.borrow_mut().extend(new_index);
         let insert_pos = idx + 1;
         for (i, entry) in new_entries.into_iter().enumerate() {
@@ -711,10 +792,11 @@ fn toggle_dir(
 fn restore_expanded(
     entries: &mut Vec<FileEntry>,
     file_index: &mut Vec<PathBuf>,
-    root: &Path,
     expanded_dirs: &[PathBuf],
     backend: &dyn FileBackend,
-) {
+) -> Result<(), String> {
+    let expanded_dirs: std::collections::HashSet<PathBuf> =
+        expanded_dirs.iter().cloned().collect();
     let mut i = 0;
     while i < entries.len() {
         if entries[i].is_dir && !entries[i].expanded && expanded_dirs.contains(&entries[i].path) {
@@ -723,7 +805,7 @@ fn restore_expanded(
             entries[i].expanded = true;
             let mut new_entries = Vec::new();
             let mut new_index = Vec::new();
-            build_file_entries(root, &dir_path, &mut new_entries, &mut new_index, depth + 1, backend);
+            build_file_entries(&dir_path, &mut new_entries, &mut new_index, depth + 1, backend)?;
             file_index.extend(new_index);
             let insert_pos = i + 1;
             for (j, entry) in new_entries.into_iter().enumerate() {
@@ -732,57 +814,83 @@ fn restore_expanded(
         }
         i += 1;
     }
+    Ok(())
 }
 
-/// Recursively build file entries using the `ignore` crate for .gitignore support.
-fn build_file_entries(
+fn build_tree_snapshot(
     root: &Path,
+    expanded_dirs: &[PathBuf],
+    backend: &dyn FileBackend,
+    expand_root_dirs: bool,
+) -> Result<TreeSnapshot, String> {
+    let mut snapshot = TreeSnapshot::default();
+    build_collapsed_entries(root, &mut snapshot.entries, &mut snapshot.file_index, 0, backend)?;
+
+    let mut dirs_to_expand = expanded_dirs.to_vec();
+    if expand_root_dirs && !backend.is_remote() {
+        dirs_to_expand.extend(
+            snapshot
+                .entries
+                .iter()
+                .filter(|entry| entry.is_dir && entry.depth == 0)
+                .map(|entry| entry.path.clone()),
+        );
+        dirs_to_expand.sort();
+        dirs_to_expand.dedup();
+    }
+
+    restore_expanded(
+        &mut snapshot.entries,
+        &mut snapshot.file_index,
+        &dirs_to_expand,
+        backend,
+    )?;
+
+    Ok(snapshot)
+}
+
+fn build_collapsed_entries(
     dir: &Path,
     entries: &mut Vec<FileEntry>,
     file_index: &mut Vec<PathBuf>,
     depth: u32,
     backend: &dyn FileBackend,
-) {
-    let mut dirs = Vec::new();
-    let mut files = Vec::new();
+) -> Result<(), String> {
+    let (dirs, files) = list_directory_entries(dir, backend)?;
 
-    if backend.is_remote() {
-        // Remote: use backend.list_dir() — one SSH call per directory
-        if let Ok(listing) = backend.list_dir(dir) {
-            for de in listing {
-                let path = dir.join(&de.name);
-                if de.is_dir {
-                    dirs.push((path, de.name));
-                } else {
-                    files.push((path, de.name));
-                }
-            }
-        }
-    } else {
-        // Local: use ignore::WalkBuilder for .gitignore support
-        let walker = ignore::WalkBuilder::new(dir)
-            .max_depth(Some(1))
-            .sort_by_file_name(|a, b| a.cmp(b))
-            .build();
-
-        for entry in walker.flatten() {
-            let path = entry.path().to_path_buf();
-            if path == dir { continue; }
-
-            let name = path.file_name()
-                .map(|n| n.to_string_lossy().to_string())
-                .unwrap_or_default();
-
-            if path.is_dir() {
-                dirs.push((path, name));
-            } else {
-                files.push((path, name));
-            }
-        }
+    for (path, name) in dirs {
+        entries.push(FileEntry {
+            path,
+            name,
+            is_dir: true,
+            depth,
+            expanded: false,
+        });
     }
 
-    dirs.sort_by(|a, b| a.1.to_lowercase().cmp(&b.1.to_lowercase()));
-    files.sort_by(|a, b| a.1.to_lowercase().cmp(&b.1.to_lowercase()));
+    for (path, name) in files {
+        file_index.push(path.clone());
+        entries.push(FileEntry {
+            path,
+            name,
+            is_dir: false,
+            depth,
+            expanded: false,
+        });
+    }
+
+    Ok(())
+}
+
+/// Recursively build file entries using the `ignore` crate for .gitignore support.
+fn build_file_entries(
+    dir: &Path,
+    entries: &mut Vec<FileEntry>,
+    file_index: &mut Vec<PathBuf>,
+    depth: u32,
+    backend: &dyn FileBackend,
+) -> Result<(), String> {
+    let (dirs, files) = list_directory_entries(dir, backend)?;
 
     // Remote: don't auto-expand (each expand is an SSH call)
     let auto_expand_depth = if backend.is_remote() { 0 } else { 1 };
@@ -797,7 +905,7 @@ fn build_file_entries(
             expanded: auto_expand,
         });
         if auto_expand {
-            build_file_entries(root, &path, entries, file_index, depth + 1, backend);
+            build_file_entries(&path, entries, file_index, depth + 1, backend)?;
         }
     }
 
@@ -810,5 +918,114 @@ fn build_file_entries(
             depth,
             expanded: false,
         });
+    }
+
+    Ok(())
+}
+
+fn list_directory_entries(
+    dir: &Path,
+    backend: &dyn FileBackend,
+) -> Result<(Vec<(PathBuf, String)>, Vec<(PathBuf, String)>), String> {
+    let mut dirs = Vec::new();
+    let mut files = Vec::new();
+
+    if backend.is_remote() {
+        for de in backend.list_dir(dir)? {
+            let path = dir.join(&de.name);
+            if de.is_dir {
+                dirs.push((path, de.name));
+            } else {
+                files.push((path, de.name));
+            }
+        }
+    } else {
+        let walker = ignore::WalkBuilder::new(dir)
+            .max_depth(Some(1))
+            .sort_by_file_name(|a, b| a.cmp(b))
+            .build();
+
+        for entry in walker.flatten() {
+            let path = entry.path().to_path_buf();
+            if path == dir {
+                continue;
+            }
+
+            let name = path
+                .file_name()
+                .map(|n| n.to_string_lossy().to_string())
+                .unwrap_or_default();
+
+            if path.is_dir() {
+                dirs.push((path, name));
+            } else {
+                files.push((path, name));
+            }
+        }
+    }
+
+    dirs.sort_by(|a, b| a.1.to_lowercase().cmp(&b.1.to_lowercase()));
+    files.sort_by(|a, b| a.1.to_lowercase().cmp(&b.1.to_lowercase()));
+    Ok((dirs, files))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::panels::editor::file_backend::LocalFileBackend;
+    use tempfile::tempdir;
+
+    #[test]
+    fn build_tree_snapshot_expands_root_dirs_for_local_projects() {
+        let dir = tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("src")).unwrap();
+        std::fs::write(dir.path().join("src/main.rs"), "fn main() {}\n").unwrap();
+        std::fs::write(dir.path().join("README.md"), "# demo\n").unwrap();
+        let backend = LocalFileBackend::new(dir.path());
+
+        let snapshot = build_tree_snapshot(dir.path(), &[], &backend, true).unwrap();
+
+        assert!(snapshot
+            .entries
+            .iter()
+            .any(|entry| entry.name == "src" && entry.is_dir && entry.depth == 0 && entry.expanded));
+        assert!(snapshot
+            .entries
+            .iter()
+            .any(|entry| entry.name == "main.rs" && !entry.is_dir && entry.depth == 1));
+        assert!(snapshot
+            .entries
+            .iter()
+            .any(|entry| entry.name == "README.md" && !entry.is_dir && entry.depth == 0));
+    }
+
+    #[test]
+    fn build_tree_snapshot_preserves_only_requested_expanded_dirs() {
+        let dir = tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("src")).unwrap();
+        std::fs::create_dir_all(dir.path().join("tests")).unwrap();
+        std::fs::write(dir.path().join("src/main.rs"), "fn main() {}\n").unwrap();
+        std::fs::write(dir.path().join("tests/app.rs"), "#[test]\nfn it_works() {}\n").unwrap();
+        let backend = LocalFileBackend::new(dir.path());
+
+        let snapshot =
+            build_tree_snapshot(dir.path(), &[dir.path().join("tests")], &backend, false).unwrap();
+
+        assert!(snapshot
+            .entries
+            .iter()
+            .any(|entry| entry.name == "tests" && entry.is_dir && entry.expanded));
+        assert!(snapshot
+            .entries
+            .iter()
+            .any(|entry| entry.name == "app.rs" && !entry.is_dir && entry.depth == 1));
+        assert!(snapshot
+            .entries
+            .iter()
+            .any(|entry| entry.name == "src" && entry.is_dir && !entry.expanded));
+        assert!(!snapshot
+            .entries
+            .iter()
+            .any(|entry| entry.name == "main.rs" && !entry.is_dir));
     }
 }

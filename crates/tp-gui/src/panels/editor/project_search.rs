@@ -1,11 +1,12 @@
 use gtk4::prelude::*;
 use regex::RegexBuilder;
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::Arc;
 
 use super::file_backend::FileBackend;
+use super::task::run_blocking;
 
 /// Callback when a search result is clicked: (file_path, line_number, search_query)
 pub type OnResultClick = Rc<dyn Fn(&Path, u32, &str)>;
@@ -90,6 +91,7 @@ impl ProjectSearch {
         // Shared state
         let results_store: Rc<RefCell<Vec<SearchResult>>> = Rc::new(RefCell::new(Vec::new()));
         let last_query: Rc<RefCell<String>> = Rc::new(RefCell::new(String::new()));
+        let request_seq = Rc::new(Cell::new(0u64));
 
         // Search on Enter
         {
@@ -99,63 +101,20 @@ impl ProjectSearch {
             let results_s = results_store.clone();
             let status_l = status_label.clone();
             let lq = last_query.clone();
+            let seq = request_seq.clone();
             search_entry.connect_activate(move |entry| {
                 let query = entry.text().to_string();
                 if query.is_empty() { return; }
                 *lq.borrow_mut() = query.clone();
-
-                // Clear previous
-                while let Some(child) = results_list_c.first_child() {
-                    results_list_c.remove(&child);
-                }
-
-                let results = search_in_files(&root, &query, &*be);
-                let total_matches = results.len();
-
-                // Group by file: count matches per file, keep first result per file for click
-                let mut file_groups: Vec<(PathBuf, usize, u32)> = Vec::new(); // (path, count, first_line)
-                for result in &results {
-                    if let Some(group) = file_groups.iter_mut().find(|(p, _, _)| *p == result.path) {
-                        group.1 += 1;
-                    } else {
-                        file_groups.push((result.path.clone(), 1, result.line_num));
-                    }
-                }
-
-                let file_count = file_groups.len();
-                status_l.set_text(&format!("{} matches in {} files", total_matches, file_count));
-
-                for (file_path, match_count, _first_line) in &file_groups {
-                    let rel = file_path.strip_prefix(&root).unwrap_or(file_path);
-                    let row = gtk4::Box::new(gtk4::Orientation::Horizontal, 6);
-                    row.set_margin_start(6);
-                    row.set_margin_end(6);
-                    row.set_margin_top(3);
-                    row.set_margin_bottom(3);
-
-                    let icon = gtk4::Image::from_icon_name("text-x-generic-symbolic");
-                    icon.set_pixel_size(14);
-                    row.append(&icon);
-
-                    let name_label = gtk4::Label::new(Some(&rel.to_string_lossy()));
-                    name_label.set_halign(gtk4::Align::Start);
-                    name_label.set_hexpand(true);
-                    name_label.set_ellipsize(gtk4::pango::EllipsizeMode::Start);
-                    name_label.set_tooltip_text(Some(&rel.to_string_lossy()));
-                    row.append(&name_label);
-
-                    let count_label = gtk4::Label::new(Some(&format!("{}", match_count)));
-                    count_label.add_css_class("dim-label");
-                    count_label.add_css_class("caption");
-                    row.append(&count_label);
-
-                    let list_row = gtk4::ListBoxRow::new();
-                    list_row.set_child(Some(&row));
-                    list_row.set_widget_name(&file_path.to_string_lossy());
-                    results_list_c.append(&list_row);
-                }
-
-                *results_s.borrow_mut() = results;
+                request_search(
+                    &results_list_c,
+                    &status_l,
+                    &results_s,
+                    &root,
+                    be.clone(),
+                    query,
+                    seq.clone(),
+                );
             });
         }
 
@@ -187,19 +146,33 @@ impl ProjectSearch {
             let status_l = status_label.clone();
             let results_list_c = results_list.clone();
             let results_s = results_store.clone();
+            let seq = request_seq.clone();
             replace_all_btn.connect_clicked(move |_| {
                 let query = se.text().to_string();
                 let replacement = re.text().to_string();
                 if query.is_empty() { return; }
+                let request_id = seq.get().wrapping_add(1);
+                seq.set(request_id);
+                status_l.set_text("Replacing...");
+                clear_results_list(&results_list_c);
 
-                let count = replace_in_files(&root, &query, &replacement, &*be);
-                status_l.set_text(&format!("{} replaced in files", count));
-
-                // Clear results (they're stale now)
-                while let Some(child) = results_list_c.first_child() {
-                    results_list_c.remove(&child);
-                }
-                results_s.borrow_mut().clear();
+                let root_c = root.clone();
+                let be_c = be.clone();
+                let status_l_c = status_l.clone();
+                let results_list_c2 = results_list_c.clone();
+                let results_s_c = results_s.clone();
+                let seq_c = seq.clone();
+                run_blocking(
+                    move || replace_in_files(&root_c, &query, &replacement, &*be_c),
+                    move |count| {
+                        if seq_c.get() != request_id {
+                            return;
+                        }
+                        status_l_c.set_text(&format!("{} replaced in files", count));
+                        clear_results_list(&results_list_c2);
+                        results_s_c.borrow_mut().clear();
+                    },
+                );
             });
         }
 
@@ -212,6 +185,95 @@ impl ProjectSearch {
 
     pub fn focus_entry(&self) {
         self.search_entry.grab_focus();
+    }
+}
+
+fn request_search(
+    results_list: &gtk4::ListBox,
+    status_label: &gtk4::Label,
+    results_store: &Rc<RefCell<Vec<SearchResult>>>,
+    root: &Path,
+    backend: Arc<dyn FileBackend>,
+    query: String,
+    request_seq: Rc<Cell<u64>>,
+) {
+    let request_id = request_seq.get().wrapping_add(1);
+    request_seq.set(request_id);
+    status_label.set_text("Searching...");
+    clear_results_list(results_list);
+
+    let results_list_c = results_list.clone();
+    let status_label_c = status_label.clone();
+    let results_store_c = results_store.clone();
+    let root_c = root.to_path_buf();
+    let search_root = root_c.clone();
+    let seq_c = request_seq.clone();
+    run_blocking(
+        move || search_in_files(&search_root, &query, &*backend),
+        move |results| {
+            if seq_c.get() != request_id {
+                return;
+            }
+            render_results(&results_list_c, &status_label_c, &root_c, &results);
+            *results_store_c.borrow_mut() = results;
+        },
+    );
+}
+
+fn clear_results_list(results_list: &gtk4::ListBox) {
+    while let Some(child) = results_list.first_child() {
+        results_list.remove(&child);
+    }
+}
+
+fn render_results(
+    results_list: &gtk4::ListBox,
+    status_label: &gtk4::Label,
+    root: &Path,
+    results: &[SearchResult],
+) {
+    clear_results_list(results_list);
+
+    let total_matches = results.len();
+    let mut file_groups: Vec<(PathBuf, usize, u32)> = Vec::new();
+    for result in results {
+        if let Some(group) = file_groups.iter_mut().find(|(p, _, _)| *p == result.path) {
+            group.1 += 1;
+        } else {
+            file_groups.push((result.path.clone(), 1, result.line_num));
+        }
+    }
+
+    status_label.set_text(&format!("{} matches in {} files", total_matches, file_groups.len()));
+
+    for (file_path, match_count, _first_line) in &file_groups {
+        let rel = file_path.strip_prefix(root).unwrap_or(file_path);
+        let row = gtk4::Box::new(gtk4::Orientation::Horizontal, 6);
+        row.set_margin_start(6);
+        row.set_margin_end(6);
+        row.set_margin_top(3);
+        row.set_margin_bottom(3);
+
+        let icon = gtk4::Image::from_icon_name("text-x-generic-symbolic");
+        icon.set_pixel_size(14);
+        row.append(&icon);
+
+        let name_label = gtk4::Label::new(Some(&rel.to_string_lossy()));
+        name_label.set_halign(gtk4::Align::Start);
+        name_label.set_hexpand(true);
+        name_label.set_ellipsize(gtk4::pango::EllipsizeMode::Start);
+        name_label.set_tooltip_text(Some(&rel.to_string_lossy()));
+        row.append(&name_label);
+
+        let count_label = gtk4::Label::new(Some(&format!("{}", match_count)));
+        count_label.add_css_class("dim-label");
+        count_label.add_css_class("caption");
+        row.append(&count_label);
+
+        let list_row = gtk4::ListBoxRow::new();
+        list_row.set_child(Some(&row));
+        list_row.set_widget_name(&file_path.to_string_lossy());
+        results_list.append(&list_row);
     }
 }
 
