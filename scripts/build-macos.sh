@@ -44,6 +44,9 @@ fi
 
 # Resources
 cp -r "$ROOT_DIR/resources/icons" "$APP_DIR/Contents/Resources/icons"
+if [ -d "$ROOT_DIR/resources/share" ]; then
+    cp -r "$ROOT_DIR/resources/share" "$APP_DIR/Contents/Resources/share"
+fi
 cp "$ROOT_DIR/resources/icons/pax.svg" \
    "$APP_DIR/Contents/Resources/share/icons/hicolor/scalable/apps/pax.svg"
 cp "$ROOT_DIR/resources/icons/code-symbolic.svg" \

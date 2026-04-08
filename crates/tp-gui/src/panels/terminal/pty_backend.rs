@@ -38,7 +38,6 @@ use std::time::Duration;
 const DEFAULT_ROWS: u16 = 24;
 const DEFAULT_COLS: u16 = 80;
 const DEFAULT_SCROLLBACK: usize = 10_000;
-const TERMINAL_FONT: &str = "Monospace 11";
 const SCROLL_MULTIPLIER: f64 = 3.0;
 
 pub struct TerminalInner {
@@ -546,114 +545,127 @@ struct TerminalPalette {
 
 impl TerminalPalette {
     fn current() -> Self {
-        let (bg, fg) = crate::theme::current_theme()
-            .terminal_colors()
-            .map(|(bg, fg)| (rgba_to_rgb(bg), rgba_to_rgb(fg)))
-            .unwrap_or((
-                Rgb { r: 0, g: 0, b: 0 },
-                Rgb {
-                    r: 0xee,
-                    g: 0xee,
-                    b: 0xee,
-                },
-            ));
+        terminal_palette_for(
+            crate::theme::current_theme(),
+            libadwaita::StyleManager::default().is_dark(),
+        )
+    }
+}
 
-        let ansi = [
-            Rgb { r: 0, g: 0, b: 0 },
-            Rgb {
-                r: 0xcd,
-                g: 0x31,
-                b: 0x31,
-            },
-            Rgb {
-                r: 0x0d,
-                g: 0xbc,
-                b: 0x79,
-            },
-            Rgb {
-                r: 0xe5,
-                g: 0xe5,
-                b: 0x10,
-            },
-            Rgb {
-                r: 0x24,
-                g: 0x72,
-                b: 0xc8,
-            },
-            Rgb {
-                r: 0xbc,
-                g: 0x3f,
-                b: 0xbc,
-            },
-            Rgb {
-                r: 0x11,
-                g: 0xa8,
-                b: 0xcd,
-            },
-            Rgb {
-                r: 0xe5,
-                g: 0xe5,
-                b: 0xe5,
-            },
-            Rgb {
-                r: 0x66,
-                g: 0x66,
-                b: 0x66,
-            },
-            Rgb {
-                r: 0xf1,
-                g: 0x4c,
-                b: 0x4c,
-            },
-            Rgb {
-                r: 0x23,
-                g: 0xd1,
-                b: 0x8b,
-            },
-            Rgb {
-                r: 0xf5,
-                g: 0xf5,
-                b: 0x43,
-            },
-            Rgb {
-                r: 0x3b,
-                g: 0x8e,
-                b: 0xea,
-            },
-            Rgb {
-                r: 0xd6,
-                g: 0x70,
-                b: 0xd6,
-            },
-            Rgb {
-                r: 0x29,
-                g: 0xb8,
-                b: 0xdb,
-            },
-            Rgb {
-                r: 0xff,
-                g: 0xff,
-                b: 0xff,
-            },
-        ];
+fn terminal_font_spec() -> String {
+    resolve_terminal_font_spec(
+        std::env::var("PAX_TERMINAL_FONT").ok().as_deref(),
+        cfg!(target_os = "macos"),
+    )
+}
 
-        Self {
-            background: bg,
-            foreground: fg,
-            cursor_bg: fg,
-            cursor_fg: bg,
-            selection_bg: Rgb {
-                r: 0x3b,
-                g: 0x82,
-                b: 0xf6,
-            },
-            selection_fg: Rgb {
-                r: 0xff,
-                g: 0xff,
-                b: 0xff,
-            },
-            ansi,
+fn resolve_terminal_font_spec(override_font: Option<&str>, is_macos: bool) -> String {
+    if let Some(font) = override_font.map(str::trim).filter(|font| !font.is_empty()) {
+        return font.to_string();
+    }
+
+    if is_macos {
+        "Menlo 13".to_string()
+    } else {
+        "Monospace 11".to_string()
+    }
+}
+
+fn terminal_palette_for(theme: crate::theme::Theme, system_dark: bool) -> TerminalPalette {
+    match theme {
+        crate::theme::Theme::System => {
+            if system_dark {
+                make_terminal_palette(
+                    0x111827,
+                    0xe5e7eb,
+                    0x374151,
+                    0xf9fafb,
+                    [
+                        0x1f2937, 0xf87171, 0x34d399, 0xfbbf24, 0x60a5fa, 0xc084fc, 0x22d3ee,
+                        0xe5e7eb, 0x4b5563, 0xfca5a5, 0x6ee7b7, 0xfcd34d, 0x93c5fd, 0xd8b4fe,
+                        0x67e8f9, 0xf9fafb,
+                    ],
+                )
+            } else {
+                make_terminal_palette(
+                    0xffffff,
+                    0x1f2937,
+                    0xdbeafe,
+                    0x111827,
+                    [
+                        0x111827, 0xdc2626, 0x059669, 0xd97706, 0x2563eb, 0x9333ea, 0x0891b2,
+                        0xe5e7eb, 0x6b7280, 0xef4444, 0x10b981, 0xf59e0b, 0x3b82f6, 0xa855f7,
+                        0x06b6d4, 0xf9fafb,
+                    ],
+                )
+            }
         }
+        crate::theme::Theme::CatppuccinMocha => make_terminal_palette(
+            0x1e1e2e,
+            0xcdd6f4,
+            0x45475a,
+            0xf5e0dc,
+            [
+                0x45475a, 0xf38ba8, 0xa6e3a1, 0xf9e2af, 0x89b4fa, 0xf5c2e7, 0x94e2d5, 0xbac2de,
+                0x585b70, 0xf38ba8, 0xa6e3a1, 0xf9e2af, 0x89b4fa, 0xf5c2e7, 0x94e2d5, 0xa6adc8,
+            ],
+        ),
+        crate::theme::Theme::CatppuccinLatte => make_terminal_palette(
+            0xeff1f5,
+            0x4c4f69,
+            0xbcc0cc,
+            0x4c4f69,
+            [
+                0x5c5f77, 0xd20f39, 0x40a02b, 0xdf8e1d, 0x1e66f5, 0xea76cb, 0x179299, 0xacb0be,
+                0x6c6f85, 0xd20f39, 0x40a02b, 0xdf8e1d, 0x1e66f5, 0xea76cb, 0x179299, 0xdc8a78,
+            ],
+        ),
+        crate::theme::Theme::Dracula => make_terminal_palette(
+            0x282a36,
+            0xf8f8f2,
+            0x44475a,
+            0xf8f8f2,
+            [
+                0x21222c, 0xff5555, 0x50fa7b, 0xf1fa8c, 0xbd93f9, 0xff79c6, 0x8be9fd, 0xf8f8f2,
+                0x6272a4, 0xff6e6e, 0x69ff94, 0xffffa5, 0xd6acff, 0xff92df, 0xa4ffff, 0xffffff,
+            ],
+        ),
+        crate::theme::Theme::Nord => make_terminal_palette(
+            0x2e3440,
+            0xeceff4,
+            0x434c5e,
+            0xeceff4,
+            [
+                0x3b4252, 0xbf616a, 0xa3be8c, 0xebcb8b, 0x81a1c1, 0xb48ead, 0x88c0d0, 0xe5e9f0,
+                0x4c566a, 0xbf616a, 0xa3be8c, 0xebcb8b, 0x81a1c1, 0xb48ead, 0x8fbcbb, 0xeceff4,
+            ],
+        ),
+    }
+}
+
+fn make_terminal_palette(
+    background: u32,
+    foreground: u32,
+    selection_bg: u32,
+    selection_fg: u32,
+    ansi: [u32; 16],
+) -> TerminalPalette {
+    TerminalPalette {
+        background: rgb(background),
+        foreground: rgb(foreground),
+        cursor_bg: rgb(foreground),
+        cursor_fg: rgb(background),
+        selection_bg: rgb(selection_bg),
+        selection_fg: rgb(selection_fg),
+        ansi: ansi.map(rgb),
+    }
+}
+
+fn rgb(hex: u32) -> Rgb {
+    Rgb {
+        r: ((hex >> 16) & 0xff) as u8,
+        g: ((hex >> 8) & 0xff) as u8,
+        b: (hex & 0xff) as u8,
     }
 }
 
@@ -921,7 +933,7 @@ fn measure_cell_metrics<W: IsA<gtk4::Widget>>(widget: &W) -> Option<CellMetrics>
 }
 
 fn terminal_font_description() -> gtk4::pango::FontDescription {
-    gtk4::pango::FontDescription::from_string(TERMINAL_FONT)
+    gtk4::pango::FontDescription::from_string(&terminal_font_spec())
 }
 
 fn point_from_coords<T: EventListener>(
@@ -1113,14 +1125,6 @@ fn paint_rgb(cr: &gtk4::cairo::Context, rgb: Rgb) {
     );
 }
 
-fn rgba_to_rgb(rgba: gtk4::gdk::RGBA) -> Rgb {
-    Rgb {
-        r: (rgba.red() * 255.0).round() as u8,
-        g: (rgba.green() * 255.0).round() as u8,
-        b: (rgba.blue() * 255.0).round() as u8,
-    }
-}
-
 fn normalize_scroll_delta(dy: f64) -> i32 {
     if dy == 0.0 {
         return 0;
@@ -1218,9 +1222,32 @@ mod tests {
 
     #[test]
     fn indexed_rgb_uses_standard_color_cube() {
-        let palette = TerminalPalette::current();
+        let palette = terminal_palette_for(crate::theme::Theme::Dracula, true);
         let rgb = indexed_rgb(21, &palette);
         assert_eq!(rgb, Rgb { r: 0, g: 0, b: 255 });
+    }
+
+    #[test]
+    fn terminal_font_spec_prefers_explicit_override() {
+        assert_eq!(
+            resolve_terminal_font_spec(Some("JetBrains Mono 14"), true),
+            "JetBrains Mono 14"
+        );
+    }
+
+    #[test]
+    fn terminal_font_spec_uses_platform_defaults() {
+        assert_eq!(resolve_terminal_font_spec(None, true), "Menlo 13");
+        assert_eq!(resolve_terminal_font_spec(None, false), "Monospace 11");
+    }
+
+    #[test]
+    fn terminal_palette_matches_dracula_theme() {
+        let palette = terminal_palette_for(crate::theme::Theme::Dracula, true);
+        assert_eq!(palette.background, rgb(0x282a36));
+        assert_eq!(palette.foreground, rgb(0xf8f8f2));
+        assert_eq!(palette.selection_bg, rgb(0x44475a));
+        assert_eq!(palette.ansi[1], rgb(0xff5555));
     }
 
     #[test]

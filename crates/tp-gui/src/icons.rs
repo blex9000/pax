@@ -1,7 +1,10 @@
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
+const PAX_THEME_NAME: &str = "Pax";
 const REQUIRED_THEME_ICONS: &[&str] = &[
+    "pax",
+    "code-symbolic",
     "document-open-symbolic",
     "window-close-symbolic",
     "utilities-terminal-symbolic",
@@ -16,13 +19,16 @@ pub fn configure_icon_theme(icon_theme: &gtk4::IconTheme) {
         icon_theme.add_search_path(path);
     }
 
-    if missing_required_icons(icon_theme) {
-        for path in existing_paths(external_theme_search_paths(
-            std::env::var("XDG_DATA_DIRS").ok().as_deref(),
-            std::env::var_os("HOME").as_deref().map(Path::new),
-        )) {
-            icon_theme.add_search_path(path);
-        }
+    for path in existing_paths(external_theme_search_paths(
+        std::env::var("XDG_DATA_DIRS").ok().as_deref(),
+        std::env::var_os("HOME").as_deref().map(Path::new),
+    )) {
+        icon_theme.add_search_path(path);
+    }
+
+    icon_theme.set_theme_name(Some(PAX_THEME_NAME));
+    if let Some(settings) = gtk4::Settings::default() {
+        settings.set_gtk_icon_theme_name(Some(PAX_THEME_NAME));
     }
 
     if missing_required_icons(icon_theme) {
@@ -57,6 +63,7 @@ fn bundled_theme_search_paths() -> Vec<PathBuf> {
         bundle_resources_dir(exe.as_deref()).join("share/icons"),
         bundle_resources_dir_legacy_case(exe.as_deref()).join("share/icons"),
         PathBuf::from("resources/share/icons"),
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../resources/share/icons"),
     ])
 }
 
@@ -111,6 +118,11 @@ fn dedupe_paths(paths: Vec<PathBuf>) -> Vec<PathBuf> {
 }
 
 #[cfg(test)]
+fn repo_pax_theme_dir() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../resources/share/icons/Pax")
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
 
@@ -162,10 +174,32 @@ mod tests {
             bundle_resources_dir(Some(exe)).join("share/icons"),
             bundle_resources_dir_legacy_case(Some(exe)).join("share/icons"),
             PathBuf::from("resources/share/icons"),
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../resources/share/icons"),
         ]);
 
         assert!(paths.contains(&PathBuf::from(
             "/Applications/Pax.app/Contents/Resources/share/icons"
         )));
+    }
+
+    #[test]
+    fn repo_bundles_core_pax_theme_assets() {
+        let pax_theme = repo_pax_theme_dir();
+        let expected = [
+            pax_theme.join("index.theme"),
+            pax_theme.join("scalable/apps/pax.svg"),
+            pax_theme.join("symbolic/apps/code-symbolic.svg"),
+            pax_theme.join("symbolic/actions/document-open-symbolic.svg"),
+            pax_theme.join("symbolic/legacy/utilities-terminal-symbolic.svg"),
+            pax_theme.join("symbolic/ui/window-close-symbolic.svg"),
+        ];
+
+        for asset in expected {
+            assert!(
+                asset.exists(),
+                "missing bundled icon asset: {}",
+                asset.display()
+            );
+        }
     }
 }
