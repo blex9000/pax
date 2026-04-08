@@ -95,6 +95,12 @@ Lo script:
 
 Produce `Pax.app` in `target/release/bundle/`.
 
+Lo script macOS ora bundla anche:
+- icone custom in `Contents/Resources/share/icons/hicolor`
+- tema `Adwaita` e, se disponibile, `hicolor`
+
+Questo evita i placeholder di icona mancanti sui sistemi senza tema GTK installato globalmente.
+
 ## Versione
 
 La versione è definita in `Cargo.toml` (workspace root):

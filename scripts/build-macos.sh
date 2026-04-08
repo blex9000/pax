@@ -17,6 +17,8 @@ echo "==> Creating macOS App Bundle..."
 rm -rf "$APP_DIR"
 mkdir -p "$APP_DIR/Contents/MacOS"
 mkdir -p "$APP_DIR/Contents/Resources"
+mkdir -p "$APP_DIR/Contents/Resources/share/icons/hicolor/scalable/apps"
+mkdir -p "$APP_DIR/Contents/Resources/share/icons/hicolor/symbolic/apps"
 
 # Binary
 cp "$ROOT_DIR/target/release/pax" "$APP_DIR/Contents/MacOS/pax"
@@ -42,8 +44,30 @@ fi
 
 # Resources
 cp -r "$ROOT_DIR/resources/icons" "$APP_DIR/Contents/Resources/icons"
+cp "$ROOT_DIR/resources/icons/pax.svg" \
+   "$APP_DIR/Contents/Resources/share/icons/hicolor/scalable/apps/pax.svg"
+cp "$ROOT_DIR/resources/icons/code-symbolic.svg" \
+   "$APP_DIR/Contents/Resources/share/icons/hicolor/symbolic/apps/code-symbolic.svg"
 if [ -d "$ROOT_DIR/resources/sourceview-styles" ]; then
     cp -r "$ROOT_DIR/resources/sourceview-styles" "$APP_DIR/Contents/Resources/sourceview-styles"
+fi
+
+ICON_THEME_ROOT=""
+for prefix in "${HOMEBREW_PREFIX:-}" "$(command -v brew >/dev/null 2>&1 && brew --prefix 2>/dev/null || true)" /opt/homebrew /usr/local /opt/local /usr; do
+    if [ -n "$prefix" ] && [ -d "$prefix/share/icons/Adwaita" ]; then
+        ICON_THEME_ROOT="$prefix/share/icons"
+        break
+    fi
+done
+
+if [ -n "$ICON_THEME_ROOT" ]; then
+    echo "    Bundling icon themes from $ICON_THEME_ROOT..."
+    cp -R "$ICON_THEME_ROOT/Adwaita" "$APP_DIR/Contents/Resources/share/icons/"
+    if [ -d "$ICON_THEME_ROOT/hicolor" ]; then
+        cp -R "$ICON_THEME_ROOT/hicolor" "$APP_DIR/Contents/Resources/share/icons/"
+    fi
+else
+    echo "    Warning: Adwaita icon theme not found; symbolic icons may be missing on macOS"
 fi
 
 # Info.plist
