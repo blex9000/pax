@@ -23,6 +23,7 @@ pub fn run_migrations(db: &Database) -> Result<()> {
     let migrations: Vec<(&str, &str)> = vec![
         ("001_initial", MIGRATION_001),
         ("002_fts5", MIGRATION_002),
+        ("003_workspace_metadata_key", MIGRATION_003),
     ];
 
     for (name, sql) in migrations {
@@ -89,4 +90,34 @@ CREATE VIRTUAL TABLE IF NOT EXISTS saved_output_fts USING fts5(
 CREATE TRIGGER IF NOT EXISTS saved_output_ai AFTER INSERT ON saved_output BEGIN
     INSERT INTO saved_output_fts(rowid, content) VALUES (new.id, new.content);
 END;
+";
+
+const MIGRATION_003: &str = "
+ALTER TABLE workspace_metadata RENAME TO workspace_metadata_old;
+
+CREATE TABLE workspace_metadata (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    config_path TEXT,
+    record_key TEXT NOT NULL UNIQUE,
+    last_opened TEXT DEFAULT (datetime('now')),
+    open_count INTEGER DEFAULT 1
+);
+
+INSERT INTO workspace_metadata (id, name, config_path, record_key, last_opened, open_count)
+SELECT
+    id,
+    name,
+    config_path,
+    CASE
+        WHEN config_path IS NOT NULL AND trim(config_path) <> '' THEN 'path:' || config_path
+        ELSE 'name:' || name
+    END,
+    last_opened,
+    open_count
+FROM workspace_metadata_old;
+
+DROP TABLE workspace_metadata_old;
+
+CREATE INDEX IF NOT EXISTS idx_workspace_last_opened ON workspace_metadata(last_opened);
 ";

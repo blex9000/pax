@@ -115,11 +115,6 @@ fn main() -> Result<()> {
             let ws = pax_core::config::load_workspace(&config)
                 .with_context(|| format!("Failed to load {}", config.display()))?;
 
-            let db_path = pax_db::Database::default_path();
-            if let Ok(db) = pax_db::Database::open(&db_path) {
-                db.record_workspace_open(&ws.name, config.to_str()).ok();
-            }
-
             pax_gui::app::run_app(Some(ws), Some(&config))?;
         }
         Some(Commands::List) => {

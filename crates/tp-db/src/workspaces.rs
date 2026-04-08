@@ -14,14 +14,19 @@ pub struct WorkspaceRecord {
 impl Database {
     /// Record workspace open (upsert).
     pub fn record_workspace_open(&self, name: &str, config_path: Option<&str>) -> Result<()> {
+        let record_key = config_path
+            .filter(|path| !path.trim().is_empty())
+            .map(|path| format!("path:{}", path))
+            .unwrap_or_else(|| format!("name:{}", name));
         self.conn.execute(
-            "INSERT INTO workspace_metadata (name, config_path)
-             VALUES (?1, ?2)
-             ON CONFLICT(name) DO UPDATE SET
+            "INSERT INTO workspace_metadata (name, config_path, record_key)
+             VALUES (?1, ?2, ?3)
+             ON CONFLICT(record_key) DO UPDATE SET
+                name = excluded.name,
                 last_opened = datetime('now'),
                 open_count = open_count + 1,
-                config_path = COALESCE(?2, config_path)",
-            rusqlite::params![name, config_path],
+                config_path = COALESCE(excluded.config_path, workspace_metadata.config_path)",
+            rusqlite::params![name, config_path, record_key],
         )?;
         Ok(())
     }
@@ -56,5 +61,34 @@ impl Database {
             [name],
         )?;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn record_workspace_open_keeps_distinct_paths_with_same_name() {
+        let db = Database::open_memory().unwrap();
+
+        db.record_workspace_open("dev", Some("/tmp/one.json")).unwrap();
+        db.record_workspace_open("dev", Some("/tmp/two.json")).unwrap();
+
+        let rows = db.list_workspaces_limit(10).unwrap();
+        assert_eq!(rows.len(), 2);
+    }
+
+    #[test]
+    fn record_workspace_open_increments_same_path_only_once() {
+        let db = Database::open_memory().unwrap();
+
+        db.record_workspace_open("dev", Some("/tmp/one.json")).unwrap();
+        db.record_workspace_open("dev-renamed", Some("/tmp/one.json")).unwrap();
+
+        let rows = db.list_workspaces_limit(10).unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].open_count, 2);
+        assert_eq!(rows[0].name, "dev-renamed");
     }
 }

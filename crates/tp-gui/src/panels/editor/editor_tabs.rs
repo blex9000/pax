@@ -639,30 +639,35 @@ impl EditorTabs {
                     {
                         let d = dialog.clone();
                         let sc = state_c.clone();
+                        let pfc = path_for_close.clone();
                         let close = close_do_it.clone();
                         save_btn.connect_clicked(move |_| {
-                            // Save the file
-                            let (backend, text, fpath) = {
+                            let save_result = {
                                 let st = sc.borrow();
-                                let be = st.backend.clone();
-                                if let Some(f) = st.open_files.iter().find(|f| f.modified) {
-                                    let buf = &f.buffer;
-                                    let t = buf.text(&buf.start_iter(), &buf.end_iter(), false).to_string();
-                                    (be, t, f.path.clone())
+                                let backend = st.backend.clone();
+                                if let Some(f) = st.open_files.iter().find(|f| f.path == pfc) {
+                                    let text = f.buffer.text(&f.buffer.start_iter(), &f.buffer.end_iter(), false).to_string();
+                                    backend.write_file(&f.path, &text).map(|_| (f.path.clone(), text))
                                 } else {
-                                    close();
-                                    d.close();
-                                    return;
+                                    Err("File not found".to_string())
                                 }
                             };
-                            let _ = backend.write_file(&fpath, &text);
-                            if let Ok(mut st) = sc.try_borrow_mut() {
-                                if let Some(f) = st.open_files.iter_mut().find(|f| f.path == fpath) {
-                                    f.modified = false;
+                            match save_result {
+                                Ok((fpath, text)) => {
+                                    if let Ok(mut st) = sc.try_borrow_mut() {
+                                        if let Some(f) = st.open_files.iter_mut().find(|f| f.path == fpath) {
+                                            f.modified = false;
+                                            f.last_disk_mtime = get_mtime(&f.path);
+                                            *f.saved_content.borrow_mut() = text;
+                                        }
+                                    }
+                                    close();
+                                    d.close();
+                                }
+                                Err(_) => {
+                                    d.close();
                                 }
                             }
-                            close();
-                            d.close();
                         });
                     }
 
@@ -676,35 +681,11 @@ impl EditorTabs {
 
         // Middle-click to close tab
         {
-            let state_c = state.clone();
-            let nb = self.notebook.clone();
-            let cs = self.content_stack.clone();
-            let path_for_middle = path.to_path_buf();
+            let close_btn = close_btn.clone();
             let gesture = gtk4::GestureClick::new();
             gesture.set_button(2);
             gesture.connect_released(move |_, _, _, _| {
-                let (empty_after, new_idx);
-                {
-                    let mut st = state_c.borrow_mut();
-                    if let Some(idx) = st.open_files.iter().position(|f| f.path == path_for_middle) {
-                        st.open_files.remove(idx);
-                        empty_after = st.open_files.is_empty();
-                        new_idx = if empty_after { 0 } else { idx.min(st.open_files.len() - 1) };
-                        if empty_after {
-                            st.active_tab = None;
-                        } else {
-                            st.active_tab = Some(new_idx);
-                        }
-                        drop(st);
-                        nb.remove_page(Some(idx as u32));
-                        if empty_after {
-                            nb.set_show_tabs(false);
-                            cs.set_visible_child_name("welcome");
-                        } else {
-                            nb.set_current_page(Some(new_idx as u32));
-                        }
-                    }
-                }
+                close_btn.emit_clicked();
             });
             tab_box.add_controller(gesture);
         }
@@ -992,7 +973,7 @@ impl EditorTabs {
     }
 
     /// Save the currently active file.
-    pub fn save_active(&self, state: &Rc<RefCell<EditorState>>, root: &Path) {
+    pub fn save_active(&self, state: &Rc<RefCell<EditorState>>, _root: &Path) {
         {
             let mut st = state.borrow_mut();
             let backend = st.backend.clone();

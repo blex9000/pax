@@ -34,19 +34,52 @@ fn start_open_file_watcher(
     glib::timeout_add_local(std::time::Duration::from_secs(interval), move || {
         let mut st = state.borrow_mut();
         for open_file in &mut st.open_files {
+            if is_remote {
+                let saved_content = open_file.saved_content.clone();
+                if let Ok(content) = backend.read_file(&open_file.path) {
+                    let disk_changed = content != *saved_content.borrow();
+                    if !disk_changed {
+                        continue;
+                    }
+                    if !open_file.modified {
+                        *saved_content.borrow_mut() = content.clone();
+                        open_file.buffer.set_text(&content);
+                        open_file.buffer.set_enable_undo(false);
+                        open_file.buffer.set_enable_undo(true);
+                        open_file.modified = false;
+                    } else {
+                        show_conflict_bar(
+                            &info_bar_container,
+                            &open_file.path,
+                            &open_file.buffer,
+                            saved_content,
+                            backend.clone(),
+                        );
+                    }
+                }
+                continue;
+            }
             let current_mtime = get_mtime(&open_file.path);
             if current_mtime != open_file.last_disk_mtime && current_mtime != 0 {
                 open_file.last_disk_mtime = current_mtime;
                 if !open_file.modified {
                     // Silent reload
                     if let Ok(content) = backend.read_file(&open_file.path) {
+                        *open_file.saved_content.borrow_mut() = content.clone();
                         open_file.buffer.set_text(&content);
                         open_file.buffer.set_enable_undo(false);
                         open_file.buffer.set_enable_undo(true);
+                        open_file.modified = false;
                     }
                 } else {
                     // Show info bar for conflict
-                    show_conflict_bar(&info_bar_container, &open_file.path, &open_file.buffer, backend.clone());
+                    show_conflict_bar(
+                        &info_bar_container,
+                        &open_file.path,
+                        &open_file.buffer,
+                        open_file.saved_content.clone(),
+                        backend.clone(),
+                    );
                 }
             }
         }
@@ -97,7 +130,13 @@ fn start_git_watcher(
 }
 
 #[allow(deprecated)]
-fn show_conflict_bar(container: &gtk4::Box, path: &Path, buffer: &sourceview5::Buffer, backend: Rc<dyn FileBackend>) {
+fn show_conflict_bar(
+    container: &gtk4::Box,
+    path: &Path,
+    buffer: &sourceview5::Buffer,
+    saved_content: Rc<RefCell<String>>,
+    backend: Rc<dyn FileBackend>,
+) {
     // Remove any existing info bar
     while let Some(child) = container.first_child() {
         container.remove(&child);
@@ -119,9 +158,11 @@ fn show_conflict_bar(container: &gtk4::Box, path: &Path, buffer: &sourceview5::B
     let path_c = path.to_path_buf();
     let buf_c = buffer.clone();
     let container_c = container.clone();
+    let saved_content_c = saved_content.clone();
     bar.connect_response(move |bar, response| {
         if response == gtk4::ResponseType::Accept {
             if let Ok(content) = backend.read_file(&path_c) {
+                *saved_content_c.borrow_mut() = content.clone();
                 buf_c.set_text(&content);
                 buf_c.set_enable_undo(false);
                 buf_c.set_enable_undo(true);

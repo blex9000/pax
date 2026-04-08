@@ -228,7 +228,7 @@ fn parse_porcelain(output: &str, root: &Path) -> Vec<GitFileEntry> {
         if line.len() < 4 { return None; }
         let index_status = line.chars().nth(0).unwrap_or(' ');
         let work_status = line.chars().nth(1).unwrap_or(' ');
-        let file_path = line[3..].trim();
+        let raw_path = line[3..].trim();
 
         let staged = index_status != ' ' && index_status != '?';
         let status = if index_status == '?' && work_status == '?' {
@@ -238,6 +238,11 @@ fn parse_porcelain(output: &str, root: &Path) -> Vec<GitFileEntry> {
         } else {
             work_status.to_string()
         };
+        let file_path = if matches!(status.as_str(), "R" | "C") {
+            raw_path.rsplit_once(" -> ").map(|(_, new_path)| new_path).unwrap_or(raw_path)
+        } else {
+            raw_path
+        };
 
         Some(GitFileEntry {
             path: root.join(file_path),
@@ -245,6 +250,33 @@ fn parse_porcelain(output: &str, root: &Path) -> Vec<GitFileEntry> {
             staged,
         })
     }).collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_porcelain_uses_destination_path_for_renames() {
+        let root = Path::new("/tmp/repo");
+        let entries = parse_porcelain("R  old/name.txt -> new/name.txt", root);
+
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].status, "R");
+        assert_eq!(entries[0].path, root.join("new/name.txt"));
+        assert!(entries[0].staged);
+    }
+
+    #[test]
+    fn parse_porcelain_keeps_untracked_files() {
+        let root = Path::new("/tmp/repo");
+        let entries = parse_porcelain("?? scratch.txt", root);
+
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].status, "??");
+        assert_eq!(entries[0].path, root.join("scratch.txt"));
+        assert!(!entries[0].staged);
+    }
 }
 
 /// Represents a diff hunk.

@@ -50,6 +50,17 @@ pub fn do_save(
     save_action: &gtk4::gio::SimpleAction,
     force_dialog: bool,
 ) {
+    do_save_internal(ws, sb, window, save_action, force_dialog, None);
+}
+
+fn do_save_internal(
+    ws: &Rc<RefCell<WorkspaceView>>,
+    sb: &Rc<RefCell<StatusBar>>,
+    window: &Rc<adw::ApplicationWindow>,
+    save_action: &gtk4::gio::SimpleAction,
+    force_dialog: bool,
+    after_save: Option<Rc<dyn Fn()>>,
+) {
     if !force_dialog {
         let has_path = ws.borrow().has_config_path();
         if has_path {
@@ -59,6 +70,9 @@ pub fn do_save(
                     sb.borrow().set_message(&format!("Saved: {}", path.display()));
                     update_dirty_ui(ws, window, save_action);
                     update_status_bar_path(ws, sb);
+                    if let Some(ref cb) = after_save {
+                        cb();
+                    }
                     return;
                 }
                 Err(e) => {
@@ -86,6 +100,7 @@ pub fn do_save(
     let sb = sb.clone();
     let win = window.clone();
     let sa = save_action.clone();
+    let after_save_cb = after_save.clone();
     dialog.save(
         Some(window.as_ref()),
         gtk4::gio::Cancellable::NONE,
@@ -98,6 +113,9 @@ pub fn do_save(
                             sb.borrow().set_message(&format!("Saved: {}", path.display()));
                             update_dirty_ui(&ws, &win, &sa);
                             update_status_bar_path(&ws, &sb);
+                            if let Some(ref cb) = after_save_cb {
+                                cb();
+                            }
                         }
                         Err(e) => sb.borrow().set_message(&format!("Save error: {}", e)),
                     }
@@ -105,6 +123,87 @@ pub fn do_save(
             }
         },
     );
+}
+
+pub fn confirm_discard_workspace_changes(
+    ws: &Rc<RefCell<WorkspaceView>>,
+    sb: &Rc<RefCell<StatusBar>>,
+    window: &Rc<adw::ApplicationWindow>,
+    save_action: &gtk4::gio::SimpleAction,
+    on_continue: Rc<dyn Fn()>,
+) {
+    if !ws.borrow().is_dirty() {
+        on_continue();
+        return;
+    }
+
+    let dialog = gtk4::Window::builder()
+        .title("Unsaved Workspace Changes")
+        .transient_for(window.as_ref())
+        .modal(true)
+        .default_width(420)
+        .default_height(120)
+        .build();
+
+    let vbox = gtk4::Box::new(gtk4::Orientation::Vertical, 12);
+    vbox.set_margin_top(16);
+    vbox.set_margin_bottom(16);
+    vbox.set_margin_start(16);
+    vbox.set_margin_end(16);
+
+    let ws_name = ws.borrow().workspace_name().to_string();
+    let title = gtk4::Label::new(Some(&format!("Save changes to \"{}\" before continuing?", ws_name)));
+    title.set_wrap(true);
+    title.set_halign(gtk4::Align::Start);
+    vbox.append(&title);
+
+    let subtitle = gtk4::Label::new(Some("If you continue without saving, the current workspace changes will be lost."));
+    subtitle.add_css_class("dim-label");
+    subtitle.set_wrap(true);
+    subtitle.set_halign(gtk4::Align::Start);
+    vbox.append(&subtitle);
+
+    let btn_row = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
+    btn_row.set_halign(gtk4::Align::End);
+
+    let cancel_btn = gtk4::Button::with_label("Cancel");
+    let discard_btn = gtk4::Button::with_label("Discard");
+    discard_btn.add_css_class("destructive-action");
+    let save_btn = gtk4::Button::with_label("Save");
+    save_btn.add_css_class("suggested-action");
+
+    btn_row.append(&cancel_btn);
+    btn_row.append(&discard_btn);
+    btn_row.append(&save_btn);
+    vbox.append(&btn_row);
+
+    {
+        let d = dialog.clone();
+        cancel_btn.connect_clicked(move |_| d.close());
+    }
+    {
+        let d = dialog.clone();
+        let cont = on_continue.clone();
+        discard_btn.connect_clicked(move |_| {
+            d.close();
+            cont();
+        });
+    }
+    {
+        let d = dialog.clone();
+        let ws = ws.clone();
+        let sb = sb.clone();
+        let win = window.clone();
+        let sa = save_action.clone();
+        let cont = on_continue.clone();
+        save_btn.connect_clicked(move |_| {
+            d.close();
+            do_save_internal(&ws, &sb, &win, &sa, false, Some(cont.clone()));
+        });
+    }
+
+    dialog.set_child(Some(&vbox));
+    dialog.present();
 }
 
 pub fn do_open(
@@ -135,17 +234,24 @@ pub fn do_open(
         move |result| {
             if let Ok(file) = result {
                 if let Some(path) = file.path() {
-                    match ws.borrow_mut().load_from_file(&path) {
-                        Ok(()) => {
-                            sb.borrow().set_message(&format!("Opened: {}", path.display()));
+                    let ws2 = ws.clone();
+                    let sb2 = sb.clone();
+                    let win2 = win.clone();
+                    let sa2 = sa.clone();
+                    let on_continue: Rc<dyn Fn()> = Rc::new(move || {
+                        match ws2.borrow_mut().load_from_file(&path) {
+                            Ok(()) => {
+                                sb2.borrow().set_message(&format!("Opened: {}", path.display()));
+                            }
+                            Err(e) => {
+                                sb2.borrow().set_message(&format!("Open error: {}", e));
+                                return;
+                            }
                         }
-                        Err(e) => {
-                            sb.borrow().set_message(&format!("Open error: {}", e));
-                            return;
-                        }
-                    }
-                    update_dirty_ui(&ws, &win, &sa);
-                    update_status_bar_path(&ws, &sb);
+                        update_dirty_ui(&ws2, &win2, &sa2);
+                        update_status_bar_path(&ws2, &sb2);
+                    });
+                    confirm_discard_workspace_changes(&ws, &sb, &win, &sa, on_continue);
                 }
             }
         },
@@ -246,13 +352,25 @@ pub fn show_recent_dialog(
 
             if path.exists() {
                 open_btn.connect_clicked(move |_| {
-                    match ws_clone.borrow_mut().load_from_file(&path) {
-                        Ok(()) => sb_clone.borrow().set_message(&format!("Opened: {}", path.display())),
-                        Err(e) => sb_clone.borrow().set_message(&format!("Error: {}", e)),
-                    }
-                    update_dirty_ui(&ws_clone, &win_clone, &sa_clone);
-                    update_status_bar_path(&ws_clone, &sb_clone);
-                    d.close();
+                    let ws2 = ws_clone.clone();
+                    let sb2 = sb_clone.clone();
+                    let win2 = win_clone.clone();
+                    let sa2 = sa_clone.clone();
+                    let d2 = d.clone();
+                    let path2 = path.clone();
+                    let on_continue: Rc<dyn Fn()> = Rc::new(move || {
+                        match ws2.borrow_mut().load_from_file(&path2) {
+                            Ok(()) => sb2.borrow().set_message(&format!("Opened: {}", path2.display())),
+                            Err(e) => {
+                                sb2.borrow().set_message(&format!("Error: {}", e));
+                                return;
+                            }
+                        }
+                        update_dirty_ui(&ws2, &win2, &sa2);
+                        update_status_bar_path(&ws2, &sb2);
+                        d2.close();
+                    });
+                    confirm_discard_workspace_changes(&ws_clone, &sb_clone, &win_clone, &sa_clone, on_continue);
                 });
             } else {
                 open_btn.set_sensitive(false);

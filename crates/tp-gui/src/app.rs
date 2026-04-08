@@ -267,7 +267,6 @@ fn setup_workspace_ui(
                     let view = ws.borrow();
                     std::rc::Rc::new(std::cell::RefCell::new(view.workspace().ssh_configs.clone()))
                 };
-                let tid2 = tid.clone();
                 crate::dialogs::panel_config::show_panel_config_dialog(
                     &*win, &tid, &default_type, None, None,
                     &[], None, 0, 0, saved_ssh,
@@ -385,7 +384,6 @@ fn setup_workspace_ui(
                     };
                     let pid = panel_id.to_string();
                     let ws2 = ws_for_cb.clone();
-                    let ws3 = ws_for_cb.clone();
                     let win2 = win_for_cb.clone();
                     let sa2 = sa_for_cb.clone();
                     // Shared SSH configs — backed by workspace data, changes persist immediately
@@ -473,7 +471,9 @@ fn setup_workspace_ui(
                     // Only update the tab label in the layout tree, not the panel name.
                     // panel_id here is the first child panel — used to locate the tab.
                     let mut view = ws_for_cb.borrow_mut();
+                    tracing::debug!("RenameTab: panel_id='{}', new_name='{}'", panel_id, new_name);
                     update_tab_label_in_layout(&mut view.workspace_mut().layout, panel_id, &new_name);
+                    crate::layout_ops::debug_layout_tree(&view.workspace().layout, "AFTER_RENAME");
                     drop(view);
                     actions::update_dirty_ui(&ws_for_cb, &win_for_cb, &sa_for_cb);
                     sb_for_cb.borrow().set_message(&format!("Tab renamed: {}", new_name));
@@ -516,6 +516,7 @@ fn setup_workspace_ui(
 
     // Auto-save flag (disabled by default, toggled via menu)
     let autosave_enabled = std::rc::Rc::new(std::cell::Cell::new(false));
+    let bypass_close_prompt = std::rc::Rc::new(std::cell::Cell::new(false));
 
     // Register GIO actions
     let action_group = gtk4::gio::SimpleActionGroup::new();
@@ -528,12 +529,19 @@ fn setup_workspace_ui(
         let sa = save_action.clone();
         let sb = status_bar.clone();
         action.connect_activate(move |_, _| {
-            let empty = pax_core::template::empty_workspace("untitled");
-            if let Err(e) = ws.borrow_mut().load_workspace(empty, None) {
-                sb.borrow().set_message(&format!("Error: {}", e));
-            }
-            actions::update_dirty_ui(&ws, &win, &sa);
-            actions::update_status_bar_path(&ws, &sb);
+            let ws2 = ws.clone();
+            let sb2 = sb.clone();
+            let win2 = win.clone();
+            let sa2 = sa.clone();
+            let on_continue: Rc<dyn Fn()> = Rc::new(move || {
+                let empty = pax_core::template::empty_workspace("untitled");
+                if let Err(e) = ws2.borrow_mut().load_workspace(empty, None) {
+                    sb2.borrow().set_message(&format!("Error: {}", e));
+                }
+                actions::update_dirty_ui(&ws2, &win2, &sa2);
+                actions::update_status_bar_path(&ws2, &sb2);
+            });
+            actions::confirm_discard_workspace_changes(&ws, &sb, &win, &sa, on_continue);
         });
         action_group.add_action(&action);
     }
@@ -630,9 +638,18 @@ fn setup_workspace_ui(
     {
         let action = gtk4::gio::SimpleAction::new("quit", None);
         let ws = ws_view.clone();
+        let sb = status_bar.clone();
+        let sa = save_action.clone();
+        let win = window_rc.clone();
+        let bypass = bypass_close_prompt.clone();
         action.connect_activate(move |_, _| {
-            ws.borrow().run_all_before_close();
-            std::process::exit(0);
+            let win2 = win.clone();
+            let bypass2 = bypass.clone();
+            let on_continue: Rc<dyn Fn()> = Rc::new(move || {
+                bypass2.set(true);
+                win2.close();
+            });
+            actions::confirm_discard_workspace_changes(&ws, &sb, &win, &sa, on_continue);
         });
         action_group.add_action(&action);
     }
@@ -677,9 +694,27 @@ fn setup_workspace_ui(
     // Window close request
     {
         let ws = ws_view.clone();
+        let sb = status_bar.clone();
+        let sa = save_action.clone();
+        let win = window_rc.clone();
+        let bypass = bypass_close_prompt.clone();
         window.connect_close_request(move |_| {
-            ws.borrow().run_all_before_close();
-            glib::Propagation::Proceed
+            if bypass.get() {
+                ws.borrow().run_all_before_close();
+                return glib::Propagation::Proceed;
+            }
+            if !ws.borrow().is_dirty() {
+                ws.borrow().run_all_before_close();
+                return glib::Propagation::Proceed;
+            }
+            let win2 = win.clone();
+            let bypass2 = bypass.clone();
+            let on_continue: Rc<dyn Fn()> = Rc::new(move || {
+                bypass2.set(true);
+                win2.close();
+            });
+            actions::confirm_discard_workspace_changes(&ws, &sb, &win, &sa, on_continue);
+            glib::Propagation::Stop
         });
     }
 

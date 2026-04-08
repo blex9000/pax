@@ -918,7 +918,6 @@ impl WorkspaceView {
             }
         }
         self.dirty = false;
-        self.record_in_db();
         Ok(path)
     }
 
@@ -929,7 +928,6 @@ impl WorkspaceView {
             .map_err(|e| format!("Save failed: {}", e))?;
         self.config_path = Some(path.to_path_buf());
         self.dirty = false;
-        self.record_in_db();
         Ok(())
     }
 

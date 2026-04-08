@@ -78,11 +78,21 @@ impl GitLogView {
             file_filter: file_filter.clone(),
         };
 
+        {
+            let cb = view.on_commit_click.clone();
+            view.list_box.connect_row_activated(move |_, row| {
+                let hash = row.widget_name();
+                let hash_str = hash.as_str();
+                if !hash_str.is_empty() {
+                    cb(hash_str);
+                }
+            });
+        }
+
         // Search on Enter or search-changed (debounced by GTK)
         {
             let be = backend.clone();
             let lb = view.list_box.clone();
-            let cb = view.on_commit_click.clone();
             let ff = file_filter.clone();
             let fl = filter_label.clone();
             search_entry.connect_search_changed(move |entry| {
@@ -100,7 +110,7 @@ impl GitLogView {
                     fl.set_visible(false);
                 }
                 let commits = load_commits(&*be, filter.as_deref());
-                populate_list(&lb, &commits, &cb);
+                populate_list(&lb, &commits);
             });
         }
 
@@ -115,7 +125,7 @@ impl GitLogView {
     pub fn refresh(&self) {
         let filter = self.file_filter.borrow().clone();
         let commits = load_commits(&*self.backend, filter.as_deref());
-        populate_list(&self.list_box, &commits, &self.on_commit_click);
+        populate_list(&self.list_box, &commits);
     }
 
     /// Filter commits by a specific file path (relative to root).
@@ -164,7 +174,7 @@ fn load_commits(backend: &dyn FileBackend, file_filter: Option<&str>) -> Vec<Com
     }).collect()
 }
 
-fn populate_list(list_box: &gtk4::ListBox, commits: &[CommitEntry], on_click: &OnCommitClick) {
+fn populate_list(list_box: &gtk4::ListBox, commits: &[CommitEntry]) {
     while let Some(child) = list_box.first_child() {
         list_box.remove(&child);
     }
@@ -216,13 +226,4 @@ fn populate_list(list_box: &gtk4::ListBox, commits: &[CommitEntry], on_click: &O
         )));
         list_box.append(&row);
     }
-
-    let cb = on_click.clone();
-    list_box.connect_row_activated(move |_, row| {
-        let hash = row.widget_name();
-        let hash_str = hash.as_str();
-        if !hash_str.is_empty() {
-            cb(hash_str);
-        }
-    });
 }

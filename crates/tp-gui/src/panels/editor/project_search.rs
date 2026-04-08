@@ -1,4 +1,5 @@
 use gtk4::prelude::*;
+use regex::RegexBuilder;
 use std::cell::RefCell;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
@@ -236,16 +237,23 @@ fn build_highlight_markup(text: &str, query: &str) -> String {
 /// Search for a query string across project files.
 /// For remote backends, uses backend.search_files(). For local, uses ignore::WalkBuilder.
 fn search_in_files(root: &Path, query: &str, backend: &dyn FileBackend) -> Vec<SearchResult> {
+    let regex = match RegexBuilder::new(&regex::escape(query))
+        .case_insensitive(true)
+        .build()
+    {
+        Ok(regex) => regex,
+        Err(_) => return Vec::new(),
+    };
+
     if backend.is_remote() {
         // Use backend search for remote
-        let query_lower = query.to_lowercase();
-        match backend.search_files(&query_lower) {
+        match backend.search_files(query) {
             Ok(hits) => {
                 hits.into_iter()
                     .take(500)
                     .map(|(path_str, line_num, line_text)| {
                         let path = root.join(&path_str);
-                        let match_start = line_text.to_lowercase().find(&query_lower).unwrap_or(0);
+                        let match_start = regex.find(&line_text).map(|m| m.start()).unwrap_or(0);
                         SearchResult {
                             path,
                             line_num: line_num as u32,
@@ -260,7 +268,6 @@ fn search_in_files(root: &Path, query: &str, backend: &dyn FileBackend) -> Vec<S
         }
     } else {
         let mut results = Vec::new();
-        let query_lower = query.to_lowercase();
 
         let walker = ignore::WalkBuilder::new(root).build();
 
@@ -283,13 +290,12 @@ fn search_in_files(root: &Path, query: &str, backend: &dyn FileBackend) -> Vec<S
 
             if let Ok(content) = backend.read_file(path) {
                 for (line_idx, line) in content.lines().enumerate() {
-                    let line_lower = line.to_lowercase();
-                    if let Some(pos) = line_lower.find(&query_lower) {
+                    if let Some(mat) = regex.find(line) {
                         results.push(SearchResult {
                             path: path.to_path_buf(),
                             line_num: (line_idx + 1) as u32,
                             line_text: line.to_string(),
-                            match_start: pos,
+                            match_start: mat.start(),
                             match_len: query.len(),
                         });
                         if results.len() > 500 { return results; }
@@ -304,8 +310,15 @@ fn search_in_files(root: &Path, query: &str, backend: &dyn FileBackend) -> Vec<S
 
 /// Replace all occurrences of query with replacement across project files.
 fn replace_in_files(root: &Path, query: &str, replacement: &str, backend: &dyn FileBackend) -> usize {
+    let regex = match RegexBuilder::new(&regex::escape(query))
+        .case_insensitive(true)
+        .build()
+    {
+        Ok(regex) => regex,
+        Err(_) => return 0,
+    };
+
     let mut total = 0;
-    let query_lower = query.to_lowercase();
 
     let walker = ignore::WalkBuilder::new(root).build();
 
@@ -326,23 +339,50 @@ fn replace_in_files(root: &Path, query: &str, replacement: &str, backend: &dyn F
         }
 
         if let Ok(content) = backend.read_file(path) {
-            if content.to_lowercase().contains(&query_lower) {
-                // Case-insensitive replace preserving structure
-                let mut new_content = String::new();
-                let mut last = 0;
-                let content_lower = content.to_lowercase();
-                while let Some(pos) = content_lower[last..].find(&query_lower) {
-                    let abs_pos = last + pos;
-                    new_content.push_str(&content[last..abs_pos]);
-                    new_content.push_str(replacement);
-                    total += 1;
-                    last = abs_pos + query.len();
-                }
-                new_content.push_str(&content[last..]);
+            let replacements = regex.find_iter(&content).count();
+            if replacements > 0 {
+                let new_content = regex.replace_all(&content, replacement).to_string();
+                total += replacements;
                 let _ = backend.write_file(path, &new_content);
             }
         }
     }
 
     total
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::panels::editor::file_backend::LocalFileBackend;
+    use tempfile::tempdir;
+
+    #[test]
+    fn replace_in_files_is_case_insensitive_and_updates_content() {
+        let dir = tempdir().unwrap();
+        let file = dir.path().join("sample.txt");
+        std::fs::write(&file, "Alpha\nALPHA\nbeta\n").unwrap();
+        let backend = LocalFileBackend::new(dir.path());
+
+        let replaced = replace_in_files(dir.path(), "alpha", "omega", &backend);
+        let content = std::fs::read_to_string(&file).unwrap();
+
+        assert_eq!(replaced, 2);
+        assert_eq!(content, "omega\nomega\nbeta\n");
+    }
+
+    #[test]
+    fn search_in_files_returns_match_offsets_from_regex() {
+        let dir = tempdir().unwrap();
+        let file = dir.path().join("sample.txt");
+        std::fs::write(&file, "123 AbC 456\n").unwrap();
+        let backend = LocalFileBackend::new(dir.path());
+
+        let results = search_in_files(dir.path(), "abc", &backend);
+
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].path, file);
+        assert_eq!(results[0].line_num, 1);
+        assert_eq!(results[0].match_start, 4);
+    }
 }
