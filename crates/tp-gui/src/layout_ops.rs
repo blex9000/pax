@@ -153,8 +153,16 @@ pub fn add_to_existing_tabs(node: &mut LayoutNode, panel_id: &str, new_id: &str,
     }
 }
 
+/// Check if a node IS the panel, or CONTAINS the panel anywhere in its subtree.
 pub fn is_panel_with_id(node: &LayoutNode, panel_id: &str) -> bool {
-    matches!(node, LayoutNode::Panel { id } if id == panel_id)
+    match node {
+        LayoutNode::Panel { id } => id == panel_id,
+        LayoutNode::Hsplit { children, .. }
+        | LayoutNode::Vsplit { children, .. }
+        | LayoutNode::Tabs { children, .. } => {
+            children.iter().any(|c| is_panel_with_id(c, panel_id))
+        }
+    }
 }
 
 /// Update a tab label in the layout tree for the given panel ID.
