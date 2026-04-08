@@ -211,6 +211,7 @@ fn setup_workspace_ui(
     let settings_section = gtk4::gio::Menu::new();
     settings_section.append(Some("Settings…"), Some("app.settings"));
     settings_section.append(Some("Keyboard Shortcuts"), Some("app.shortcuts"));
+    settings_section.append(Some("About Pax"), Some("app.about"));
     menu.append_section(None, &settings_section);
     menu.append(Some("Quit"), Some("app.quit"));
     menu_btn.set_menu_model(Some(&menu));
@@ -641,6 +642,14 @@ fn setup_workspace_ui(
         });
         action_group.add_action(&action);
     }
+    {
+        let action = gtk4::gio::SimpleAction::new("about", None);
+        let win = window_rc.clone();
+        action.connect_activate(move |_, _| {
+            show_about_dialog(&win);
+        });
+        action_group.add_action(&action);
+    }
 
     window.insert_action_group("app", Some(&action_group));
 
@@ -946,6 +955,19 @@ fn apply_theme(theme: Theme) {
     THEME_PROVIDER.with(|cell| {
         cell.borrow_mut().replace(provider);
     });
+}
+
+fn show_about_dialog(window: &Rc<adw::ApplicationWindow>) {
+    let about = adw::AboutWindow::builder()
+        .application_name("Pax")
+        .application_icon("pax")
+        .version(env!("CARGO_PKG_VERSION"))
+        .developer_name("Pax Contributors")
+        .comments("Terminal workspace manager")
+        .transient_for(window.as_ref())
+        .modal(true)
+        .build();
+    about.present();
 }
 
 fn show_shortcuts_dialog(window: &Rc<adw::ApplicationWindow>) {
