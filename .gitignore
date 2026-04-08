@@ -8,3 +8,4 @@
 build-tools/
 AppDir/
 *.AppImage
+pax.log
