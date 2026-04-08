@@ -22,6 +22,10 @@ use std::path::PathBuf;
 struct Cli {
     #[command(subcommand)]
     command: Option<Commands>,
+
+    /// Directory for log file (default: current directory)
+    #[arg(long, global = true)]
+    log_dir: Option<PathBuf>,
 }
 
 #[derive(Subcommand)]
@@ -62,10 +66,10 @@ enum Commands {
 }
 
 fn main() -> Result<()> {
-    // Setup logging to file ~/.local/share/pax/pax.log
-    let log_dir = dirs::data_local_dir()
-        .unwrap_or_else(|| PathBuf::from("/tmp"))
-        .join("pax");
+    let cli = Cli::parse();
+
+    // Log directory: --log-dir flag, or current directory
+    let log_dir = cli.log_dir.clone().unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
     std::fs::create_dir_all(&log_dir).ok();
     let log_file = std::fs::OpenOptions::new()
         .create(true)
@@ -96,8 +100,6 @@ fn main() -> Result<()> {
             }
         }));
     }
-
-    let cli = Cli::parse();
 
     match cli.command {
         // No subcommand → show welcome screen
