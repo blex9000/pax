@@ -691,10 +691,9 @@ fn setup_paned_drag_collapse(paned: &gtk4::Paned, hosts: &HashMap<String, PanelH
     if start.is_none() && end.is_none() { return; }
 
     let guard = std::rc::Rc::new(std::cell::Cell::new(false));
+    // Shared guard for idle snap — prevents notify handler from reacting to our set_position
+    let snap_guard = guard.clone();
 
-    // The guard prevents re-entrant calls within the same stack frame.
-    // GTK may fire position notify synchronously from set_size_request,
-    // so guard is essential to avoid infinite recursion.
     paned.connect_notify_local(Some("position"), move |paned, _| {
         if guard.get() { return; }
         guard.set(true);
@@ -753,6 +752,26 @@ fn setup_paned_drag_collapse(paned: &gtk4::Paned, hosts: &HashMap<String, PanelH
             } else if end_size > threshold && t.is_collapsed() {
                 do_expand(t);
             }
+        }
+
+        // Snap correction: if collapsed panel is below COLLAPSE_SIZE,
+        // schedule idle set_position with guard held to prevent cascading.
+        let sc = start.as_ref().map_or(false, |t| t.is_collapsed());
+        let ec = end.as_ref().map_or(false, |t| t.is_collapsed());
+        let need_snap_start = sc && start_size < COLLAPSE_SIZE;
+        let need_snap_end = ec && end_size < COLLAPSE_SIZE;
+        if need_snap_start || need_snap_end {
+            let p = paned.clone();
+            let g = snap_guard.clone();
+            gtk4::glib::idle_add_local_once(move || {
+                g.set(true); // Block notify handler during our set_position
+                let t = if orient == gtk4::Orientation::Horizontal { p.allocation().width() } else { p.allocation().height() };
+                if t > 0 {
+                    if need_snap_start { p.set_position(COLLAPSE_SIZE); }
+                    if need_snap_end { p.set_position(t - COLLAPSE_SIZE); }
+                }
+                g.set(false);
+            });
         }
 
         guard.set(false);
