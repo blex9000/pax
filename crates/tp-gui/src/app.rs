@@ -563,17 +563,14 @@ fn setup_workspace_ui(
         ws_view.borrow_mut().set_action_callback(cb);
     }
 
-    // Setup sync input propagation: when a synced terminal gets input,
-    // forward it to all other synced terminals (VTE-only feature)
-    #[cfg(feature = "vte")]
+    // Setup sync input propagation: when a synced terminal gets local input,
+    // forward it to all other synced terminals.
     {
         let ws = ws_view.clone();
-        let sync_cb: Rc<dyn Fn(&str, &str)> = Rc::new(move |source_panel_id, text| {
-            // try_borrow: the RefCell may already be mutably borrowed (e.g.
-            // during focus changes that trigger VTE commit signals).
+        let sync_cb: Rc<dyn Fn(&str, &[u8])> = Rc::new(move |source_panel_id, data| {
             if let Ok(view) = ws.try_borrow() {
                 if view.is_panel_synced(source_panel_id) {
-                    view.write_to_synced(text.as_bytes(), source_panel_id);
+                    view.write_to_synced(data, source_panel_id);
                 }
             }
         });

@@ -4,9 +4,11 @@ use std::path::{Path, PathBuf};
 
 use pax_core::workspace::{LayoutNode, PanelConfig, PanelType, Workspace};
 
-use crate::backend_factory::{panel_type_to_id, panel_type_to_create_config, insert_ssh_extra, create_backend_from_registry};
+use crate::backend_factory::{
+    create_backend_from_registry, insert_ssh_extra, panel_type_to_create_config, panel_type_to_id,
+};
 use crate::focus::FocusManager;
-use crate::layout_ops::{replace_in_layout, remove_from_layout, add_to_existing_tabs};
+use crate::layout_ops::{add_to_existing_tabs, remove_from_layout, replace_in_layout};
 use crate::panel_host::{PanelActionCallback, PanelHost};
 use crate::panels::chooser::{ChooserPanel, OnTypeChosen};
 use crate::panels::registry::{self, PanelCreateConfig, PanelRegistry};
@@ -30,9 +32,8 @@ pub struct WorkspaceView {
     zoomed_panel: Option<String>,
     /// Panel IDs that are in sync-input mode.
     sync_panels: std::collections::HashSet<String>,
-    /// Callback for VTE commit sync propagation.
-    #[cfg(feature = "vte")]
-    sync_commit_cb: Option<std::rc::Rc<dyn Fn(&str, &str)>>,
+    /// Callback for terminal input sync propagation.
+    sync_input_cb: Option<std::rc::Rc<dyn Fn(&str, &[u8])>>,
 }
 
 impl WorkspaceView {
@@ -40,7 +41,9 @@ impl WorkspaceView {
     /// Call `set_action_callback` after wrapping in Rc<RefCell<>> to enable menu actions.
     pub fn build(workspace: &Workspace, config_path: Option<&Path>) -> Self {
         let registry = registry::build_default_registry();
-        let ws_dir = config_path.and_then(|p| p.parent()).map(|p| p.to_string_lossy().to_string());
+        let ws_dir = config_path
+            .and_then(|p| p.parent())
+            .map(|p| p.to_string_lossy().to_string());
         let mut hosts = HashMap::new();
 
         for panel_cfg in &workspace.panels {
@@ -49,7 +52,12 @@ impl WorkspaceView {
                 let chooser = ChooserPanel::new(&panel_cfg.id, &registry, None);
                 host.set_backend(Box::new(chooser));
             } else {
-                let backend = create_backend_from_registry(panel_cfg, &workspace.settings.default_shell, &registry, ws_dir.as_deref());
+                let backend = create_backend_from_registry(
+                    panel_cfg,
+                    &workspace.settings.default_shell,
+                    &registry,
+                    ws_dir.as_deref(),
+                );
                 host.set_backend(backend);
             }
             apply_min_size(&host, panel_cfg);
@@ -80,10 +88,7 @@ impl WorkspaceView {
         let next_panel_id = workspace
             .panels
             .iter()
-            .filter_map(|p| {
-                p.id.strip_prefix('p')
-                    .and_then(|n| n.parse::<usize>().ok())
-            })
+            .filter_map(|p| p.id.strip_prefix('p').and_then(|n| n.parse::<usize>().ok()))
             .max()
             .unwrap_or(0)
             + 1;
@@ -103,8 +108,7 @@ impl WorkspaceView {
             dirty: false,
             zoomed_panel: None,
             sync_panels: std::collections::HashSet::new(),
-            #[cfg(feature = "vte")]
-            sync_commit_cb: None,
+            sync_input_cb: None,
         };
 
         // Focus first panel
@@ -117,7 +121,11 @@ impl WorkspaceView {
     }
 
     /// Load a workspace struct directly (for New workspace).
-    pub fn load_workspace(&mut self, ws: Workspace, config_path: Option<&Path>) -> Result<(), String> {
+    pub fn load_workspace(
+        &mut self,
+        ws: Workspace,
+        config_path: Option<&Path>,
+    ) -> Result<(), String> {
         self.config_path = config_path.map(|p| p.to_path_buf());
         self.rebuild_from_workspace(ws)
     }
@@ -125,9 +133,13 @@ impl WorkspaceView {
     /// Reload from a workspace file, rebuilding the entire view.
     pub fn load_from_file(&mut self, path: &Path) -> Result<(), String> {
         tracing::info!("Loading workspace from {}", path.display());
-        let ws = pax_core::config::load_workspace(path)
-            .map_err(|e| format!("Failed to load: {}", e))?;
-        tracing::info!("Loaded workspace '{}' with {} panels", ws.name, ws.panels.len());
+        let ws =
+            pax_core::config::load_workspace(path).map_err(|e| format!("Failed to load: {}", e))?;
+        tracing::info!(
+            "Loaded workspace '{}' with {} panels",
+            ws.name,
+            ws.panels.len()
+        );
         self.config_path = Some(path.to_path_buf());
         self.rebuild_from_workspace(ws)
     }
@@ -137,16 +149,26 @@ impl WorkspaceView {
         self.root_box.remove(&self.root_widget);
 
         let registry = registry::build_default_registry();
-        let ws_dir = self.config_path.as_ref().and_then(|p| p.parent()).map(|p| p.to_string_lossy().to_string());
+        let ws_dir = self
+            .config_path
+            .as_ref()
+            .and_then(|p| p.parent())
+            .map(|p| p.to_string_lossy().to_string());
         let mut hosts = HashMap::new();
 
         for panel_cfg in &ws.panels {
             let host = PanelHost::new(&panel_cfg.id, &panel_cfg.name, self.action_cb.clone());
             if panel_cfg.effective_type() == PanelType::Empty {
-                let chooser = ChooserPanel::new(&panel_cfg.id, &registry, self.on_type_chosen.clone());
+                let chooser =
+                    ChooserPanel::new(&panel_cfg.id, &registry, self.on_type_chosen.clone());
                 host.set_backend(Box::new(chooser));
             } else {
-                let backend = create_backend_from_registry(panel_cfg, &ws.settings.default_shell, &registry, ws_dir.as_deref());
+                let backend = create_backend_from_registry(
+                    panel_cfg,
+                    &ws.settings.default_shell,
+                    &registry,
+                    ws_dir.as_deref(),
+                );
                 host.set_backend(backend);
             }
             apply_min_size(&host, panel_cfg);
@@ -169,10 +191,14 @@ impl WorkspaceView {
         self.registry = registry;
         self.dirty = false;
 
-        self.next_panel_id = self.workspace.panels.iter()
+        self.next_panel_id = self
+            .workspace
+            .panels
+            .iter()
             .filter_map(|p| p.id.strip_prefix('p').and_then(|n| n.parse::<usize>().ok()))
             .max()
-            .unwrap_or(0) + 1;
+            .unwrap_or(0)
+            + 1;
 
         self.rebuild_focus_order();
         self.dirty = false;
@@ -186,9 +212,28 @@ impl WorkspaceView {
     /// Get the current panel type for a panel.
     /// Update panel config after Configure dialog.
     /// Recreates the backend with the new type/settings and runs startup commands.
-    pub fn apply_panel_config(&mut self, panel_id: &str, new_name: String, new_type: PanelType, cwd: Option<String>, ssh: Option<pax_core::workspace::SshConfig>, startup_commands: Vec<String>, before_close: Option<String>, min_width: u32, min_height: u32) {
-        tracing::info!("Configuring panel {}: name={}, type={:?}, cwd={:?}, ssh={}, cmds={}, before_close={}",
-            panel_id, new_name, new_type, cwd, ssh.is_some(), startup_commands.len(), before_close.is_some());
+    pub fn apply_panel_config(
+        &mut self,
+        panel_id: &str,
+        new_name: String,
+        new_type: PanelType,
+        cwd: Option<String>,
+        ssh: Option<pax_core::workspace::SshConfig>,
+        startup_commands: Vec<String>,
+        before_close: Option<String>,
+        min_width: u32,
+        min_height: u32,
+    ) {
+        tracing::info!(
+            "Configuring panel {}: name={}, type={:?}, cwd={:?}, ssh={}, cmds={}, before_close={}",
+            panel_id,
+            new_name,
+            new_type,
+            cwd,
+            ssh.is_some(),
+            startup_commands.len(),
+            before_close.is_some()
+        );
         // Update model
         if let Some(panel_cfg) = self.workspace.panels.iter_mut().find(|p| p.id == panel_id) {
             panel_cfg.name = new_name.clone();
@@ -202,18 +247,34 @@ impl WorkspaceView {
         }
 
         // Update title + tab label
-        crate::layout_ops::update_tab_label_in_layout(&mut self.workspace.layout, panel_id, &new_name);
+        crate::layout_ops::update_tab_label_in_layout(
+            &mut self.workspace.layout,
+            panel_id,
+            &new_name,
+        );
         if let Some(host) = self.hosts.get(panel_id) {
             host.set_title(&new_name);
         }
 
         // Recreate backend with startup commands queued
-        let ws_dir = self.config_path.as_ref().and_then(|p| p.parent()).map(|p| p.to_string_lossy().to_string());
-        let mut config = panel_type_to_create_config(&new_type, &self.workspace.settings.default_shell, ws_dir.as_deref());
+        let ws_dir = self
+            .config_path
+            .as_ref()
+            .and_then(|p| p.parent())
+            .map(|p| p.to_string_lossy().to_string());
+        let mut config = panel_type_to_create_config(
+            &new_type,
+            &self.workspace.settings.default_shell,
+            ws_dir.as_deref(),
+        );
         // Pass cwd and env from panel config
         config.cwd = cwd;
         if let Some(panel_cfg) = self.workspace.panels.iter().find(|p| p.id == panel_id) {
-            config.env = panel_cfg.env.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
+            config.env = panel_cfg
+                .env
+                .iter()
+                .map(|(k, v)| (k.clone(), v.clone()))
+                .collect();
         }
         // Pass SSH config if present
         if let Some(panel_cfg) = self.workspace.panels.iter().find(|p| p.id == panel_id) {
@@ -223,7 +284,10 @@ impl WorkspaceView {
         }
         // Pass startup commands via extra so the registry factory can queue them
         if !startup_commands.is_empty() {
-            config.extra.insert("__startup_commands__".to_string(), startup_commands.join("\n"));
+            config.extra.insert(
+                "__startup_commands__".to_string(),
+                startup_commands.join("\n"),
+            );
         }
         if let Some(backend) = self.registry.create(panel_type_to_id(&new_type), &config) {
             if let Some(host) = self.hosts.get(panel_id) {
@@ -234,7 +298,11 @@ impl WorkspaceView {
         // Apply min size to widget
         if let Some(host) = self.hosts.get(panel_id) {
             let w = if min_width > 0 { min_width as i32 } else { -1 };
-            let h = if min_height > 0 { min_height as i32 } else { -1 };
+            let h = if min_height > 0 {
+                min_height as i32
+            } else {
+                -1
+            };
             host.widget().set_size_request(w, h);
         }
 
@@ -246,7 +314,11 @@ impl WorkspaceView {
 
     /// Execute before_close script for a panel.
     fn run_before_close(&self, panel_id: &str) {
-        if let Some(script) = self.workspace.panel(panel_id).and_then(|p| p.before_close.clone()) {
+        if let Some(script) = self
+            .workspace
+            .panel(panel_id)
+            .and_then(|p| p.before_close.clone())
+        {
             self.execute_close_script(panel_id, &script);
         }
     }
@@ -327,7 +399,9 @@ impl WorkspaceView {
     }
 
     pub fn config_path_str(&self) -> Option<String> {
-        self.config_path.as_ref().map(|p| p.to_string_lossy().to_string())
+        self.config_path
+            .as_ref()
+            .map(|p| p.to_string_lossy().to_string())
     }
 
     /// Set callback for when a panel type is chosen from the chooser.
@@ -336,7 +410,10 @@ impl WorkspaceView {
         self.on_type_chosen = Some(cb.clone());
 
         // Rebuild any existing chooser panels so they get the callback
-        let chooser_ids: Vec<String> = self.workspace.panels.iter()
+        let chooser_ids: Vec<String> = self
+            .workspace
+            .panels
+            .iter()
             .filter(|p| p.effective_type() == PanelType::Empty)
             .map(|p| p.id.clone())
             .collect();
@@ -385,19 +462,30 @@ impl WorkspaceView {
         if let Some(panel_cfg) = self.workspace.panels.iter_mut().find(|p| p.id == panel_id) {
             panel_cfg.panel_type = match type_id {
                 "terminal" => PanelType::Terminal,
-                "markdown" => PanelType::Markdown { file: "README.md".to_string() },
-                "browser" => PanelType::Browser { url: "about:blank".to_string() },
+                "markdown" => PanelType::Markdown {
+                    file: "README.md".to_string(),
+                },
+                "browser" => PanelType::Browser {
+                    url: "about:blank".to_string(),
+                },
                 "code_editor" => {
                     // Use home directory as default instead of "." which causes permission issues on macOS
                     let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
-                    PanelType::CodeEditor { root_dir: home, ssh: None, remote_path: None, poll_interval: None }
+                    PanelType::CodeEditor {
+                        root_dir: home,
+                        ssh: None,
+                        remote_path: None,
+                        poll_interval: None,
+                    }
                 }
                 _ => PanelType::Terminal,
             };
             panel_cfg.name = format!("{}", type_id);
             // Update tab label in layout model
             crate::layout_ops::update_tab_label_in_layout(
-                &mut self.workspace.layout, panel_id, type_id,
+                &mut self.workspace.layout,
+                panel_id,
+                type_id,
             );
         }
 
@@ -434,7 +522,10 @@ impl WorkspaceView {
         add_plus_buttons_recursive(&self.root_widget, &cb);
         // Reconnect chooser callbacks
         if let Some(ref tc) = self.on_type_chosen {
-            let chooser_ids: Vec<String> = self.workspace.panels.iter()
+            let chooser_ids: Vec<String> = self
+                .workspace
+                .panels
+                .iter()
                 .filter(|p| p.effective_type() == PanelType::Empty)
                 .map(|p| p.id.clone())
                 .collect();
@@ -539,8 +630,12 @@ impl WorkspaceView {
     /// Rebuild the GTK widget tree from the workspace layout model.
     /// Reuses existing PanelHost widgets (backends stay alive).
     fn rebuild_layout(&mut self) {
-        tracing::debug!("rebuild_layout: {} hosts, action_cb={}, type_chosen={}",
-            self.hosts.len(), self.action_cb.is_some(), self.on_type_chosen.is_some());
+        tracing::debug!(
+            "rebuild_layout: {} hosts, action_cb={}, type_chosen={}",
+            self.hosts.len(),
+            self.action_cb.is_some(),
+            self.on_type_chosen.is_some()
+        );
         // Remove everything from root_box
         while let Some(child) = self.root_box.first_child() {
             self.root_box.remove(&child);
@@ -556,7 +651,10 @@ impl WorkspaceView {
         }
         // Rebuild from model (passing action_cb so tab labels get close buttons)
         let root_widget = build_layout_widget_inner(
-            &self.workspace.layout, &self.hosts, &self.workspace.panels, &self.action_cb,
+            &self.workspace.layout,
+            &self.hosts,
+            &self.workspace.panels,
+            &self.action_cb,
         );
         root_widget.set_vexpand(true);
         root_widget.set_hexpand(true);
@@ -571,18 +669,19 @@ impl WorkspaceView {
             add_plus_buttons_recursive(&self.root_widget, cb);
         }
 
-        // Reconnect VTE sync commit callbacks
-        #[cfg(feature = "vte")]
-        if let Some(ref cb) = self.sync_commit_cb {
-            let propagating = std::rc::Rc::new(std::cell::Cell::new(false));
+        // Reconnect terminal input sync callbacks
+        if let Some(ref cb) = self.sync_input_cb {
             for host in self.hosts.values() {
-                host.set_sync_commit_callback(cb.clone(), propagating.clone());
+                host.set_sync_input_callback(cb.clone());
             }
         }
 
         // Reconnect type chooser callbacks on chooser panels
         if let Some(ref tc) = self.on_type_chosen {
-            let chooser_ids: Vec<String> = self.workspace.panels.iter()
+            let chooser_ids: Vec<String> = self
+                .workspace
+                .panels
+                .iter()
                 .filter(|p| p.effective_type() == PanelType::Empty)
                 .map(|p| p.id.clone())
                 .collect();
@@ -634,15 +733,13 @@ impl WorkspaceView {
         self.sync_panels.contains(panel_id)
     }
 
-    /// Connect VTE commit handlers on all panel hosts for sync propagation.
-    /// The callback is called with (source_panel_id, text) whenever a synced
-    /// terminal receives input — the caller should forward to other synced panels.
-    #[cfg(feature = "vte")]
-    pub fn setup_sync_callbacks(&mut self, cb: std::rc::Rc<dyn Fn(&str, &str)>) {
-        self.sync_commit_cb = Some(cb.clone());
-        let propagating = std::rc::Rc::new(std::cell::Cell::new(false));
+    /// Connect terminal input handlers on all panel hosts for sync propagation.
+    /// The callback is called with (source_panel_id, bytes) whenever a terminal
+    /// receives local user input.
+    pub fn setup_sync_callbacks(&mut self, cb: std::rc::Rc<dyn Fn(&str, &[u8])>) {
+        self.sync_input_cb = Some(cb.clone());
         for host in self.hosts.values() {
-            host.set_sync_commit_callback(cb.clone(), propagating.clone());
+            host.set_sync_input_callback(cb.clone());
         }
     }
 
@@ -746,21 +843,21 @@ impl WorkspaceView {
         host.set_backend(backend);
 
         // Update model: wrap focused panel in Tabs node
-        let existing_label = self.workspace
+        let existing_label = self
+            .workspace
             .panel(&focused_id)
             .map(|p| p.name.clone())
             .unwrap_or_else(|| focused_id.clone());
-        self.workspace.layout = replace_in_layout(
-            &self.workspace.layout,
-            &focused_id,
-            &|_| LayoutNode::Tabs {
+        self.workspace.layout =
+            replace_in_layout(&self.workspace.layout, &focused_id, &|_| LayoutNode::Tabs {
                 children: vec![
-                    LayoutNode::Panel { id: focused_id.clone() },
+                    LayoutNode::Panel {
+                        id: focused_id.clone(),
+                    },
                     LayoutNode::Panel { id: new_id.clone() },
                 ],
                 labels: vec![existing_label.clone(), new_name.clone()],
-            },
-        );
+            });
         self.workspace.panels.push(new_cfg);
         self.hosts.insert(new_id.clone(), host);
 
@@ -853,7 +950,11 @@ impl WorkspaceView {
     }
 
     fn create_chooser_backend(&self, panel_id: &str) -> Box<dyn crate::panels::PanelBackend> {
-        Box::new(ChooserPanel::new(panel_id, &self.registry, self.on_type_chosen.clone()))
+        Box::new(ChooserPanel::new(
+            panel_id,
+            &self.registry,
+            self.on_type_chosen.clone(),
+        ))
     }
 
     /// Close the focused panel. Uses model update + layout rebuild for reliability.
@@ -875,15 +976,19 @@ impl WorkspaceView {
 
         // If the panel ID is still in the layout (empty Tabs fallback), replace
         // it with a fresh empty panel so the user sees the type chooser.
-        if self.workspace.layout.panel_ids().iter().any(|id| *id == focused_id) {
+        if self
+            .workspace
+            .layout
+            .panel_ids()
+            .iter()
+            .any(|id| *id == focused_id)
+        {
             let new_id = self.alloc_panel_id();
             let new_name = format!("New Panel {}", &new_id[1..]);
             let new_config = self.make_empty_config(&new_id, &new_name);
-            self.workspace.layout = replace_in_layout(
-                &self.workspace.layout,
-                &focused_id,
-                &|_| LayoutNode::Panel { id: new_id.clone() },
-            );
+            self.workspace.layout = replace_in_layout(&self.workspace.layout, &focused_id, &|_| {
+                LayoutNode::Panel { id: new_id.clone() }
+            });
             let backend = self.create_chooser_backend(&new_id);
             let host = PanelHost::new(&new_id, &new_config.name, self.action_cb.clone());
             host.set_backend(backend);
@@ -928,10 +1033,18 @@ impl WorkspaceView {
             .clone();
         pax_core::config::save_workspace(&self.workspace, &path)
             .map_err(|e| format!("Save failed: {}", e))?;
-        tracing::info!("Saved {} panels to {}", self.workspace.panels.len(), path.display());
+        tracing::info!(
+            "Saved {} panels to {}",
+            self.workspace.panels.len(),
+            path.display()
+        );
         for p in &self.workspace.panels {
             if !p.startup_commands.is_empty() {
-                tracing::debug!("  {} startup: {:?}", p.id, &p.startup_commands[0][..p.startup_commands[0].len().min(80)]);
+                tracing::debug!(
+                    "  {} startup: {:?}",
+                    p.id,
+                    &p.startup_commands[0][..p.startup_commands[0].len().min(80)]
+                );
             }
             if let Some(ref bc) = p.before_close {
                 tracing::debug!("  {} before_close: {:?}", p.id, &bc[..bc.len().min(80)]);
@@ -956,8 +1069,12 @@ impl WorkspaceView {
     fn record_in_db(&self) {
         let db_path = pax_db::Database::default_path();
         if let Ok(db) = pax_db::Database::open(&db_path) {
-            let config_str = self.config_path.as_ref().map(|p| p.to_string_lossy().to_string());
-            db.record_workspace_open(&self.workspace.name, config_str.as_deref()).ok();
+            let config_str = self
+                .config_path
+                .as_ref()
+                .map(|p| p.to_string_lossy().to_string());
+            db.record_workspace_open(&self.workspace.name, config_str.as_deref())
+                .ok();
         }
     }
 
@@ -973,8 +1090,13 @@ impl WorkspaceView {
 
     fn rebuild_focus_order(&mut self) {
         self.dirty = true;
-        let ids: Vec<String> = self.workspace.layout.panel_ids()
-            .iter().map(|s| s.to_string()).collect();
+        let ids: Vec<String> = self
+            .workspace
+            .layout
+            .panel_ids()
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
         self.focus.rebuild(ids);
     }
 
@@ -984,30 +1106,26 @@ impl WorkspaceView {
         new_id: &str,
         orientation: gtk4::Orientation,
     ) {
-        self.workspace.layout = replace_in_layout(
-            &self.workspace.layout,
-            existing_id,
-            &|_| {
-                let children = vec![
-                    LayoutNode::Panel {
-                        id: existing_id.to_string(),
-                    },
-                    LayoutNode::Panel {
-                        id: new_id.to_string(),
-                    },
-                ];
-                match orientation {
-                    gtk4::Orientation::Horizontal => LayoutNode::Hsplit {
-                        children,
-                        ratios: vec![0.5, 0.5],
-                    },
-                    _ => LayoutNode::Vsplit {
-                        children,
-                        ratios: vec![0.5, 0.5],
-                    },
-                }
-            },
-        );
+        self.workspace.layout = replace_in_layout(&self.workspace.layout, existing_id, &|_| {
+            let children = vec![
+                LayoutNode::Panel {
+                    id: existing_id.to_string(),
+                },
+                LayoutNode::Panel {
+                    id: new_id.to_string(),
+                },
+            ];
+            match orientation {
+                gtk4::Orientation::Horizontal => LayoutNode::Hsplit {
+                    children,
+                    ratios: vec![0.5, 0.5],
+                },
+                _ => LayoutNode::Vsplit {
+                    children,
+                    ratios: vec![0.5, 0.5],
+                },
+            }
+        });
     }
 
     fn update_layout_remove(&mut self, panel_id: &str) {
@@ -1035,7 +1153,11 @@ impl WorkspaceView {
 fn rename_panel_model(workspace: &mut Workspace, panel_id: &str, new_name: &str) -> bool {
     let mut changed = false;
 
-    if let Some(panel_cfg) = workspace.panels.iter_mut().find(|panel| panel.id == panel_id) {
+    if let Some(panel_cfg) = workspace
+        .panels
+        .iter_mut()
+        .find(|panel| panel.id == panel_id)
+    {
         if panel_cfg.name != new_name {
             panel_cfg.name = new_name.to_string();
             changed = true;

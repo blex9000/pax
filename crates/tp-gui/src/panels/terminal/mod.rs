@@ -31,6 +31,8 @@
 //! └── pty_backend.rs   ← Cross-platform PTY fallback (#[cfg(not(feature = "vte"))])
 //! ```
 
+mod input;
+
 #[cfg(feature = "vte")]
 #[path = "vte_backend.rs"]
 mod backend;
@@ -39,8 +41,9 @@ mod backend;
 #[path = "pty_backend.rs"]
 mod backend;
 
-use backend::TerminalInner;
 use super::PanelBackend;
+use crate::panels::PanelInputCallback;
+use backend::TerminalInner;
 
 /// Terminal panel — uses VTE4 on Linux, PTY+TextView fallback on macOS.
 ///
@@ -54,7 +57,12 @@ pub struct TerminalPanel {
 }
 
 impl TerminalPanel {
-    pub fn new(shell: &str, cwd: Option<&str>, env: &[(String, String)], workspace_dir: Option<&str>) -> Self {
+    pub fn new(
+        shell: &str,
+        cwd: Option<&str>,
+        env: &[(String, String)],
+        workspace_dir: Option<&str>,
+    ) -> Self {
         Self {
             inner: TerminalInner::new(shell, cwd, env, workspace_dir),
             ssh_info: None,
@@ -93,6 +101,10 @@ impl PanelBackend for TerminalPanel {
 
     fn write_input(&self, data: &[u8]) -> bool {
         self.inner.write_input(data)
+    }
+
+    fn set_input_callback(&self, callback: Option<PanelInputCallback>) {
+        self.inner.set_input_callback(callback);
     }
 
     fn ssh_label(&self) -> Option<String> {

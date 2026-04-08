@@ -1,5 +1,5 @@
-use gtk4::prelude::*;
 use gtk4::glib;
+use gtk4::prelude::*;
 use std::cell::RefCell;
 use std::rc::Rc;
 
@@ -89,11 +89,8 @@ pub struct PanelHost {
     focused: RefCell<bool>,
     /// Shared callback ref — updated by set_action_callback, read by button handlers.
     action_cb_ref: Rc<RefCell<Option<PanelActionCallback>>>,
-    /// Shared sync commit callback — updated by set_sync_commit_callback, read by VTE commit handler.
-    #[cfg(feature = "vte")]
-    sync_cb_ref: Rc<RefCell<Option<Rc<dyn Fn(&str, &str)>>>>,
-    #[cfg(feature = "vte")]
-    sync_connected: std::cell::Cell<bool>,
+    /// Shared input callback used by terminal-like backends for sync propagation.
+    sync_input_cb_ref: Rc<RefCell<Option<crate::panels::PanelInputCallback>>>,
 }
 
 impl std::fmt::Debug for PanelHost {
@@ -107,7 +104,8 @@ impl std::fmt::Debug for PanelHost {
 impl PanelHost {
     pub fn new(panel_id: &str, name: &str, action_cb: Option<PanelActionCallback>) -> Self {
         let container = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
-        let action_cb_ref: Rc<RefCell<Option<PanelActionCallback>>> = Rc::new(RefCell::new(action_cb.clone()));
+        let action_cb_ref: Rc<RefCell<Option<PanelActionCallback>>> =
+            Rc::new(RefCell::new(action_cb.clone()));
 
         // Title bar
         let title_bar = gtk4::Box::new(gtk4::Orientation::Horizontal, 4);
@@ -383,10 +381,7 @@ impl PanelHost {
             backend: RefCell::new(None),
             focused: RefCell::new(false),
             action_cb_ref,
-            #[cfg(feature = "vte")]
-            sync_cb_ref: Rc::new(RefCell::new(None)),
-            #[cfg(feature = "vte")]
-            sync_connected: std::cell::Cell::new(false),
+            sync_input_cb_ref: Rc::new(RefCell::new(None)),
         }
     }
 
@@ -435,6 +430,10 @@ impl PanelHost {
             self.set_ssh_indicator(Some(&ssh_label));
         } else {
             self.set_ssh_indicator(None);
+        }
+
+        if let Ok(borrowed) = self.sync_input_cb_ref.try_borrow() {
+            backend.set_input_callback(borrowed.clone());
         }
 
         *self.backend.borrow_mut() = Some(backend);
@@ -542,7 +541,9 @@ impl PanelHost {
     /// Expand a collapsed panel. Called from click on collapsed_view overlay.
     /// Finds the parent Paned and restores to 50%.
     pub fn expand_collapsed(&self) {
-        if !self.is_collapsed() { return; }
+        if !self.is_collapsed() {
+            return;
+        }
 
         // Find first parent Paned
         let mut widget = self.outer.parent();
@@ -565,7 +566,8 @@ impl PanelHost {
 
         self.collapsed_view.set_visible(false);
         self.container.set_visible(true);
-        self.footer_bar.set_visible(!self.footer_label.text().is_empty());
+        self.footer_bar
+            .set_visible(!self.footer_label.text().is_empty());
         self.outer.set_size_request(-1, -1);
     }
 
@@ -583,43 +585,19 @@ impl PanelHost {
         }
     }
 
-    /// Set the sync commit callback. The VTE commit handler is connected only once;
-    /// subsequent calls just update the shared callback ref.
-    #[cfg(feature = "vte")]
-    pub fn set_sync_commit_callback(&self, cb: Rc<dyn Fn(&str, &str)>, propagating: Rc<std::cell::Cell<bool>>) {
-        // Update the shared callback
-        *self.sync_cb_ref.borrow_mut() = Some(cb);
-
-        // Connect the VTE handler only once
-        if self.sync_connected.get() {
-            return;
+    /// Set the input callback used for sync propagation.
+    pub fn set_sync_input_callback(&self, cb: Rc<dyn Fn(&str, &[u8])>) {
+        let wrapped = wrap_panel_input_callback(&self.panel_id, cb);
+        *self.sync_input_cb_ref.borrow_mut() = Some(wrapped.clone());
+        if let Some(ref backend) = *self.backend.borrow() {
+            backend.set_input_callback(Some(wrapped));
         }
+    }
 
-        use vte4::prelude::*;
-        let panel_widget = {
-            let backend = self.backend.borrow();
-            backend.as_ref().map(|b| b.widget().clone())
-        };
-        if let Some(widget) = panel_widget {
-            if let Ok(vte) = widget.clone().downcast::<vte4::Terminal>() {
-                let pid = self.panel_id.clone();
-                let flag = propagating;
-                let cb_ref = self.sync_cb_ref.clone();
-                vte.connect_commit(move |_vte, text, _size| {
-                    tracing::trace!("VTE commit: panel={}, text_len={}, propagating={}", pid, text.len(), flag.get());
-                    if flag.get() {
-                        return;
-                    }
-                    if let Ok(borrowed) = cb_ref.try_borrow() {
-                        if let Some(ref cb) = *borrowed {
-                            flag.set(true);
-                            cb(&pid, text);
-                            flag.set(false);
-                        }
-                    }
-                });
-                self.sync_connected.set(true);
-            }
+    pub fn clear_sync_input_callback(&self) {
+        *self.sync_input_cb_ref.borrow_mut() = None;
+        if let Some(ref backend) = *self.backend.borrow() {
+            backend.set_input_callback(None);
         }
     }
 
@@ -708,7 +686,11 @@ fn build_panel_menu(panel_id: &str, action_cb: Option<PanelActionCallback>) -> g
     let items: Vec<(&str, &str, PanelAction)> = vec![
         ("Configure…", "Panel settings", PanelAction::Configure),
         ("Split Horizontal", "New panel below", PanelAction::SplitH),
-        ("Split Vertical", "New panel to the right", PanelAction::SplitV),
+        (
+            "Split Vertical",
+            "New panel to the right",
+            PanelAction::SplitV,
+        ),
         ("Add Tab", "New panel as tab", PanelAction::AddTab),
         ("Reset Panel", "Reset to type chooser", PanelAction::Reset),
         ("Close Panel", "Close this panel", PanelAction::Close),
@@ -797,16 +779,16 @@ fn build_panel_menu(panel_id: &str, action_cb: Option<PanelActionCallback>) -> g
 }
 
 /// Decode percent-encoded URI path (e.g. %20 → space).
+#[cfg(feature = "vte")]
 fn percent_decode(s: &str) -> String {
     let mut result = Vec::new();
     let bytes = s.as_bytes();
     let mut i = 0;
     while i < bytes.len() {
         if bytes[i] == b'%' && i + 2 < bytes.len() {
-            if let Ok(byte) = u8::from_str_radix(
-                std::str::from_utf8(&bytes[i + 1..i + 3]).unwrap_or(""),
-                16,
-            ) {
+            if let Ok(byte) =
+                u8::from_str_radix(std::str::from_utf8(&bytes[i + 1..i + 3]).unwrap_or(""), 16)
+            {
                 result.push(byte);
                 i += 3;
                 continue;
@@ -816,4 +798,34 @@ fn percent_decode(s: &str) -> String {
         i += 1;
     }
     String::from_utf8(result).unwrap_or_else(|_| s.to_string())
+}
+
+fn wrap_panel_input_callback(
+    panel_id: &str,
+    cb: Rc<dyn Fn(&str, &[u8])>,
+) -> crate::panels::PanelInputCallback {
+    let panel_id = panel_id.to_string();
+    Rc::new(move |data| cb(&panel_id, data))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn wrapped_input_callback_forwards_panel_id_and_bytes() {
+        let seen = Rc::new(RefCell::new(None::<(String, Vec<u8>)>));
+        let seen_clone = seen.clone();
+        let cb: Rc<dyn Fn(&str, &[u8])> = Rc::new(move |panel_id, data| {
+            *seen_clone.borrow_mut() = Some((panel_id.to_string(), data.to_vec()));
+        });
+
+        let wrapped = wrap_panel_input_callback("p42", cb);
+        wrapped(b"ls -la");
+
+        let payload = seen.borrow();
+        let (panel_id, data) = payload.as_ref().expect("callback payload");
+        assert_eq!(panel_id, "p42");
+        assert_eq!(data, b"ls -la");
+    }
 }

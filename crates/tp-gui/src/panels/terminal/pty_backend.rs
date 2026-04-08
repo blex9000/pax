@@ -26,28 +26,37 @@
 //! via Homebrew, but VTE4 is not practically available. This fallback ensures
 //! Pax's terminal panel works on all platforms, even if with reduced features.
 
-use gtk4::gdk;
 use gtk4::glib;
 use gtk4::prelude::*;
 use portable_pty::{native_pty_system, CommandBuilder, PtySize};
+use std::cell::RefCell;
 use std::fmt;
 use std::io::{Read, Write};
+use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 
 pub struct TerminalInner {
     pub text_view: gtk4::TextView,
     pub widget: gtk4::Widget,
     pub writer: Arc<Mutex<Box<dyn Write + Send>>>,
+    input_cb: Rc<RefCell<Option<crate::panels::PanelInputCallback>>>,
 }
 
 impl fmt::Debug for TerminalInner {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("TerminalInner").field("type", &"pty-fallback").finish()
+        f.debug_struct("TerminalInner")
+            .field("type", &"pty-fallback")
+            .finish()
     }
 }
 
 impl TerminalInner {
-    pub fn new(shell: &str, cwd: Option<&str>, env: &[(String, String)], _workspace_dir: Option<&str>) -> Self {
+    pub fn new(
+        shell: &str,
+        cwd: Option<&str>,
+        env: &[(String, String)],
+        _workspace_dir: Option<&str>,
+    ) -> Self {
         let text_view = gtk4::TextView::new();
         text_view.set_editable(false);
         text_view.set_cursor_visible(true);
@@ -55,7 +64,9 @@ impl TerminalInner {
         text_view.add_css_class("terminal-fallback");
         text_view.set_top_margin(0);
         text_view.set_bottom_margin(0);
-        text_view.set_valign(gtk4::Align::Start);
+        text_view.set_valign(gtk4::Align::Fill);
+        text_view.set_vexpand(true);
+        text_view.set_hexpand(true);
 
         let scrolled = gtk4::ScrolledWindow::new();
         scrolled.set_child(Some(&text_view));
@@ -88,13 +99,21 @@ impl TerminalInner {
         // sequences would just produce garbled output.
         cmd.env("TERM", "dumb");
 
-        let _child = pair.slave.spawn_command(cmd).expect("Failed to spawn shell");
+        let _child = pair
+            .slave
+            .spawn_command(cmd)
+            .expect("Failed to spawn shell");
         drop(pair.slave);
 
         let writer = pair.master.take_writer().expect("Failed to take writer");
-        let mut reader = pair.master.try_clone_reader().expect("Failed to clone reader");
+        let mut reader = pair
+            .master
+            .try_clone_reader()
+            .expect("Failed to clone reader");
 
         let writer = Arc::new(Mutex::new(writer));
+        let input_cb: Rc<RefCell<Option<crate::panels::PanelInputCallback>>> =
+            Rc::new(RefCell::new(None));
 
         // Background thread: reads PTY output, parses through vt100, and stores
         // the rendered screen text. The GTK main loop polls this every 50ms.
@@ -154,30 +173,20 @@ impl TerminalInner {
         // Key input: capture keypresses and forward to the PTY.
         // Handles special keys (arrows, backspace, tab, escape) as ANSI sequences.
         let writer_clone = writer.clone();
+        let input_cb_clone = input_cb.clone();
         let key_controller = gtk4::EventControllerKey::new();
-        key_controller.connect_key_pressed(move |_ctrl, key, _code, _modifiers| {
-            let bytes: Vec<u8> = match key {
-                gdk::Key::Return => vec![b'\r'],
-                gdk::Key::BackSpace => vec![0x7f],
-                gdk::Key::Tab => vec![b'\t'],
-                gdk::Key::Escape => vec![0x1b],
-                gdk::Key::Up => b"\x1b[A".to_vec(),
-                gdk::Key::Down => b"\x1b[B".to_vec(),
-                gdk::Key::Right => b"\x1b[C".to_vec(),
-                gdk::Key::Left => b"\x1b[D".to_vec(),
-                other => {
-                    if let Some(c) = other.to_unicode() {
-                        let mut buf = [0u8; 4];
-                        let s = c.encode_utf8(&mut buf);
-                        s.as_bytes().to_vec()
-                    } else {
-                        return glib::Propagation::Proceed;
-                    }
-                }
+        key_controller.connect_key_pressed(move |_ctrl, key, _code, modifiers| {
+            let Some(bytes) = super::input::encode_key_input(key, modifiers) else {
+                return glib::Propagation::Proceed;
             };
             if let Ok(mut w) = writer_clone.lock() {
                 let _ = w.write_all(&bytes);
                 let _ = w.flush();
+            }
+            if let Ok(borrowed) = input_cb_clone.try_borrow() {
+                if let Some(ref cb) = *borrowed {
+                    cb(&bytes);
+                }
             }
             glib::Propagation::Stop
         });
@@ -187,6 +196,7 @@ impl TerminalInner {
             text_view,
             widget,
             writer,
+            input_cb,
         }
     }
 
@@ -217,6 +227,10 @@ impl TerminalInner {
         } else {
             false
         }
+    }
+
+    pub fn set_input_callback(&self, callback: Option<crate::panels::PanelInputCallback>) {
+        *self.input_cb.borrow_mut() = callback;
     }
 
     pub fn widget(&self) -> &gtk4::Widget {

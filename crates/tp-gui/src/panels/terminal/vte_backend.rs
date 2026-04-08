@@ -40,17 +40,30 @@ fn resolve_script_path(path: &str, workspace_dir: &Option<String>) -> String {
     path.to_string()
 }
 
-#[derive(Debug)]
 pub struct TerminalInner {
     pub vte: vte4::Terminal,
     pub widget: gtk4::Widget,
     pending_commands: Rc<RefCell<Vec<String>>>,
     _spawned: Rc<RefCell<bool>>,
     workspace_dir: Option<String>,
+    input_cb: Rc<RefCell<Option<crate::panels::PanelInputCallback>>>,
+}
+
+impl std::fmt::Debug for TerminalInner {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("TerminalInner")
+            .field("type", &"vte")
+            .finish()
+    }
 }
 
 impl TerminalInner {
-    pub fn new(shell: &str, cwd: Option<&str>, env: &[(String, String)], workspace_dir: Option<&str>) -> Self {
+    pub fn new(
+        shell: &str,
+        cwd: Option<&str>,
+        env: &[(String, String)],
+        workspace_dir: Option<&str>,
+    ) -> Self {
         let vte = vte4::Terminal::new();
 
         vte.set_scroll_on_output(true);
@@ -60,6 +73,8 @@ impl TerminalInner {
 
         let pending_commands: Rc<RefCell<Vec<String>>> = Rc::new(RefCell::new(Vec::new()));
         let spawned: Rc<RefCell<bool>> = Rc::new(RefCell::new(false));
+        let input_cb: Rc<RefCell<Option<crate::panels::PanelInputCallback>>> =
+            Rc::new(RefCell::new(None));
 
         // Build environment: inherit current env + user overrides + TERM
         let mut spawn_env: Vec<String> = std::env::vars()
@@ -111,12 +126,39 @@ impl TerminalInner {
 
         // Right-click context menu for copy/paste
         Self::setup_context_menu(&vte);
+        Self::setup_input_observer(&vte, input_cb.clone());
 
         // Register VTE for theme color updates
         crate::theme::register_vte_terminal(&vte);
 
         let widget = vte.clone().upcast::<gtk4::Widget>();
-        Self { vte, widget, pending_commands, _spawned: spawned, workspace_dir: workspace_dir.map(|s| s.to_string()) }
+        Self {
+            vte,
+            widget,
+            pending_commands,
+            _spawned: spawned,
+            workspace_dir: workspace_dir.map(|s| s.to_string()),
+            input_cb,
+        }
+    }
+
+    fn setup_input_observer(
+        vte: &vte4::Terminal,
+        input_cb: Rc<RefCell<Option<crate::panels::PanelInputCallback>>>,
+    ) {
+        let key_controller = gtk4::EventControllerKey::new();
+        key_controller.set_propagation_phase(gtk4::PropagationPhase::Capture);
+        key_controller.connect_key_pressed(move |_ctrl, key, _code, modifiers| {
+            if let Some(bytes) = super::input::encode_key_input(key, modifiers) {
+                if let Ok(borrowed) = input_cb.try_borrow() {
+                    if let Some(ref cb) = *borrowed {
+                        cb(&bytes);
+                    }
+                }
+            }
+            glib::Propagation::Proceed
+        });
+        vte.add_controller(key_controller);
     }
 
     /// Build the right-click copy/paste context menu.
@@ -201,8 +243,14 @@ impl TerminalInner {
         }
 
         // Simple command: single line without shebang → run directly
-        if !full_text.contains('\n') && !full_text.starts_with("#!") && !full_text.starts_with("file:") {
-            tracing::info!("send_commands: direct command: {}", &full_text[..full_text.len().min(80)]);
+        if !full_text.contains('\n')
+            && !full_text.starts_with("#!")
+            && !full_text.starts_with("file:")
+        {
+            tracing::info!(
+                "send_commands: direct command: {}",
+                &full_text[..full_text.len().min(80)]
+            );
             self.pending_commands.borrow_mut().push(full_text);
             return;
         }
@@ -217,7 +265,9 @@ impl TerminalInner {
                 ("/bin/bash", rest)
             };
             let resolved = resolve_script_path(path, &self.workspace_dir);
-            self.pending_commands.borrow_mut().push(format!("{} {}", interpreter, resolved));
+            self.pending_commands
+                .borrow_mut()
+                .push(format!("{} {}", interpreter, resolved));
             return;
         }
 
@@ -230,7 +280,8 @@ impl TerminalInner {
             COUNTER.fetch_add(1, Ordering::Relaxed),
         ));
 
-        let interpreter = full_text.lines()
+        let interpreter = full_text
+            .lines()
             .next()
             .filter(|l| l.starts_with("#!"))
             .map(|l| l.trim_start_matches("#!").trim().to_string())
@@ -248,9 +299,11 @@ impl TerminalInner {
                 use std::os::unix::fs::PermissionsExt;
                 let _ = std::fs::set_permissions(&tmp, std::fs::Permissions::from_mode(0o755));
             }
-            self.pending_commands.borrow_mut().push(
-                format!("source {} ; rm -f {}", tmp.display(), tmp.display())
-            );
+            self.pending_commands.borrow_mut().push(format!(
+                "source {} ; rm -f {}",
+                tmp.display(),
+                tmp.display()
+            ));
         }
     }
 
@@ -261,6 +314,10 @@ impl TerminalInner {
     pub fn write_input(&self, data: &[u8]) -> bool {
         self.vte.feed_child(data);
         true
+    }
+
+    pub fn set_input_callback(&self, callback: Option<crate::panels::PanelInputCallback>) {
+        *self.input_cb.borrow_mut() = callback;
     }
 
     pub fn widget(&self) -> &gtk4::Widget {
