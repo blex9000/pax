@@ -31,21 +31,7 @@ pub fn run_app(workspace: Option<Workspace>, config_path: Option<&Path>) -> Resu
         // Register custom icons from resources/icons/
         if let Some(display) = gtk4::gdk::Display::default() {
             let icon_theme = gtk4::IconTheme::for_display(&display);
-            // Try to find icons relative to the executable or manifest dir
-            let icon_paths = [
-                std::path::PathBuf::from("resources/icons"),
-                std::env::current_exe()
-                    .ok()
-                    .and_then(|p| p.parent().map(|d| d.join("../resources/icons")))
-                    .unwrap_or_default(),
-                std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../resources/icons"),
-            ];
-            for path in &icon_paths {
-                if path.exists() {
-                    icon_theme.add_search_path(path);
-                    break;
-                }
-            }
+            crate::icons::configure_icon_theme(&icon_theme);
         }
 
         // Register custom GtkSourceView style schemes
