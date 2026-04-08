@@ -253,23 +253,34 @@ impl CodeEditorPanel {
         ));
 
         // Git status view
-        // Callback for immediate git status refresh after any git action
-        let git_action_cb: Rc<dyn Fn()> = Rc::new({
-            let git_btn_c = git_btn.clone();
-            let be = backend.clone();
-            move || {
-                // Refresh git status and update button indicator
-                if let Ok(stdout) = be.git_command(&["status", "--porcelain"]) {
-                    if stdout.trim().is_empty() {
-                        git_btn_c.remove_css_class("git-has-changes");
-                    } else {
-                        git_btn_c.add_css_class("git-has-changes");
-                    }
+        let git_status_view_slot: Rc<RefCell<Option<Rc<git_status::GitStatusView>>>> =
+            Rc::new(RefCell::new(None));
+        let on_git_changed: Rc<dyn Fn(String)> = Rc::new({
+            let git_btn = git_btn.clone();
+            let git_status_view_slot = git_status_view_slot.clone();
+            move |git_output: String| {
+                let has_changes = !git_output.trim().is_empty();
+                if has_changes {
+                    git_btn.add_css_class("git-has-changes");
+                } else {
+                    git_btn.remove_css_class("git-has-changes");
+                }
+                if let Some(view) = git_status_view_slot.borrow().as_ref() {
+                    view.update(&git_output);
                 }
             }
         });
 
-        let git_status_view = git_status::GitStatusView::new(
+        // Callback for immediate git status refresh after any git action
+        let git_action_cb: Rc<dyn Fn()> = Rc::new({
+            let on_git_changed = on_git_changed.clone();
+            let be = backend.clone();
+            move || {
+                file_watcher::request_git_status_refresh(on_git_changed.clone(), be.clone());
+            }
+        });
+
+        let git_status_view = Rc::new(git_status::GitStatusView::new(
             &PathBuf::from(root_dir),
             Rc::new({
                 let root_c = PathBuf::from(root_dir);
@@ -281,7 +292,8 @@ impl CodeEditorPanel {
             }),
             backend.clone(),
             git_action_cb,
-        );
+        ));
+        *git_status_view_slot.borrow_mut() = Some(git_status_view.clone());
 
         // Project-wide search view
         let project_search = project_search::ProjectSearch::new(
@@ -438,7 +450,7 @@ impl CodeEditorPanel {
             let git_btn_ref = git_btn.clone();
             let search_btn_ref = search_btn.clone();
             let save_backend = backend.clone();
-            let save_git_btn = git_btn.clone();
+            let save_git_changed = on_git_changed.clone();
             let sidebar_open_btn_ref = sidebar_open_btn.clone();
             key_ctrl.connect_key_pressed(move |_, key, _, modifier| {
                 if modifier.contains(gtk4::gdk::ModifierType::CONTROL_MASK) {
@@ -446,14 +458,10 @@ impl CodeEditorPanel {
                         gtk4::gdk::Key::s => {
                             let root = state_c.borrow().root_dir.clone();
                             tabs_ref.save_active(&state_c, &root);
-                            // Refresh git indicator after save
-                            if let Ok(stdout) = save_backend.git_command(&["status", "--porcelain"]) {
-                                if stdout.trim().is_empty() {
-                                    save_git_btn.remove_css_class("git-has-changes");
-                                } else {
-                                    save_git_btn.add_css_class("git-has-changes");
-                                }
-                            }
+                            file_watcher::request_git_status_refresh(
+                                save_git_changed.clone(),
+                                save_backend.clone(),
+                            );
                             return gtk4::glib::Propagation::Stop;
                         }
                         gtk4::gdk::Key::w => {
@@ -570,19 +578,6 @@ impl CodeEditorPanel {
             });
         }
 
-        // Check git status for the button indicator (deferred, skip for remote to avoid blocking)
-        if !backend.is_remote() {
-            let git_btn_init = git_btn.clone();
-            let be = backend.clone();
-            gtk4::glib::idle_add_local_once(move || {
-                if let Ok(stdout) = be.git_command(&["status", "--porcelain"]) {
-                    if !stdout.trim().is_empty() {
-                        git_btn_init.add_css_class("git-has-changes");
-                    }
-                }
-            });
-        }
-
         // Start file watchers
         {
             let file_tree_ref = file_tree.clone();
@@ -592,18 +587,7 @@ impl CodeEditorPanel {
                 Rc::new(move || {
                     file_tree_ref.refresh();
                 }),
-                Rc::new({
-                    let git_btn = git_btn.clone();
-                    move |git_output: String| {
-                        let has_changes = !git_output.trim().is_empty();
-                        if has_changes {
-                            git_btn.add_css_class("git-has-changes");
-                        } else {
-                            git_btn.remove_css_class("git-has-changes");
-                        }
-                        git_status_view.update(&git_output);
-                    }
-                }),
+                on_git_changed.clone(),
             );
         }
 

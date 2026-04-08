@@ -40,6 +40,10 @@ impl GitStatusView {
         scroll.set_vexpand(true);
 
         let list_container = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
+        let loading_label = gtk4::Label::new(Some("Loading git status..."));
+        loading_label.add_css_class("dim-label");
+        loading_label.set_margin_top(16);
+        list_container.append(&loading_label);
         scroll.set_child(Some(&list_container));
         container.append(&scroll);
 
@@ -103,26 +107,7 @@ impl GitStatusView {
             on_git_action,
         };
 
-        // Initial population — deferred for remote backends to avoid blocking UI
-        if !view.backend.is_remote() {
-            view.refresh();
-        }
-
         view
-    }
-
-    /// Refresh by running git status.
-    pub fn refresh(&self) {
-        tracing::info!("GitStatusView::refresh() root_dir={}", self.root_dir.display());
-        match self.backend.git_command(&["status", "--porcelain"]) {
-            Ok(stdout) => {
-                tracing::info!("git status stdout_len={}", stdout.len());
-                self.update(&stdout);
-            }
-            Err(e) => {
-                tracing::error!("git status failed: {}", e);
-            }
-        }
     }
 
     /// Update the git status list from `git status --porcelain` output.
