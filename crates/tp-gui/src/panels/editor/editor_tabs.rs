@@ -1,8 +1,9 @@
 use gtk4::prelude::*;
 use sourceview5::prelude::*;
-use std::path::Path;
 use std::cell::RefCell;
+use std::path::Path;
 use std::rc::Rc;
+use std::sync::Arc;
 
 use super::EditorState;
 
@@ -713,7 +714,7 @@ impl EditorTabs {
 
     /// Show a side-by-side diff view for the given file.
     /// The diff replaces the content_stack view. Close button goes back to editor.
-    pub fn show_diff(&self, root: &Path, file_path: &Path, backend: Rc<dyn super::file_backend::FileBackend>) {
+    pub fn show_diff(&self, root: &Path, file_path: &Path, backend: Arc<dyn super::file_backend::FileBackend>) {
         let rel = file_path.strip_prefix(root).unwrap_or(file_path);
         let old_content = backend.git_show(&format!("HEAD:{}", rel.to_string_lossy()))
             .unwrap_or_default();
@@ -1123,7 +1124,7 @@ impl EditorTabs {
         }
     }
     /// Show a commit's diff: header with info, file list, click file for side-by-side diff.
-    pub fn show_commit_diff(&self, _root: &Path, commit_hash: &str, backend: Rc<dyn super::file_backend::FileBackend>) {
+    pub fn show_commit_diff(&self, _root: &Path, commit_hash: &str, backend: Arc<dyn super::file_backend::FileBackend>) {
         // Get commit info
         let info = backend.git_command(&["log", "-1", "--format=%H%n%s%n%an%n%ar", commit_hash])
             .unwrap_or_default();
@@ -1301,7 +1302,7 @@ fn show_commit_file_diff(
     _notebook: &gtk4::Notebook,
     commit_hash: &str,
     file_rel: &str,
-    backend: Rc<dyn super::file_backend::FileBackend>,
+    backend: Arc<dyn super::file_backend::FileBackend>,
 ) {
     // Get old version (parent commit) and new version (this commit)
     let parent = format!("{}~1", commit_hash);

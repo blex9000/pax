@@ -1,0 +1,60 @@
+use gtk4::glib;
+use std::cell::RefCell;
+use std::rc::Rc;
+use std::sync::{Arc, Mutex};
+
+/// Run a blocking task on a background thread and deliver the result back on the GTK main loop.
+///
+/// This keeps UI code single-threaded while allowing filesystem/git/SSH work to happen off-thread.
+pub fn run_blocking<T, F, C>(task: F, on_done: C)
+where
+    T: Send + 'static,
+    F: FnOnce() -> T + Send + 'static,
+    C: FnOnce(T) + 'static,
+{
+    let slot = Arc::new(Mutex::new(None::<T>));
+    let slot_thread = slot.clone();
+    let callback = Rc::new(RefCell::new(Some(on_done)));
+
+    std::thread::spawn(move || {
+        let result = task();
+        *slot_thread.lock().unwrap() = Some(result);
+    });
+
+    glib::timeout_add_local(std::time::Duration::from_millis(16), move || {
+        let result = slot.lock().unwrap().take();
+        match result {
+            Some(value) => {
+                if let Some(cb) = callback.borrow_mut().take() {
+                    cb(value);
+                }
+                glib::ControlFlow::Break
+            }
+            None => glib::ControlFlow::Continue,
+        }
+    });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn run_blocking_delivers_result_on_main_loop() {
+        let main_loop = glib::MainLoop::new(None, false);
+        let observed = Rc::new(RefCell::new(None));
+        let observed_c = observed.clone();
+        let main_loop_c = main_loop.clone();
+
+        run_blocking(
+            || 42,
+            move |value| {
+                *observed_c.borrow_mut() = Some(value);
+                main_loop_c.quit();
+            },
+        );
+
+        main_loop.run();
+        assert_eq!(*observed.borrow(), Some(42));
+    }
+}

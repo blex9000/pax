@@ -1,6 +1,7 @@
 use gtk4::prelude::*;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
+use std::sync::Arc;
 
 use super::file_backend::FileBackend;
 
@@ -20,7 +21,7 @@ pub struct GitStatusView {
     commit_btn: gtk4::Button,
     root_dir: PathBuf,
     on_diff_open: OnDiffOpen,
-    backend: Rc<dyn FileBackend>,
+    backend: Arc<dyn FileBackend>,
     on_git_action: OnGitAction,
 }
 
@@ -32,7 +33,7 @@ struct GitFileEntry {
 }
 
 impl GitStatusView {
-    pub fn new(root_dir: &Path, on_diff_open: OnDiffOpen, backend: Rc<dyn FileBackend>, on_git_action: OnGitAction) -> Self {
+    pub fn new(root_dir: &Path, on_diff_open: OnDiffOpen, backend: Arc<dyn FileBackend>, on_git_action: OnGitAction) -> Self {
         let container = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
 
         let scroll = gtk4::ScrolledWindow::new();

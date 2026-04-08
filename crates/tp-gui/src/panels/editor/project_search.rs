@@ -3,6 +3,7 @@ use regex::RegexBuilder;
 use std::cell::RefCell;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
+use std::sync::Arc;
 
 use super::file_backend::FileBackend;
 
@@ -32,7 +33,7 @@ struct SearchResult {
 }
 
 impl ProjectSearch {
-    pub fn new(root_dir: &Path, on_click: OnResultClick, backend: Rc<dyn FileBackend>) -> Self {
+    pub fn new(root_dir: &Path, on_click: OnResultClick, backend: Arc<dyn FileBackend>) -> Self {
         let container = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
 
         let header = gtk4::Label::new(Some("Search in Files"));

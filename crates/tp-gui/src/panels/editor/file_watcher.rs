@@ -3,6 +3,7 @@ use gtk4::glib;
 use std::cell::{Cell, RefCell};
 use std::path::Path;
 use std::rc::Rc;
+use std::sync::Arc;
 
 use super::EditorState;
 use super::file_backend::FileBackend;
@@ -27,7 +28,7 @@ pub fn start_watchers(
 fn start_open_file_watcher(
     state: Rc<RefCell<EditorState>>,
     info_bar_container: gtk4::Box,
-    backend: Rc<dyn FileBackend>,
+    backend: Arc<dyn FileBackend>,
     is_remote: bool,
 ) {
     let interval = if is_remote { 5 } else { 1 };
@@ -91,7 +92,7 @@ fn start_open_file_watcher(
 fn start_tree_watcher(
     state: Rc<RefCell<EditorState>>,
     on_changed: Rc<dyn Fn()>,
-    _backend: Rc<dyn FileBackend>,
+    _backend: Arc<dyn FileBackend>,
     is_remote: bool,
     poll: u64,
 ) {
@@ -112,7 +113,7 @@ fn start_tree_watcher(
 fn start_git_watcher(
     _state: Rc<RefCell<EditorState>>,
     on_changed: Rc<dyn Fn(String)>,
-    backend: Rc<dyn FileBackend>,
+    backend: Arc<dyn FileBackend>,
     _is_remote: bool,
     poll: u64,
 ) {
@@ -135,7 +136,7 @@ fn show_conflict_bar(
     path: &Path,
     buffer: &sourceview5::Buffer,
     saved_content: Rc<RefCell<String>>,
-    backend: Rc<dyn FileBackend>,
+    backend: Arc<dyn FileBackend>,
 ) {
     // Remove any existing info bar
     while let Some(child) = container.first_child() {

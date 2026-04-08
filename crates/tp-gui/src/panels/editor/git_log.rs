@@ -1,9 +1,11 @@
 use gtk4::prelude::*;
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::path::Path;
 use std::rc::Rc;
+use std::sync::Arc;
 
 use super::file_backend::FileBackend;
+use super::task::run_blocking;
 
 /// Callback when a commit is clicked: (commit_hash)
 pub type OnCommitClick = Rc<dyn Fn(&str)>;
@@ -15,10 +17,11 @@ pub struct GitLogView {
     search_entry: gtk4::SearchEntry,
     #[allow(dead_code)]
     filter_label: gtk4::Label,
-    backend: Rc<dyn FileBackend>,
+    backend: Arc<dyn FileBackend>,
     on_commit_click: OnCommitClick,
     /// Current file filter (None = show all commits)
     file_filter: Rc<RefCell<Option<String>>>,
+    request_seq: Rc<Cell<u64>>,
 }
 
 struct CommitEntry {
@@ -29,7 +32,7 @@ struct CommitEntry {
 }
 
 impl GitLogView {
-    pub fn new(_root_dir: &Path, on_commit_click: OnCommitClick, backend: Rc<dyn FileBackend>) -> Self {
+    pub fn new(_root_dir: &Path, on_commit_click: OnCommitClick, backend: Arc<dyn FileBackend>) -> Self {
         let container = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
 
         let header = gtk4::Label::new(Some("History"));
@@ -67,6 +70,7 @@ impl GitLogView {
         container.append(&scroll);
 
         let file_filter: Rc<RefCell<Option<String>>> = Rc::new(RefCell::new(None));
+        let request_seq = Rc::new(Cell::new(0));
 
         let view = Self {
             widget: container,
@@ -76,6 +80,7 @@ impl GitLogView {
             backend: backend.clone(),
             on_commit_click,
             file_filter: file_filter.clone(),
+            request_seq: request_seq.clone(),
         };
 
         {
@@ -95,6 +100,7 @@ impl GitLogView {
             let lb = view.list_box.clone();
             let ff = file_filter.clone();
             let fl = filter_label.clone();
+            let seq = request_seq.clone();
             search_entry.connect_search_changed(move |entry| {
                 let query = entry.text().to_string();
                 let filter = if query.trim().is_empty() {
@@ -109,8 +115,7 @@ impl GitLogView {
                 } else {
                     fl.set_visible(false);
                 }
-                let commits = load_commits(&*be, filter.as_deref());
-                populate_list(&lb, &commits);
+                request_commits(&lb, be.clone(), filter, seq.clone());
             });
         }
 
@@ -124,8 +129,7 @@ impl GitLogView {
     /// Refresh the commit list.
     pub fn refresh(&self) {
         let filter = self.file_filter.borrow().clone();
-        let commits = load_commits(&*self.backend, filter.as_deref());
-        populate_list(&self.list_box, &commits);
+        request_commits(&self.list_box, self.backend.clone(), filter, self.request_seq.clone());
     }
 
     /// Filter commits by a specific file path (relative to root).
@@ -174,16 +178,45 @@ fn load_commits(backend: &dyn FileBackend, file_filter: Option<&str>) -> Vec<Com
     }).collect()
 }
 
+fn request_commits(
+    list_box: &gtk4::ListBox,
+    backend: Arc<dyn FileBackend>,
+    filter: Option<String>,
+    request_seq: Rc<Cell<u64>>,
+) {
+    let request_id = request_seq.get().wrapping_add(1);
+    request_seq.set(request_id);
+    populate_message(list_box, "Loading history...");
+
+    let list_box = list_box.clone();
+    run_blocking(
+        move || load_commits(&*backend, filter.as_deref()),
+        move |commits| {
+            if request_seq.get() != request_id {
+                return;
+            }
+            populate_list(&list_box, &commits);
+        },
+    );
+}
+
+fn populate_message(list_box: &gtk4::ListBox, message: &str) {
+    while let Some(child) = list_box.first_child() {
+        list_box.remove(&child);
+    }
+    let label = gtk4::Label::new(Some(message));
+    label.add_css_class("dim-label");
+    label.set_margin_top(16);
+    list_box.append(&label);
+}
+
 fn populate_list(list_box: &gtk4::ListBox, commits: &[CommitEntry]) {
     while let Some(child) = list_box.first_child() {
         list_box.remove(&child);
     }
 
     if commits.is_empty() {
-        let label = gtk4::Label::new(Some("No commits found"));
-        label.add_css_class("dim-label");
-        label.set_margin_top(16);
-        list_box.append(&label);
+        populate_message(list_box, "No commits found");
         return;
     }
 

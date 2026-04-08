@@ -13,11 +13,14 @@ pub mod fuzzy_finder;
 pub mod project_search;
 #[cfg(feature = "sourceview")]
 pub mod git_log;
+#[cfg(feature = "sourceview")]
+pub mod task;
 pub mod file_backend;
 
 use std::cell::RefCell;
 use std::path::PathBuf;
 use std::rc::Rc;
+use std::sync::Arc;
 
 use gtk4::prelude::*;
 use super::PanelBackend;
@@ -44,7 +47,7 @@ pub struct EditorState {
     pub sidebar_visible: bool,
     pub sidebar_mode: SidebarMode,
     /// File backend — Local for local projects, SSH for remote.
-    pub backend: Rc<dyn file_backend::FileBackend>,
+    pub backend: Arc<dyn file_backend::FileBackend>,
     /// Watcher poll interval in seconds (configurable per panel).
     pub poll_interval: u64,
     /// Back stack: positions you can go back to.
@@ -98,7 +101,7 @@ impl CodeEditorPanel {
         let ssh_label = format!("{}@{}", user, host);
 
         // Create SSH backend — ControlMaster connection established in constructor
-        let backend: Rc<dyn file_backend::FileBackend> = Rc::new(
+        let backend: Arc<dyn file_backend::FileBackend> = Arc::new(
             file_backend::SshFileBackend::new(remote_path, host, port, user, password, identity_file)
         );
 
@@ -108,13 +111,13 @@ impl CodeEditorPanel {
     }
 
     pub fn new(root_dir: &str) -> Self {
-        let backend = Rc::new(file_backend::LocalFileBackend::new(&PathBuf::from(root_dir)));
+        let backend = Arc::new(file_backend::LocalFileBackend::new(&PathBuf::from(root_dir)));
         let mut panel = Self::new_with_backend(root_dir, backend);
         panel.ssh_info = None;
         panel
     }
 
-    fn new_with_backend(root_dir: &str, backend: Rc<dyn file_backend::FileBackend>) -> Self {
+    fn new_with_backend(root_dir: &str, backend: Arc<dyn file_backend::FileBackend>) -> Self {
         let poll_secs = if backend.is_remote() { 5 } else { 2 };
         let state = Rc::new(RefCell::new(EditorState {
             root_dir: PathBuf::from(root_dir),

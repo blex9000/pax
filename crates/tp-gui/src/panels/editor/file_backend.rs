@@ -25,7 +25,7 @@ pub struct DirEntry {
 /// Designed to be implementation-agnostic: currently backed by Local (std::fs)
 /// and SSH (shell commands), but the trait is ready for a future Agent-based
 /// backend that runs a binary on the remote host for faster batch operations.
-pub trait FileBackend: std::fmt::Debug {
+pub trait FileBackend: std::fmt::Debug + Send + Sync {
     /// List entries in a directory (files and subdirectories).
     fn list_dir(&self, path: &Path) -> Result<Vec<DirEntry>, String>;
 
@@ -444,7 +444,7 @@ impl Drop for SshFileBackend {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::cell::RefCell;
+    use std::sync::Mutex;
 
     #[test]
     fn shell_quote_escapes_single_quotes() {
@@ -454,7 +454,7 @@ mod tests {
 
     #[derive(Debug)]
     struct MockBackend {
-        args: RefCell<Vec<String>>,
+        args: Mutex<Vec<String>>,
         output: String,
     }
 
@@ -468,7 +468,7 @@ mod tests {
         fn copy_file(&self, _from: &Path, _to: &Path) -> Result<(), String> { unreachable!() }
         fn create_dir(&self, _path: &Path) -> Result<(), String> { unreachable!() }
         fn git_command(&self, args: &[&str]) -> Result<String, String> {
-            *self.args.borrow_mut() = args.iter().map(|s| s.to_string()).collect();
+            *self.args.lock().unwrap() = args.iter().map(|s| s.to_string()).collect();
             Ok(self.output.clone())
         }
         fn root(&self) -> &Path { Path::new(".") }
@@ -478,14 +478,14 @@ mod tests {
     #[test]
     fn search_files_uses_case_insensitive_git_grep() {
         let backend = MockBackend {
-            args: RefCell::new(Vec::new()),
+            args: Mutex::new(Vec::new()),
             output: "src/main.rs:12:Hello World".to_string(),
         };
 
         let results = backend.search_files("hello").unwrap();
 
         assert_eq!(
-            backend.args.borrow().as_slice(),
+            backend.args.lock().unwrap().as_slice(),
             ["grep", "-n", "--no-color", "-i", "--", "hello"]
         );
         assert_eq!(results, vec![("src/main.rs".to_string(), 12, "Hello World".to_string())]);

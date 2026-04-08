@@ -2,6 +2,7 @@ use gtk4::prelude::*;
 use std::cell::RefCell;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
+use std::sync::Arc;
 
 use super::file_backend::FileBackend;
 
@@ -24,7 +25,7 @@ pub struct FileTree {
     #[allow(dead_code)]
     on_context_action: Option<OnContextAction>,
     #[allow(dead_code)]
-    backend: Rc<dyn FileBackend>,
+    backend: Arc<dyn FileBackend>,
 }
 
 #[derive(Debug, Clone)]
@@ -37,11 +38,11 @@ struct FileEntry {
 }
 
 impl FileTree {
-    pub fn new(root_dir: &Path, on_file_open: OnFileOpen, backend: Rc<dyn FileBackend>) -> Self {
+    pub fn new(root_dir: &Path, on_file_open: OnFileOpen, backend: Arc<dyn FileBackend>) -> Self {
         Self::new_with_context(root_dir, on_file_open, None, backend)
     }
 
-    pub fn new_with_context(root_dir: &Path, on_file_open: OnFileOpen, on_context_action: Option<OnContextAction>, backend: Rc<dyn FileBackend>) -> Self {
+    pub fn new_with_context(root_dir: &Path, on_file_open: OnFileOpen, on_context_action: Option<OnContextAction>, backend: Arc<dyn FileBackend>) -> Self {
         let container = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
 
         // Action buttons bar at bottom
