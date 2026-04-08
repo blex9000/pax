@@ -1,11 +1,10 @@
 use gtk4::gdk;
 
 pub(crate) fn encode_key_input(key: gdk::Key, modifiers: gdk::ModifierType) -> Option<Vec<u8>> {
-    if modifiers.contains(gdk::ModifierType::ALT_MASK) {
-        return None;
-    }
+    let alt = modifiers.contains(gdk::ModifierType::ALT_MASK);
+    let control = modifiers.contains(gdk::ModifierType::CONTROL_MASK);
 
-    let bytes = match key {
+    let mut bytes = match key {
         gdk::Key::Return => vec![b'\r'],
         gdk::Key::BackSpace => vec![0x7f],
         gdk::Key::Tab => vec![b'\t'],
@@ -14,9 +13,15 @@ pub(crate) fn encode_key_input(key: gdk::Key, modifiers: gdk::ModifierType) -> O
         gdk::Key::Down => b"\x1b[B".to_vec(),
         gdk::Key::Right => b"\x1b[C".to_vec(),
         gdk::Key::Left => b"\x1b[D".to_vec(),
+        gdk::Key::Home => b"\x1b[H".to_vec(),
+        gdk::Key::End => b"\x1b[F".to_vec(),
+        gdk::Key::Delete => b"\x1b[3~".to_vec(),
+        gdk::Key::Insert => b"\x1b[2~".to_vec(),
+        gdk::Key::Page_Up => b"\x1b[5~".to_vec(),
+        gdk::Key::Page_Down => b"\x1b[6~".to_vec(),
         other => {
             if let Some(c) = other.to_unicode() {
-                if modifiers.contains(gdk::ModifierType::CONTROL_MASK) {
+                if control {
                     encode_control_char(c)?
                 } else {
                     let mut buf = [0u8; 4];
@@ -28,7 +33,14 @@ pub(crate) fn encode_key_input(key: gdk::Key, modifiers: gdk::ModifierType) -> O
         }
     };
 
-    Some(bytes)
+    if alt {
+        let mut escaped = Vec::with_capacity(bytes.len() + 1);
+        escaped.push(0x1b);
+        escaped.append(&mut bytes);
+        Some(escaped)
+    } else {
+        Some(bytes)
+    }
 }
 
 fn encode_control_char(c: char) -> Option<Vec<u8>> {
@@ -70,6 +82,14 @@ mod tests {
             encode_key_input(gdk::Key::BackSpace, gdk::ModifierType::empty()),
             Some(vec![0x7f])
         );
+        assert_eq!(
+            encode_key_input(gdk::Key::Delete, gdk::ModifierType::empty()),
+            Some(b"\x1b[3~".to_vec())
+        );
+        assert_eq!(
+            encode_key_input(gdk::Key::Page_Down, gdk::ModifierType::empty()),
+            Some(b"\x1b[6~".to_vec())
+        );
     }
 
     #[test]
@@ -85,10 +105,14 @@ mod tests {
     }
 
     #[test]
-    fn ignores_alt_modified_keys() {
+    fn prefixes_alt_modified_keys_with_escape() {
         assert_eq!(
             encode_key_input(gdk::Key::A, gdk::ModifierType::ALT_MASK),
-            None
+            Some(b"\x1bA".to_vec())
+        );
+        assert_eq!(
+            encode_key_input(gdk::Key::Left, gdk::ModifierType::ALT_MASK),
+            Some(b"\x1b\x1b[D".to_vec())
         );
     }
 }

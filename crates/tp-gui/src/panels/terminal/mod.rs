@@ -10,9 +10,9 @@
 //!   copy/paste, and theme color integration.
 //!
 //! - **PTY backend** (`pty_backend.rs`): Cross-platform fallback using
-//!   `portable-pty` + `vt100` parser + GTK TextView. Works on macOS and any
-//!   platform where VTE4 is unavailable. Provides basic terminal I/O with
-//!   VT100 escape sequence support.
+//!   `portable-pty` + `alacritty_terminal` + a GTK DrawingArea renderer.
+//!   Works on macOS and any platform where VTE4 is unavailable. Provides ANSI
+//!   color rendering, scrollback, selection, copy/paste, and PTY resize.
 //!
 //! Both backends expose the same `TerminalInner` struct with identical public
 //! API, so `TerminalPanel` works transparently regardless of platform.
@@ -45,7 +45,7 @@ use super::PanelBackend;
 use crate::panels::PanelInputCallback;
 use backend::TerminalInner;
 
-/// Terminal panel — uses VTE4 on Linux, PTY+TextView fallback on macOS.
+/// Terminal panel — uses VTE4 on Linux, PTY+cell renderer fallback on macOS.
 ///
 /// Created by the panel registry when a `PanelType::Terminal` config is loaded.
 /// The backend is chosen at compile time via the `vte` feature flag.
