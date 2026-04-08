@@ -79,6 +79,24 @@ fn main() -> Result<()> {
         .with_ansi(false)
         .init();
 
+    // Panic handler: log to file + stderr before crashing
+    {
+        let crash_log = log_dir.join("pax.log");
+        std::panic::set_hook(Box::new(move |info| {
+            let msg = format!(
+                "\n=== PAX CRASH {} ===\n{}\nBacktrace:\n{}\n",
+                "timestamp",
+                info,
+                std::backtrace::Backtrace::force_capture()
+            );
+            eprintln!("{}", msg);
+            if let Ok(mut f) = std::fs::OpenOptions::new().append(true).open(&crash_log) {
+                use std::io::Write;
+                let _ = f.write_all(msg.as_bytes());
+            }
+        }));
+    }
+
     let cli = Cli::parse();
 
     match cli.command {
