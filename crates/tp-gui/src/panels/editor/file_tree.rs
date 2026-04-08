@@ -163,6 +163,7 @@ impl FileTree {
                 let make_item = |icon: &str, label: &str| -> gtk4::Button {
                     let btn = gtk4::Button::new();
                     btn.add_css_class("flat");
+                    btn.add_css_class("app-popover-button");
                     let content = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
                     content.set_margin_start(4);
                     content.set_margin_end(8);
@@ -220,6 +221,7 @@ impl FileTree {
                             .default_width(350)
                             .default_height(80)
                             .build();
+                        crate::theme::configure_dialog_window(&dialog);
                         let vbox = gtk4::Box::new(gtk4::Orientation::Vertical, 8);
                         vbox.set_margin_top(12);
                         vbox.set_margin_bottom(12);
@@ -301,6 +303,7 @@ impl FileTree {
                 }
 
                 let popover = gtk4::Popover::new();
+                crate::theme::configure_popover(&popover);
                 popover.set_child(Some(&menu_box));
                 popover.set_parent(&row);
                 popover.set_pointing_to(Some(&gtk4::gdk::Rectangle::new(x as i32, 0, 1, 1)));

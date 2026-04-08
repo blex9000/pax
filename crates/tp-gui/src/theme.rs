@@ -1,8 +1,9 @@
 /// Pax theme system — overrides libadwaita named colors via @define-color.
+use gtk4::prelude::IsA;
 use std::cell::RefCell;
 
 thread_local! {
-    static CURRENT_THEME: RefCell<Theme> = RefCell::new(Theme::System);
+    static CURRENT_THEME: RefCell<Theme> = RefCell::new(Theme::default());
     #[cfg(feature = "vte")]
     static VTE_TERMINALS: RefCell<Vec<vte4::Terminal>> = RefCell::new(Vec::new());
     #[cfg(feature = "sourceview")]
@@ -21,6 +22,30 @@ pub fn set_current_theme(theme: Theme) {
 /// Get the current theme.
 pub fn current_theme() -> Theme {
     CURRENT_THEME.with(|cell| *cell.borrow())
+}
+
+/// Mark app popovers with a common CSS class and disable arrows on macOS, where
+/// GTK popover arrows render poorly with custom application themes.
+pub fn configure_popover<P>(popover: &P)
+where
+    P: IsA<gtk4::Popover> + IsA<gtk4::Widget>,
+{
+    use gtk4::prelude::*;
+
+    popover.add_css_class("app-popover");
+    if cfg!(target_os = "macos") {
+        popover.set_has_arrow(false);
+    }
+}
+
+/// Mark transient app windows/dialogs so the theme can target their surfaces.
+pub fn configure_dialog_window<W>(window: &W)
+where
+    W: IsA<gtk4::Widget>,
+{
+    use gtk4::prelude::*;
+
+    window.add_css_class("app-dialog");
 }
 
 /// Register a VTE terminal for theme updates.
@@ -111,60 +136,73 @@ pub enum Theme {
     Nord,
 }
 
+impl Default for Theme {
+    fn default() -> Self {
+        Self::Nord
+    }
+}
+
 impl Theme {
-    pub fn label(&self) -> &str {
+    fn resolved(self) -> Self {
         match self {
-            Theme::System => "System",
+            Theme::System => Theme::Nord,
+            other => other,
+        }
+    }
+
+    pub fn label(&self) -> &str {
+        match self.resolved() {
             Theme::CatppuccinMocha => "Catppuccin Mocha",
             Theme::CatppuccinLatte => "Catppuccin Latte",
             Theme::Dracula => "Dracula",
             Theme::Nord => "Nord",
+            Theme::System => unreachable!(),
         }
     }
 
     pub fn all() -> &'static [Theme] {
         &[
-            Theme::System,
+            Theme::Nord,
             Theme::CatppuccinMocha,
             Theme::CatppuccinLatte,
             Theme::Dracula,
-            Theme::Nord,
         ]
     }
 
     pub fn color_scheme(&self) -> libadwaita::ColorScheme {
-        match self {
-            Theme::System => libadwaita::ColorScheme::Default,
+        match self.resolved() {
             Theme::CatppuccinLatte => libadwaita::ColorScheme::ForceLight,
-            _ => libadwaita::ColorScheme::ForceDark,
+            Theme::CatppuccinMocha | Theme::Dracula | Theme::Nord => {
+                libadwaita::ColorScheme::ForceDark
+            }
+            Theme::System => unreachable!(),
         }
     }
 
     pub fn to_id(&self) -> &str {
-        match self {
-            Theme::System => "system",
+        match self.resolved() {
             Theme::CatppuccinMocha => "catppuccin-mocha",
             Theme::CatppuccinLatte => "catppuccin-latte",
             Theme::Dracula => "dracula",
             Theme::Nord => "nord",
+            Theme::System => unreachable!(),
         }
     }
 
     pub fn from_id(id: &str) -> Theme {
         match id {
+            "system" | "" => Theme::Nord,
             "catppuccin-mocha" => Theme::CatppuccinMocha,
             "catppuccin-latte" => Theme::CatppuccinLatte,
             "dracula" => Theme::Dracula,
             "nord" => Theme::Nord,
-            _ => Theme::System,
+            _ => Theme::Nord,
         }
     }
 
     /// Returns (background, foreground) RGBA for VTE terminal.
-    /// System returns None (use VTE defaults).
     pub fn terminal_colors(&self) -> Option<(gtk4::gdk::RGBA, gtk4::gdk::RGBA)> {
-        match self {
-            Theme::System => None,
+        match self.resolved() {
             Theme::CatppuccinMocha => Some((
                 gtk4::gdk::RGBA::new(0.118, 0.118, 0.180, 1.0), // #1e1e2e
                 gtk4::gdk::RGBA::new(0.804, 0.839, 0.957, 1.0), // #cdd6f4
@@ -181,55 +219,40 @@ impl Theme {
                 gtk4::gdk::RGBA::new(0.180, 0.204, 0.251, 1.0), // #2e3440
                 gtk4::gdk::RGBA::new(0.925, 0.937, 0.957, 1.0), // #eceff4
             )),
+            Theme::System => unreachable!(),
         }
     }
 
     /// Returns the GtkSourceView 5 style scheme ID for this theme.
     #[cfg(feature = "sourceview")]
     pub fn sourceview_scheme(&self) -> &str {
-        match self {
-            Theme::System => {
-                // Follow system dark/light preference
-                let style_manager = libadwaita::StyleManager::default();
-                if style_manager.is_dark() {
-                    "Adwaita-dark"
-                } else {
-                    "Adwaita"
-                }
-            }
+        match self.resolved() {
             Theme::CatppuccinMocha => "pax-catppuccin-mocha",
             Theme::CatppuccinLatte => "pax-catppuccin-latte",
             Theme::Dracula => "pax-dracula",
             Theme::Nord => "pax-nord",
+            Theme::System => unreachable!(),
         }
     }
 
     /// Fallback scheme if the primary is not available.
     #[cfg(feature = "sourceview")]
     pub fn sourceview_scheme_fallback(&self) -> &str {
-        match self {
-            Theme::System => {
-                let style_manager = libadwaita::StyleManager::default();
-                if style_manager.is_dark() {
-                    "Adwaita-dark"
-                } else {
-                    "Adwaita"
-                }
-            }
+        match self.resolved() {
             Theme::CatppuccinLatte => "Adwaita",
-            _ => "Adwaita-dark",
+            Theme::CatppuccinMocha | Theme::Dracula | Theme::Nord => "Adwaita-dark",
+            Theme::System => unreachable!(),
         }
     }
 
     /// Returns CSS @define-color overrides for libadwaita named colors.
-    /// System theme returns empty string (no overrides).
     pub fn css_overrides(&self) -> &str {
-        match self {
-            Theme::System => SYSTEM_CSS,
+        match self.resolved() {
             Theme::CatppuccinMocha => CATPPUCCIN_MOCHA_CSS,
             Theme::CatppuccinLatte => CATPPUCCIN_LATTE_CSS,
             Theme::Dracula => DRACULA_CSS,
             Theme::Nord => NORD_CSS,
+            Theme::System => unreachable!(),
         }
     }
 }
@@ -237,13 +260,54 @@ impl Theme {
 /// Minimal CSS — only layout, no colors.
 pub const BASE_CSS: &str = "
 window, .background { background-color: @window_bg_color; color: @window_fg_color; }
+window.app-dialog { background-color: @dialog_bg_color; color: @dialog_fg_color; }
 toolbarview.app-toolbar-view { background-color: @window_bg_color; color: @window_fg_color; }
-headerbar.app-headerbar { background-color: @headerbar_bg_color; color: @headerbar_fg_color; border-bottom: 1px solid @headerbar_border_color; }
-headerbar.app-headerbar box, headerbar.app-headerbar label, headerbar.app-headerbar image, headerbar.app-headerbar button { color: @headerbar_fg_color; }
+toolbarview.app-toolbar-view .top-bar { background-color: @headerbar_bg_color; color: @headerbar_fg_color; border-bottom: 1px solid @headerbar_border_color; }
+toolbarview.app-toolbar-view .top-bar > * { background-color: @headerbar_bg_color; color: @headerbar_fg_color; }
+headerbar.app-headerbar { background-color: @headerbar_bg_color; color: @headerbar_fg_color; border: none; }
+headerbar.app-headerbar box, headerbar.app-headerbar label, headerbar.app-headerbar image, headerbar.app-headerbar button, headerbar.app-headerbar menubutton > button { color: @headerbar_fg_color; }
 box.panel-title-bar, box.panel-footer-bar, .status-bar, .markdown-toolbar { background-color: @headerbar_bg_color; color: @headerbar_fg_color; }
-popover, popover contents, popover > contents, popover box, popover menu { background-color: @popover_bg_color; color: @popover_fg_color; }
-popover > arrow, popover arrow { background-color: @popover_bg_color; color: @popover_bg_color; }
-popover menuitem, popover modelbutton, popover button, popover label, popover image { color: @popover_fg_color; }
+button.panel-action-btn, menubutton.panel-menu-btn > button, menubutton.app-menu-btn > button, headerbar.app-headerbar button, headerbar.app-headerbar menubutton > button {
+  background-image: none;
+  background-color: transparent;
+  border-color: transparent;
+  box-shadow: none;
+}
+button.panel-action-btn:hover, menubutton.panel-menu-btn > button:hover, menubutton.app-menu-btn > button:hover, headerbar.app-headerbar button:hover, headerbar.app-headerbar menubutton > button:hover {
+  background-color: alpha(@headerbar_fg_color, 0.10);
+  border-color: transparent;
+  box-shadow: none;
+}
+button.panel-action-btn:checked, menubutton.panel-menu-btn > button:checked, menubutton.app-menu-btn > button:checked, headerbar.app-headerbar button:checked, headerbar.app-headerbar menubutton > button:checked {
+  background-color: alpha(@headerbar_fg_color, 0.16);
+  border-color: transparent;
+  box-shadow: none;
+}
+popover.app-popover {
+  background-color: transparent;
+  background-image: none;
+  box-shadow: none;
+}
+popover.app-popover > contents {
+  background-color: @popover_bg_color;
+  color: @popover_fg_color;
+  border: 1px solid alpha(@borders, 0.9);
+  border-radius: 12px;
+  box-shadow: none;
+  padding: 4px;
+}
+popover.app-popover > arrow {
+  background-color: transparent;
+  color: @popover_bg_color;
+}
+popover.app-popover menu,
+popover.app-popover box,
+popover.app-popover modelbutton,
+popover.app-popover button,
+popover.app-popover label,
+popover.app-popover image {
+  color: @popover_fg_color;
+}
 box.panel-frame { border: none; border-radius: 0; margin: 0; padding: 0; }
 box.panel-frame > box { margin: 0; padding: 0; }
 box.panel-title-bar { padding: 2px 6px; margin: 0; min-height: 20px; border-bottom: 1px solid alpha(@borders, 0.4); }
@@ -271,30 +335,57 @@ paned > separator { min-width: 1px; min-height: 1px; }
 .editor-sidebar { border-right: 1px solid alpha(@borders, 0.3); }
 .navigation-sidebar, .boxed-list { background-color: @sidebar_bg_color; color: @sidebar_fg_color; }
 .card, button.card, .welcome-action-btn { background-color: @card_bg_color; color: @card_fg_color; }
+entry,
+spinbutton,
+textview,
+text,
+dropdown > button,
+combobox > box > button {
+  background-color: @view_bg_color;
+  color: @view_fg_color;
+  border-color: alpha(@borders, 0.8);
+  box-shadow: none;
+}
+entry image,
+spinbutton image,
+dropdown > button label,
+dropdown > button image,
+combobox > box > button label,
+combobox > box > button image {
+  color: @view_fg_color;
+}
+entry:focus,
+spinbutton:focus-within,
+textview:focus,
+text:focus,
+dropdown > button:focus,
+combobox > box > button:focus {
+  border-color: @accent_color;
+  box-shadow: inset 0 0 0 1px alpha(@accent_color, 0.35);
+}
+entry selection,
+text selection,
+textview text selection {
+  background-color: alpha(@accent_bg_color, 0.32);
+  color: @accent_fg_color;
+}
 button.git-has-changes, togglebutton.git-has-changes { color: #ff8c00; }
 button.git-has-changes:hover, togglebutton.git-has-changes:hover { color: #ffaa33; }
-popover > contents { background-color: @popover_bg_color; color: @popover_fg_color; }
-popover > arrow { background-color: @popover_bg_color; }
-popover label, popover button, popover .flat, popover modelbutton { color: @popover_fg_color; }
-popover separator { background-color: @borders; }
-popover modelbutton:hover { background-color: @accent_bg_color; color: @accent_fg_color; }
-";
-
-const SYSTEM_CSS: &str = "\
-@define-color card_bg_color @view_bg_color;
-@define-color card_fg_color @view_fg_color;
-@define-color dialog_bg_color @card_bg_color;
-@define-color dialog_fg_color @card_fg_color;
-@define-color popover_bg_color @dialog_bg_color;
-@define-color popover_fg_color @dialog_fg_color;
-@define-color sidebar_bg_color @view_bg_color;
-@define-color sidebar_fg_color @view_fg_color;
-@define-color secondary_sidebar_bg_color @card_bg_color;
-@define-color secondary_sidebar_fg_color @card_fg_color;
-@define-color thumbnail_bg_color @card_bg_color;
-@define-color borders alpha(@window_fg_color, 0.14);
-@define-color headerbar_border_color alpha(@window_fg_color, 0.14);
-@define-color headerbar_backdrop_color @headerbar_bg_color;
+popover.app-popover separator { background-color: @borders; }
+popover.app-popover modelbutton,
+popover.app-popover button.app-popover-button {
+  background-image: none;
+  background-color: transparent;
+  border: none;
+  border-radius: 8px;
+  box-shadow: none;
+  min-height: 30px;
+}
+popover.app-popover modelbutton:hover,
+popover.app-popover button.app-popover-button:hover {
+  background-color: alpha(@accent_bg_color, 0.18);
+  color: @popover_fg_color;
+}
 ";
 
 const CATPPUCCIN_MOCHA_CSS: &str = "\
@@ -408,27 +499,29 @@ const NORD_CSS: &str = "\
 #[cfg(test)]
 mod tests {
     use super::{
-        BASE_CSS, CATPPUCCIN_LATTE_CSS, CATPPUCCIN_MOCHA_CSS, DRACULA_CSS, NORD_CSS, SYSTEM_CSS,
+        Theme, BASE_CSS, CATPPUCCIN_LATTE_CSS, CATPPUCCIN_MOCHA_CSS, DRACULA_CSS, NORD_CSS,
     };
 
     #[test]
     fn base_css_uses_opaque_app_surfaces() {
-        assert!(BASE_CSS.contains("toolbarview.app-toolbar-view"));
-        assert!(BASE_CSS.contains("headerbar.app-headerbar"));
-        assert!(BASE_CSS.contains("background-color: @popover_bg_color"));
-        assert!(!BASE_CSS.contains("alpha(@headerbar_bg_color, 0.94)"));
+        assert!(BASE_CSS.contains("toolbarview.app-toolbar-view .top-bar"));
+        assert!(BASE_CSS.contains("window.app-dialog"));
+        assert!(BASE_CSS.contains("popover.app-popover > contents"));
+        assert!(BASE_CSS.contains("entry,\nspinbutton"));
         assert!(!BASE_CSS.contains("alpha(@headerbar_bg_color, 0.95)"));
     }
 
     #[test]
-    fn system_css_maps_popovers_to_dialog_surface() {
-        assert!(SYSTEM_CSS.contains("@define-color dialog_bg_color @card_bg_color;"));
-        assert!(SYSTEM_CSS.contains("@define-color popover_bg_color @dialog_bg_color;"));
-        assert!(!SYSTEM_CSS.contains("alpha(@window_bg_color, 0.98)"));
+    fn system_theme_is_disabled_and_aliases_to_nord() {
+        assert_eq!(Theme::default(), Theme::Nord);
+        assert_eq!(Theme::from_id("system"), Theme::Nord);
+        assert_eq!(Theme::System.to_id(), "nord");
+        assert_eq!(Theme::System.css_overrides(), NORD_CSS);
+        assert!(Theme::all().iter().all(|theme| *theme != Theme::System));
     }
 
     #[test]
-    fn custom_themes_define_dialog_and_sidebar_tokens() {
+    fn custom_themes_define_dialog_sidebar_and_thumbnail_tokens() {
         for css in [
             CATPPUCCIN_MOCHA_CSS,
             CATPPUCCIN_LATTE_CSS,

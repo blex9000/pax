@@ -16,7 +16,7 @@ impl Default for AppSettings {
     fn default() -> Self {
         Self {
             workspace_name: "untitled".to_string(),
-            theme: Theme::System,
+            theme: Theme::default(),
             default_shell: std::env::var("SHELL").unwrap_or_else(|_| "/bin/bash".to_string()),
             scrollback_lines: 10_000,
             output_retention_days: None,
@@ -36,6 +36,7 @@ pub fn show_settings_dialog(
         .default_width(500)
         .default_height(500)
         .build();
+    crate::theme::configure_dialog_window(&dialog);
 
     let vbox = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
     vbox.set_margin_top(16);
@@ -71,10 +72,12 @@ pub fn show_settings_dialog(
 
     // Theme
     let theme_row = make_row("Theme");
-    let theme_dropdown = gtk4::DropDown::from_strings(
-        &Theme::all().iter().map(|t| t.label()).collect::<Vec<_>>(),
-    );
-    let current_idx = Theme::all().iter().position(|t| *t == current.theme).unwrap_or(0);
+    let theme_dropdown =
+        gtk4::DropDown::from_strings(&Theme::all().iter().map(|t| t.label()).collect::<Vec<_>>());
+    let current_idx = Theme::all()
+        .iter()
+        .position(|t| *t == current.theme)
+        .unwrap_or(0);
     theme_dropdown.set_selected(current_idx as u32);
     theme_row.append(&theme_dropdown);
     vbox.append(&theme_row);
@@ -136,7 +139,10 @@ pub fn show_settings_dialog(
     vbox.append(&db_row);
 
     // Log path (read-only info)
-    let log_path = db_path.parent().unwrap_or(std::path::Path::new("/tmp")).join("pax.log");
+    let log_path = db_path
+        .parent()
+        .unwrap_or(std::path::Path::new("/tmp"))
+        .join("pax.log");
     let log_row = make_row("Log file");
     let log_label = gtk4::Label::new(Some(&log_path.to_string_lossy()));
     log_label.add_css_class("dim-label");
@@ -170,7 +176,7 @@ pub fn show_settings_dialog(
     let rs = retention_spin.clone();
     apply_btn.connect_clicked(move |_| {
         let theme_idx = td.selected() as usize;
-        let theme = Theme::all().get(theme_idx).copied().unwrap_or(Theme::System);
+        let theme = Theme::all().get(theme_idx).copied().unwrap_or_default();
         let retention = rs.value() as u32;
 
         on_apply(AppSettings {
@@ -178,7 +184,11 @@ pub fn show_settings_dialog(
             theme,
             default_shell: se.text().to_string(),
             scrollback_lines: ss.value() as usize,
-            output_retention_days: if retention == 0 { None } else { Some(retention) },
+            output_retention_days: if retention == 0 {
+                None
+            } else {
+                Some(retention)
+            },
         });
         d.close();
     });

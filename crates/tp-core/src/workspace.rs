@@ -306,7 +306,7 @@ pub struct WorkspaceSettings {
     pub scrollback_lines: usize,
     #[serde(default)]
     pub output_retention_days: Option<u32>,
-    #[serde(default)]
+    #[serde(default = "default_theme")]
     pub theme: String,
 }
 
@@ -316,7 +316,7 @@ impl Default for WorkspaceSettings {
             default_shell: default_shell(),
             scrollback_lines: default_scrollback(),
             output_retention_days: None,
-            theme: String::new(),
+            theme: default_theme(),
         }
     }
 }
@@ -327,6 +327,10 @@ fn default_shell() -> String {
 
 fn default_scrollback() -> usize {
     10_000
+}
+
+fn default_theme() -> String {
+    "nord".to_string()
 }
 
 impl LayoutNode {
@@ -355,5 +359,15 @@ impl Workspace {
             .iter()
             .filter(|p| p.groups.iter().any(|g| g == group))
             .collect()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::WorkspaceSettings;
+
+    #[test]
+    fn workspace_settings_default_to_nord_theme() {
+        assert_eq!(WorkspaceSettings::default().theme, "nord");
     }
 }

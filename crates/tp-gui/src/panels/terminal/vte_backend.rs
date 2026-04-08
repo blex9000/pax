@@ -169,6 +169,7 @@ impl TerminalInner {
         gesture.connect_pressed(move |_gesture, _n, x, y| {
             let vte = &vte_for_menu;
             let popover = gtk4::PopoverMenu::from_model(None::<&gtk4::gio::MenuModel>);
+            crate::theme::configure_popover(&popover);
 
             let menu_box = gtk4::Box::new(gtk4::Orientation::Vertical, 2);
             menu_box.set_margin_top(4);
@@ -179,6 +180,7 @@ impl TerminalInner {
             // Copy button
             let copy_btn = gtk4::Button::new();
             copy_btn.add_css_class("flat");
+            copy_btn.add_css_class("app-popover-button");
             let copy_box = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
             copy_box.append(&gtk4::Image::from_icon_name("edit-copy-symbolic"));
             let copy_lbl = gtk4::Label::new(Some("Copy"));
@@ -200,6 +202,7 @@ impl TerminalInner {
             // Paste button
             let paste_btn = gtk4::Button::new();
             paste_btn.add_css_class("flat");
+            paste_btn.add_css_class("app-popover-button");
             let paste_box = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
             paste_box.append(&gtk4::Image::from_icon_name("edit-paste-symbolic"));
             let paste_lbl = gtk4::Label::new(Some("Paste"));

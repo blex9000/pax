@@ -572,35 +572,18 @@ fn resolve_terminal_font_spec(override_font: Option<&str>, is_macos: bool) -> St
     }
 }
 
-fn terminal_palette_for(theme: crate::theme::Theme, system_dark: bool) -> TerminalPalette {
+fn terminal_palette_for(theme: crate::theme::Theme, _system_dark: bool) -> TerminalPalette {
     match theme {
-        crate::theme::Theme::System => {
-            if system_dark {
-                make_terminal_palette(
-                    0x111827,
-                    0xe5e7eb,
-                    0x374151,
-                    0xf9fafb,
-                    [
-                        0x1f2937, 0xf87171, 0x34d399, 0xfbbf24, 0x60a5fa, 0xc084fc, 0x22d3ee,
-                        0xe5e7eb, 0x4b5563, 0xfca5a5, 0x6ee7b7, 0xfcd34d, 0x93c5fd, 0xd8b4fe,
-                        0x67e8f9, 0xf9fafb,
-                    ],
-                )
-            } else {
-                make_terminal_palette(
-                    0xffffff,
-                    0x1f2937,
-                    0xdbeafe,
-                    0x111827,
-                    [
-                        0x111827, 0xdc2626, 0x059669, 0xd97706, 0x2563eb, 0x9333ea, 0x0891b2,
-                        0xe5e7eb, 0x6b7280, 0xef4444, 0x10b981, 0xf59e0b, 0x3b82f6, 0xa855f7,
-                        0x06b6d4, 0xf9fafb,
-                    ],
-                )
-            }
-        }
+        crate::theme::Theme::System | crate::theme::Theme::Nord => make_terminal_palette(
+            0x2e3440,
+            0xeceff4,
+            0x434c5e,
+            0xeceff4,
+            [
+                0x3b4252, 0xbf616a, 0xa3be8c, 0xebcb8b, 0x81a1c1, 0xb48ead, 0x88c0d0, 0xe5e9f0,
+                0x4c566a, 0xbf616a, 0xa3be8c, 0xebcb8b, 0x81a1c1, 0xb48ead, 0x8fbcbb, 0xeceff4,
+            ],
+        ),
         crate::theme::Theme::CatppuccinMocha => make_terminal_palette(
             0x1e1e2e,
             0xcdd6f4,
@@ -629,16 +612,6 @@ fn terminal_palette_for(theme: crate::theme::Theme, system_dark: bool) -> Termin
             [
                 0x21222c, 0xff5555, 0x50fa7b, 0xf1fa8c, 0xbd93f9, 0xff79c6, 0x8be9fd, 0xf8f8f2,
                 0x6272a4, 0xff6e6e, 0x69ff94, 0xffffa5, 0xd6acff, 0xff92df, 0xa4ffff, 0xffffff,
-            ],
-        ),
-        crate::theme::Theme::Nord => make_terminal_palette(
-            0x2e3440,
-            0xeceff4,
-            0x434c5e,
-            0xeceff4,
-            [
-                0x3b4252, 0xbf616a, 0xa3be8c, 0xebcb8b, 0x81a1c1, 0xb48ead, 0x88c0d0, 0xe5e9f0,
-                0x4c566a, 0xbf616a, 0xa3be8c, 0xebcb8b, 0x81a1c1, 0xb48ead, 0x8fbcbb, 0xeceff4,
             ],
         ),
     }
@@ -684,6 +657,7 @@ fn setup_context_menu(
     let input_cb = input_cb.clone();
     gesture.connect_pressed(move |_gesture, _n, x, y| {
         let popover = gtk4::PopoverMenu::from_model(None::<&gtk4::gio::MenuModel>);
+        crate::theme::configure_popover(&popover);
 
         let menu_box = gtk4::Box::new(gtk4::Orientation::Vertical, 2);
         menu_box.set_margin_top(4);
@@ -695,6 +669,7 @@ fn setup_context_menu(
 
         let copy_btn = gtk4::Button::new();
         copy_btn.add_css_class("flat");
+        copy_btn.add_css_class("app-popover-button");
         copy_btn.set_sensitive(copy_text.is_some());
         let copy_box = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
         copy_box.append(&gtk4::Image::from_icon_name("edit-copy-symbolic"));
@@ -718,6 +693,7 @@ fn setup_context_menu(
 
         let paste_btn = gtk4::Button::new();
         paste_btn.add_css_class("flat");
+        paste_btn.add_css_class("app-popover-button");
         let paste_box = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
         paste_box.append(&gtk4::Image::from_icon_name("edit-paste-symbolic"));
         let paste_lbl = gtk4::Label::new(Some("Paste"));

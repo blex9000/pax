@@ -702,6 +702,7 @@ fn build_panel_menu(panel_id: &str, action_cb: Option<PanelActionCallback>) -> g
     for (label, tooltip, action) in items {
         let btn = gtk4::Button::new();
         btn.add_css_class("flat");
+        btn.add_css_class("app-popover-button");
         btn.set_tooltip_text(Some(tooltip));
 
         let btn_box = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
@@ -774,6 +775,7 @@ fn build_panel_menu(panel_id: &str, action_cb: Option<PanelActionCallback>) -> g
         }
     }
 
+    crate::theme::configure_popover(&popover);
     popover.set_child(Some(&vbox));
     popover
 }

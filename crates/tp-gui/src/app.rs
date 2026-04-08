@@ -182,6 +182,8 @@ fn setup_workspace_ui(
     let menu_btn = gtk4::MenuButton::new();
     menu_btn.set_icon_name("open-menu-symbolic");
     menu_btn.set_tooltip_text(Some("Menu"));
+    menu_btn.add_css_class("flat");
+    menu_btn.add_css_class("app-menu-btn");
 
     let menu = gtk4::gio::Menu::new();
     let file_section = gtk4::gio::Menu::new();
@@ -198,7 +200,9 @@ fn setup_workspace_ui(
     settings_section.append(Some("About Pax"), Some("app.about"));
     menu.append_section(None, &settings_section);
     menu.append(Some("Quit"), Some("app.quit"));
-    menu_btn.set_menu_model(Some(&menu));
+    let menu_popover = gtk4::PopoverMenu::from_model(Some(&menu));
+    crate::theme::configure_popover(&menu_popover);
+    menu_btn.set_popover(Some(&menu_popover));
     header.pack_start(&menu_btn);
 
     // Dirty indicator (orange floppy) — packed at end (right side, near window buttons)
@@ -1026,7 +1030,7 @@ thread_local! {
 
 fn load_css() {
     // Try to restore theme from last used workspace
-    let theme = load_last_theme().unwrap_or(Theme::System);
+    let theme = load_last_theme().unwrap_or_default();
     apply_theme(theme);
 }
 
@@ -1124,6 +1128,7 @@ fn show_shortcuts_dialog(window: &Rc<adw::ApplicationWindow>) {
         .default_width(450)
         .default_height(500)
         .build();
+    crate::theme::configure_dialog_window(&dialog);
 
     let vbox = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
     vbox.set_margin_top(16);

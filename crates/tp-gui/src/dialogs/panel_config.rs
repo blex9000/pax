@@ -33,13 +33,15 @@ pub fn show_panel_config_dialog(
 }
 
 fn make_dialog(parent: &impl IsA<gtk4::Window>, title: &str) -> gtk4::Window {
-    gtk4::Window::builder()
+    let dialog = gtk4::Window::builder()
         .title(title)
         .transient_for(parent)
         .modal(true)
         .default_width(550)
         .default_height(650)
-        .build()
+        .build();
+    crate::theme::configure_dialog_window(&dialog);
+    dialog
 }
 
 fn add_field(vbox: &gtk4::Box, label: &str, value: &str, placeholder: &str) -> gtk4::Entry {
@@ -1045,6 +1047,7 @@ fn add_ssh_save_load_buttons(
                 .default_width(400)
                 .default_height(300)
                 .build();
+            crate::theme::configure_dialog_window(&dialog);
             if let Some(win) = btn.root().and_then(|r| r.downcast::<gtk4::Window>().ok()) {
                 dialog.set_transient_for(Some(&win));
             }
@@ -1217,6 +1220,7 @@ fn add_ssh_save_load_buttons(
                 .default_width(300)
                 .default_height(80)
                 .build();
+            crate::theme::configure_dialog_window(&dialog);
             if let Some(win) = btn.root().and_then(|r| r.downcast::<gtk4::Window>().ok()) {
                 dialog.set_transient_for(Some(&win));
             }
@@ -1283,6 +1287,7 @@ fn show_remote_browse_dialog(
         .default_width(450)
         .default_height(400)
         .build();
+    crate::theme::configure_dialog_window(&dialog);
 
     let vbox = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
 
