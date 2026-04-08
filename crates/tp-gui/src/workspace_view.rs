@@ -704,6 +704,12 @@ impl WorkspaceView {
         self.rebuild_layout();
         self.rebuild_focus_order();
 
+        // 4. Restore focus to the original panel (not the new one)
+        if let Some(idx) = self.focus.order.iter().position(|id| id == &focused_id) {
+            self.focus.index = idx;
+            self.focus.focus_current_pub(&self.hosts);
+        }
+
         Some(new_id)
     }
 
@@ -788,12 +794,20 @@ impl WorkspaceView {
     }
 
     fn find_panel_id_in_widget(&self, widget: &gtk4::Widget) -> Option<String> {
+        // Direct match
         for (id, host) in &self.hosts {
             if host.widget() == widget {
                 return Some(id.clone());
             }
         }
-        // Try inside the widget (might be a container)
+        // Recursive: search inside containers (wrappers, nested Paneds)
+        let mut child = widget.first_child();
+        while let Some(c) = child {
+            if let Some(id) = self.find_panel_id_in_widget(&c) {
+                return Some(id);
+            }
+            child = c.next_sibling();
+        }
         None
     }
 

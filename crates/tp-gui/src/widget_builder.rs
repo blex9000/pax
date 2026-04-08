@@ -262,7 +262,7 @@ pub fn find_first_panel_id(widget: &gtk4::Widget, callback: &dyn Fn(&str)) {
 
 pub fn find_notebook_ancestor(widget: &gtk4::Widget) -> Option<gtk4::Notebook> {
     let mut current = widget.parent();
-    for _ in 0..3 {
+    for _ in 0..10 {
         let w = current?;
         if let Ok(nb) = w.clone().downcast::<gtk4::Notebook>() {
             return Some(nb);
