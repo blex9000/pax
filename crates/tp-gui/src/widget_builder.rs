@@ -81,9 +81,9 @@ pub fn build_tab_label(name: &str, panel_type_id: &str, action_cb: &Option<Panel
                         // Layout tab: update only the tab label, not child panel names.
                         // Send RenameTab with the first child panel_id so the handler
                         // can find the correct Tabs node in the layout tree.
-                        find_first_panel_id(&w, &|panel_id| {
-                            cb(panel_id, PanelAction::RenameTab(new_name.clone()));
-                        });
+                        if let Some(pid) = find_first_panel_id(&w) {
+                            cb(&pid, PanelAction::RenameTab(new_name.clone()));
+                        }
                     } else {
                         // Single panel tab: rename the panel itself
                         find_panel_id_recursive(&w, &|panel_id| {
@@ -211,14 +211,34 @@ fn setup_notebook_menu_widget(notebook: &gtk4::Notebook, action_cb: Option<Panel
         add_btn.connect_clicked(move |_| {
             if let Some(ref cb) = cb {
                 if let Some(page) = nb.nth_page(nb.current_page()) {
-                    find_panel_id_recursive(&page, &|panel_id| {
-                        cb(&format!("nb:{}", panel_id), PanelAction::AddTabToNotebook);
-                    });
+                    // Find first panel ID in the current page (not all — would add multiple tabs)
+                    if let Some(pid) = find_first_panel_id(&page) {
+                        cb(&format!("nb:{}", pid), PanelAction::AddTabToNotebook);
+                    }
                 }
             }
         });
     }
     notebook.set_action_widget(&add_btn, gtk4::PackType::End);
+}
+
+/// Find the first panel ID inside a widget tree.
+pub fn find_first_panel_id(widget: &gtk4::Widget) -> Option<String> {
+    if widget.has_css_class("panel-frame") {
+        let name = widget.widget_name();
+        let name_str = name.as_str();
+        if !name_str.is_empty() {
+            return Some(name_str.to_string());
+        }
+    }
+    let mut child = widget.first_child();
+    while let Some(c) = child {
+        if let Some(id) = find_first_panel_id(&c) {
+            return Some(id);
+        }
+        child = c.next_sibling();
+    }
+    None
 }
 
 pub fn find_panel_id_recursive(widget: &gtk4::Widget, callback: &dyn Fn(&str)) {
@@ -237,28 +257,6 @@ pub fn find_panel_id_recursive(widget: &gtk4::Widget, callback: &dyn Fn(&str)) {
     }
 }
 
-/// Find only the first panel ID in a widget tree (stops after first match).
-pub fn find_first_panel_id(widget: &gtk4::Widget, callback: &dyn Fn(&str)) {
-    fn inner(widget: &gtk4::Widget, found: &std::cell::Cell<bool>, callback: &dyn Fn(&str)) {
-        if found.get() { return; }
-        if widget.has_css_class("panel-frame") {
-            let name = widget.widget_name();
-            let name_str = name.as_str();
-            if !name_str.is_empty() {
-                found.set(true);
-                callback(name_str);
-                return;
-            }
-        }
-        let mut child = widget.first_child();
-        while let Some(c) = child {
-            inner(&c, found, callback);
-            if found.get() { return; }
-            child = c.next_sibling();
-        }
-    }
-    inner(widget, &std::cell::Cell::new(false), callback);
-}
 
 pub fn find_notebook_ancestor(widget: &gtk4::Widget) -> Option<gtk4::Notebook> {
     let mut current = widget.parent();
