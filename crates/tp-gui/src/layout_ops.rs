@@ -59,7 +59,7 @@ pub fn remove_from_layout(node: &LayoutNode, panel_id: &str) -> LayoutNode {
             let mut new_children = Vec::new();
             let mut new_ratios = Vec::new();
             for (i, child) in children.iter().enumerate() {
-                if is_panel_with_id(child, panel_id) {
+                if is_panel_direct(child, panel_id) {
                     continue; // Direct match — skip
                 }
                 let processed = remove_from_layout(child, panel_id);
@@ -74,7 +74,7 @@ pub fn remove_from_layout(node: &LayoutNode, panel_id: &str) -> LayoutNode {
             let mut new_children = Vec::new();
             let mut new_ratios = Vec::new();
             for (i, child) in children.iter().enumerate() {
-                if is_panel_with_id(child, panel_id) {
+                if is_panel_direct(child, panel_id) {
                     continue;
                 }
                 let processed = remove_from_layout(child, panel_id);
@@ -89,7 +89,7 @@ pub fn remove_from_layout(node: &LayoutNode, panel_id: &str) -> LayoutNode {
             let mut new_children = Vec::new();
             let mut new_labels = Vec::new();
             for (i, child) in children.iter().enumerate() {
-                if is_panel_with_id(child, panel_id) {
+                if is_panel_direct(child, panel_id) {
                     continue;
                 }
                 let processed = remove_from_layout(child, panel_id);
@@ -151,6 +151,11 @@ pub fn add_to_existing_tabs(node: &mut LayoutNode, panel_id: &str, new_id: &str,
         }
         LayoutNode::Panel { .. } => false,
     }
+}
+
+/// Check if a node IS exactly this panel (direct match only).
+pub fn is_panel_direct(node: &LayoutNode, panel_id: &str) -> bool {
+    matches!(node, LayoutNode::Panel { id } if id == panel_id)
 }
 
 /// Check if a node IS the panel, or CONTAINS the panel anywhere in its subtree.
