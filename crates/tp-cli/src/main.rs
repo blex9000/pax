@@ -5,7 +5,7 @@ use std::path::PathBuf;
 #[derive(Parser)]
 #[command(
     name = "pax",
-    version,
+    version = pax_core::build_info::VERSION_STRING,
     about = "Terminal Session Manager — Tilix-like workspace with heterogeneous panels",
     long_about = "Pax is a GUI workspace manager with split/tab panels.\n\n\
         Run without arguments to open a new empty workspace.\n\
@@ -69,7 +69,10 @@ fn main() -> Result<()> {
     let cli = Cli::parse();
 
     // Log directory: --log-dir flag, or current directory
-    let log_dir = cli.log_dir.clone().unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
+    let log_dir = cli
+        .log_dir
+        .clone()
+        .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
     std::fs::create_dir_all(&log_dir).ok();
     let log_file = std::fs::OpenOptions::new()
         .create(true)
@@ -125,7 +128,10 @@ fn main() -> Result<()> {
             if workspaces.is_empty() {
                 println!("No workspaces found. Use 'pax launch <config.json>' to start.");
             } else {
-                println!("{:<20} {:<40} {:<20} {}", "Name", "Config", "Last Opened", "Opens");
+                println!(
+                    "{:<20} {:<40} {:<20} {}",
+                    "Name", "Config", "Last Opened", "Opens"
+                );
                 println!("{}", "-".repeat(90));
                 for ws in workspaces {
                     println!(

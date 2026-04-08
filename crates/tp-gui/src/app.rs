@@ -1,9 +1,9 @@
+use adw::prelude::*;
 use anyhow::Result;
+use gtk4::gdk;
 use gtk4::glib;
 use gtk4::prelude::*;
-use gtk4::gdk;
 use libadwaita as adw;
-use adw::prelude::*;
 use std::cell::RefCell;
 use std::path::Path;
 use std::rc::Rc;
@@ -14,8 +14,8 @@ use crate::actions::{self, DIRTY_INDICATOR, HEADER_WS_LABEL};
 use crate::layout_ops::update_tab_label_in_layout;
 use crate::panel_host::PanelAction;
 use crate::theme::Theme;
-use crate::workspace_view::WorkspaceView;
 use crate::widgets::status_bar::StatusBar;
+use crate::workspace_view::WorkspaceView;
 
 /// Single entry point — shows welcome if no workspace, or workspace directly.
 pub fn run_app(workspace: Option<Workspace>, config_path: Option<&Path>) -> Result<()> {
@@ -35,7 +35,8 @@ pub fn run_app(workspace: Option<Workspace>, config_path: Option<&Path>) -> Resu
             // Try to find icons relative to the executable or manifest dir
             let icon_paths = [
                 std::path::PathBuf::from("resources/icons"),
-                std::env::current_exe().ok()
+                std::env::current_exe()
+                    .ok()
                     .and_then(|p| p.parent().map(|d| d.join("../resources/icons")))
                     .unwrap_or_default(),
                 std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../resources/icons"),
@@ -53,10 +54,12 @@ pub fn run_app(workspace: Option<Workspace>, config_path: Option<&Path>) -> Resu
         {
             let style_paths = [
                 std::path::PathBuf::from("resources/sourceview-styles"),
-                std::env::current_exe().ok()
+                std::env::current_exe()
+                    .ok()
                     .and_then(|p| p.parent().map(|d| d.join("../resources/sourceview-styles")))
                     .unwrap_or_default(),
-                std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../resources/sourceview-styles"),
+                std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                    .join("../../resources/sourceview-styles"),
             ];
             let manager = sourceview5::StyleSchemeManager::default();
             for path in &style_paths {
@@ -136,15 +139,19 @@ fn setup_welcome_ui(window: &Rc<adw::ApplicationWindow>) {
                 dialog.set_filters(Some(&filters));
 
                 let win3 = win2.clone();
-                dialog.open(Some(win2.as_ref()), gtk4::gio::Cancellable::NONE, move |result| {
-                    if let Ok(file) = result {
-                        if let Some(path) = file.path() {
-                            if let Ok(ws) = pax_core::config::load_workspace(&path) {
-                                setup_workspace_ui(&win3, ws, Some(&path));
+                dialog.open(
+                    Some(win2.as_ref()),
+                    gtk4::gio::Cancellable::NONE,
+                    move |result| {
+                        if let Ok(file) = result {
+                            if let Some(path) = file.path() {
+                                if let Ok(ws) = pax_core::config::load_workspace(&path) {
+                                    setup_workspace_ui(&win3, ws, Some(&path));
+                                }
                             }
                         }
-                    }
-                });
+                    },
+                );
             }
             WelcomeChoice::OpenRecent(path) => {
                 let p = std::path::PathBuf::from(&path);
@@ -252,9 +259,14 @@ fn setup_workspace_ui(
             if needs_config {
                 // For panels that need a file/directory, show config FIRST
                 let default_type = match type_id {
-                    "markdown" => pax_core::workspace::PanelType::Markdown { file: String::new() },
+                    "markdown" => pax_core::workspace::PanelType::Markdown {
+                        file: String::new(),
+                    },
                     "code_editor" => pax_core::workspace::PanelType::CodeEditor {
-                        root_dir: String::new(), ssh: None, remote_path: None, poll_interval: None,
+                        root_dir: String::new(),
+                        ssh: None,
+                        remote_path: None,
+                        poll_interval: None,
                     },
                     _ => pax_core::workspace::PanelType::Terminal,
                 };
@@ -265,20 +277,41 @@ fn setup_workspace_ui(
                 let sa2 = sa.clone();
                 let saved_ssh = {
                     let view = ws.borrow();
-                    std::rc::Rc::new(std::cell::RefCell::new(view.workspace().ssh_configs.clone()))
+                    std::rc::Rc::new(std::cell::RefCell::new(
+                        view.workspace().ssh_configs.clone(),
+                    ))
                 };
                 crate::dialogs::panel_config::show_panel_config_dialog(
-                    &*win, &tid, &default_type, None, None,
-                    &[], None, 0, 0, saved_ssh,
-                    move |new_name, new_type, new_cwd, new_ssh, new_cmds, new_close, new_mw, new_mh| {
+                    &*win,
+                    &tid,
+                    &default_type,
+                    None,
+                    None,
+                    &[],
+                    None,
+                    0,
+                    0,
+                    saved_ssh,
+                    move |new_name,
+                          new_type,
+                          new_cwd,
+                          new_ssh,
+                          new_cmds,
+                          new_close,
+                          new_mw,
+                          new_mh| {
                         // apply_panel_config handles everything: sets type, creates backend, rebuilds layout
-                        ws2.borrow_mut().apply_panel_config(&pid, new_name, new_type, new_cwd, new_ssh, new_cmds, new_close, new_mw, new_mh);
+                        ws2.borrow_mut().apply_panel_config(
+                            &pid, new_name, new_type, new_cwd, new_ssh, new_cmds, new_close,
+                            new_mw, new_mh,
+                        );
                         actions::update_dirty_ui(&ws2, &win2, &sa2);
                     },
                 );
             } else {
                 ws.borrow_mut().set_panel_type(panel_id, type_id);
-                sb.borrow().set_message(&format!("{} → {}", panel_id, type_id));
+                sb.borrow()
+                    .set_message(&format!("{} → {}", panel_id, type_id));
                 actions::update_dirty_ui(&ws, &win, &sa);
             }
         });
@@ -301,8 +334,12 @@ fn setup_workspace_ui(
                         drop(view);
                         match action {
                             PanelAction::AddTabToNotebook => {
-                                if let Some(new_id) = ws_for_cb.borrow_mut().add_tab_to_notebook(&nb) {
-                                    sb_for_cb.borrow().set_message(&format!("Tab + → {}", new_id));
+                                if let Some(new_id) =
+                                    ws_for_cb.borrow_mut().add_tab_to_notebook(&nb)
+                                {
+                                    sb_for_cb
+                                        .borrow()
+                                        .set_message(&format!("Tab + → {}", new_id));
                                 }
                             }
                             PanelAction::RemoveTab => {
@@ -339,17 +376,23 @@ fn setup_workspace_ui(
             match action {
                 PanelAction::SplitH => {
                     if let Some(new_id) = ws_for_cb.borrow_mut().split_focused_h() {
-                        sb_for_cb.borrow().set_message(&format!("Split H → {}", new_id));
+                        sb_for_cb
+                            .borrow()
+                            .set_message(&format!("Split H → {}", new_id));
                     }
                 }
                 PanelAction::SplitV => {
                     if let Some(new_id) = ws_for_cb.borrow_mut().split_focused_v() {
-                        sb_for_cb.borrow().set_message(&format!("Split V → {}", new_id));
+                        sb_for_cb
+                            .borrow()
+                            .set_message(&format!("Split V → {}", new_id));
                     }
                 }
                 PanelAction::AddTab => {
                     if let Some(new_id) = ws_for_cb.borrow_mut().add_tab_focused() {
-                        sb_for_cb.borrow().set_message(&format!("TabSplit → {}", new_id));
+                        sb_for_cb
+                            .borrow()
+                            .set_message(&format!("TabSplit → {}", new_id));
                     }
                 }
                 PanelAction::Reset => {
@@ -373,7 +416,8 @@ fn setup_workspace_ui(
                         let pcfg = ws.panel(panel_id);
                         (
                             pcfg.map(|p| p.name.clone()).unwrap_or_default(),
-                            pcfg.map(|p| p.effective_type()).unwrap_or(pax_core::workspace::PanelType::Terminal),
+                            pcfg.map(|p| p.effective_type())
+                                .unwrap_or(pax_core::workspace::PanelType::Terminal),
                             pcfg.and_then(|p| p.cwd.clone()),
                             pcfg.and_then(|p| p.effective_ssh()),
                             pcfg.map(|p| p.startup_commands.clone()).unwrap_or_default(),
@@ -387,9 +431,13 @@ fn setup_workspace_ui(
                     let win2 = win_for_cb.clone();
                     let sa2 = sa_for_cb.clone();
                     // Shared SSH configs — backed by workspace data, changes persist immediately
-                    let saved_ssh: std::rc::Rc<std::cell::RefCell<Vec<pax_core::workspace::NamedSshConfig>>> = {
+                    let saved_ssh: std::rc::Rc<
+                        std::cell::RefCell<Vec<pax_core::workspace::NamedSshConfig>>,
+                    > = {
                         let view = ws_for_cb.borrow();
-                        std::rc::Rc::new(std::cell::RefCell::new(view.workspace().ssh_configs.clone()))
+                        std::rc::Rc::new(std::cell::RefCell::new(
+                            view.workspace().ssh_configs.clone(),
+                        ))
                     };
                     // Sync changes back to workspace whenever the Rc is modified
                     let ws_sync = ws_for_cb.clone();
@@ -398,15 +446,21 @@ fn setup_workspace_ui(
                     let last_len = std::rc::Rc::new(std::cell::Cell::new(saved_ssh.borrow().len()));
                     let sync_active = std::rc::Rc::new(std::cell::Cell::new(true));
                     let sync_flag = sync_active.clone();
-                    gtk4::glib::timeout_add_local(std::time::Duration::from_millis(500), move || {
-                        if !sync_flag.get() { return gtk4::glib::ControlFlow::Break; }
-                        let current = saved_ssh_sync.borrow().len();
-                        if current != last_len.get() {
-                            last_len.set(current);
-                            ws_sync.borrow_mut().workspace_mut().ssh_configs = saved_ssh_sync.borrow().clone();
-                        }
-                        gtk4::glib::ControlFlow::Continue
-                    });
+                    gtk4::glib::timeout_add_local(
+                        std::time::Duration::from_millis(500),
+                        move || {
+                            if !sync_flag.get() {
+                                return gtk4::glib::ControlFlow::Break;
+                            }
+                            let current = saved_ssh_sync.borrow().len();
+                            if current != last_len.get() {
+                                last_len.set(current);
+                                ws_sync.borrow_mut().workspace_mut().ssh_configs =
+                                    saved_ssh_sync.borrow().clone();
+                            }
+                            gtk4::glib::ControlFlow::Continue
+                        },
+                    );
                     let sync_stop = sync_active.clone();
                     crate::dialogs::panel_config::show_panel_config_dialog(
                         &*win_for_cb,
@@ -419,9 +473,19 @@ fn setup_workspace_ui(
                         pmw,
                         pmh,
                         saved_ssh,
-                        move |new_name, new_type, new_cwd, new_ssh, new_cmds, new_close, new_mw, new_mh| {
+                        move |new_name,
+                              new_type,
+                              new_cwd,
+                              new_ssh,
+                              new_cmds,
+                              new_close,
+                              new_mw,
+                              new_mh| {
                             sync_stop.set(false); // Stop polling
-                            ws2.borrow_mut().apply_panel_config(&pid, new_name, new_type, new_cwd, new_ssh, new_cmds, new_close, new_mw, new_mh);
+                            ws2.borrow_mut().apply_panel_config(
+                                &pid, new_name, new_type, new_cwd, new_ssh, new_cmds, new_close,
+                                new_mw, new_mh,
+                            );
                             actions::update_dirty_ui(&ws2, &win2, &sa2);
                         },
                     );
@@ -433,7 +497,9 @@ fn setup_workspace_ui(
                     }
                     ws_for_cb.borrow_mut().toggle_zoom();
                     let zoomed = ws_for_cb.borrow().is_zoomed();
-                    sb_for_cb.borrow().set_message(if zoomed { "Zoom ON" } else { "Zoom OFF" });
+                    sb_for_cb
+                        .borrow()
+                        .set_message(if zoomed { "Zoom ON" } else { "Zoom OFF" });
                 }
                 PanelAction::Sync => {
                     let idx = ws_for_cb.borrow().focus_order_index(panel_id);
@@ -444,39 +510,62 @@ fn setup_workspace_ui(
                     if let Some((pid, is_synced)) = result {
                         let count = ws_for_cb.borrow().sync_count();
                         if is_synced {
-                            sb_for_cb.borrow().set_message(&format!("Sync ON: {} ({} panels)", pid, count));
+                            sb_for_cb
+                                .borrow()
+                                .set_message(&format!("Sync ON: {} ({} panels)", pid, count));
                         } else {
-                            sb_for_cb.borrow().set_message(&format!("Sync OFF: {} ({} panels)", pid, count));
+                            sb_for_cb
+                                .borrow()
+                                .set_message(&format!("Sync OFF: {} ({} panels)", pid, count));
                         }
                     }
                 }
                 PanelAction::Rename(new_name) => {
                     let mut view = ws_for_cb.borrow_mut();
                     // Update panel config name
-                    if let Some(panel_cfg) = view.workspace_mut()
-                        .panels.iter_mut().find(|p| p.id == panel_id)
+                    if let Some(panel_cfg) = view
+                        .workspace_mut()
+                        .panels
+                        .iter_mut()
+                        .find(|p| p.id == panel_id)
                     {
                         panel_cfg.name = new_name.clone();
                     }
                     // Update tab label in layout tree
-                    update_tab_label_in_layout(&mut view.workspace_mut().layout, panel_id, &new_name);
+                    update_tab_label_in_layout(
+                        &mut view.workspace_mut().layout,
+                        panel_id,
+                        &new_name,
+                    );
                     // Update host title bar
                     if let Some(host) = view.host(panel_id) {
                         host.set_title(&new_name);
                     }
                     drop(view);
-                    sb_for_cb.borrow().set_message(&format!("Renamed: {}", panel_id));
+                    sb_for_cb
+                        .borrow()
+                        .set_message(&format!("Renamed: {}", panel_id));
                 }
                 PanelAction::RenameTab(new_name) => {
                     // Only update the tab label in the layout tree, not the panel name.
                     // panel_id here is the first child panel — used to locate the tab.
                     let mut view = ws_for_cb.borrow_mut();
-                    tracing::debug!("RenameTab: panel_id='{}', new_name='{}'", panel_id, new_name);
-                    update_tab_label_in_layout(&mut view.workspace_mut().layout, panel_id, &new_name);
+                    tracing::debug!(
+                        "RenameTab: panel_id='{}', new_name='{}'",
+                        panel_id,
+                        new_name
+                    );
+                    update_tab_label_in_layout(
+                        &mut view.workspace_mut().layout,
+                        panel_id,
+                        &new_name,
+                    );
                     crate::layout_ops::debug_layout_tree(&view.workspace().layout, "AFTER_RENAME");
                     drop(view);
                     actions::update_dirty_ui(&ws_for_cb, &win_for_cb, &sa_for_cb);
-                    sb_for_cb.borrow().set_message(&format!("Tab renamed: {}", new_name));
+                    sb_for_cb
+                        .borrow()
+                        .set_message(&format!("Tab renamed: {}", new_name));
                 }
                 PanelAction::Collapse => {
                     let view = ws_for_cb.borrow();
@@ -672,11 +761,7 @@ fn setup_workspace_ui(
         action_group.add_action(&action);
     }
     {
-        let action = gtk4::gio::SimpleAction::new_stateful(
-            "autosave",
-            None,
-            &false.to_variant(),
-        );
+        let action = gtk4::gio::SimpleAction::new_stateful("autosave", None, &false.to_variant());
         let enabled = autosave_enabled.clone();
         let sb = status_bar.clone();
         action.connect_activate(move |action, _| {
@@ -684,7 +769,11 @@ fn setup_workspace_ui(
             let new_val = !current;
             enabled.set(new_val);
             action.set_state(&new_val.to_variant());
-            sb.borrow().set_message(if new_val { "Auto-save enabled" } else { "Auto-save disabled" });
+            sb.borrow().set_message(if new_val {
+                "Auto-save enabled"
+            } else {
+                "Auto-save disabled"
+            });
         });
         action_group.add_action(&action);
     }
@@ -782,9 +871,15 @@ fn setup_workspace_ui(
                         if let Some((panel_id, is_synced)) = result {
                             let count = ws.borrow().sync_count();
                             if is_synced {
-                                sb.borrow().set_message(&format!("Sync ON: {} ({} panels)", panel_id, count));
+                                sb.borrow().set_message(&format!(
+                                    "Sync ON: {} ({} panels)",
+                                    panel_id, count
+                                ));
                             } else {
-                                sb.borrow().set_message(&format!("Sync OFF: {} ({} panels)", panel_id, count));
+                                sb.borrow().set_message(&format!(
+                                    "Sync OFF: {} ({} panels)",
+                                    panel_id, count
+                                ));
                             }
                         }
                         return glib::Propagation::Stop;
@@ -825,7 +920,12 @@ fn setup_workspace_ui(
                             let view = ws.borrow();
                             view.focused_panel_id()
                                 .and_then(|id| view.workspace().panel(id))
-                                .map(|p| matches!(p.effective_type(), pax_core::workspace::PanelType::CodeEditor { .. }))
+                                .map(|p| {
+                                    matches!(
+                                        p.effective_type(),
+                                        pax_core::workspace::PanelType::CodeEditor { .. }
+                                    )
+                                })
                                 .unwrap_or(false)
                         };
                         if is_code_editor {
@@ -844,7 +944,12 @@ fn setup_workspace_ui(
                             let view = ws.borrow();
                             view.focused_panel_id()
                                 .and_then(|id| view.workspace().panel(id))
-                                .map(|p| matches!(p.effective_type(), pax_core::workspace::PanelType::CodeEditor { .. }))
+                                .map(|p| {
+                                    matches!(
+                                        p.effective_type(),
+                                        pax_core::workspace::PanelType::CodeEditor { .. }
+                                    )
+                                })
                                 .unwrap_or(false)
                         };
                         if is_code_editor {
@@ -915,7 +1020,9 @@ fn setup_workspace_ui(
         let sa = save_action.clone();
         let enabled = autosave_enabled.clone();
         glib::timeout_add_local(std::time::Duration::from_secs(30), move || {
-            if !enabled.get() { return glib::ControlFlow::Continue; }
+            if !enabled.get() {
+                return glib::ControlFlow::Continue;
+            }
             let has_path = ws.borrow().has_config_path();
             let is_dirty = ws.borrow().is_dirty();
             if has_path && is_dirty {
@@ -937,7 +1044,8 @@ fn setup_workspace_ui(
     // Ctrl+Scroll: scroll the entire workspace (bypasses VTE scroll capture)
     {
         let scroll_ctrl = gtk4::EventControllerScroll::new(
-            gtk4::EventControllerScrollFlags::VERTICAL | gtk4::EventControllerScrollFlags::HORIZONTAL,
+            gtk4::EventControllerScrollFlags::VERTICAL
+                | gtk4::EventControllerScrollFlags::HORIZONTAL,
         );
         scroll_ctrl.set_propagation_phase(gtk4::PropagationPhase::Capture);
         let ws_widget = ws_view.borrow().widget().clone();
@@ -958,7 +1066,6 @@ fn setup_workspace_ui(
     // Initial UI state
     actions::update_dirty_ui(&ws_view, &window_rc, &save_action);
     actions::update_status_bar_path(&ws_view, &status_bar);
-
 }
 
 thread_local! {
@@ -1019,7 +1126,7 @@ fn show_about_dialog(window: &Rc<adw::ApplicationWindow>) {
     let about = adw::AboutWindow::builder()
         .application_name("Pax")
         .application_icon("pax")
-        .version(env!("CARGO_PKG_VERSION"))
+        .version(pax_core::build_info::VERSION_STRING)
         .developer_name("Pax Contributors")
         .comments("Terminal workspace manager")
         .transient_for(window.as_ref())
@@ -1050,45 +1157,60 @@ fn show_shortcuts_dialog(window: &Rc<adw::ApplicationWindow>) {
     vbox.append(&title);
 
     let shortcuts = [
-        ("General", vec![
-            ("Ctrl+S", "Save workspace"),
-            ("Ctrl+O", "Open workspace"),
-            ("Ctrl+Q", "Quit"),
-        ]),
-        ("Panels", vec![
-            ("Ctrl+N", "Focus next panel"),
-            ("Ctrl+P", "Focus previous panel"),
-            ("Ctrl+Z", "Zoom/unzoom focused panel"),
-            ("Ctrl+Shift+Z", "Collapse/expand focused panel"),
-            ("Ctrl+R", "Reverse search (terminal)"),
-            ("Ctrl+Arrow", "Scroll workspace"),
-            ("Ctrl+Scroll", "Scroll workspace (mouse)"),
-        ]),
-        ("Code Editor", vec![
-            ("Ctrl+S", "Save current file"),
-            ("Ctrl+W", "Close current tab"),
-            ("Ctrl+Tab", "Next tab"),
-            ("Ctrl+P", "Fuzzy file finder"),
-            ("Ctrl+E", "Recent files"),
-            ("Ctrl+F", "Search in file"),
-            ("Ctrl+H", "Search & replace"),
-            ("Ctrl+Shift+F", "Search in project"),
-            ("Ctrl+Shift+G", "Git changes"),
-            ("Ctrl+B", "Toggle sidebar"),
-            ("Alt+Left", "Go back (navigation)"),
-            ("Alt+Right", "Go forward (navigation)"),
-        ]),
-        ("Layout", vec![
-            ("Ctrl+Shift+H", "Split horizontal (below)"),
-            ("Ctrl+Shift+J", "Split vertical (right)"),
-            ("Ctrl+Shift+T", "New tab"),
-            ("Ctrl+Shift+W", "Close panel"),
-            ("Ctrl+Shift+S", "Toggle sync (alt)"),
-        ]),
-        ("Panel Header", vec![
-            ("Double-click title", "Rename panel"),
-            ("Double-click tab", "Rename tab"),
-        ]),
+        (
+            "General",
+            vec![
+                ("Ctrl+S", "Save workspace"),
+                ("Ctrl+O", "Open workspace"),
+                ("Ctrl+Q", "Quit"),
+            ],
+        ),
+        (
+            "Panels",
+            vec![
+                ("Ctrl+N", "Focus next panel"),
+                ("Ctrl+P", "Focus previous panel"),
+                ("Ctrl+Z", "Zoom/unzoom focused panel"),
+                ("Ctrl+Shift+Z", "Collapse/expand focused panel"),
+                ("Ctrl+R", "Reverse search (terminal)"),
+                ("Ctrl+Arrow", "Scroll workspace"),
+                ("Ctrl+Scroll", "Scroll workspace (mouse)"),
+            ],
+        ),
+        (
+            "Code Editor",
+            vec![
+                ("Ctrl+S", "Save current file"),
+                ("Ctrl+W", "Close current tab"),
+                ("Ctrl+Tab", "Next tab"),
+                ("Ctrl+P", "Fuzzy file finder"),
+                ("Ctrl+E", "Recent files"),
+                ("Ctrl+F", "Search in file"),
+                ("Ctrl+H", "Search & replace"),
+                ("Ctrl+Shift+F", "Search in project"),
+                ("Ctrl+Shift+G", "Git changes"),
+                ("Ctrl+B", "Toggle sidebar"),
+                ("Alt+Left", "Go back (navigation)"),
+                ("Alt+Right", "Go forward (navigation)"),
+            ],
+        ),
+        (
+            "Layout",
+            vec![
+                ("Ctrl+Shift+H", "Split horizontal (below)"),
+                ("Ctrl+Shift+J", "Split vertical (right)"),
+                ("Ctrl+Shift+T", "New tab"),
+                ("Ctrl+Shift+W", "Close panel"),
+                ("Ctrl+Shift+S", "Toggle sync (alt)"),
+            ],
+        ),
+        (
+            "Panel Header",
+            vec![
+                ("Double-click title", "Rename panel"),
+                ("Double-click tab", "Rename tab"),
+            ],
+        ),
     ];
 
     for (section, items) in &shortcuts {
