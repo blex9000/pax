@@ -6,7 +6,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
-BUILD_TOOLS="$ROOT_DIR/build-tools"
+BUILD_TOOLS="$ROOT_DIR/target/build-tools"
 APPDIR="$ROOT_DIR/target/AppDir"
 ARCH="$(uname -m)"
 
