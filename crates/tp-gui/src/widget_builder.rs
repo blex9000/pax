@@ -109,32 +109,13 @@ pub fn build_tab_label(name: &str, panel_type_id: &str, action_cb: &Option<Panel
         entry.add_controller(key_ctrl);
     }
 
-    // Save on focus-out (click elsewhere)
+    // Focus-out: just cancel edit (save only on Enter).
+    // Cannot save on focus-out because GTK emits focus-leave during rebuild,
+    // causing RefCell borrow panic when the callback tries to access workspace.
     {
         let s = stack.clone();
-        let l = label.clone();
-        let cb = action_cb.clone();
-        let w = child_widget.clone();
-        let is_layout = panel_type_id == "__layout__";
         let focus_ctrl = gtk4::EventControllerFocus::new();
-        focus_ctrl.connect_leave(move |ctrl| {
-            let Some(widget) = ctrl.widget() else { return };
-            let Ok(entry) = widget.downcast::<gtk4::Entry>() else { return };
-            let new_name = entry.text().to_string();
-            if !new_name.trim().is_empty() && new_name != l.text().as_str() {
-                l.set_text(&new_name);
-                if let Some(ref cb) = cb {
-                    if is_layout {
-                        if let Some(pid) = find_first_panel_id(&w) {
-                            cb(&pid, PanelAction::RenameTab(new_name.clone()));
-                        }
-                    } else {
-                        find_panel_id_recursive(&w, &|panel_id| {
-                            cb(panel_id, PanelAction::Rename(new_name.clone()));
-                        });
-                    }
-                }
-            }
+        focus_ctrl.connect_leave(move |_| {
             s.set_visible_child_name("label");
         });
         entry.add_controller(focus_ctrl);
