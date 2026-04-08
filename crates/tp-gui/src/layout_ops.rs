@@ -1,5 +1,32 @@
 use pax_core::workspace::LayoutNode;
 
+/// Log the full layout tree with paths for debugging.
+pub fn debug_layout_tree(node: &LayoutNode, path: &str) {
+    match node {
+        LayoutNode::Panel { id } => {
+            tracing::debug!("LAYOUT {}: Panel({})", path, id);
+        }
+        LayoutNode::Hsplit { children, ratios } => {
+            tracing::debug!("LAYOUT {}: Hsplit({} children, ratios={:?})", path, children.len(), ratios.iter().map(|r| format!("{:.2}", r)).collect::<Vec<_>>());
+            for (i, c) in children.iter().enumerate() {
+                debug_layout_tree(c, &format!("{}/h{}", path, i));
+            }
+        }
+        LayoutNode::Vsplit { children, ratios } => {
+            tracing::debug!("LAYOUT {}: Vsplit({} children, ratios={:?})", path, children.len(), ratios.iter().map(|r| format!("{:.2}", r)).collect::<Vec<_>>());
+            for (i, c) in children.iter().enumerate() {
+                debug_layout_tree(c, &format!("{}/v{}", path, i));
+            }
+        }
+        LayoutNode::Tabs { children, labels } => {
+            tracing::debug!("LAYOUT {}: Tabs({} children, labels={:?})", path, children.len(), labels);
+            for (i, c) in children.iter().enumerate() {
+                debug_layout_tree(c, &format!("{}/t{}", path, i));
+            }
+        }
+    }
+}
+
 /// Replace a Panel node in the layout tree, returning a new tree.
 pub fn replace_in_layout(
     node: &LayoutNode,
@@ -171,28 +198,37 @@ pub fn is_panel_with_id(node: &LayoutNode, panel_id: &str) -> bool {
 }
 
 /// Update a tab label in the layout tree for the given panel ID.
-pub fn update_tab_label_in_layout(node: &mut LayoutNode, panel_id: &str, new_label: &str) {
+/// Renames the INNERMOST (closest) Tabs node that directly contains the panel,
+/// not an ancestor Tabs that contains it deeply nested.
+pub fn update_tab_label_in_layout(node: &mut LayoutNode, panel_id: &str, new_label: &str) -> bool {
     match node {
         LayoutNode::Tabs { children, labels } => {
+            // First: recurse into children to find a deeper Tabs match
+            for child in children.iter_mut() {
+                if update_tab_label_in_layout(child, panel_id, new_label) {
+                    return true; // Handled by a deeper Tabs node
+                }
+            }
+            // No deeper match — check if WE directly contain it
             for (i, child) in children.iter().enumerate() {
                 if is_panel_with_id(child, panel_id) {
                     if let Some(l) = labels.get_mut(i) {
                         *l = new_label.to_string();
                     }
-                    return;
+                    return true;
                 }
             }
-            // Recurse into children
-            for child in children.iter_mut() {
-                update_tab_label_in_layout(child, panel_id, new_label);
-            }
+            false
         }
         LayoutNode::Hsplit { children, .. } | LayoutNode::Vsplit { children, .. } => {
             for child in children.iter_mut() {
-                update_tab_label_in_layout(child, panel_id, new_label);
+                if update_tab_label_in_layout(child, panel_id, new_label) {
+                    return true;
+                }
             }
+            false
         }
-        LayoutNode::Panel { .. } => {}
+        LayoutNode::Panel { .. } => false,
     }
 }
 
@@ -460,5 +496,37 @@ mod tests {
         let labels = get_tab_labels(&layout).unwrap();
         assert_eq!(labels[0], "custom_a", "label must survive split");
         assert_eq!(labels[1], "custom_b");
+    }
+
+    #[test]
+    fn rename_inner_tab_does_not_rename_outer() {
+        // Root: Tabs["outer1", "outer2"]
+        //   outer1 = Vsplit[panel(a), InnerTabs["inner1", "inner2"]]
+        //   outer2 = panel(c)
+        // InnerTabs: inner1=panel(b), inner2=panel(d)
+        // Rename inner tab "inner2" (via panel d) → should rename inner, NOT outer
+        let mut layout = tabs(
+            vec![
+                vsplit(vec![
+                    panel("a"),
+                    tabs(vec![panel("b"), panel("d")], vec!["inner1", "inner2"]),
+                ]),
+                panel("c"),
+            ],
+            vec!["outer1", "outer2"],
+        );
+        update_tab_label_in_layout(&mut layout, "d", "renamed_inner");
+
+        // Outer labels unchanged
+        let outer = get_tab_labels(&layout).unwrap();
+        assert_eq!(outer[0], "outer1", "outer must NOT be renamed");
+        assert_eq!(outer[1], "outer2");
+
+        // Inner labels: "inner2" → "renamed_inner"
+        if let LayoutNode::Tabs { children, .. } = &layout {
+            let inner = find_tab_labels(&children[0]).unwrap();
+            assert_eq!(inner[0], "inner1");
+            assert_eq!(inner[1], "renamed_inner", "inner tab must be renamed");
+        }
     }
 }

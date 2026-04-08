@@ -109,6 +109,37 @@ pub fn build_tab_label(name: &str, panel_type_id: &str, action_cb: &Option<Panel
         entry.add_controller(key_ctrl);
     }
 
+    // Save on focus-out (click elsewhere)
+    {
+        let s = stack.clone();
+        let l = label.clone();
+        let cb = action_cb.clone();
+        let w = child_widget.clone();
+        let is_layout = panel_type_id == "__layout__";
+        let focus_ctrl = gtk4::EventControllerFocus::new();
+        focus_ctrl.connect_leave(move |ctrl| {
+            let Some(widget) = ctrl.widget() else { return };
+            let Ok(entry) = widget.downcast::<gtk4::Entry>() else { return };
+            let new_name = entry.text().to_string();
+            if !new_name.trim().is_empty() && new_name != l.text().as_str() {
+                l.set_text(&new_name);
+                if let Some(ref cb) = cb {
+                    if is_layout {
+                        if let Some(pid) = find_first_panel_id(&w) {
+                            cb(&pid, PanelAction::RenameTab(new_name.clone()));
+                        }
+                    } else {
+                        find_panel_id_recursive(&w, &|panel_id| {
+                            cb(panel_id, PanelAction::Rename(new_name.clone()));
+                        });
+                    }
+                }
+            }
+            s.set_visible_child_name("label");
+        });
+        entry.add_controller(focus_ctrl);
+    }
+
     hbox.append(&stack);
 
     let close_btn = gtk4::Button::new();
@@ -167,6 +198,7 @@ fn update_labels_with_layout(
                         "__layout__"
                     };
 
+                    tracing::debug!("update_labels_with_layout: tab {}: label='{}' type='{}'", i, label_text, type_id);
                     let label = build_tab_label(&label_text, type_id, &Some(action_cb.clone()), &page_widget);
                     notebook.set_tab_label(&page_widget, Some(&label));
 
@@ -362,6 +394,7 @@ pub fn build_layout_widget_inner(
             for (i, child) in children.iter().enumerate() {
                 let child_widget = build_layout_widget_inner(child, hosts, panels, action_cb);
                 let label_text = labels.get(i).cloned().unwrap_or_else(|| format!("Tab {}", i + 1));
+                tracing::debug!("build Notebook tab {}: label='{}' from model", i, label_text);
                 let panel_type_id = get_panel_type_id(child, panels);
                 let label = build_tab_label(&label_text, panel_type_id, action_cb, &child_widget);
                 notebook.append_page(&child_widget, Some(&label));
