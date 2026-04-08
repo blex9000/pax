@@ -11,7 +11,6 @@ use std::rc::Rc;
 use pax_core::workspace::Workspace;
 
 use crate::actions::{self, DIRTY_INDICATOR, HEADER_WS_LABEL};
-use crate::layout_ops::update_tab_label_in_layout;
 use crate::panel_host::PanelAction;
 use crate::theme::Theme;
 use crate::widgets::status_bar::StatusBar;
@@ -522,25 +521,7 @@ fn setup_workspace_ui(
                 }
                 PanelAction::Rename(new_name) => {
                     let mut view = ws_for_cb.borrow_mut();
-                    // Update panel config name
-                    if let Some(panel_cfg) = view
-                        .workspace_mut()
-                        .panels
-                        .iter_mut()
-                        .find(|p| p.id == panel_id)
-                    {
-                        panel_cfg.name = new_name.clone();
-                    }
-                    // Update tab label in layout tree
-                    update_tab_label_in_layout(
-                        &mut view.workspace_mut().layout,
-                        panel_id,
-                        &new_name,
-                    );
-                    // Update host title bar
-                    if let Some(host) = view.host(panel_id) {
-                        host.set_title(&new_name);
-                    }
+                    view.rename_panel(panel_id, &new_name);
                     drop(view);
                     sb_for_cb
                         .borrow()
@@ -555,11 +536,7 @@ fn setup_workspace_ui(
                         panel_id,
                         new_name
                     );
-                    update_tab_label_in_layout(
-                        &mut view.workspace_mut().layout,
-                        panel_id,
-                        &new_name,
-                    );
+                    view.rename_tab_label(panel_id, &new_name);
                     crate::layout_ops::debug_layout_tree(&view.workspace().layout, "AFTER_RENAME");
                     drop(view);
                     actions::update_dirty_ui(&ws_for_cb, &win_for_cb, &sa_for_cb);

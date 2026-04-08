@@ -159,6 +159,7 @@ impl WorkspaceView {
         self.root_box.append(&root_widget);
 
         if let Some(ref cb) = self.action_cb {
+            update_notebook_labels_recursive(&root_widget, cb, &hosts, &ws);
             add_plus_buttons_recursive(&root_widget, cb);
         }
 
@@ -292,6 +293,25 @@ impl WorkspaceView {
     pub fn rename_workspace(&mut self, new_name: &str) {
         self.workspace.name = new_name.to_string();
         self.dirty = true;
+    }
+
+    pub fn rename_panel(&mut self, panel_id: &str, new_name: &str) -> bool {
+        let changed = rename_panel_model(&mut self.workspace, panel_id, new_name);
+        if changed {
+            if let Some(host) = self.hosts.get(panel_id) {
+                host.set_title(new_name);
+            }
+            self.dirty = true;
+        }
+        changed
+    }
+
+    pub fn rename_tab_label(&mut self, panel_id: &str, new_name: &str) -> bool {
+        let changed = rename_tab_label_model(&mut self.workspace.layout, panel_id, new_name);
+        if changed {
+            self.dirty = true;
+        }
+        changed
     }
 
     pub fn workspace_name(&self) -> &str {
@@ -998,6 +1018,122 @@ impl WorkspaceView {
             if let Some(host) = self.hosts.get(pid) {
                 host.write_input(data);
             }
+        }
+    }
+}
+
+fn rename_panel_model(workspace: &mut Workspace, panel_id: &str, new_name: &str) -> bool {
+    let mut changed = false;
+
+    if let Some(panel_cfg) = workspace.panels.iter_mut().find(|panel| panel.id == panel_id) {
+        if panel_cfg.name != new_name {
+            panel_cfg.name = new_name.to_string();
+            changed = true;
+        }
+    }
+
+    if rename_tab_label_model(&mut workspace.layout, panel_id, new_name) {
+        changed = true;
+    }
+
+    changed
+}
+
+fn rename_tab_label_model(layout: &mut LayoutNode, panel_id: &str, new_name: &str) -> bool {
+    crate::layout_ops::update_tab_label_in_layout(layout, panel_id, new_name)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn tabs(children: Vec<LayoutNode>, labels: &[&str]) -> LayoutNode {
+        LayoutNode::Tabs {
+            children,
+            labels: labels.iter().map(|label| (*label).to_string()).collect(),
+        }
+    }
+
+    fn panel(id: &str) -> LayoutNode {
+        LayoutNode::Panel { id: id.to_string() }
+    }
+
+    fn panel_config(id: &str, name: &str) -> PanelConfig {
+        PanelConfig {
+            id: id.to_string(),
+            name: name.to_string(),
+            panel_type: PanelType::Terminal,
+            target: Default::default(),
+            startup_commands: Vec::new(),
+            groups: Vec::new(),
+            record_output: false,
+            cwd: None,
+            env: Default::default(),
+            pre_script: None,
+            post_script: None,
+            before_close: None,
+            min_width: 0,
+            min_height: 0,
+            ssh: None,
+        }
+    }
+
+    fn sample_workspace() -> Workspace {
+        Workspace {
+            name: "demo".to_string(),
+            id: uuid::Uuid::new_v4(),
+            layout: tabs(vec![panel("a"), panel("b")], &["tab-a", "tab-b"]),
+            panels: vec![panel_config("a", "Panel A"), panel_config("b", "Panel B")],
+            groups: Vec::new(),
+            alerts: Vec::new(),
+            startup_script: None,
+            notes_file: None,
+            settings: Default::default(),
+            ssh_configs: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn rename_panel_model_updates_panel_name_and_tab_label() {
+        let mut workspace = sample_workspace();
+
+        let changed = rename_panel_model(&mut workspace, "a", "Renamed A");
+
+        assert!(changed);
+        assert_eq!(
+            workspace
+                .panels
+                .iter()
+                .find(|panel| panel.id == "a")
+                .unwrap()
+                .name,
+            "Renamed A"
+        );
+        match &workspace.layout {
+            LayoutNode::Tabs { labels, .. } => assert_eq!(labels[0], "Renamed A"),
+            _ => panic!("expected tabs layout"),
+        }
+    }
+
+    #[test]
+    fn rename_tab_label_model_only_updates_layout_labels() {
+        let mut workspace = sample_workspace();
+
+        let changed = rename_tab_label_model(&mut workspace.layout, "a", "Custom Tab");
+
+        assert!(changed);
+        assert_eq!(
+            workspace
+                .panels
+                .iter()
+                .find(|panel| panel.id == "a")
+                .unwrap()
+                .name,
+            "Panel A"
+        );
+        match &workspace.layout {
+            LayoutNode::Tabs { labels, .. } => assert_eq!(labels[0], "Custom Tab"),
+            _ => panic!("expected tabs layout"),
         }
     }
 }
