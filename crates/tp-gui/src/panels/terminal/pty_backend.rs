@@ -10,15 +10,12 @@
 //! - No right-click copy/paste menu
 //! - No theme color integration (uses GTK theme defaults)
 //! - No OSC 7 directory tracking
-//! - No sync input between terminals
-//! - Fixed 24x80 grid (no dynamic resize)
 //! - 50ms polling interval for output updates
 //!
 //! ## Planned improvements
 //! - ANSI color support (parse vt100 cell colors → GTK TextTags)
 //! - Copy/paste context menu
 //! - Scrollback buffer with ScrolledWindow
-//! - Dynamic terminal size based on widget allocation
 //! - Ctrl+C/D/Z signal forwarding
 //!
 //! ## Why this exists
@@ -28,7 +25,7 @@
 
 use gtk4::glib;
 use gtk4::prelude::*;
-use portable_pty::{native_pty_system, CommandBuilder, PtySize};
+use portable_pty::{native_pty_system, CommandBuilder, MasterPty, PtySize};
 use std::cell::RefCell;
 use std::fmt;
 use std::io::{Read, Write};
@@ -72,8 +69,10 @@ impl TerminalInner {
         scrolled.set_child(Some(&text_view));
         scrolled.set_vexpand(true);
         scrolled.set_hexpand(true);
+        scrolled.set_propagate_natural_height(false);
+        scrolled.set_propagate_natural_width(false);
 
-        let widget = scrolled.upcast::<gtk4::Widget>();
+        let widget = scrolled.clone().upcast::<gtk4::Widget>();
 
         // Create a PTY pair (master/slave) using the platform's native PTY system.
         // On macOS this uses posix_openpt, on Linux it uses /dev/ptmx.
@@ -105,51 +104,42 @@ impl TerminalInner {
             .expect("Failed to spawn shell");
         drop(pair.slave);
 
-        let writer = pair.master.take_writer().expect("Failed to take writer");
-        let mut reader = pair
-            .master
-            .try_clone_reader()
-            .expect("Failed to clone reader");
+        let master: Arc<Mutex<Box<dyn MasterPty + Send>>> = Arc::new(Mutex::new(pair.master));
+        let writer = {
+            let guard = master.lock().expect("PTY master lock poisoned");
+            guard.take_writer().expect("Failed to take writer")
+        };
+        let mut reader = {
+            let guard = master.lock().expect("PTY master lock poisoned");
+            guard.try_clone_reader().expect("Failed to clone reader")
+        };
 
         let writer = Arc::new(Mutex::new(writer));
         let input_cb: Rc<RefCell<Option<crate::panels::PanelInputCallback>>> =
             Rc::new(RefCell::new(None));
+        let parser = Arc::new(Mutex::new(vt100::Parser::new(24, 80, 0)));
 
         // Background thread: reads PTY output, parses through vt100, and stores
         // the rendered screen text. The GTK main loop polls this every 50ms.
         let buffer = text_view.buffer();
         let output_text = Arc::new(Mutex::new(String::new()));
         let output_text_reader = output_text.clone();
+        let parser_reader = parser.clone();
 
         std::thread::spawn(move || {
             let mut buf = [0u8; 4096];
-            let mut parser = vt100::Parser::new(24, 80, 0);
             loop {
                 match reader.read(&mut buf) {
                     Ok(0) => break,
                     Ok(n) => {
-                        parser.process(&buf[..n]);
-                        let screen = parser.screen();
-
-                        // Convert the vt100 screen grid to plain text.
-                        // TODO: Parse cell.fgcolor()/bgcolor() and apply GTK TextTags
-                        // for ANSI color support.
-                        let mut text = String::new();
-                        for row in 0..screen.size().0 {
-                            for col in 0..screen.size().1 {
-                                if let Some(cell) = screen.cell(row, col) {
-                                    let c = cell.contents();
-                                    if c.is_empty() {
-                                        text.push(' ');
-                                    } else {
-                                        text.push_str(&c);
-                                    }
-                                }
-                            }
-                            text.push('\n');
-                        }
+                        let rendered = {
+                            let mut parser =
+                                parser_reader.lock().expect("PTY parser lock poisoned");
+                            parser.process(&buf[..n]);
+                            render_screen_text(parser.screen())
+                        };
                         if let Ok(mut t) = output_text_reader.lock() {
-                            *t = text;
+                            *t = rendered;
                         }
                     }
                     Err(_) => break,
@@ -165,6 +155,36 @@ impl TerminalInner {
             if let Ok(text) = output_text_poll.lock() {
                 if !text.is_empty() {
                     buffer.set_text(&text);
+                }
+            }
+            glib::ControlFlow::Continue
+        });
+
+        // Poll allocation changes and keep the PTY/parser grid aligned to the
+        // visible terminal area so the fallback backend uses the full height.
+        let scrolled_resize = scrolled.clone();
+        let text_view_resize = text_view.clone();
+        let master_resize = master.clone();
+        let parser_resize = parser.clone();
+        let output_text_resize = output_text.clone();
+        let last_grid = Rc::new(RefCell::new((24u16, 80u16)));
+        let last_grid_resize = last_grid.clone();
+        glib::timeout_add_local(std::time::Duration::from_millis(100), move || {
+            let alloc = scrolled_resize.allocation();
+            if let Some(size) = widget_grid_size(&text_view_resize, alloc.width(), alloc.height()) {
+                let new_grid = (size.rows, size.cols);
+                if *last_grid_resize.borrow() != new_grid {
+                    if let Ok(master) = master_resize.lock() {
+                        let _ = master.resize(size);
+                    }
+                    if let Ok(mut parser) = parser_resize.lock() {
+                        parser.set_size(size.rows, size.cols);
+                        let rendered = render_screen_text(parser.screen());
+                        if let Ok(mut text) = output_text_resize.lock() {
+                            *text = rendered;
+                        }
+                    }
+                    *last_grid_resize.borrow_mut() = new_grid;
                 }
             }
             glib::ControlFlow::Continue
@@ -239,5 +259,77 @@ impl TerminalInner {
 
     pub fn grab_focus(&self) {
         self.text_view.grab_focus();
+    }
+}
+
+fn render_screen_text(screen: &vt100::Screen) -> String {
+    let mut text = String::new();
+    for row in 0..screen.size().0 {
+        for col in 0..screen.size().1 {
+            if let Some(cell) = screen.cell(row, col) {
+                let c = cell.contents();
+                if c.is_empty() {
+                    text.push(' ');
+                } else {
+                    text.push_str(&c);
+                }
+            }
+        }
+        text.push('\n');
+    }
+    text
+}
+
+fn widget_grid_size(view: &gtk4::TextView, width: i32, height: i32) -> Option<PtySize> {
+    let layout = view.create_pango_layout(Some("W"));
+    let (char_width, char_height) = layout.pixel_size();
+    grid_dimensions_for_area(width, height, char_width, char_height)
+}
+
+fn grid_dimensions_for_area(
+    width: i32,
+    height: i32,
+    char_width: i32,
+    char_height: i32,
+) -> Option<PtySize> {
+    if width <= 0 || height <= 0 || char_width <= 0 || char_height <= 0 {
+        return None;
+    }
+
+    let rows = (height / char_height).max(1) as u16;
+    let cols = (width / char_width).max(1) as u16;
+
+    Some(PtySize {
+        rows,
+        cols,
+        pixel_width: char_width.min(u16::MAX as i32) as u16,
+        pixel_height: char_height.min(u16::MAX as i32) as u16,
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn grid_dimensions_scale_with_available_area() {
+        let size = grid_dimensions_for_area(800, 480, 10, 20).expect("size");
+        assert_eq!(size.cols, 80);
+        assert_eq!(size.rows, 24);
+        assert_eq!(size.pixel_width, 10);
+        assert_eq!(size.pixel_height, 20);
+    }
+
+    #[test]
+    fn grid_dimensions_clamp_to_minimum_cell() {
+        let size = grid_dimensions_for_area(5, 5, 10, 20).expect("size");
+        assert_eq!(size.cols, 1);
+        assert_eq!(size.rows, 1);
+    }
+
+    #[test]
+    fn grid_dimensions_reject_invalid_metrics() {
+        assert!(grid_dimensions_for_area(0, 100, 10, 20).is_none());
+        assert!(grid_dimensions_for_area(100, 100, 0, 20).is_none());
     }
 }
