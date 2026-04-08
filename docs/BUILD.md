@@ -44,6 +44,29 @@ cargo run -- list
 RUST_LOG=pax_gui=debug cargo run -- new "test"
 ```
 
+## Log e debug
+
+I log vanno in `~/.local/share/pax/pax.log` automaticamente.
+
+```bash
+# Visualizzare log in tempo reale
+tail -f ~/.local/share/pax/pax.log
+
+# Log verbose su terminale
+RUST_LOG=pax_gui=trace ./target/debug/pax new "test"
+```
+
+### Crash
+
+- **Panic Rust**: il panic handler scrive `=== PAX CRASH ===` con backtrace in `pax.log`
+- **Segfault** (crash nativo GTK/VTE): il log si interrompe senza crash marker. Per diagnosticare:
+  ```bash
+  ulimit -c unlimited
+  ./target/debug/pax new "test"
+  # Dopo il crash, analizzare il coredump:
+  coredumpctl debug pax
+  ```
+
 ## AppImage (Linux)
 
 ```bash
