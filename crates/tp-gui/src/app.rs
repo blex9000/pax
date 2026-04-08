@@ -79,6 +79,7 @@ pub fn run_app_welcome() -> Result<()> {
 /// Setup the welcome screen in the window.
 fn setup_welcome_ui(window: &Rc<adw::ApplicationWindow>) {
     let header = adw::HeaderBar::new();
+    header.add_css_class("app-headerbar");
     header.set_show_end_title_buttons(true);
     header.set_show_start_title_buttons(true);
 
@@ -88,6 +89,7 @@ fn setup_welcome_ui(window: &Rc<adw::ApplicationWindow>) {
     header.set_title_widget(Some(&title_icon));
 
     let toolbar_view = adw::ToolbarView::new();
+    toolbar_view.add_css_class("app-toolbar-view");
     toolbar_view.add_top_bar(&header);
 
     let win = window.clone();
@@ -153,6 +155,7 @@ fn setup_workspace_ui(
 
     // Header bar with hamburger menu
     let header = adw::HeaderBar::new();
+    header.add_css_class("app-headerbar");
     header.set_show_end_title_buttons(true);
     header.set_show_start_title_buttons(true);
 
@@ -764,6 +767,7 @@ fn setup_workspace_ui(
     content_box.append(status_bar.borrow().widget());
 
     let toolbar_view = adw::ToolbarView::new();
+    toolbar_view.add_css_class("app-toolbar-view");
     toolbar_view.add_top_bar(&header);
     toolbar_view.set_content(Some(&content_box));
     window.set_content(Some(&toolbar_view));

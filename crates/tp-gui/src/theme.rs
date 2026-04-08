@@ -237,11 +237,13 @@ impl Theme {
 /// Minimal CSS — only layout, no colors.
 pub const BASE_CSS: &str = "
 window, .background { background-color: @window_bg_color; color: @window_fg_color; }
-toolbarview, headerbar, headerbar box, headerbar label { background-color: @headerbar_bg_color; color: @headerbar_fg_color; }
-box.panel-title-bar, box.panel-footer-bar, .status-bar, .markdown-toolbar { background-color: alpha(@headerbar_bg_color, 0.94); color: @headerbar_fg_color; }
-popover, popover contents, popover > contents, popover box { background-color: @popover_bg_color; color: @popover_fg_color; }
+toolbarview.app-toolbar-view { background-color: @window_bg_color; color: @window_fg_color; }
+headerbar.app-headerbar { background-color: @headerbar_bg_color; color: @headerbar_fg_color; border-bottom: 1px solid @headerbar_border_color; }
+headerbar.app-headerbar box, headerbar.app-headerbar label, headerbar.app-headerbar image, headerbar.app-headerbar button { color: @headerbar_fg_color; }
+box.panel-title-bar, box.panel-footer-bar, .status-bar, .markdown-toolbar { background-color: @headerbar_bg_color; color: @headerbar_fg_color; }
+popover, popover contents, popover > contents, popover box, popover menu { background-color: @popover_bg_color; color: @popover_fg_color; }
 popover > arrow, popover arrow { background-color: @popover_bg_color; color: @popover_bg_color; }
-popover menu, popover menuitem, popover modelbutton { background-color: @popover_bg_color; color: @popover_fg_color; }
+popover menuitem, popover modelbutton, popover button, popover label, popover image { color: @popover_fg_color; }
 box.panel-frame { border: none; border-radius: 0; margin: 0; padding: 0; }
 box.panel-frame > box { margin: 0; padding: 0; }
 box.panel-title-bar { padding: 2px 6px; margin: 0; min-height: 20px; border-bottom: 1px solid alpha(@borders, 0.4); }
@@ -262,11 +264,13 @@ box.panel-title-bar { padding: 2px 6px; margin: 0; min-height: 20px; border-bott
 .markdown-panel { font-family: sans-serif; font-size: 12px; }
 .markdown-toolbar { border-bottom: 1px solid alpha(@borders, 0.3); }
 .tab-close-btn { min-height: 14px; min-width: 14px; padding: 1px; }
-.panel-collapsed-overlay { background-color: alpha(@headerbar_bg_color, 0.95); border-top: 1px solid alpha(@borders, 0.4); border-bottom: 1px solid alpha(@borders, 0.4); padding: 4px; min-width: 32px; min-height: 32px; }
+.panel-collapsed-overlay { background-color: @headerbar_bg_color; border-top: 1px solid alpha(@borders, 0.4); border-bottom: 1px solid alpha(@borders, 0.4); padding: 4px; min-width: 32px; min-height: 32px; }
 paned > separator { min-width: 1px; min-height: 1px; }
 .dirty-indicator { color: #ff8c00; }
 .editor-tabs { border-bottom: 1px solid alpha(@borders, 0.3); }
 .editor-sidebar { border-right: 1px solid alpha(@borders, 0.3); }
+.navigation-sidebar, .boxed-list { background-color: @sidebar_bg_color; color: @sidebar_fg_color; }
+.card, button.card, .welcome-action-btn { background-color: @card_bg_color; color: @card_fg_color; }
 button.git-has-changes, togglebutton.git-has-changes { color: #ff8c00; }
 button.git-has-changes:hover, togglebutton.git-has-changes:hover { color: #ffaa33; }
 popover > contents { background-color: @popover_bg_color; color: @popover_fg_color; }
@@ -277,10 +281,17 @@ popover modelbutton:hover { background-color: @accent_bg_color; color: @accent_f
 ";
 
 const SYSTEM_CSS: &str = "\
-@define-color popover_bg_color alpha(@window_bg_color, 0.98);
-@define-color popover_fg_color @window_fg_color;
 @define-color card_bg_color @view_bg_color;
 @define-color card_fg_color @view_fg_color;
+@define-color dialog_bg_color @card_bg_color;
+@define-color dialog_fg_color @card_fg_color;
+@define-color popover_bg_color @dialog_bg_color;
+@define-color popover_fg_color @dialog_fg_color;
+@define-color sidebar_bg_color @view_bg_color;
+@define-color sidebar_fg_color @view_fg_color;
+@define-color secondary_sidebar_bg_color @card_bg_color;
+@define-color secondary_sidebar_fg_color @card_fg_color;
+@define-color thumbnail_bg_color @card_bg_color;
 @define-color borders alpha(@window_fg_color, 0.14);
 @define-color headerbar_border_color alpha(@window_fg_color, 0.14);
 @define-color headerbar_backdrop_color @headerbar_bg_color;
@@ -293,9 +304,16 @@ const CATPPUCCIN_MOCHA_CSS: &str = "\
 @define-color headerbar_fg_color #cdd6f4;
 @define-color card_bg_color #313244;
 @define-color card_fg_color #cdd6f4;
+@define-color dialog_bg_color #313244;
+@define-color dialog_fg_color #cdd6f4;
 @define-color popover_bg_color #313244;
 @define-color popover_fg_color #cdd6f4;
 @define-color popover_shade_color alpha(black, 0.25);
+@define-color sidebar_bg_color #313244;
+@define-color sidebar_fg_color #cdd6f4;
+@define-color secondary_sidebar_bg_color #181825;
+@define-color secondary_sidebar_fg_color #cdd6f4;
+@define-color thumbnail_bg_color #313244;
 @define-color view_bg_color #1e1e2e;
 @define-color view_fg_color #cdd6f4;
 @define-color accent_bg_color #89b4fa;
@@ -313,9 +331,16 @@ const CATPPUCCIN_LATTE_CSS: &str = "\
 @define-color headerbar_fg_color #4c4f69;
 @define-color card_bg_color #ccd0da;
 @define-color card_fg_color #4c4f69;
+@define-color dialog_bg_color #ccd0da;
+@define-color dialog_fg_color #4c4f69;
 @define-color popover_bg_color #ccd0da;
 @define-color popover_fg_color #4c4f69;
 @define-color popover_shade_color alpha(black, 0.12);
+@define-color sidebar_bg_color #ccd0da;
+@define-color sidebar_fg_color #4c4f69;
+@define-color secondary_sidebar_bg_color #e6e9ef;
+@define-color secondary_sidebar_fg_color #4c4f69;
+@define-color thumbnail_bg_color #ccd0da;
 @define-color view_bg_color #eff1f5;
 @define-color view_fg_color #4c4f69;
 @define-color accent_bg_color #1e66f5;
@@ -333,9 +358,16 @@ const DRACULA_CSS: &str = "\
 @define-color headerbar_fg_color #f8f8f2;
 @define-color card_bg_color #44475a;
 @define-color card_fg_color #f8f8f2;
+@define-color dialog_bg_color #44475a;
+@define-color dialog_fg_color #f8f8f2;
 @define-color popover_bg_color #44475a;
 @define-color popover_fg_color #f8f8f2;
 @define-color popover_shade_color alpha(black, 0.25);
+@define-color sidebar_bg_color #44475a;
+@define-color sidebar_fg_color #f8f8f2;
+@define-color secondary_sidebar_bg_color #21222c;
+@define-color secondary_sidebar_fg_color #f8f8f2;
+@define-color thumbnail_bg_color #44475a;
 @define-color view_bg_color #282a36;
 @define-color view_fg_color #f8f8f2;
 @define-color accent_bg_color #bd93f9;
@@ -353,9 +385,16 @@ const NORD_CSS: &str = "\
 @define-color headerbar_fg_color #eceff4;
 @define-color card_bg_color #3b4252;
 @define-color card_fg_color #eceff4;
+@define-color dialog_bg_color #3b4252;
+@define-color dialog_fg_color #eceff4;
 @define-color popover_bg_color #3b4252;
 @define-color popover_fg_color #eceff4;
 @define-color popover_shade_color alpha(black, 0.25);
+@define-color sidebar_bg_color #3b4252;
+@define-color sidebar_fg_color #eceff4;
+@define-color secondary_sidebar_bg_color #2e3440;
+@define-color secondary_sidebar_fg_color #eceff4;
+@define-color thumbnail_bg_color #3b4252;
 @define-color view_bg_color #2e3440;
 @define-color view_fg_color #eceff4;
 @define-color accent_bg_color #88c0d0;
@@ -365,3 +404,48 @@ const NORD_CSS: &str = "\
 @define-color headerbar_border_color alpha(white, 0.12);
 @define-color headerbar_backdrop_color @headerbar_bg_color;
 ";
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        BASE_CSS, CATPPUCCIN_LATTE_CSS, CATPPUCCIN_MOCHA_CSS, DRACULA_CSS, NORD_CSS, SYSTEM_CSS,
+    };
+
+    #[test]
+    fn base_css_uses_opaque_app_surfaces() {
+        assert!(BASE_CSS.contains("toolbarview.app-toolbar-view"));
+        assert!(BASE_CSS.contains("headerbar.app-headerbar"));
+        assert!(BASE_CSS.contains("background-color: @popover_bg_color"));
+        assert!(!BASE_CSS.contains("alpha(@headerbar_bg_color, 0.94)"));
+        assert!(!BASE_CSS.contains("alpha(@headerbar_bg_color, 0.95)"));
+    }
+
+    #[test]
+    fn system_css_maps_popovers_to_dialog_surface() {
+        assert!(SYSTEM_CSS.contains("@define-color dialog_bg_color @card_bg_color;"));
+        assert!(SYSTEM_CSS.contains("@define-color popover_bg_color @dialog_bg_color;"));
+        assert!(!SYSTEM_CSS.contains("alpha(@window_bg_color, 0.98)"));
+    }
+
+    #[test]
+    fn custom_themes_define_dialog_and_sidebar_tokens() {
+        for css in [
+            CATPPUCCIN_MOCHA_CSS,
+            CATPPUCCIN_LATTE_CSS,
+            DRACULA_CSS,
+            NORD_CSS,
+        ] {
+            for token in [
+                "@define-color dialog_bg_color",
+                "@define-color dialog_fg_color",
+                "@define-color sidebar_bg_color",
+                "@define-color sidebar_fg_color",
+                "@define-color secondary_sidebar_bg_color",
+                "@define-color secondary_sidebar_fg_color",
+                "@define-color thumbnail_bg_color",
+            ] {
+                assert!(css.contains(token), "missing token {token} in theme css");
+            }
+        }
+    }
+}
