@@ -481,8 +481,11 @@ impl WorkspaceView {
         let mut changed = state.pending_offset != 0;
         if !trimmed_name.is_empty() && state.draft_name != state.original_name {
             if state.is_layout {
-                changed |=
-                    rename_tab_label_model(&mut self.workspace.layout, panel_id, &state.draft_name);
+                changed |= rename_tab_label_model_by_path(
+                    &mut self.workspace.layout,
+                    &state.tab_path,
+                    &state.draft_name,
+                );
             } else {
                 changed |= rename_panel_model(&mut self.workspace, panel_id, &state.draft_name);
                 if let Some(host) = self.hosts.get(panel_id) {
@@ -1380,6 +1383,10 @@ fn rename_tab_label_model(layout: &mut LayoutNode, panel_id: &str, new_name: &st
     crate::layout_ops::update_tab_label_in_layout(layout, panel_id, new_name)
 }
 
+fn rename_tab_label_model_by_path(layout: &mut LayoutNode, tab_path: &[usize], new_name: &str) -> bool {
+    crate::layout_ops::update_tab_label_in_layout_by_path(layout, tab_path, new_name)
+}
+
 fn select_workspace_tab_for_panel_recursive(widget: &gtk4::Widget, panel_id: &str) -> bool {
     if let Ok(notebook) = widget.clone().downcast::<gtk4::Notebook>() {
         if notebook.has_css_class("workspace-tabs") {
@@ -1500,6 +1507,60 @@ mod tests {
         match &workspace.layout {
             LayoutNode::Tabs { labels, .. } => assert_eq!(labels[0], "Custom Tab"),
             _ => panic!("expected tabs layout"),
+        }
+    }
+
+    #[test]
+    fn rename_tab_label_model_by_path_updates_exact_nested_tab() {
+        let mut workspace = Workspace {
+            name: "demo".to_string(),
+            id: uuid::Uuid::new_v4(),
+            layout: tabs(
+                vec![
+                    LayoutNode::Vsplit {
+                        children: vec![
+                            panel("a"),
+                            tabs(vec![panel("b"), panel("d")], &["freeflow", "freeflow-web"]),
+                        ],
+                        ratios: vec![1.0, 1.0],
+                    },
+                    panel("c"),
+                ],
+                &["outer", "other"],
+            ),
+            panels: vec![
+                panel_config("a", "Panel A"),
+                panel_config("b", "Panel B"),
+                panel_config("c", "Panel C"),
+                panel_config("d", "Panel D"),
+            ],
+            groups: Vec::new(),
+            alerts: Vec::new(),
+            startup_script: None,
+            notes_file: None,
+            settings: Default::default(),
+            ssh_configs: Vec::new(),
+        };
+
+        let changed =
+            rename_tab_label_model_by_path(&mut workspace.layout, &[0, 1, 1], "freeflow");
+
+        assert!(changed);
+        if let LayoutNode::Tabs { children, labels } = &workspace.layout {
+            assert_eq!(labels[0], "outer");
+            assert_eq!(labels[1], "other");
+            if let LayoutNode::Vsplit { children, .. } = &children[0] {
+                if let LayoutNode::Tabs { labels, .. } = &children[1] {
+                    assert_eq!(labels[0], "freeflow");
+                    assert_eq!(labels[1], "freeflow");
+                } else {
+                    panic!("expected nested tabs");
+                }
+            } else {
+                panic!("expected vsplit");
+            }
+        } else {
+            panic!("expected root tabs");
         }
     }
 

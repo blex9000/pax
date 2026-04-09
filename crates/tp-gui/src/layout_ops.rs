@@ -263,6 +263,44 @@ pub fn update_tab_label_in_layout(node: &mut LayoutNode, panel_id: &str, new_lab
     }
 }
 
+/// Update a tab label by its exact layout path.
+/// The path indexes through the layout tree and ends at the tab index inside
+/// the owning Tabs node, so nested tabs are unambiguous.
+pub fn update_tab_label_in_layout_by_path(
+    node: &mut LayoutNode,
+    path: &[usize],
+    new_label: &str,
+) -> bool {
+    match node {
+        LayoutNode::Tabs { children, labels } => {
+            let Some((index, rest)) = path.split_first() else {
+                return false;
+            };
+            if *index >= children.len() {
+                return false;
+            }
+            if rest.is_empty() {
+                if let Some(label) = labels.get_mut(*index) {
+                    *label = new_label.to_string();
+                    return true;
+                }
+                return false;
+            }
+            update_tab_label_in_layout_by_path(&mut children[*index], rest, new_label)
+        }
+        LayoutNode::Hsplit { children, .. } | LayoutNode::Vsplit { children, .. } => {
+            let Some((index, rest)) = path.split_first() else {
+                return false;
+            };
+            if *index >= children.len() {
+                return false;
+            }
+            update_tab_label_in_layout_by_path(&mut children[*index], rest, new_label)
+        }
+        LayoutNode::Panel { .. } => false,
+    }
+}
+
 /// Move the INNERMOST tab containing `panel_id` by one position.
 /// Returns true if a move happened.
 pub fn move_tab_in_layout(node: &mut LayoutNode, panel_id: &str, direction: i32) -> bool {
@@ -804,6 +842,36 @@ mod tests {
             let inner = find_tab_labels(&children[0]).unwrap();
             assert_eq!(inner[0], "inner1");
             assert_eq!(inner[1], "renamed_inner", "inner tab must be renamed");
+        }
+    }
+
+    #[test]
+    fn rename_tab_by_path_targets_exact_nested_tab() {
+        let mut layout = tabs(
+            vec![
+                vsplit(vec![
+                    panel("a"),
+                    tabs(vec![panel("b"), panel("d")], vec!["inner1", "inner2"]),
+                ]),
+                panel("c"),
+            ],
+            vec!["outer1", "outer2"],
+        );
+
+        assert!(update_tab_label_in_layout_by_path(
+            &mut layout,
+            &[0, 1, 1],
+            "renamed_inner"
+        ));
+
+        let outer = get_tab_labels(&layout).unwrap();
+        assert_eq!(outer[0], "outer1");
+        assert_eq!(outer[1], "outer2");
+
+        if let LayoutNode::Tabs { children, .. } = &layout {
+            let inner = find_tab_labels(&children[0]).unwrap();
+            assert_eq!(inner[0], "inner1");
+            assert_eq!(inner[1], "renamed_inner");
         }
     }
 }
