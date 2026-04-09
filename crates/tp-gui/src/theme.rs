@@ -413,6 +413,13 @@ paned > separator { min-width: 1px; min-height: 1px; }
 .editor-file-tree-list > row > box > * {
   background-color: transparent;
 }
+.editor-file-tree-entry.editor-file-tree-ignored,
+.editor-file-tree-entry.editor-file-tree-ignored > label,
+.editor-file-tree-entry.editor-file-tree-ignored > image,
+.editor-file-tree-entry.editor-file-tree-ignored > drawingarea {
+  color: alpha(@view_fg_color, 0.58);
+  opacity: 0.72;
+}
 .card, button.card, .welcome-action-btn { background-color: @card_bg_color; color: @card_fg_color; }
 entry,
 spinbutton,
@@ -636,6 +643,7 @@ mod tests {
         assert!(BASE_CSS.contains(".editor-file-tree-scroll viewport"));
         assert!(BASE_CSS.contains("background-color: @view_bg_color;"));
         assert!(BASE_CSS.contains("color: @view_fg_color;"));
+        assert!(BASE_CSS.contains(".editor-file-tree-entry.editor-file-tree-ignored"));
     }
 
     #[test]

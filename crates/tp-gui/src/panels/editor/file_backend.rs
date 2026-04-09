@@ -18,6 +18,7 @@ fn shell_quote(value: &str) -> String {
 pub struct DirEntry {
     pub name: String,
     pub is_dir: bool,
+    pub is_ignored: bool,
 }
 
 /// Abstraction over local and remote file operations.
@@ -114,11 +115,20 @@ impl LocalFileBackend {
 impl FileBackend for LocalFileBackend {
     fn list_dir(&self, path: &Path) -> Result<Vec<DirEntry>, String> {
         let entries = std::fs::read_dir(path).map_err(|e| e.to_string())?;
-        let mut result = Vec::new();
+        let mut raw_entries = Vec::new();
         for entry in entries.flatten() {
             let name = entry.file_name().to_string_lossy().to_string();
             let is_dir = entry.file_type().map(|t| t.is_dir()).unwrap_or(false);
-            result.push(DirEntry { name, is_dir });
+            raw_entries.push((name, is_dir));
+        }
+        let ignored = git_ignored_names_local(&self.root_dir, path, &raw_entries)?;
+        let mut result = Vec::new();
+        for (name, is_dir) in raw_entries {
+            result.push(DirEntry {
+                is_ignored: ignored.contains(&name),
+                name,
+                is_dir,
+            });
         }
         result.sort_by(|a, b| {
             // Directories first, then alphabetical
@@ -370,25 +380,28 @@ impl SshFileBackend {
 impl FileBackend for SshFileBackend {
     fn list_dir(&self, path: &Path) -> Result<Vec<DirEntry>, String> {
         let path_str = path.to_string_lossy();
-        // ls -1ap lists entries one per line, dirs have trailing /
-        let output = self.ssh_exec(&format!("ls -1ap {}", shell_quote(&path_str)))?;
-        let mut result = Vec::new();
+        // ls -1Ap lists entries one per line, includes hidden files except . and ..
+        let output = self.ssh_exec(&format!("ls -1Ap {}", shell_quote(&path_str)))?;
+        let mut raw_entries = Vec::new();
         for line in output.lines() {
             let line = line.trim();
-            if line.is_empty() || line == "./" || line == "../" {
+            if line.is_empty() {
                 continue;
             }
             if line.ends_with('/') {
-                result.push(DirEntry {
-                    name: line.trim_end_matches('/').to_string(),
-                    is_dir: true,
-                });
+                raw_entries.push((line.trim_end_matches('/').to_string(), true));
             } else {
-                result.push(DirEntry {
-                    name: line.to_string(),
-                    is_dir: false,
-                });
+                raw_entries.push((line.to_string(), false));
             }
+        }
+        let ignored = git_ignored_names_remote(self, path, &raw_entries).unwrap_or_default();
+        let mut result = Vec::new();
+        for (name, is_dir) in raw_entries {
+            result.push(DirEntry {
+                is_ignored: ignored.contains(&name),
+                name,
+                is_dir,
+            });
         }
         // Directories first, then alphabetical
         result.sort_by(|a, b| {
@@ -496,10 +509,99 @@ impl Drop for SshFileBackend {
     }
 }
 
+fn relative_git_path(root: &Path, dir: &Path, name: &str) -> Option<String> {
+    let relative_dir = dir.strip_prefix(root).ok()?;
+    let relative_path = if relative_dir.as_os_str().is_empty() {
+        PathBuf::from(name)
+    } else {
+        relative_dir.join(name)
+    };
+    Some(relative_path.to_string_lossy().to_string())
+}
+
+fn parse_ignored_names_from_git_output(output: &str) -> std::collections::HashSet<String> {
+    output
+        .split('\0')
+        .filter(|part| !part.is_empty())
+        .filter_map(|part| {
+            Path::new(part)
+                .file_name()
+                .map(|name| name.to_string_lossy().to_string())
+        })
+        .collect()
+}
+
+fn git_ignored_names_local(
+    root: &Path,
+    dir: &Path,
+    entries: &[(String, bool)],
+) -> Result<std::collections::HashSet<String>, String> {
+    let relative_paths: Vec<String> = entries
+        .iter()
+        .filter_map(|(name, _)| relative_git_path(root, dir, name))
+        .collect();
+    if relative_paths.is_empty() {
+        return Ok(std::collections::HashSet::new());
+    }
+
+    use std::io::Write;
+    let mut cmd = std::process::Command::new("git");
+    cmd.args(["check-ignore", "--stdin", "-z"])
+        .current_dir(root)
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null());
+
+    let mut child = cmd.spawn().map_err(|e| e.to_string())?;
+    if let Some(stdin) = child.stdin.as_mut() {
+        for relative_path in &relative_paths {
+            stdin
+                .write_all(relative_path.as_bytes())
+                .and_then(|_| stdin.write_all(&[0]))
+                .map_err(|e| e.to_string())?;
+        }
+    }
+    let output = child.wait_with_output().map_err(|e| e.to_string())?;
+    if output.status.code() == Some(128) {
+        return Ok(std::collections::HashSet::new());
+    }
+    Ok(parse_ignored_names_from_git_output(
+        &String::from_utf8_lossy(&output.stdout),
+    ))
+}
+
+fn git_ignored_names_remote(
+    backend: &SshFileBackend,
+    dir: &Path,
+    entries: &[(String, bool)],
+) -> Result<std::collections::HashSet<String>, String> {
+    let relative_paths: Vec<String> = entries
+        .iter()
+        .filter_map(|(name, _)| relative_git_path(&backend.root_dir, dir, name))
+        .collect();
+    if relative_paths.is_empty() {
+        return Ok(std::collections::HashSet::new());
+    }
+
+    let args = relative_paths
+        .iter()
+        .map(|path| shell_quote(path))
+        .collect::<Vec<_>>()
+        .join(" ");
+    let command = format!(
+        "cd {} && printf '%s\\0' {} | git check-ignore --stdin -z 2>/dev/null || true",
+        shell_quote(&backend.root_dir.to_string_lossy()),
+        args,
+    );
+    let output = backend.ssh_exec(&command)?;
+    Ok(parse_ignored_names_from_git_output(&output))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::sync::Mutex;
+    use tempfile::tempdir;
 
     #[test]
     fn shell_quote_escapes_single_quotes() {
@@ -567,5 +669,34 @@ mod tests {
             results,
             vec![("src/main.rs".to_string(), 12, "Hello World".to_string())]
         );
+    }
+
+    #[test]
+    fn local_list_dir_includes_hidden_and_marks_gitignored_entries() {
+        let dir = tempdir().unwrap();
+        std::process::Command::new("git")
+            .args(["init", "-q"])
+            .current_dir(dir.path())
+            .status()
+            .unwrap();
+        std::fs::write(dir.path().join(".gitignore"), "ignored.log\nignored_dir/\n").unwrap();
+        std::fs::write(dir.path().join(".env"), "SECRET=1\n").unwrap();
+        std::fs::write(dir.path().join("visible.rs"), "fn main() {}\n").unwrap();
+        std::fs::write(dir.path().join("ignored.log"), "ignore me\n").unwrap();
+        std::fs::create_dir_all(dir.path().join("ignored_dir")).unwrap();
+
+        let backend = LocalFileBackend::new(dir.path());
+        let entries = backend.list_dir(dir.path()).unwrap();
+
+        assert!(entries.iter().any(|entry| entry.name == ".env" && !entry.is_ignored));
+        assert!(entries
+            .iter()
+            .any(|entry| entry.name == "visible.rs" && !entry.is_ignored));
+        assert!(entries
+            .iter()
+            .any(|entry| entry.name == "ignored.log" && entry.is_ignored));
+        assert!(entries
+            .iter()
+            .any(|entry| entry.name == "ignored_dir" && entry.is_ignored && entry.is_dir));
     }
 }

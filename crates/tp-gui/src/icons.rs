@@ -192,6 +192,7 @@ mod tests {
             pax_theme.join("symbolic/categories/applications-development-symbolic.svg"),
             pax_theme.join("symbolic/actions/document-open-symbolic.svg"),
             pax_theme.join("symbolic/legacy/utilities-terminal-symbolic.svg"),
+            pax_theme.join("symbolic/status/vcs-ignored-symbolic.svg"),
             pax_theme.join("symbolic/ui/window-close-symbolic.svg"),
         ];
 

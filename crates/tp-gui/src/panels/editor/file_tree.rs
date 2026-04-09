@@ -36,6 +36,7 @@ struct FileEntry {
     path: PathBuf,
     name: String,
     is_dir: bool,
+    is_ignored: bool,
     depth: u32,
     expanded: bool,
 }
@@ -629,6 +630,11 @@ fn build_row_widget(entry: &FileEntry, root: &Path, guides: &[bool], is_last: bo
     row.set_margin_start(4);
     row.set_margin_top(0);
     row.set_margin_bottom(0);
+    row.add_css_class("editor-file-tree-entry");
+    if entry.is_ignored {
+        row.add_css_class("editor-file-tree-ignored");
+        row.set_tooltip_text(Some("Ignored by Git"));
+    }
 
     // Draw tree guide lines via a DrawingArea
     if entry.depth > 0 {
@@ -690,11 +696,7 @@ fn build_row_widget(entry: &FileEntry, root: &Path, guides: &[bool], is_last: bo
         row.append(&expander);
 
         // Folder icon (symbolic, matches app theme)
-        let icon_name = if entry.expanded {
-            "folder-open-symbolic"
-        } else {
-            "folder-symbolic"
-        };
+        let icon_name = entry_icon_name(entry);
         let icon = gtk4::Image::from_icon_name(icon_name);
         icon.set_pixel_size(16);
         row.append(&icon);
@@ -704,7 +706,7 @@ fn build_row_widget(entry: &FileEntry, root: &Path, guides: &[bool], is_last: bo
         spacer.set_width_request(14);
         row.append(&spacer);
 
-        let icon = gtk4::Image::from_icon_name(file_icon_name(&entry.name));
+        let icon = gtk4::Image::from_icon_name(entry_icon_name(entry));
         icon.set_pixel_size(16);
         row.append(&icon);
     }
@@ -714,8 +716,10 @@ fn build_row_widget(entry: &FileEntry, root: &Path, guides: &[bool], is_last: bo
     label.set_hexpand(true);
     label.set_margin_start(4);
     label.set_ellipsize(gtk4::pango::EllipsizeMode::End);
-    let rel = entry.path.strip_prefix(root).unwrap_or(&entry.path);
-    label.set_tooltip_text(Some(&rel.to_string_lossy()));
+    if !entry.is_ignored {
+        let rel = entry.path.strip_prefix(root).unwrap_or(&entry.path);
+        label.set_tooltip_text(Some(&rel.to_string_lossy()));
+    }
     row.append(&label);
 
     row
@@ -732,6 +736,22 @@ fn file_icon_name(name: &str) -> &'static str {
         "css" | "scss" | "html" | "htm" => "text-html-symbolic",
         "lock" => "changes-prevent-symbolic",
         _ => "text-x-generic-symbolic",
+    }
+}
+
+fn entry_icon_name(entry: &FileEntry) -> &'static str {
+    if entry.is_ignored {
+        return "vcs-ignored-symbolic";
+    }
+
+    if entry.is_dir {
+        if entry.expanded {
+            "folder-open-symbolic"
+        } else {
+            "folder-symbolic"
+        }
+    } else {
+        file_icon_name(&entry.name)
     }
 }
 
@@ -1040,22 +1060,24 @@ fn build_collapsed_entries(
 ) -> Result<(), String> {
     let (dirs, files) = list_directory_entries(dir, backend)?;
 
-    for (path, name) in dirs {
+    for (path, name, is_ignored) in dirs {
         entries.push(FileEntry {
             path,
             name,
             is_dir: true,
+            is_ignored,
             depth,
             expanded: false,
         });
     }
 
-    for (path, name) in files {
+    for (path, name, is_ignored) in files {
         file_index.push(path.clone());
         entries.push(FileEntry {
             path,
             name,
             is_dir: false,
+            is_ignored,
             depth,
             expanded: false,
         });
@@ -1077,12 +1099,13 @@ fn build_file_entries(
     // Remote: don't auto-expand (each expand is an SSH call)
     let auto_expand_depth = if backend.is_remote() { 0 } else { 1 };
 
-    for (path, name) in dirs {
+    for (path, name, is_ignored) in dirs {
         let auto_expand = depth < auto_expand_depth;
         entries.push(FileEntry {
             path: path.clone(),
             name,
             is_dir: true,
+            is_ignored,
             depth,
             expanded: auto_expand,
         });
@@ -1091,12 +1114,13 @@ fn build_file_entries(
         }
     }
 
-    for (path, name) in files {
+    for (path, name, is_ignored) in files {
         file_index.push(path.clone());
         entries.push(FileEntry {
             path,
             name,
             is_dir: false,
+            is_ignored,
             depth,
             expanded: false,
         });
@@ -1108,41 +1132,16 @@ fn build_file_entries(
 fn list_directory_entries(
     dir: &Path,
     backend: &dyn FileBackend,
-) -> Result<(Vec<(PathBuf, String)>, Vec<(PathBuf, String)>), String> {
+) -> Result<(Vec<(PathBuf, String, bool)>, Vec<(PathBuf, String, bool)>), String> {
     let mut dirs = Vec::new();
     let mut files = Vec::new();
 
-    if backend.is_remote() {
-        for de in backend.list_dir(dir)? {
-            let path = dir.join(&de.name);
-            if de.is_dir {
-                dirs.push((path, de.name));
-            } else {
-                files.push((path, de.name));
-            }
-        }
-    } else {
-        let walker = ignore::WalkBuilder::new(dir)
-            .max_depth(Some(1))
-            .sort_by_file_name(|a, b| a.cmp(b))
-            .build();
-
-        for entry in walker.flatten() {
-            let path = entry.path().to_path_buf();
-            if path == dir {
-                continue;
-            }
-
-            let name = path
-                .file_name()
-                .map(|n| n.to_string_lossy().to_string())
-                .unwrap_or_default();
-
-            if path.is_dir() {
-                dirs.push((path, name));
-            } else {
-                files.push((path, name));
-            }
+    for de in backend.list_dir(dir)? {
+        let path = dir.join(&de.name);
+        if de.is_dir {
+            dirs.push((path, de.name, de.is_ignored));
+        } else {
+            files.push((path, de.name, de.is_ignored));
         }
     }
 
@@ -1389,6 +1388,7 @@ mod tests {
                 path: root.join("src"),
                 name: "src".into(),
                 is_dir: true,
+                is_ignored: false,
                 depth: 0,
                 expanded: false,
             },
@@ -1396,6 +1396,7 @@ mod tests {
                 path: root.join("src/main.rs"),
                 name: "main.rs".into(),
                 is_dir: false,
+                is_ignored: false,
                 depth: 1,
                 expanded: false,
             },
@@ -1415,6 +1416,7 @@ mod tests {
                 path: root.join("src"),
                 name: "src".into(),
                 is_dir: true,
+                is_ignored: false,
                 depth: 0,
                 expanded: false,
             },
@@ -1422,6 +1424,7 @@ mod tests {
                 path: root.join("src/main.rs"),
                 name: "main.rs".into(),
                 is_dir: false,
+                is_ignored: false,
                 depth: 1,
                 expanded: false,
             },
@@ -1467,5 +1470,28 @@ mod tests {
         let resolved = find_transient_parent_window(&button).expect("parent window");
 
         assert_eq!(resolved, window);
+    }
+
+    #[test]
+    fn ignored_entries_use_dedicated_gitignore_icon() {
+        let ignored_file = FileEntry {
+            path: PathBuf::from("/tmp/demo/ignored.log"),
+            name: "ignored.log".into(),
+            is_dir: false,
+            is_ignored: true,
+            depth: 0,
+            expanded: false,
+        };
+        let ignored_dir = FileEntry {
+            path: PathBuf::from("/tmp/demo/ignored_dir"),
+            name: "ignored_dir".into(),
+            is_dir: true,
+            is_ignored: true,
+            depth: 0,
+            expanded: false,
+        };
+
+        assert_eq!(entry_icon_name(&ignored_file), "vcs-ignored-symbolic");
+        assert_eq!(entry_icon_name(&ignored_dir), "vcs-ignored-symbolic");
     }
 }
