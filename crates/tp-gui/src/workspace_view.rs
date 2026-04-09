@@ -420,6 +420,7 @@ impl WorkspaceView {
             pending_offset: 0,
             suppress_commit_once: false,
         });
+        self.refresh_tab_labels();
         true
     }
 
@@ -562,6 +563,21 @@ impl WorkspaceView {
             tab_path: encode_tab_path(&state.tab_path),
             draft_name: state.draft_name.clone(),
         })
+    }
+
+    fn refresh_tab_labels(&self) {
+        let Some(ref cb) = self.action_cb else {
+            return;
+        };
+        let edit_state = self.current_tab_label_edit_state();
+        update_notebook_labels_recursive(
+            &self.root_widget,
+            cb,
+            &self.hosts,
+            &self.workspace,
+            edit_state.as_ref(),
+        );
+        add_plus_buttons_recursive(&self.root_widget, cb);
     }
 
     /// Set callback for when a panel type is chosen from the chooser.
