@@ -184,6 +184,11 @@ pub fn add_to_existing_tabs(
 ) -> bool {
     match node {
         LayoutNode::Tabs { children, labels } => {
+            for child in children.iter_mut() {
+                if add_to_existing_tabs(child, panel_id, new_id, new_label) {
+                    return true;
+                }
+            }
             let contains = children.iter().any(|c| is_panel_with_id(c, panel_id));
             if contains {
                 children.push(LayoutNode::Panel {
@@ -191,11 +196,6 @@ pub fn add_to_existing_tabs(
                 });
                 labels.push(new_label.to_string());
                 return true;
-            }
-            for child in children.iter_mut() {
-                if add_to_existing_tabs(child, panel_id, new_id, new_label) {
-                    return true;
-                }
             }
             false
         }
@@ -577,6 +577,43 @@ mod tests {
         assert!(added);
         let ids = panel_ids(&layout);
         assert!(ids.contains(&"d".to_string()));
+    }
+
+    #[test]
+    fn add_tab_prefers_innermost_tabs_over_root_tabs() {
+        let mut layout = tabs(
+            vec![
+                vsplit(vec![
+                    tabs(vec![panel("a"), panel("b")], vec!["inner-a", "inner-b"]),
+                    panel("c"),
+                ]),
+                panel("d"),
+            ],
+            vec!["outer-left", "outer-right"],
+        );
+
+        let added = add_to_existing_tabs(&mut layout, "a", "e", "inner-e");
+
+        assert!(added);
+        if let LayoutNode::Tabs {
+            children: outer_children,
+            labels: outer_labels,
+        } = &layout
+        {
+            assert_eq!(outer_labels, &["outer-left", "outer-right"]);
+            if let LayoutNode::Vsplit { children, .. } = &outer_children[0] {
+                if let LayoutNode::Tabs { labels, children } = &children[0] {
+                    assert_eq!(labels, &["inner-a", "inner-b", "inner-e"]);
+                    assert!(matches!(&children[2], LayoutNode::Panel { id } if id == "e"));
+                } else {
+                    panic!("expected inner tabs");
+                }
+            } else {
+                panic!("expected left vsplit");
+            }
+        } else {
+            panic!("expected outer tabs");
+        }
     }
 
     // ── replace_in_layout ──
