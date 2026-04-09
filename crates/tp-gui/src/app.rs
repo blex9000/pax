@@ -357,25 +357,6 @@ fn setup_workspace_ui(
                                     .borrow_mut()
                                     .begin_tab_edit(&panel_id, tab_path, name, is_layout)
                                 {
-                                    let ws_for_idle = ws_for_cb.clone();
-                                    glib::idle_add_local_once(move || {
-                                        let snapshot =
-                                            { ws_for_idle.borrow().active_tab_edit_snapshot() };
-                                        if let Some((
-                                            root_widget,
-                                            workspace,
-                                            tab_path,
-                                            draft_name,
-                                        )) = snapshot
-                                        {
-                                            crate::widget_builder::show_tab_editor_recursive(
-                                                &root_widget,
-                                                &workspace,
-                                                &tab_path,
-                                                &draft_name,
-                                            );
-                                        }
-                                    });
                                 }
                             }
                             PanelAction::UpdateTabDraft(name) => {

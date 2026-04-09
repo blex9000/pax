@@ -123,11 +123,25 @@ pub fn build_tab_label(
         let panel_id = tab_panel_id.clone();
         let initial_name = name.to_string();
         let tab_path_key = tab_path_key.clone();
+        let edit_stack = stack.clone();
+        let entry = entry.clone();
+        let update_move_buttons = update_move_buttons.clone();
+        let suppress_entry_changed = suppress_entry_changed.clone();
         let gesture = gtk4::GestureClick::new();
         gesture.set_button(1);
         gesture.set_propagation_phase(gtk4::PropagationPhase::Bubble);
         gesture.connect_released(move |g, n_press, _, _| {
             if n_press == 2 {
+                suppress_entry_changed.set(true);
+                entry.set_text(&initial_name);
+                suppress_entry_changed.set(false);
+                edit_stack.set_visible_child_name("edit");
+                update_move_buttons();
+                let entry = entry.clone();
+                gtk4::glib::idle_add_local_once(move || {
+                    entry.grab_focus();
+                    entry.set_position(-1);
+                });
                 if let (Some(ref cb), Some(panel_id)) = (&cb, panel_id.as_ref()) {
                     cb(
                         &format!("nb:{}", panel_id),
@@ -302,176 +316,6 @@ pub fn update_notebook_labels_recursive(
         edit_state,
         &[],
     );
-}
-
-pub fn show_tab_editor_recursive(
-    widget: &gtk4::Widget,
-    workspace: &Workspace,
-    target_path: &[usize],
-    draft_name: &str,
-) -> bool {
-    show_tab_editor_with_layout(widget, &workspace.layout, target_path, draft_name, &[])
-}
-
-fn show_tab_editor_with_layout(
-    widget: &gtk4::Widget,
-    layout_node: &LayoutNode,
-    target_path: &[usize],
-    draft_name: &str,
-    path: &[usize],
-) -> bool {
-    if let Ok(notebook) = widget.clone().downcast::<gtk4::Notebook>() {
-        if let LayoutNode::Tabs { children, .. } = layout_node {
-            for i in 0..notebook.n_pages() {
-                if let Some(page_widget) = notebook.nth_page(Some(i)) {
-                    let mut child_path = path.to_vec();
-                    child_path.push(i as usize);
-                    if child_path == target_path {
-                        if let Some(tab_label) = notebook.tab_label(&page_widget) {
-                            return activate_tab_label_editor(&tab_label, &page_widget, draft_name);
-                        }
-                        return false;
-                    }
-                    if let Some(child_node) = children.get(i as usize) {
-                        if show_tab_editor_with_layout(
-                            &page_widget,
-                            child_node,
-                            target_path,
-                            draft_name,
-                            &child_path,
-                        ) {
-                            return true;
-                        }
-                    }
-                }
-            }
-            return false;
-        }
-    }
-
-    match layout_node {
-        LayoutNode::Hsplit { children, .. } | LayoutNode::Vsplit { children, .. } => {
-            if let Ok(paned) = widget.clone().downcast::<gtk4::Paned>() {
-                if let Some(w) = paned.start_child() {
-                    let w = unwrap_collapse_wrapper(&w);
-                    if let Some(c) = children.first() {
-                        let mut child_path = path.to_vec();
-                        child_path.push(0);
-                        if show_tab_editor_with_layout(&w, c, target_path, draft_name, &child_path)
-                        {
-                            return true;
-                        }
-                    }
-                }
-                if let Some(w) = paned.end_child() {
-                    let w = unwrap_collapse_wrapper(&w);
-                    if children.len() == 2 {
-                        if let Some(c) = children.get(1) {
-                            let mut child_path = path.to_vec();
-                            child_path.push(1);
-                            if show_tab_editor_with_layout(
-                                &w,
-                                c,
-                                target_path,
-                                draft_name,
-                                &child_path,
-                            ) {
-                                return true;
-                            }
-                        }
-                    }
-                }
-            }
-            false
-        }
-        _ => false,
-    }
-}
-
-fn activate_tab_label_editor(
-    tab_label: &gtk4::Widget,
-    page_widget: &gtk4::Widget,
-    draft_name: &str,
-) -> bool {
-    let Some(stack) = find_descendant_stack(tab_label) else {
-        return false;
-    };
-    let Some(entry) = find_descendant_entry(tab_label) else {
-        return false;
-    };
-
-    if entry.text().as_str() != draft_name {
-        entry.set_text(draft_name);
-    }
-    update_tab_move_buttons(tab_label, page_widget);
-    stack.set_visible_child_name("edit");
-
-    gtk4::glib::idle_add_local_once(move || {
-        entry.grab_focus();
-        entry.set_position(-1);
-    });
-    true
-}
-
-fn update_tab_move_buttons(tab_label: &gtk4::Widget, page_widget: &gtk4::Widget) {
-    let Some(notebook) = find_notebook_ancestor(page_widget) else {
-        return;
-    };
-    let Some(position) = notebook.page_num(page_widget) else {
-        return;
-    };
-    let buttons = collect_descendant_buttons(tab_label);
-    if let Some(button) = buttons.first() {
-        button.set_sensitive(position > 0);
-    }
-    if let Some(button) = buttons.get(1) {
-        button.set_sensitive(position + 1 < notebook.n_pages());
-    }
-}
-
-fn find_descendant_stack(widget: &gtk4::Widget) -> Option<gtk4::Stack> {
-    if let Ok(stack) = widget.clone().downcast::<gtk4::Stack>() {
-        return Some(stack);
-    }
-    let mut child = widget.first_child();
-    while let Some(c) = child {
-        if let Some(stack) = find_descendant_stack(&c) {
-            return Some(stack);
-        }
-        child = c.next_sibling();
-    }
-    None
-}
-
-fn find_descendant_entry(widget: &gtk4::Widget) -> Option<gtk4::Entry> {
-    if let Ok(entry) = widget.clone().downcast::<gtk4::Entry>() {
-        return Some(entry);
-    }
-    let mut child = widget.first_child();
-    while let Some(c) = child {
-        if let Some(entry) = find_descendant_entry(&c) {
-            return Some(entry);
-        }
-        child = c.next_sibling();
-    }
-    None
-}
-
-fn collect_descendant_buttons(widget: &gtk4::Widget) -> Vec<gtk4::Button> {
-    let mut buttons = Vec::new();
-    collect_descendant_buttons_inner(widget, &mut buttons);
-    buttons
-}
-
-fn collect_descendant_buttons_inner(widget: &gtk4::Widget, out: &mut Vec<gtk4::Button>) {
-    if let Ok(button) = widget.clone().downcast::<gtk4::Button>() {
-        out.push(button);
-    }
-    let mut child = widget.first_child();
-    while let Some(c) = child {
-        collect_descendant_buttons_inner(&c, out);
-        child = c.next_sibling();
-    }
 }
 
 fn update_labels_with_layout(
