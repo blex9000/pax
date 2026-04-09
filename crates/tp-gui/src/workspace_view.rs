@@ -549,6 +549,16 @@ impl WorkspaceView {
         true
     }
 
+    fn focus_panel_after_rebuild(&mut self, panel_id: &str) -> bool {
+        let Some(index) = self.focus.order.iter().position(|id| id == panel_id) else {
+            return false;
+        };
+        self.focus.index = index;
+        self.select_workspace_tab_for_panel(panel_id);
+        self.focus.focus_current_pub(&self.hosts);
+        true
+    }
+
     pub fn workspace_name(&self) -> &str {
         &self.workspace.name
     }
@@ -1041,11 +1051,8 @@ impl WorkspaceView {
         self.rebuild_layout();
         self.rebuild_focus_order();
 
-        // 4. Restore focus to the original panel (not the new one)
-        if let Some(idx) = self.focus.order.iter().position(|id| id == &focused_id) {
-            self.focus.index = idx;
-            self.focus.focus_current_pub(&self.hosts);
-        }
+        // 4. Focus the newly created split pane and reveal all ancestor tabs.
+        self.focus_panel_after_rebuild(&new_id);
 
         Some(new_id)
     }
@@ -1084,14 +1091,7 @@ impl WorkspaceView {
         // Rebuild widget tree
         self.rebuild_layout();
         self.rebuild_focus_order();
-
-        // Focus the newly created tab
-        if let Some(host) = self.hosts.get(&new_id) {
-            if let Some(notebook) = find_notebook_ancestor(host.widget()) {
-                let page_num = notebook.page_num(host.widget());
-                notebook.set_current_page(page_num);
-            }
-        }
+        self.focus_panel_after_rebuild(&new_id);
 
         Some(new_id)
     }
@@ -1125,14 +1125,7 @@ impl WorkspaceView {
         // Rebuild widget tree
         self.rebuild_layout();
         self.rebuild_focus_order();
-
-        // Focus the newly created tab
-        if let Some(host) = self.hosts.get(&new_id) {
-            if let Some(notebook) = find_notebook_ancestor(host.widget()) {
-                let page_num = notebook.page_num(host.widget());
-                notebook.set_current_page(page_num);
-            }
-        }
+        self.focus_panel_after_rebuild(&new_id);
 
         Some(new_id)
     }
@@ -1241,7 +1234,9 @@ impl WorkspaceView {
         if self.focus.index >= self.focus.order.len() {
             self.focus.index = self.focus.order.len().saturating_sub(1);
         }
-        self.focus.focus_current_pub(&self.hosts);
+        if let Some(target_id) = self.focus.focused_panel_id().map(|id| id.to_string()) {
+            self.focus_panel_after_rebuild(&target_id);
+        }
 
         true
     }
@@ -1421,6 +1416,7 @@ fn select_workspace_tab_for_panel_recursive(widget: &gtk4::Widget, panel_id: &st
                         return true;
                     }
                     if select_workspace_tab_for_panel_recursive(&page, panel_id) {
+                        notebook.set_current_page(Some(index));
                         return true;
                     }
                 }
@@ -1647,6 +1643,49 @@ mod tests {
             }
             _ => panic!("expected tabs layout"),
         }
+    }
+
+    #[test]
+    fn select_workspace_tab_for_panel_recursive_reveals_ancestor_tabs() {
+        if gtk4::init().is_err() {
+            return;
+        }
+
+        let root = gtk4::Notebook::new();
+        root.add_css_class("workspace-tabs");
+        let root_page_0 = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
+        let root_page_1 = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
+        root.append_page(&root_page_0, Some(&gtk4::Label::new(Some("Root 0"))));
+        root.append_page(&root_page_1, Some(&gtk4::Label::new(Some("Root 1"))));
+
+        let nested = gtk4::Notebook::new();
+        nested.add_css_class("workspace-tabs");
+        root_page_1.append(&nested);
+
+        let nested_page_0 = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
+        let nested_page_1 = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
+
+        let panel_1 = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
+        panel_1.add_css_class("panel-frame");
+        panel_1.set_widget_name("p1");
+        nested_page_0.append(&panel_1);
+
+        let panel_2 = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
+        panel_2.add_css_class("panel-frame");
+        panel_2.set_widget_name("p2");
+        nested_page_1.append(&panel_2);
+
+        nested.append_page(&nested_page_0, Some(&gtk4::Label::new(Some("Inner 0"))));
+        nested.append_page(&nested_page_1, Some(&gtk4::Label::new(Some("Inner 1"))));
+
+        root.set_current_page(Some(0));
+        nested.set_current_page(Some(0));
+
+        let selected = select_workspace_tab_for_panel_recursive(&root.clone().upcast(), "p2");
+
+        assert!(selected);
+        assert_eq!(root.current_page(), Some(1));
+        assert_eq!(nested.current_page(), Some(1));
     }
 }
 
