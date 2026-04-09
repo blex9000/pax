@@ -382,6 +382,7 @@ fn setup_notebook_menu_widget(notebook: &gtk4::Notebook, action_cb: Option<Panel
     let add_btn = gtk4::Button::new();
     add_btn.set_icon_name("tab-new-symbolic");
     add_btn.add_css_class("flat");
+    add_btn.add_css_class("workspace-tab-add-btn");
     add_btn.set_margin_end(4);
     add_btn.set_tooltip_text(Some("Add tab"));
     {
@@ -398,7 +399,10 @@ fn setup_notebook_menu_widget(notebook: &gtk4::Notebook, action_cb: Option<Panel
             }
         });
     }
-    notebook.set_action_widget(&add_btn, gtk4::PackType::End);
+    let add_wrap = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
+    add_wrap.add_css_class("workspace-tab-add-wrap");
+    add_wrap.append(&add_btn);
+    notebook.set_action_widget(&add_wrap, gtk4::PackType::End);
 
     if notebook.has_css_class("pax-tab-edit-gesture") {
         return;

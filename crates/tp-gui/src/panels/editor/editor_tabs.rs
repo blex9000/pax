@@ -66,7 +66,6 @@ impl EditorTabs {
 
         // InfoBar container (for file-changed-on-disk warnings)
         let info_bar_container = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
-        info_bar_container.add_css_class("chrome-surface");
 
         // Status bar
         let status_bar = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
@@ -139,7 +138,6 @@ impl EditorTabs {
 
         // ── Search/Replace bar (hidden by default) ──────────────────
         let search_bar = gtk4::Box::new(gtk4::Orientation::Vertical, 2);
-        search_bar.add_css_class("chrome-surface");
         search_bar.set_margin_start(4);
         search_bar.set_margin_end(4);
         search_bar.set_margin_top(2);

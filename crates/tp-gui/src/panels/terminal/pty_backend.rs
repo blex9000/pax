@@ -67,10 +67,8 @@ impl TerminalInner {
         drawing_area.set_vexpand(true);
         drawing_area.set_hexpand(true);
         drawing_area.add_css_class("terminal-fallback");
-        drawing_area.add_css_class("terminal-surface");
 
         let scrolled = gtk4::ScrolledWindow::new();
-        scrolled.add_css_class("terminal-scroller");
         scrolled.set_policy(gtk4::PolicyType::Never, gtk4::PolicyType::Never);
         scrolled.set_vexpand(true);
         scrolled.set_hexpand(true);

@@ -61,8 +61,6 @@ impl FileTree {
 
         // Action buttons bar at bottom
         let actions_bar = gtk4::Box::new(gtk4::Orientation::Horizontal, 2);
-        actions_bar.add_css_class("chrome-surface");
-        actions_bar.add_css_class("editor-file-tree-toolbar");
         actions_bar.set_margin_start(4);
         actions_bar.set_margin_end(4);
         actions_bar.set_margin_bottom(2);
@@ -91,7 +89,6 @@ impl FileTree {
         let list_box = gtk4::ListBox::new();
         list_box.set_selection_mode(gtk4::SelectionMode::Single);
         list_box.add_css_class("navigation-sidebar");
-        list_box.add_css_class("editor-file-tree");
         populate_message(
             &list_box,
             if is_remote {
@@ -102,7 +99,6 @@ impl FileTree {
         );
 
         let scroll = gtk4::ScrolledWindow::new();
-        scroll.add_css_class("editor-file-tree-shell");
         scroll.set_child(Some(&list_box));
         scroll.set_vexpand(true);
 

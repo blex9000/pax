@@ -266,47 +266,51 @@ toolbarview.app-toolbar-view .top-bar { background-color: @headerbar_bg_color; c
 toolbarview.app-toolbar-view .top-bar > * { background-color: @headerbar_bg_color; color: @headerbar_fg_color; }
 headerbar.app-headerbar { background-color: @headerbar_bg_color; color: @headerbar_fg_color; border: none; }
 headerbar.app-headerbar box, headerbar.app-headerbar label, headerbar.app-headerbar image, headerbar.app-headerbar button, headerbar.app-headerbar menubutton > button { color: @headerbar_fg_color; }
-.chrome-surface, box.panel-title-bar, box.panel-footer-bar, .status-bar, .markdown-toolbar {
-  background-color: @headerbar_bg_color;
-  color: @headerbar_fg_color;
-}
+box.panel-title-bar, box.panel-footer-bar, .status-bar, .markdown-toolbar { background-color: @headerbar_bg_color; color: @headerbar_fg_color; }
 notebook.workspace-tabs,
-notebook.editor-tabs,
 notebook.workspace-tabs > header,
-notebook.editor-tabs > header,
 notebook.workspace-tabs > header > tabs,
-notebook.editor-tabs > header > tabs,
-notebook.workspace-tabs > header > tabs > tab,
-notebook.editor-tabs > header > tabs > tab {
+notebook.workspace-tabs > header > tabs > tab {
   background-color: @headerbar_bg_color;
   color: @headerbar_fg_color;
   border-color: transparent;
   background-image: none;
   box-shadow: none;
 }
-notebook.workspace-tabs > header,
-notebook.editor-tabs > header {
-  border-bottom: 1px solid @headerbar_border_color;
-  box-shadow: inset 0 -1px 0 0 @headerbar_border_color;
+notebook.workspace-tabs > header {
+  border-bottom: none;
+  box-shadow: none;
 }
 notebook.workspace-tabs > header > tabs {
   box-shadow: inset 0 -1px 0 0 @headerbar_border_color;
 }
-notebook.workspace-tabs > header > tabs > tab,
-notebook.editor-tabs > header > tabs > tab {
+notebook.workspace-tabs > header > tabs > tab {
   border-radius: 0;
   margin: 0;
   padding-top: 4px;
   padding-bottom: 4px;
+  box-shadow: inset 0 -1px 0 0 @headerbar_border_color;
 }
-notebook.workspace-tabs > header > tabs > tab:hover,
-notebook.editor-tabs > header > tabs > tab:hover {
+notebook.workspace-tabs > header > tabs > tab:hover {
   background-color: alpha(@headerbar_fg_color, 0.08);
 }
-notebook.workspace-tabs > header > tabs > tab:checked,
-notebook.editor-tabs > header > tabs > tab:checked {
+notebook.workspace-tabs > header > tabs > tab:checked {
   background-color: @headerbar_bg_color;
   box-shadow: inset 0 -2px 0 0 @accent_color;
+}
+box.workspace-tab-add-wrap {
+  background-color: @headerbar_bg_color;
+  border: none;
+  box-shadow: none;
+}
+box.workspace-tab-add-wrap > button.workspace-tab-add-btn {
+  background-image: none;
+  background-color: transparent;
+  border: none;
+  box-shadow: none;
+}
+box.workspace-tab-add-wrap > button.workspace-tab-add-btn:hover {
+  background-color: alpha(@headerbar_fg_color, 0.10);
 }
 button.panel-action-btn, menubutton.panel-menu-btn > button, menubutton.app-menu-btn > button, headerbar.app-headerbar button, headerbar.app-headerbar menubutton > button {
   background-image: none;
@@ -374,28 +378,6 @@ paned > separator { min-width: 1px; min-height: 1px; }
 .dirty-indicator { color: #ff8c00; }
 .editor-tabs { border-bottom: 1px solid alpha(@borders, 0.3); }
 .editor-sidebar { border-right: 1px solid alpha(@borders, 0.3); }
-.editor-file-tree,
-.editor-file-tree row,
-.editor-file-tree row > box,
-scrolledwindow.editor-file-tree-shell,
-scrolledwindow.editor-file-tree-shell > viewport {
-  background-color: @headerbar_bg_color;
-  color: @headerbar_fg_color;
-}
-.editor-file-tree row:hover,
-.editor-file-tree row:selected {
-  background-color: alpha(@headerbar_fg_color, 0.10);
-  color: @headerbar_fg_color;
-}
-.editor-file-tree-toolbar {
-  border-top: 1px solid @headerbar_border_color;
-}
-.terminal-surface,
-scrolledwindow.terminal-scroller,
-scrolledwindow.terminal-scroller > viewport {
-  background-color: @view_bg_color;
-  color: @view_fg_color;
-}
 .navigation-sidebar, .boxed-list { background-color: @sidebar_bg_color; color: @sidebar_fg_color; }
 .card, button.card, .welcome-action-btn { background-color: @card_bg_color; color: @card_fg_color; }
 entry,
@@ -570,10 +552,8 @@ mod tests {
         assert!(BASE_CSS.contains("toolbarview.app-toolbar-view .top-bar"));
         assert!(BASE_CSS.contains("window.app-dialog"));
         assert!(BASE_CSS.contains("popover.app-popover > contents"));
-        assert!(BASE_CSS.contains(".chrome-surface"));
         assert!(BASE_CSS.contains("notebook.workspace-tabs > header > tabs > tab:checked"));
-        assert!(BASE_CSS.contains(".editor-file-tree-toolbar"));
-        assert!(BASE_CSS.contains(".terminal-surface"));
+        assert!(BASE_CSS.contains("box.workspace-tab-add-wrap"));
         assert!(BASE_CSS.contains("entry,\nspinbutton"));
         assert!(!BASE_CSS.contains("alpha(@headerbar_bg_color, 0.95)"));
     }
