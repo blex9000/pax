@@ -1,6 +1,6 @@
-use gtk4::prelude::*;
-use fuzzy_matcher::FuzzyMatcher;
 use fuzzy_matcher::skim::SkimMatcherV2;
+use fuzzy_matcher::FuzzyMatcher;
+use gtk4::prelude::*;
 use std::cell::RefCell;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
@@ -33,12 +33,22 @@ impl FuzzyFinder {
         overlay.add_css_class("card");
         overlay.set_visible(false);
 
+        let header = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
+        header.set_margin_start(8);
+        header.set_margin_end(8);
+        header.set_margin_top(8);
+
         let search_entry = gtk4::SearchEntry::new();
         search_entry.set_placeholder_text(Some("Search files..."));
-        search_entry.set_margin_start(8);
-        search_entry.set_margin_end(8);
-        search_entry.set_margin_top(8);
-        overlay.append(&search_entry);
+        search_entry.set_hexpand(true);
+        header.append(&search_entry);
+
+        let close_btn = gtk4::Button::from_icon_name("window-close-symbolic");
+        close_btn.add_css_class("flat");
+        close_btn.add_css_class("circular");
+        close_btn.set_tooltip_text(Some("Close quick open"));
+        header.append(&close_btn);
+        overlay.append(&header);
 
         let scroll = gtk4::ScrolledWindow::new();
         scroll.set_max_content_height(300);
@@ -62,11 +72,14 @@ impl FuzzyFinder {
                 while let Some(child) = results.first_child() {
                     results.remove(&child);
                 }
-                if query.is_empty() { return; }
+                if query.is_empty() {
+                    return;
+                }
 
                 let matcher = SkimMatcherV2::default();
                 let files = index.borrow();
-                let mut scored: Vec<(i64, &PathBuf)> = files.iter()
+                let mut scored: Vec<(i64, &PathBuf)> = files
+                    .iter()
                     .filter_map(|p| {
                         let rel = p.strip_prefix(&root_c).unwrap_or(p);
                         let name = rel.to_string_lossy();
@@ -95,15 +108,20 @@ impl FuzzyFinder {
             let on_sel = on_select.clone();
             search_entry.connect_activate(move |entry| {
                 let query = entry.text().to_string();
-                if query.is_empty() { return; }
+                if query.is_empty() {
+                    return;
+                }
 
                 // Open the first result
                 let matcher = SkimMatcherV2::default();
                 let files = index.borrow();
-                let mut scored: Vec<(i64, &PathBuf)> = files.iter()
+                let mut scored: Vec<(i64, &PathBuf)> = files
+                    .iter()
                     .filter_map(|p| {
                         let rel = p.strip_prefix(&root_c).unwrap_or(p);
-                        matcher.fuzzy_match(&rel.to_string_lossy(), &query).map(|s| (s, p))
+                        matcher
+                            .fuzzy_match(&rel.to_string_lossy(), &query)
+                            .map(|s| (s, p))
                     })
                     .collect();
                 scored.sort_by(|a, b| b.0.cmp(&a.0));
@@ -128,10 +146,13 @@ impl FuzzyFinder {
                 let query = entry_c.text().to_string();
                 let matcher = SkimMatcherV2::default();
                 let files = index.borrow();
-                let mut scored: Vec<(i64, &PathBuf)> = files.iter()
+                let mut scored: Vec<(i64, &PathBuf)> = files
+                    .iter()
                     .filter_map(|p| {
                         let rel = p.strip_prefix(&root_c).unwrap_or(p);
-                        matcher.fuzzy_match(&rel.to_string_lossy(), &query).map(|s| (s, p))
+                        matcher
+                            .fuzzy_match(&rel.to_string_lossy(), &query)
+                            .map(|s| (s, p))
                     })
                     .collect();
                 scored.sort_by(|a, b| b.0.cmp(&a.0));
@@ -158,6 +179,15 @@ impl FuzzyFinder {
             search_entry.add_controller(key_ctrl);
         }
 
+        {
+            let overlay_c = overlay.clone();
+            let entry_c = search_entry.clone();
+            close_btn.connect_clicked(move |_| {
+                overlay_c.set_visible(false);
+                entry_c.set_text("");
+            });
+        }
+
         Self {
             overlay,
             search_entry,
@@ -176,5 +206,9 @@ impl FuzzyFinder {
 
     pub fn hide(&self) {
         self.overlay.set_visible(false);
+    }
+
+    pub fn is_visible(&self) -> bool {
+        self.overlay.is_visible()
     }
 }

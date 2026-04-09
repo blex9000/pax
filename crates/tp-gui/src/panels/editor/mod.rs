@@ -458,10 +458,31 @@ impl CodeEditorPanel {
         // Click anywhere to grab focus (needed for shortcuts without open file)
         {
             let w = widget.clone();
+            let fuzzy_finder = fuzzy_finder.clone();
+            let finder_overlay = fuzzy_finder.overlay.clone().upcast::<gtk4::Widget>();
             let gesture = gtk4::GestureClick::new();
             gesture.set_button(1);
             gesture.set_propagation_phase(gtk4::PropagationPhase::Capture);
-            gesture.connect_pressed(move |_, _, _, _| {
+            gesture.connect_pressed(move |_, _, x, y| {
+                if fuzzy_finder.is_visible() {
+                    let picked = w.pick(x, y, gtk4::PickFlags::DEFAULT);
+                    let clicked_inside_finder = picked
+                        .as_ref()
+                        .map(|widget| {
+                            let mut current = Some(widget.clone());
+                            while let Some(w) = current {
+                                if w == finder_overlay {
+                                    return true;
+                                }
+                                current = w.parent();
+                            }
+                            false
+                        })
+                        .unwrap_or(false);
+                    if !clicked_inside_finder {
+                        fuzzy_finder.hide();
+                    }
+                }
                 w.grab_focus();
             });
             widget.add_controller(gesture);
