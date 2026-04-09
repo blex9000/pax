@@ -16,6 +16,33 @@ use crate::theme::Theme;
 use crate::widgets::status_bar::StatusBar;
 use crate::workspace_view::WorkspaceView;
 
+fn panel_type_uses_text_editing_shortcuts(panel_type: &pax_core::workspace::PanelType) -> bool {
+    matches!(
+        panel_type,
+        pax_core::workspace::PanelType::CodeEditor { .. }
+            | pax_core::workspace::PanelType::Markdown { .. }
+    )
+}
+
+fn focused_panel_uses_text_editing_shortcuts(view: &WorkspaceView) -> bool {
+    view.focused_panel_id()
+        .and_then(|id| view.workspace().panel(id))
+        .map(|panel| panel_type_uses_text_editing_shortcuts(&panel.effective_type()))
+        .unwrap_or(false)
+}
+
+fn focused_panel_is_code_editor(view: &WorkspaceView) -> bool {
+    view.focused_panel_id()
+        .and_then(|id| view.workspace().panel(id))
+        .map(|panel| {
+            matches!(
+                panel.effective_type(),
+                pax_core::workspace::PanelType::CodeEditor { .. }
+            )
+        })
+        .unwrap_or(false)
+}
+
 /// Single entry point — shows welcome if no workspace, or workspace directly.
 pub fn run_app(workspace: Option<Workspace>, config_path: Option<&Path>) -> Result<()> {
     let app = adw::Application::builder()
@@ -345,12 +372,13 @@ fn setup_workspace_ui(
             if let Some(tabs_path) = panel_id.strip_prefix("nb-tabs:") {
                 match action {
                     PanelAction::AddTabToNotebook => {
-                        if let Some(tabs_path) = crate::widget_builder::decode_tab_path(tabs_path)
-                        {
+                        if let Some(tabs_path) = crate::widget_builder::decode_tab_path(tabs_path) {
                             if let Some(new_id) =
                                 ws_for_cb.borrow_mut().add_tab_to_tabs_path(&tabs_path)
                             {
-                                sb_for_cb.borrow().set_message(&format!("Tab + → {}", new_id));
+                                sb_for_cb
+                                    .borrow()
+                                    .set_message(&format!("Tab + → {}", new_id));
                             }
                         }
                     }
@@ -979,11 +1007,17 @@ fn setup_workspace_ui(
                         return glib::Propagation::Stop;
                     }
                     gdk::Key::Z => {
-                        let view = ws.borrow();
-                        if let Some(id) = view.focused_panel_id() {
-                            if let Some(host) = view.hosts().get(id) {
-                                host.expand_collapsed();
+                        if focused_panel_uses_text_editing_shortcuts(&ws.borrow()) {
+                            return glib::Propagation::Proceed;
+                        }
+                        ws.borrow_mut().toggle_zoom();
+                        let zoomed = ws.borrow().is_zoomed();
+                        if zoomed {
+                            if let Some(id) = ws.borrow().focused_panel_id() {
+                                sb.borrow().set_message(&format!("Zoom: {}", id));
                             }
+                        } else {
+                            sb.borrow().set_message("Zoom off");
                         }
                         return glib::Propagation::Stop;
                     }
@@ -1010,18 +1044,7 @@ fn setup_workspace_ui(
                     gdk::Key::p => {
                         // If focused panel is a code editor, let Ctrl+P propagate
                         // to the editor's fuzzy finder
-                        let is_code_editor = {
-                            let view = ws.borrow();
-                            view.focused_panel_id()
-                                .and_then(|id| view.workspace().panel(id))
-                                .map(|p| {
-                                    matches!(
-                                        p.effective_type(),
-                                        pax_core::workspace::PanelType::CodeEditor { .. }
-                                    )
-                                })
-                                .unwrap_or(false)
-                        };
+                        let is_code_editor = focused_panel_is_code_editor(&ws.borrow());
                         if is_code_editor {
                             return glib::Propagation::Proceed;
                         }
@@ -1032,21 +1055,8 @@ fn setup_workspace_ui(
                         return glib::Propagation::Stop;
                     }
                     gdk::Key::s => {
-                        // If focused panel is a code editor, let Ctrl+S propagate
-                        // to the editor's own save handler (saves the file, not workspace)
-                        let is_code_editor = {
-                            let view = ws.borrow();
-                            view.focused_panel_id()
-                                .and_then(|id| view.workspace().panel(id))
-                                .map(|p| {
-                                    matches!(
-                                        p.effective_type(),
-                                        pax_core::workspace::PanelType::CodeEditor { .. }
-                                    )
-                                })
-                                .unwrap_or(false)
-                        };
-                        if is_code_editor {
+                        // Let editor/markdown panels handle file save themselves.
+                        if focused_panel_uses_text_editing_shortcuts(&ws.borrow()) {
                             return glib::Propagation::Proceed;
                         }
                         actions::do_save(&ws, &sb, &win, &sa, false);
@@ -1060,18 +1070,7 @@ fn setup_workspace_ui(
                     gdk::Key::r => {
                         return glib::Propagation::Proceed;
                     }
-                    gdk::Key::z => {
-                        ws.borrow_mut().toggle_zoom();
-                        let zoomed = ws.borrow().is_zoomed();
-                        if zoomed {
-                            if let Some(id) = ws.borrow().focused_panel_id() {
-                                sb.borrow().set_message(&format!("Zoom: {}", id));
-                            }
-                        } else {
-                            sb.borrow().set_message("Zoom off");
-                        }
-                        return glib::Propagation::Stop;
-                    }
+                    gdk::Key::z | gdk::Key::y => return glib::Propagation::Proceed,
                     gdk::Key::Up | gdk::Key::Down | gdk::Key::Left | gdk::Key::Right => {
                         let ws_widget = ws.borrow().widget().clone();
                         let step = 80.0;
@@ -1256,10 +1255,12 @@ fn apply_theme(theme: Theme) {
 #[cfg(test)]
 mod tests {
     use super::{
-        load_preferred_theme_from_db, normalize_workspace_theme, workspace_with_theme, Theme,
+        load_preferred_theme_from_db, normalize_workspace_theme,
+        panel_type_uses_text_editing_shortcuts, workspace_with_theme, Theme,
     };
-    use pax_db::Database;
     use pax_core::template::empty_workspace;
+    use pax_core::workspace::PanelType;
+    use pax_db::Database;
 
     #[test]
     fn startup_theme_uses_default_theme() {
@@ -1290,6 +1291,26 @@ mod tests {
 
         assert_eq!(theme, Theme::Nord);
         assert_eq!(workspace.settings.theme, Theme::Nord.to_id());
+    }
+
+    #[test]
+    fn text_editing_shortcuts_apply_to_code_and_markdown_panels() {
+        assert!(panel_type_uses_text_editing_shortcuts(
+            &PanelType::CodeEditor {
+                root_dir: ".".into(),
+                ssh: None,
+                remote_path: None,
+                poll_interval: None,
+            }
+        ));
+        assert!(panel_type_uses_text_editing_shortcuts(
+            &PanelType::Markdown {
+                file: "notes.md".into(),
+            }
+        ));
+        assert!(!panel_type_uses_text_editing_shortcuts(
+            &PanelType::Terminal
+        ));
     }
 }
 
@@ -1337,7 +1358,7 @@ fn show_shortcuts_dialog(window: &Rc<adw::ApplicationWindow>) {
         .transient_for(window.as_ref())
         .modal(true)
         .default_width(450)
-        .default_height(500)
+        .default_height(560)
         .build();
     crate::theme::configure_dialog_window(&dialog);
 
@@ -1367,11 +1388,21 @@ fn show_shortcuts_dialog(window: &Rc<adw::ApplicationWindow>) {
             vec![
                 ("Ctrl+N", "Focus next panel"),
                 ("Ctrl+P", "Focus previous panel"),
-                ("Ctrl+Z", "Zoom/unzoom focused panel"),
-                ("Ctrl+Shift+Z", "Collapse/expand focused panel"),
+                ("Ctrl+Shift+Z", "Zoom/unzoom focused panel"),
                 ("Ctrl+R", "Reverse search (terminal)"),
                 ("Ctrl+Arrow", "Scroll workspace"),
                 ("Ctrl+Scroll", "Scroll workspace (mouse)"),
+            ],
+        ),
+        (
+            "Text Editing",
+            vec![
+                ("Ctrl+Z", "Undo"),
+                ("Ctrl+Y", "Redo"),
+                ("Ctrl+Shift+Z", "Redo"),
+                ("Ctrl+C", "Copy"),
+                ("Ctrl+X", "Cut"),
+                ("Ctrl+V", "Paste"),
             ],
         ),
         (
@@ -1389,6 +1420,14 @@ fn show_shortcuts_dialog(window: &Rc<adw::ApplicationWindow>) {
                 ("Ctrl+B", "Toggle sidebar"),
                 ("Alt+Left", "Go back (navigation)"),
                 ("Alt+Right", "Go forward (navigation)"),
+            ],
+        ),
+        (
+            "Terminal",
+            vec![
+                ("Ctrl+Shift+C", "Copy"),
+                ("Ctrl+Shift+V", "Paste"),
+                ("Ctrl+R", "Reverse search"),
             ],
         ),
         (

@@ -14,6 +14,57 @@ enum Mode {
     Edit,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TextHistoryAction {
+    Undo,
+    Redo,
+}
+
+fn text_history_action(
+    key: gtk4::gdk::Key,
+    modifiers: gtk4::gdk::ModifierType,
+) -> Option<TextHistoryAction> {
+    let ctrl = modifiers.contains(gtk4::gdk::ModifierType::CONTROL_MASK);
+    let shift = modifiers.contains(gtk4::gdk::ModifierType::SHIFT_MASK);
+    if !ctrl {
+        return None;
+    }
+
+    match key {
+        gtk4::gdk::Key::z if !shift => Some(TextHistoryAction::Undo),
+        gtk4::gdk::Key::y if !shift => Some(TextHistoryAction::Redo),
+        gtk4::gdk::Key::Z if shift => Some(TextHistoryAction::Redo),
+        _ => None,
+    }
+}
+
+fn install_text_history_shortcuts<W: IsA<gtk4::Widget>>(widget: &W, buffer: &gtk4::TextBuffer) {
+    let buffer = buffer.clone();
+    let key_ctrl = gtk4::EventControllerKey::new();
+    key_ctrl.set_propagation_phase(gtk4::PropagationPhase::Capture);
+    key_ctrl.connect_key_pressed(move |_, key, _, modifiers| {
+        let Some(action) = text_history_action(key, modifiers) else {
+            return gtk4::glib::Propagation::Proceed;
+        };
+
+        match action {
+            TextHistoryAction::Undo => {
+                if buffer.can_undo() {
+                    buffer.undo();
+                }
+            }
+            TextHistoryAction::Redo => {
+                if buffer.can_redo() {
+                    buffer.redo();
+                }
+            }
+        }
+
+        gtk4::glib::Propagation::Stop
+    });
+    widget.add_controller(key_ctrl);
+}
+
 /// Markdown viewer/editor panel.
 /// Uses GtkSourceView 5 for edit mode when available (Linux),
 /// falls back to plain TextView on macOS/no-sourceview.
@@ -60,11 +111,13 @@ impl MarkdownPanel {
         undo_btn.set_icon_name("edit-undo-symbolic");
         undo_btn.add_css_class("flat");
         undo_btn.set_sensitive(false);
+        undo_btn.set_tooltip_text(Some("Undo (Ctrl+Z)"));
 
         let redo_btn = gtk4::Button::new();
         redo_btn.set_icon_name("edit-redo-symbolic");
         redo_btn.add_css_class("flat");
         redo_btn.set_sensitive(false);
+        redo_btn.set_tooltip_text(Some("Redo (Ctrl+Y / Ctrl+Shift+Z)"));
 
         let save_btn = gtk4::Button::new();
         save_btn.set_icon_name("media-floppy-symbolic");
@@ -208,6 +261,7 @@ impl MarkdownPanel {
         };
 
         *edit_buf_ref.borrow_mut() = Some(source_buffer.clone());
+        install_text_history_shortcuts(&source_view, &source_buffer);
 
         let source_scroll = gtk4::ScrolledWindow::new();
         source_scroll.set_child(Some(&source_view));
@@ -350,7 +404,7 @@ impl MarkdownPanel {
             let sbuf = source_buffer.clone();
             let mod_flag = modified.clone();
             let sb2 = save_btn.clone();
-            save_btn.connect_clicked(move |_| {
+            let save_current: Rc<dyn Fn()> = Rc::new(move || {
                 let text = sbuf
                     .text(&sbuf.start_iter(), &sbuf.end_iter(), false)
                     .to_string();
@@ -359,6 +413,25 @@ impl MarkdownPanel {
                 mod_flag.set(false);
                 sb2.set_sensitive(false);
             });
+            {
+                let save_current = save_current.clone();
+                save_btn.connect_clicked(move |_| save_current());
+            }
+            {
+                let save_current = save_current.clone();
+                let key_ctrl = gtk4::EventControllerKey::new();
+                key_ctrl.set_propagation_phase(gtk4::PropagationPhase::Capture);
+                key_ctrl.connect_key_pressed(move |_, key, _, modifiers| {
+                    if modifiers.contains(gtk4::gdk::ModifierType::CONTROL_MASK)
+                        && key == gtk4::gdk::Key::s
+                    {
+                        save_current();
+                        return gtk4::glib::Propagation::Stop;
+                    }
+                    gtk4::glib::Propagation::Proceed
+                });
+                source_view.add_controller(key_ctrl);
+            }
         }
 
         // ── Reload button ────────────────────────────────────────────────

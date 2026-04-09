@@ -758,16 +758,26 @@ fn sync_wkwebview_host(state: &MacWebViewState, placeholder: &gtk4::Frame) {
         state.attached_host_ptr.set(host_ptr);
     }
 
-    let root_height = f64::from(window_widget.allocated_height());
     let origin_x = f64::from(bounds.x()).round();
-    let origin_y = (root_height - f64::from(bounds.y()) - height)
-        .round()
-        .max(0.0);
+    let content_frame = unsafe { content_view.frame() };
+    let content_height = content_frame.size.height;
+    let origin_y = cocoa_view_origin_y(f64::from(bounds.y()), height, content_height, unsafe {
+        content_view.isFlipped()
+    });
     let frame = NSRect::new(NSPoint::new(origin_x, origin_y), NSSize::new(width, height));
 
     unsafe {
         state.web_view.setFrame(frame);
         state.web_view.setHidden(false);
+    }
+}
+
+#[cfg(any(test, target_os = "macos"))]
+fn cocoa_view_origin_y(y: f64, height: f64, host_height: f64, is_flipped: bool) -> f64 {
+    if is_flipped {
+        y.round().max(0.0)
+    } else {
+        (host_height - y - height).round().max(0.0)
     }
 }
 
@@ -1364,7 +1374,9 @@ fn expand_home_path(value: &str) -> Option<PathBuf> {
 mod tests {
     #[cfg(target_os = "macos")]
     use super::macos_browser_devtools_help_message;
-    use super::{browser_placeholder_html, normalized_browser_uri, BrowserHistory};
+    use super::{
+        browser_placeholder_html, cocoa_view_origin_y, normalized_browser_uri, BrowserHistory,
+    };
     use tempfile::tempdir;
 
     #[test]
@@ -1433,6 +1445,12 @@ mod tests {
         let html = browser_placeholder_html();
         assert!(html.contains("Browser panel ready"));
         assert!(html.contains("localhost:3000"));
+    }
+
+    #[test]
+    fn cocoa_view_origin_y_handles_flipped_and_unflipped_hosts() {
+        assert_eq!(cocoa_view_origin_y(48.0, 120.0, 800.0, false), 632.0);
+        assert_eq!(cocoa_view_origin_y(48.0, 120.0, 800.0, true), 48.0);
     }
 
     #[cfg(target_os = "macos")]

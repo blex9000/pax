@@ -59,13 +59,23 @@ pub enum PanelAction {
         is_layout: bool,
     },
     /// Update the in-progress tab label draft text
-    UpdateTabDraft { tab_id: String, name: String },
+    UpdateTabDraft {
+        tab_id: String,
+        name: String,
+    },
     /// Preview move of the currently edited workspace tab
-    PreviewTabMove { tab_id: String, offset: i32 },
+    PreviewTabMove {
+        tab_id: String,
+        offset: i32,
+    },
     /// Commit the in-progress workspace tab edit
-    CommitTabEdit { tab_id: String },
+    CommitTabEdit {
+        tab_id: String,
+    },
     /// Cancel the in-progress workspace tab edit
-    CancelTabEdit { tab_id: String },
+    CancelTabEdit {
+        tab_id: String,
+    },
     /// Toggle zoom/fullscreen
     Zoom,
     /// Toggle sync input
@@ -226,7 +236,7 @@ impl PanelHost {
         zoom_button.set_icon_name("view-fullscreen-symbolic");
         zoom_button.add_css_class("flat");
         zoom_button.add_css_class("panel-action-btn");
-        zoom_button.set_tooltip_text(Some("Toggle zoom (Ctrl+Z)"));
+        zoom_button.set_tooltip_text(Some("Toggle zoom (Ctrl+Shift+Z)"));
         {
             let cb_ref = action_cb_ref.clone();
             let pid = panel_id.to_string();
@@ -764,7 +774,7 @@ fn build_panel_menu(panel_id: &str, action_cb: Option<PanelActionCallback>) -> g
             PanelAction::PreviewTabMove { .. } => "",
             PanelAction::CommitTabEdit { .. } => "Enter",
             PanelAction::CancelTabEdit { .. } => "Esc",
-            PanelAction::Zoom => "Ctrl+Z",
+            PanelAction::Zoom => "Ctrl+Shift+Z",
             PanelAction::Sync => "Ctrl+Shift+S",
             PanelAction::Rename(_) => "Dbl-click",
             PanelAction::RenameTab(_) => "Dbl-click",

@@ -249,10 +249,13 @@ Scorciatoie
 | Ctrl+Shift+J | Split verticale (nuovo pannello a destra) |
 | Ctrl+Shift+T | Nuovo tab |
 | Ctrl+Shift+W | Chiudi pannello |
-| Ctrl+Shift+Z | Collapse/expand pannello |
+| Ctrl+Shift+Z | Zoom/unzoom pannello, oppure Redo nei pannelli editor |
 | Ctrl+Shift+S | Toggle sync input tra terminali |
 | Ctrl+R | Reverse search (terminale bash) |
-| Ctrl+Z | Zoom/unzoom pannello |
+| Ctrl+Z | Undo nei pannelli editor |
+| Ctrl+Y | Redo nei pannelli editor |
+| Ctrl+C / Ctrl+X / Ctrl+V | Copia / Taglia / Incolla nei pannelli editor |
+| Ctrl+Shift+C / Ctrl+Shift+V | Copia / Incolla nel terminale |
 | Menu ⋮ | Configure, Split H/V, Add Tab, Close |
 | Hamburger ☰ | New, Open, Recent, Save, Save As, Settings, Quit |
 

@@ -14,6 +14,12 @@ enum TextClipboardAction {
     Paste,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TextHistoryAction {
+    Undo,
+    Redo,
+}
+
 fn text_clipboard_action(
     key: gtk4::gdk::Key,
     modifiers: gtk4::gdk::ModifierType,
@@ -26,6 +32,25 @@ fn text_clipboard_action(
         gtk4::gdk::Key::c | gtk4::gdk::Key::C => Some(TextClipboardAction::Copy),
         gtk4::gdk::Key::x | gtk4::gdk::Key::X => Some(TextClipboardAction::Cut),
         gtk4::gdk::Key::v | gtk4::gdk::Key::V => Some(TextClipboardAction::Paste),
+        _ => None,
+    }
+}
+
+fn text_history_action(
+    key: gtk4::gdk::Key,
+    modifiers: gtk4::gdk::ModifierType,
+) -> Option<TextHistoryAction> {
+    let ctrl = modifiers.contains(gtk4::gdk::ModifierType::CONTROL_MASK);
+    let shift = modifiers.contains(gtk4::gdk::ModifierType::SHIFT_MASK);
+
+    if !ctrl {
+        return None;
+    }
+
+    match key {
+        gtk4::gdk::Key::z if !shift => Some(TextHistoryAction::Undo),
+        gtk4::gdk::Key::y if !shift => Some(TextHistoryAction::Redo),
+        gtk4::gdk::Key::Z if shift => Some(TextHistoryAction::Redo),
         _ => None,
     }
 }
@@ -54,6 +79,33 @@ fn install_text_clipboard_shortcuts<W: IsA<gtk4::Widget>>(widget: &W) {
         } else {
             gtk4::glib::Propagation::Proceed
         }
+    });
+    widget.add_controller(key_ctrl);
+}
+
+fn install_text_history_shortcuts<W: IsA<gtk4::Widget>>(widget: &W, buffer: &sourceview5::Buffer) {
+    let buffer = buffer.clone();
+    let key_ctrl = gtk4::EventControllerKey::new();
+    key_ctrl.set_propagation_phase(gtk4::PropagationPhase::Capture);
+    key_ctrl.connect_key_pressed(move |_, key, _, modifiers| {
+        let Some(action) = text_history_action(key, modifiers) else {
+            return gtk4::glib::Propagation::Proceed;
+        };
+
+        match action {
+            TextHistoryAction::Undo => {
+                if buffer.can_undo() {
+                    buffer.undo();
+                }
+            }
+            TextHistoryAction::Redo => {
+                if buffer.can_redo() {
+                    buffer.redo();
+                }
+            }
+        }
+
+        gtk4::glib::Propagation::Stop
     });
     widget.add_controller(key_ctrl);
 }
@@ -105,6 +157,9 @@ impl EditorTabs {
         source_view.set_show_right_margin(true);
         source_view.set_right_margin_position(120);
         install_text_clipboard_shortcuts(&source_view);
+        if let Some(buffer) = source_view.buffer().downcast_ref::<sourceview5::Buffer>() {
+            install_text_history_shortcuts(&source_view, buffer);
+        }
 
         // Apply and register for theme updates
         if let Some(buf) = source_view.buffer().downcast_ref::<sourceview5::Buffer>() {
@@ -898,6 +953,7 @@ impl EditorTabs {
             view.set_monospace(true);
             view.set_left_margin(4);
             install_text_clipboard_shortcuts(&view);
+            install_text_history_shortcuts(&view, buf);
             if editable {
                 view.set_auto_indent(true);
                 view.set_tab_width(4);
@@ -1548,6 +1604,7 @@ fn show_commit_file_diff(
         view.set_monospace(true);
         view.set_left_margin(4);
         install_text_clipboard_shortcuts(&view);
+        install_text_history_shortcuts(&view, buf);
         let scroll = gtk4::ScrolledWindow::new();
         scroll.set_child(Some(&view));
         scroll.set_vexpand(true);
@@ -1702,6 +1759,29 @@ mod tests {
         );
         assert_eq!(
             text_clipboard_action(gtk4::gdk::Key::c, gtk4::gdk::ModifierType::SHIFT_MASK),
+            None
+        );
+    }
+
+    #[test]
+    fn recognizes_text_history_shortcuts() {
+        assert_eq!(
+            text_history_action(gtk4::gdk::Key::z, gtk4::gdk::ModifierType::CONTROL_MASK),
+            Some(TextHistoryAction::Undo)
+        );
+        assert_eq!(
+            text_history_action(gtk4::gdk::Key::y, gtk4::gdk::ModifierType::CONTROL_MASK),
+            Some(TextHistoryAction::Redo)
+        );
+        assert_eq!(
+            text_history_action(
+                gtk4::gdk::Key::Z,
+                gtk4::gdk::ModifierType::CONTROL_MASK | gtk4::gdk::ModifierType::SHIFT_MASK,
+            ),
+            Some(TextHistoryAction::Redo)
+        );
+        assert_eq!(
+            text_history_action(gtk4::gdk::Key::z, gtk4::gdk::ModifierType::SHIFT_MASK),
             None
         );
     }
