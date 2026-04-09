@@ -260,7 +260,11 @@ impl Theme {
 /// Minimal CSS — only layout, no colors.
 pub const BASE_CSS: &str = "
 window, .background { background-color: @window_bg_color; color: @window_fg_color; }
-window.app-dialog { background-color: @dialog_bg_color; color: @dialog_fg_color; }
+window.app-dialog,
+window.app-dialog > * {
+  background-color: @headerbar_bg_color;
+  color: @headerbar_fg_color;
+}
 toolbarview.app-toolbar-view { background-color: @window_bg_color; color: @window_fg_color; }
 toolbarview.app-toolbar-view .top-bar { background-color: @headerbar_bg_color; color: @headerbar_fg_color; border-bottom: 1px solid @headerbar_border_color; }
 toolbarview.app-toolbar-view .top-bar > * { background-color: @headerbar_bg_color; color: @headerbar_fg_color; }
@@ -612,5 +616,12 @@ mod tests {
         assert!(BASE_CSS.contains(".editor-file-tree-scroll viewport"));
         assert!(BASE_CSS.contains("background-color: @view_bg_color;"));
         assert!(BASE_CSS.contains("color: @view_fg_color;"));
+    }
+
+    #[test]
+    fn app_dialog_windows_use_headerbar_surface() {
+        assert!(BASE_CSS.contains("window.app-dialog,"));
+        assert!(BASE_CSS.contains("background-color: @headerbar_bg_color;"));
+        assert!(BASE_CSS.contains("color: @headerbar_fg_color;"));
     }
 }
