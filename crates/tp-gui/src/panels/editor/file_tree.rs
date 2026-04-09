@@ -64,6 +64,7 @@ impl FileTree {
         // Action buttons bar at bottom
         let actions_bar = gtk4::Box::new(gtk4::Orientation::Horizontal, 2);
         actions_bar.add_css_class("editor-sidebar-toolbar");
+        actions_bar.add_css_class("editor-file-tree-actions");
         actions_bar.set_margin_start(4);
         actions_bar.set_margin_end(4);
         actions_bar.set_margin_bottom(2);
