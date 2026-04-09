@@ -1,4 +1,5 @@
 use gtk4::prelude::*;
+use std::cell::Cell;
 use std::collections::HashMap;
 use std::rc::Rc;
 
@@ -69,6 +70,7 @@ pub fn build_tab_label(
     stack.add_named(&label, Some("label"));
 
     let edit_box = gtk4::Box::new(gtk4::Orientation::Horizontal, 4);
+    let suppress_entry_changed = Rc::new(Cell::new(false));
     let move_left_btn = gtk4::Button::new();
     move_left_btn.set_icon_name("go-previous-symbolic");
     move_left_btn.set_tooltip_text(Some("Move tab left"));
@@ -141,7 +143,11 @@ pub fn build_tab_label(
     {
         let cb = action_cb.clone();
         let panel_id = tab_panel_id.clone();
+        let suppress_entry_changed = suppress_entry_changed.clone();
         entry.connect_changed(move |entry| {
+            if suppress_entry_changed.get() {
+                return;
+            }
             if let (Some(ref cb), Some(panel_id)) = (&cb, panel_id.as_ref()) {
                 cb(
                     &format!("nb:{}", panel_id),
@@ -212,7 +218,9 @@ pub fn build_tab_label(
 
     if let Some(active_edit) = active_edit {
         label.set_text(&active_edit.draft_name);
+        suppress_entry_changed.set(true);
         entry.set_text(&active_edit.draft_name);
+        suppress_entry_changed.set(false);
         stack.set_visible_child_name("edit");
         let entry = entry.clone();
         let update_move_buttons = update_move_buttons.clone();
