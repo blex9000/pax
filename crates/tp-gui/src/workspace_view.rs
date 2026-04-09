@@ -387,8 +387,11 @@ impl WorkspaceView {
     }
 
     pub fn move_tab_by_panel_id(&mut self, panel_id: &str, direction: i32) -> bool {
-        let moved =
-            crate::layout_ops::move_tab_in_layout(&mut self.workspace.layout, panel_id, direction);
+        let moved = crate::layout_ops::move_tab_in_layout_steps(
+            &mut self.workspace.layout,
+            panel_id,
+            direction,
+        );
         if !moved {
             return false;
         }
@@ -1332,6 +1335,37 @@ mod tests {
                 assert_eq!(labels, &["tab-b", "tab-a"]);
                 assert!(matches!(&children[0], LayoutNode::Panel { id } if id == "b"));
                 assert!(matches!(&children[1], LayoutNode::Panel { id } if id == "a"));
+            }
+            _ => panic!("expected tabs layout"),
+        }
+    }
+
+    #[test]
+    fn move_tab_by_panel_id_supports_multi_step_offsets() {
+        let mut layout = LayoutNode::Tabs {
+            children: vec![
+                LayoutNode::Panel {
+                    id: "a".to_string(),
+                },
+                LayoutNode::Panel {
+                    id: "b".to_string(),
+                },
+                LayoutNode::Panel {
+                    id: "c".to_string(),
+                },
+            ],
+            labels: vec!["tab-a".into(), "tab-b".into(), "tab-c".into()],
+        };
+
+        let moved = crate::layout_ops::move_tab_in_layout_steps(&mut layout, "a", 2);
+
+        assert!(moved);
+        match &layout {
+            LayoutNode::Tabs { labels, children } => {
+                assert_eq!(labels, &["tab-b", "tab-c", "tab-a"]);
+                assert!(matches!(&children[0], LayoutNode::Panel { id } if id == "b"));
+                assert!(matches!(&children[1], LayoutNode::Panel { id } if id == "c"));
+                assert!(matches!(&children[2], LayoutNode::Panel { id } if id == "a"));
             }
             _ => panic!("expected tabs layout"),
         }

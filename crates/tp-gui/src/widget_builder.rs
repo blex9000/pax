@@ -1,5 +1,7 @@
 use gtk4::prelude::*;
+use std::cell::Cell;
 use std::collections::HashMap;
+use std::rc::Rc;
 
 use pax_core::workspace::{LayoutNode, PanelConfig, Workspace};
 
@@ -47,23 +49,134 @@ pub fn build_tab_label(
     let stack = gtk4::Stack::new();
     let label = gtk4::Label::new(Some(name));
     stack.add_named(&label, Some("label"));
+
+    let edit_box = gtk4::Box::new(gtk4::Orientation::Horizontal, 4);
+    edit_box.set_hexpand(true);
+    let move_left_btn = gtk4::Button::new();
+    move_left_btn.set_icon_name("go-previous-symbolic");
+    move_left_btn.set_tooltip_text(Some("Move tab left"));
+    move_left_btn.add_css_class("flat");
+    move_left_btn.add_css_class("circular");
+    move_left_btn.set_focus_on_click(false);
+    edit_box.append(&move_left_btn);
+
     let entry = gtk4::Entry::new();
     entry.set_text(name);
     entry.set_width_chars(12);
-    stack.add_named(&entry, Some("entry"));
+    entry.set_hexpand(true);
+    edit_box.append(&entry);
+
+    let move_right_btn = gtk4::Button::new();
+    move_right_btn.set_icon_name("go-next-symbolic");
+    move_right_btn.set_tooltip_text(Some("Move tab right"));
+    move_right_btn.add_css_class("flat");
+    move_right_btn.add_css_class("circular");
+    move_right_btn.set_focus_on_click(false);
+    edit_box.append(&move_right_btn);
+
+    stack.add_named(&edit_box, Some("edit"));
     stack.set_visible_child_name("label");
+
+    let original_page = Rc::new(Cell::new(None::<u32>));
+    let pending_offset = Rc::new(Cell::new(0_i32));
+    let is_layout = panel_type_id == "__layout__";
+
+    let update_move_buttons: Rc<dyn Fn()> = Rc::new({
+        let child_widget = child_widget.clone();
+        let move_left_btn = move_left_btn.clone();
+        let move_right_btn = move_right_btn.clone();
+        move || {
+            let Some(notebook) = find_notebook_ancestor(&child_widget) else {
+                move_left_btn.set_sensitive(false);
+                move_right_btn.set_sensitive(false);
+                return;
+            };
+            let Some(position) = notebook.page_num(&child_widget) else {
+                move_left_btn.set_sensitive(false);
+                move_right_btn.set_sensitive(false);
+                return;
+            };
+            move_left_btn.set_sensitive(position > 0);
+            move_right_btn.set_sensitive(position + 1 < notebook.n_pages());
+        }
+    });
+
+    let finish_edit: Rc<dyn Fn(bool)> = Rc::new({
+        let stack = stack.clone();
+        let label = label.clone();
+        let entry = entry.clone();
+        let cb = action_cb.clone();
+        let child_widget = child_widget.clone();
+        let original_page = original_page.clone();
+        let pending_offset = pending_offset.clone();
+        move |commit| {
+            let original_label = label.text().to_string();
+            let new_name = entry.text().to_string();
+            let trimmed_name = new_name.trim().to_string();
+            let move_offset = pending_offset.get();
+            let original_page_value = original_page.get();
+
+            if commit {
+                pending_offset.set(0);
+                original_page.set(None);
+                stack.set_visible_child_name("label");
+
+                if !trimmed_name.is_empty() && new_name != original_label {
+                    label.set_text(&new_name);
+                    if let Some(ref cb) = cb {
+                        if is_layout {
+                            if let Some(pid) = find_first_panel_id(&child_widget) {
+                                cb(&pid, PanelAction::RenameTab(new_name.clone()));
+                            }
+                        } else {
+                            find_panel_id_recursive(&child_widget, &|panel_id| {
+                                cb(panel_id, PanelAction::Rename(new_name.clone()));
+                            });
+                        }
+                    }
+                } else {
+                    entry.set_text(&original_label);
+                }
+
+                if move_offset != 0 {
+                    if let Some(ref cb) = cb {
+                        if let Some(pid) = find_first_panel_id(&child_widget) {
+                            cb(&format!("nb:{}", pid), PanelAction::MoveTabBy(move_offset));
+                        }
+                    }
+                }
+            } else {
+                if let Some(original_page) = original_page_value {
+                    restore_workspace_tab_preview(&child_widget, original_page);
+                }
+                entry.set_text(&original_label);
+                pending_offset.set(0);
+                original_page.set(None);
+                stack.set_visible_child_name("label");
+            }
+        }
+    });
 
     {
         let s = stack.clone();
         let e = entry.clone();
         let l = label.clone();
+        let original_page = original_page.clone();
+        let pending_offset = pending_offset.clone();
+        let update_move_buttons = update_move_buttons.clone();
+        let child_widget = child_widget.clone();
         let gesture = gtk4::GestureClick::new();
         gesture.set_button(1);
         gesture.set_propagation_phase(gtk4::PropagationPhase::Bubble);
         gesture.connect_released(move |g, n_press, _, _| {
             if n_press == 2 {
                 e.set_text(&l.text());
-                s.set_visible_child_name("entry");
+                original_page.set(
+                    find_notebook_ancestor(&child_widget).and_then(|nb| nb.page_num(&child_widget)),
+                );
+                pending_offset.set(0);
+                update_move_buttons();
+                s.set_visible_child_name("edit");
                 e.grab_focus();
                 g.set_state(gtk4::EventSequenceState::Claimed);
             }
@@ -72,41 +185,19 @@ pub fn build_tab_label(
     }
 
     {
-        let s = stack.clone();
-        let l = label.clone();
-        let cb = action_cb.clone();
-        let w = child_widget.clone();
-        let is_layout = panel_type_id == "__layout__";
+        let finish_edit = finish_edit.clone();
         entry.connect_activate(move |entry| {
-            let new_name = entry.text().to_string();
-            if !new_name.trim().is_empty() {
-                l.set_text(&new_name);
-                if let Some(ref cb) = cb {
-                    if is_layout {
-                        // Layout tab: update only the tab label, not child panel names.
-                        // Send RenameTab with the first child panel_id so the handler
-                        // can find the correct Tabs node in the layout tree.
-                        if let Some(pid) = find_first_panel_id(&w) {
-                            cb(&pid, PanelAction::RenameTab(new_name.clone()));
-                        }
-                    } else {
-                        // Single panel tab: rename the panel itself
-                        find_panel_id_recursive(&w, &|panel_id| {
-                            cb(panel_id, PanelAction::Rename(new_name.clone()));
-                        });
-                    }
-                }
-            }
-            s.set_visible_child_name("label");
+            let _ = entry;
+            finish_edit(true);
         });
     }
 
     {
-        let s = stack.clone();
+        let finish_edit = finish_edit.clone();
         let key_ctrl = gtk4::EventControllerKey::new();
         key_ctrl.connect_key_pressed(move |_, key, _, _| {
             if key == gtk4::gdk::Key::Escape {
-                s.set_visible_child_name("label");
+                finish_edit(false);
                 return gtk4::glib::Propagation::Stop;
             }
             gtk4::glib::Propagation::Proceed
@@ -118,12 +209,40 @@ pub fn build_tab_label(
     // Cannot save on focus-out because GTK emits focus-leave during rebuild,
     // causing RefCell borrow panic when the callback tries to access workspace.
     {
-        let s = stack.clone();
+        let finish_edit = finish_edit.clone();
         let focus_ctrl = gtk4::EventControllerFocus::new();
         focus_ctrl.connect_leave(move |_| {
-            s.set_visible_child_name("label");
+            finish_edit(false);
         });
         entry.add_controller(focus_ctrl);
+    }
+
+    {
+        let child_widget = child_widget.clone();
+        let pending_offset = pending_offset.clone();
+        let update_move_buttons = update_move_buttons.clone();
+        let entry = entry.clone();
+        move_left_btn.connect_clicked(move |_| {
+            if preview_move_workspace_tab(&child_widget, -1) {
+                pending_offset.set(pending_offset.get() - 1);
+                update_move_buttons();
+                entry.grab_focus();
+            }
+        });
+    }
+
+    {
+        let child_widget = child_widget.clone();
+        let pending_offset = pending_offset.clone();
+        let update_move_buttons = update_move_buttons.clone();
+        let entry = entry.clone();
+        move_right_btn.connect_clicked(move |_| {
+            if preview_move_workspace_tab(&child_widget, 1) {
+                pending_offset.set(pending_offset.get() + 1);
+                update_move_buttons();
+                entry.grab_focus();
+            }
+        });
     }
 
     hbox.append(&stack);
@@ -147,93 +266,38 @@ pub fn build_tab_label(
 
     hbox.append(&close_btn);
 
-    {
-        let cb = action_cb.clone();
-        let widget = child_widget.clone();
-        let hbox_for_menu = hbox.clone();
-        let gesture = gtk4::GestureClick::new();
-        gesture.set_button(3);
-        gesture.set_propagation_phase(gtk4::PropagationPhase::Bubble);
-        gesture.connect_pressed(move |_gesture, _n_press, x, y| {
-            let Some(ref cb) = cb else {
-                return;
-            };
-            let Some(notebook) = find_notebook_ancestor(&widget) else {
-                return;
-            };
-            let Some(page_index) = notebook.page_num(&widget) else {
-                return;
-            };
-            let Some(panel_id) = find_first_panel_id(&widget) else {
-                return;
-            };
-
-            let popover = gtk4::Popover::new();
-            crate::theme::configure_popover(&popover);
-            let menu_box = gtk4::Box::new(gtk4::Orientation::Vertical, 2);
-            menu_box.set_margin_top(4);
-            menu_box.set_margin_bottom(4);
-            menu_box.set_margin_start(4);
-            menu_box.set_margin_end(4);
-
-            let move_left =
-                build_tab_context_menu_button("go-previous-symbolic", "Move Left", page_index > 0);
-            {
-                let cb = cb.clone();
-                let popover = popover.clone();
-                let panel_id = panel_id.clone();
-                move_left.connect_clicked(move |_| {
-                    cb(&format!("nb:{}", panel_id), PanelAction::MoveTabLeft);
-                    popover.popdown();
-                });
-            }
-            menu_box.append(&move_left);
-
-            let move_right = build_tab_context_menu_button(
-                "go-next-symbolic",
-                "Move Right",
-                page_index + 1 < notebook.n_pages(),
-            );
-            {
-                let cb = cb.clone();
-                let popover = popover.clone();
-                move_right.connect_clicked(move |_| {
-                    cb(&format!("nb:{}", panel_id), PanelAction::MoveTabRight);
-                    popover.popdown();
-                });
-            }
-            menu_box.append(&move_right);
-
-            popover.set_child(Some(&menu_box));
-            popover.set_parent(&hbox_for_menu);
-            popover.set_pointing_to(Some(&gtk4::gdk::Rectangle::new(x as i32, y as i32, 1, 1)));
-            popover.connect_closed(|popover| {
-                popover.unparent();
-            });
-            popover.popup();
-        });
-        hbox.add_controller(gesture);
-    }
-
     hbox.upcast::<gtk4::Widget>()
 }
 
-fn build_tab_context_menu_button(icon_name: &str, label: &str, sensitive: bool) -> gtk4::Button {
-    let button = gtk4::Button::new();
-    button.add_css_class("flat");
-    button.add_css_class("app-popover-button");
-    button.set_sensitive(sensitive);
+fn preview_move_workspace_tab(child_widget: &gtk4::Widget, step: i32) -> bool {
+    let Some(notebook) = find_notebook_ancestor(child_widget) else {
+        return false;
+    };
+    let Some(position) = notebook.page_num(child_widget) else {
+        return false;
+    };
+    let target = position as i32 + step;
+    if !(0..notebook.n_pages() as i32).contains(&target) {
+        return false;
+    }
 
-    let row = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
-    row.append(&gtk4::Image::from_icon_name(icon_name));
+    let target = target as u32;
+    notebook.reorder_child(child_widget, Some(target));
+    notebook.set_current_page(Some(target));
+    true
+}
 
-    let text = gtk4::Label::new(Some(label));
-    text.set_hexpand(true);
-    text.set_halign(gtk4::Align::Start);
-    row.append(&text);
+fn restore_workspace_tab_preview(child_widget: &gtk4::Widget, position: u32) -> bool {
+    let Some(notebook) = find_notebook_ancestor(child_widget) else {
+        return false;
+    };
+    if position >= notebook.n_pages() {
+        return false;
+    }
 
-    button.set_child(Some(&row));
-    button
+    notebook.reorder_child(child_widget, Some(position));
+    notebook.set_current_page(Some(position));
+    true
 }
 
 /// Rebuild tab labels on existing Notebooks from the layout model.

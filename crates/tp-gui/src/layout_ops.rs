@@ -302,6 +302,25 @@ pub fn move_tab_in_layout(node: &mut LayoutNode, panel_id: &str, direction: i32)
     }
 }
 
+/// Move the INNERMOST tab containing `panel_id` by a signed offset.
+/// Applies the move one step at a time so the final order matches repeated
+/// left/right actions in the UI.
+pub fn move_tab_in_layout_steps(node: &mut LayoutNode, panel_id: &str, offset: i32) -> bool {
+    let step = offset.signum();
+    if step == 0 {
+        return false;
+    }
+
+    let mut moved = false;
+    for _ in 0..offset.abs() {
+        if !move_tab_in_layout(node, panel_id, step) {
+            break;
+        }
+        moved = true;
+    }
+    moved
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -509,6 +528,26 @@ mod tests {
             assert_eq!(labels, &["first", "second"]);
         } else {
             panic!("expected tabs");
+        }
+    }
+
+    #[test]
+    fn move_tab_steps_matches_repeated_single_moves() {
+        let mut layout = tabs(
+            vec![panel("a"), panel("b"), panel("c")],
+            vec!["first", "second", "third"],
+        );
+
+        let moved = move_tab_in_layout_steps(&mut layout, "a", 2);
+
+        assert!(moved);
+        if let LayoutNode::Tabs { children, labels } = &layout {
+            assert!(matches!(&children[0], LayoutNode::Panel { id } if id == "b"));
+            assert!(matches!(&children[1], LayoutNode::Panel { id } if id == "c"));
+            assert!(matches!(&children[2], LayoutNode::Panel { id } if id == "a"));
+            assert_eq!(labels, &["second", "third", "first"]);
+        } else {
+            panic!("expected Tabs");
         }
     }
 
