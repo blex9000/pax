@@ -229,18 +229,8 @@ pub fn build_tab_label(
         let suppress_cancel = suppress_cancel.clone();
         let update_move_buttons = update_move_buttons.clone();
         let entry = entry.clone();
-        let gesture = gtk4::GestureClick::new();
-        gesture.set_button(1);
-        let suppress_cancel_on_press = suppress_cancel.clone();
-        gesture.connect_pressed(move |_, _, _, _| {
-            suppress_cancel_on_press.set(true);
-        });
-        let child_widget = child_widget.clone();
-        let pending_offset = pending_offset.clone();
-        let suppress_cancel = suppress_cancel.clone();
-        let update_move_buttons = update_move_buttons.clone();
-        let entry = entry.clone();
-        gesture.connect_released(move |g, _, _, _| {
+        move_left_btn.connect_clicked(move |_| {
+            suppress_cancel.set(true);
             if preview_move_workspace_tab(&child_widget, -1) {
                 pending_offset.set(pending_offset.get() - 1);
                 update_move_buttons();
@@ -250,9 +240,7 @@ pub fn build_tab_label(
             gtk4::glib::idle_add_local_once(move || {
                 suppress_cancel.set(false);
             });
-            g.set_state(gtk4::EventSequenceState::Claimed);
         });
-        move_left_btn.add_controller(gesture);
     }
 
     {
@@ -261,18 +249,8 @@ pub fn build_tab_label(
         let suppress_cancel = suppress_cancel.clone();
         let update_move_buttons = update_move_buttons.clone();
         let entry = entry.clone();
-        let gesture = gtk4::GestureClick::new();
-        gesture.set_button(1);
-        let suppress_cancel_on_press = suppress_cancel.clone();
-        gesture.connect_pressed(move |_, _, _, _| {
-            suppress_cancel_on_press.set(true);
-        });
-        let child_widget = child_widget.clone();
-        let pending_offset = pending_offset.clone();
-        let suppress_cancel = suppress_cancel.clone();
-        let update_move_buttons = update_move_buttons.clone();
-        let entry = entry.clone();
-        gesture.connect_released(move |g, _, _, _| {
+        move_right_btn.connect_clicked(move |_| {
+            suppress_cancel.set(true);
             if preview_move_workspace_tab(&child_widget, 1) {
                 pending_offset.set(pending_offset.get() + 1);
                 update_move_buttons();
@@ -282,9 +260,7 @@ pub fn build_tab_label(
             gtk4::glib::idle_add_local_once(move || {
                 suppress_cancel.set(false);
             });
-            g.set_state(gtk4::EventSequenceState::Claimed);
         });
-        move_right_btn.add_controller(gesture);
     }
 
     hbox.append(&stack);
@@ -323,10 +299,7 @@ fn preview_move_workspace_tab(child_widget: &gtk4::Widget, step: i32) -> bool {
         return false;
     }
 
-    let target = target as u32;
-    notebook.reorder_child(child_widget, Some(target));
-    notebook.set_current_page(Some(target));
-    true
+    move_notebook_page_to(&notebook, child_widget, target as u32)
 }
 
 fn restore_workspace_tab_preview(child_widget: &gtk4::Widget, position: u32) -> bool {
@@ -337,7 +310,35 @@ fn restore_workspace_tab_preview(child_widget: &gtk4::Widget, position: u32) -> 
         return false;
     }
 
-    notebook.reorder_child(child_widget, Some(position));
+    move_notebook_page_to(&notebook, child_widget, position)
+}
+
+fn move_notebook_page_to(
+    notebook: &gtk4::Notebook,
+    child_widget: &gtk4::Widget,
+    position: u32,
+) -> bool {
+    let Some(current_position) = notebook.page_num(child_widget) else {
+        return false;
+    };
+    if current_position == position {
+        notebook.set_current_page(Some(position));
+        return true;
+    }
+
+    let tab_label = notebook.tab_label(child_widget);
+    let menu_label = notebook.menu_label(child_widget);
+    notebook.remove_page(Some(current_position));
+    if let Some(menu_label) = menu_label.as_ref() {
+        notebook.insert_page_menu(
+            child_widget,
+            tab_label.as_ref(),
+            Some(menu_label),
+            Some(position),
+        );
+    } else {
+        notebook.insert_page(child_widget, tab_label.as_ref(), Some(position));
+    }
     notebook.set_current_page(Some(position));
     true
 }
