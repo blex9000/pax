@@ -564,6 +564,10 @@ impl WorkspaceView {
         })
     }
 
+    pub fn active_tab_edit_panel_id(&self) -> Option<String> {
+        self.tab_edit.as_ref().map(|state| state.panel_id.clone())
+    }
+
     pub fn refresh_tab_labels(&self) {
         let Some(ref cb) = self.action_cb else {
             return;

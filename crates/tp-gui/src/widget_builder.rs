@@ -162,19 +162,6 @@ pub fn build_tab_label(
         entry.add_controller(key_ctrl);
     }
 
-    // Focus-out: save and close when leaving the tab title editor.
-    {
-        let cb = action_cb.clone();
-        let panel_id = tab_panel_id.clone();
-        let focus_ctrl = gtk4::EventControllerFocus::new();
-        focus_ctrl.connect_leave(move |_| {
-            if let (Some(ref cb), Some(panel_id)) = (&cb, panel_id.as_ref()) {
-                cb(&format!("nb:{}", panel_id), PanelAction::CommitTabEdit);
-            }
-        });
-        edit_box.add_controller(focus_ctrl);
-    }
-
     {
         let cb = action_cb.clone();
         let panel_id = tab_panel_id.clone();
@@ -512,6 +499,22 @@ fn activate_tab_label_editor(
         entry.grab_focus();
         entry.set_position(-1);
     });
+}
+
+pub fn find_active_tab_editor_recursive(widget: &gtk4::Widget) -> Option<gtk4::Widget> {
+    if let Ok(stack) = widget.clone().downcast::<gtk4::Stack>() {
+        if stack.visible_child_name().as_deref() == Some("edit") {
+            return stack.parent();
+        }
+    }
+    let mut child = widget.first_child();
+    while let Some(c) = child {
+        if let Some(found) = find_active_tab_editor_recursive(&c) {
+            return Some(found);
+        }
+        child = c.next_sibling();
+    }
+    None
 }
 
 fn update_tab_move_buttons(tab_label: &gtk4::Widget, page_widget: &gtk4::Widget) {

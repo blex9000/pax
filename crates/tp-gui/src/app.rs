@@ -595,6 +595,49 @@ fn setup_workspace_ui(
         ws_view.borrow_mut().set_action_callback(cb);
     }
 
+    {
+        let ws_for_click = ws_view.clone();
+        let win_for_click = window_rc.clone();
+        let sa_for_click = save_action.clone();
+        let outside_click = gtk4::GestureClick::new();
+        outside_click.set_button(1);
+        outside_click.set_propagation_phase(gtk4::PropagationPhase::Capture);
+        outside_click.connect_pressed(move |_, _, x, y| {
+            let picked = win_for_click.pick(x, y, gtk4::PickFlags::DEFAULT);
+            let (active_editor, panel_id) = {
+                let view = ws_for_click.borrow();
+                let active_editor = crate::widget_builder::find_active_tab_editor_recursive(
+                    view.widget().upcast_ref(),
+                );
+                let panel_id = view.active_tab_edit_panel_id();
+                (active_editor, panel_id)
+            };
+            let (Some(active_editor), Some(panel_id)) = (active_editor, panel_id) else {
+                return;
+            };
+            let clicked_inside_editor = picked
+                .as_ref()
+                .map(|widget| {
+                    let mut current = Some(widget.clone());
+                    while let Some(w) = current {
+                        if w == active_editor {
+                            return true;
+                        }
+                        current = w.parent();
+                    }
+                    false
+                })
+                .unwrap_or(false);
+            if clicked_inside_editor {
+                return;
+            }
+            if ws_for_click.borrow_mut().commit_tab_edit(&panel_id) {
+                actions::update_dirty_ui(&ws_for_click, &win_for_click, &sa_for_click);
+            }
+        });
+        window.add_controller(outside_click);
+    }
+
     // Setup sync input propagation: when a synced terminal gets local input,
     // forward it to all other synced terminals.
     {
