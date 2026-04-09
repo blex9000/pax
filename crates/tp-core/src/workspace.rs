@@ -135,13 +135,10 @@ pub enum PanelType {
         user: Option<String>,
     },
     /// Markdown viewer
-    Markdown {
-        file: String,
-    },
-    /// Browser panel: embedded WebKitGTK on Linux, native browser launcher on macOS.
-    Browser {
-        url: String,
-    },
+    Markdown { file: String },
+    /// Legacy browser panel. Kept only so old workspace files deserialize; Pax no longer creates
+    /// or renders browser panels.
+    Browser { url: String },
     /// Embedded code editor (local or remote via SSHFS)
     CodeEditor {
         root_dir: String,
@@ -206,8 +203,10 @@ impl PanelConfig {
     /// Legacy Ssh/RemoteTmux types are treated as Terminal (ssh config is in self.ssh).
     pub fn effective_type(&self) -> PanelType {
         match &self.panel_type {
-            PanelType::Empty => PanelType::Empty,
-            PanelType::Ssh { .. } | PanelType::RemoteTmux { .. } | PanelType::Terminal => PanelType::Terminal,
+            PanelType::Empty | PanelType::Browser { .. } => PanelType::Empty,
+            PanelType::Ssh { .. } | PanelType::RemoteTmux { .. } | PanelType::Terminal => {
+                PanelType::Terminal
+            }
             other => other.clone(),
         }
     }
@@ -220,31 +219,64 @@ impl PanelConfig {
             return self.ssh.clone();
         }
         // Legacy PanelType::Ssh
-        if let PanelType::Ssh { host, port, user, password, identity_file } = &self.panel_type {
+        if let PanelType::Ssh {
+            host,
+            port,
+            user,
+            password,
+            identity_file,
+        } = &self.panel_type
+        {
             return Some(SshConfig {
-                host: host.clone(), port: *port, user: user.clone(),
-                password: password.clone(), identity_file: identity_file.clone(),
+                host: host.clone(),
+                port: *port,
+                user: user.clone(),
+                password: password.clone(),
+                identity_file: identity_file.clone(),
                 tmux_session: None,
             });
         }
         // Legacy PanelType::RemoteTmux
-        if let PanelType::RemoteTmux { host, session, user } = &self.panel_type {
+        if let PanelType::RemoteTmux {
+            host,
+            session,
+            user,
+        } = &self.panel_type
+        {
             return Some(SshConfig {
-                host: host.clone(), port: 22, user: user.clone(),
-                password: None, identity_file: None,
+                host: host.clone(),
+                port: 22,
+                user: user.clone(),
+                password: None,
+                identity_file: None,
                 tmux_session: Some(session.clone()),
             });
         }
         // Legacy PanelTarget
         match &self.target {
-            PanelTarget::Ssh { host, port, user, identity_file } => Some(SshConfig {
-                host: host.clone(), port: *port, user: user.clone(),
-                password: None, identity_file: identity_file.clone(),
+            PanelTarget::Ssh {
+                host,
+                port,
+                user,
+                identity_file,
+            } => Some(SshConfig {
+                host: host.clone(),
+                port: *port,
+                user: user.clone(),
+                password: None,
+                identity_file: identity_file.clone(),
                 tmux_session: None,
             }),
-            PanelTarget::RemoteTmux { host, session, user } => Some(SshConfig {
-                host: host.clone(), port: 22, user: user.clone(),
-                password: None, identity_file: None,
+            PanelTarget::RemoteTmux {
+                host,
+                session,
+                user,
+            } => Some(SshConfig {
+                host: host.clone(),
+                port: 22,
+                user: user.clone(),
+                password: None,
+                identity_file: None,
                 tmux_session: Some(session.clone()),
             }),
             PanelTarget::Local => None,
@@ -400,7 +432,9 @@ impl Workspace {
 
 #[cfg(test)]
 mod tests {
-    use super::{new_tab_id, LayoutNode, Workspace, WorkspaceSettings};
+    use super::{
+        new_tab_id, LayoutNode, PanelConfig, PanelTarget, PanelType, Workspace, WorkspaceSettings,
+    };
 
     #[test]
     fn workspace_settings_default_to_nord_theme() {
@@ -410,6 +444,31 @@ mod tests {
     #[test]
     fn new_tab_id_has_expected_prefix() {
         assert!(new_tab_id().starts_with("tab-"));
+    }
+
+    #[test]
+    fn legacy_browser_panel_effectively_becomes_empty() {
+        let panel = PanelConfig {
+            id: "p1".to_string(),
+            name: "Old Browser".to_string(),
+            panel_type: PanelType::Browser {
+                url: "https://example.com".to_string(),
+            },
+            target: PanelTarget::Local,
+            startup_commands: Vec::new(),
+            groups: Vec::new(),
+            record_output: false,
+            cwd: None,
+            env: std::collections::HashMap::new(),
+            pre_script: None,
+            post_script: None,
+            before_close: None,
+            min_width: 0,
+            min_height: 0,
+            ssh: None,
+        };
+
+        assert_eq!(panel.effective_type(), PanelType::Empty);
     }
 
     #[test]

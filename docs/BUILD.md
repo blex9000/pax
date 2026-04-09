@@ -4,7 +4,7 @@
 
 ### Linux (Ubuntu/Mint/Debian)
 ```bash
-sudo apt install libgtk-4-dev libadwaita-1-dev libvte-2.91-gtk4-dev libgtksourceview-5-dev libwebkitgtk-6.0-dev
+sudo apt install libgtk-4-dev libadwaita-1-dev libvte-2.91-gtk4-dev libgtksourceview-5-dev
 ```
 
 ### macOS
@@ -83,7 +83,7 @@ Requisiti aggiuntivi: `curl` (per scaricare linuxdeploy).
 Lo script:
 1. Compila release binary
 2. Scarica linuxdeploy + plugin GTK4
-3. Bundla librerie, icone, GtkSourceView5 styles, tema Adwaita e runtime browser WebKitGTK
+3. Bundla librerie, icone, GtkSourceView5 styles e tema Adwaita
 4. Patcha il plugin GTK (rimuove forzature `GTK_THEME` e `GDK_BACKEND=x11`)
 5. Genera l'AppImage
 
@@ -100,8 +100,6 @@ Lo script macOS ora bundla anche:
 - tema `Adwaita` e, se disponibile, `hicolor`
 
 Questo evita i placeholder di icona mancanti sui sistemi senza tema GTK installato globalmente.
-
-Su macOS il pannello browser usa il browser di default del sistema invece di embeddare WebKitGTK dentro GTK.
 
 ## Versione
 

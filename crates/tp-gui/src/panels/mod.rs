@@ -1,4 +1,3 @@
-pub mod browser;
 pub mod chooser;
 pub mod editor;
 pub mod markdown;
@@ -11,7 +10,7 @@ pub type PanelInputCallback = std::rc::Rc<dyn Fn(&[u8])>;
 /// Each panel type creates a GTK widget and handles its lifecycle.
 /// This is the contract that plugins must implement.
 pub trait PanelBackend: std::fmt::Debug {
-    /// Panel type identifier (e.g., "terminal", "markdown", "browser", "chooser").
+    /// Panel type identifier (e.g., "terminal", "markdown", "chooser").
     fn panel_type(&self) -> &str;
 
     /// The GTK widget for this panel.

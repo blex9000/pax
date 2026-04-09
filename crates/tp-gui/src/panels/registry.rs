@@ -5,7 +5,7 @@ use super::PanelBackend;
 /// Metadata for a registered panel type.
 #[derive(Clone)]
 pub struct PanelTypeInfo {
-    /// Unique identifier (e.g., "terminal", "markdown", "browser")
+    /// Unique identifier (e.g., "terminal", "markdown")
     pub id: String,
     /// Human-readable name shown in the chooser
     pub display_name: String,
@@ -25,7 +25,7 @@ pub struct PanelCreateConfig {
     pub shell: String,
     pub cwd: Option<String>,
     pub env: Vec<(String, String)>,
-    /// Type-specific config (e.g., file path for markdown, URL for browser)
+    /// Type-specific config (e.g., file path for markdown)
     pub extra: HashMap<String, String>,
 }
 
@@ -237,29 +237,6 @@ pub fn build_default_registry() -> PanelRegistry {
         },
     );
 
-    // Browser
-    let browser_description = if cfg!(target_os = "linux") {
-        "Embedded web browser for dashboards"
-    } else {
-        "Native browser launcher for dashboards"
-    };
-    reg.register(
-        "browser",
-        "Web Browser",
-        browser_description,
-        "web-browser-symbolic",
-        false,
-        |config| {
-            let url = config
-                .extra
-                .get("url")
-                .map(|s| s.as_str())
-                .unwrap_or("about:blank");
-            let workspace_dir = config.extra.get("__workspace_dir__").map(|s| s.as_str());
-            Box::new(super::browser::BrowserPanel::new(url, workspace_dir))
-        },
-    );
-
     // Code Editor
     reg.register(
         "code_editor",
@@ -303,4 +280,17 @@ pub fn build_default_registry() -> PanelRegistry {
     );
 
     reg
+}
+
+#[cfg(test)]
+mod tests {
+    use super::build_default_registry;
+
+    #[test]
+    fn default_registry_does_not_expose_browser_panel() {
+        let registry = build_default_registry();
+
+        assert!(registry.get_type("browser").is_none());
+        assert!(registry.types().iter().all(|panel| panel.id != "browser"));
+    }
 }

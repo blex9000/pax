@@ -67,9 +67,7 @@ pub fn build_tab_label(
     let tab_path_key = encode_tab_path(tab_path);
     let is_layout = panel_type_id == "__layout__";
     hbox.set_widget_name(&encode_tab_label_metadata(tab_id, &tab_path_key, is_layout));
-    let active_edit = edit_state
-        .filter(|state| state.tab_id == tab_id)
-        .cloned();
+    let active_edit = edit_state.filter(|state| state.tab_id == tab_id).cloned();
     let tab_id_owned = tab_id.to_string();
 
     // Only show type icon for single-panel tabs, not for layout tabs
@@ -77,7 +75,6 @@ pub fn build_tab_label(
         let icon_name = match panel_type_id {
             "terminal" => "utilities-terminal-symbolic",
             "markdown" => "text-x-generic-symbolic",
-            "browser" => "web-browser-symbolic",
             "code_editor" => "accessories-text-editor-symbolic",
             _ => "radio-symbolic",
         };

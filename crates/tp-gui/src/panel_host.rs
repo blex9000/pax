@@ -523,7 +523,6 @@ impl PanelHost {
         let icon_name = match panel_type {
             "terminal" => "utilities-terminal-symbolic",
             "markdown" => "text-x-generic-symbolic",
-            "browser" => "web-browser-symbolic",
             "code_editor" => "accessories-text-editor-symbolic",
             _ => "radio-symbolic", // Empty/chooser — dot
         };

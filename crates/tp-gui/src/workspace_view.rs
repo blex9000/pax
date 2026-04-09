@@ -669,9 +669,6 @@ impl WorkspaceView {
                 "markdown" => PanelType::Markdown {
                     file: "README.md".to_string(),
                 },
-                "browser" => PanelType::Browser {
-                    url: "about:blank".to_string(),
-                },
                 "code_editor" => {
                     // Use home directory as default instead of "." which causes permission issues on macOS
                     let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
@@ -720,8 +717,8 @@ impl WorkspaceView {
                 notebook.set_tab_label(&widget, Some(&new_label));
             }
         }
-        // markdown, browser and code_editor need configuration first
-        matches!(type_id, "markdown" | "browser" | "code_editor")
+        // markdown and code_editor need configuration first
+        matches!(type_id, "markdown" | "code_editor")
     }
 
     /// Get a reference to the panel registry.
@@ -1435,7 +1432,10 @@ fn collect_tabs_along_path(
     }
 }
 
-fn find_workspace_notebook_by_path(widget: &gtk4::Widget, tabs_path: &[usize]) -> Option<gtk4::Notebook> {
+fn find_workspace_notebook_by_path(
+    widget: &gtk4::Widget,
+    tabs_path: &[usize],
+) -> Option<gtk4::Notebook> {
     if let Ok(notebook) = widget.clone().downcast::<gtk4::Notebook>() {
         if notebook.has_css_class("workspace-tabs")
             && crate::widget_builder::decode_tabs_widget_name(&notebook.widget_name()).as_deref()
@@ -1621,10 +1621,14 @@ mod tests {
             panic!("expected root tabs");
         };
 
-        let changed = rename_tab_label_model_by_id(&mut workspace.layout, &target_tab_id, "freeflow");
+        let changed =
+            rename_tab_label_model_by_id(&mut workspace.layout, &target_tab_id, "freeflow");
 
         assert!(changed);
-        if let LayoutNode::Tabs { children, labels, .. } = &workspace.layout {
+        if let LayoutNode::Tabs {
+            children, labels, ..
+        } = &workspace.layout
+        {
             assert_eq!(labels[0], "outer");
             assert_eq!(labels[1], "other");
             if let LayoutNode::Vsplit { children, .. } = &children[0] {
@@ -1650,7 +1654,9 @@ mod tests {
 
         assert!(moved);
         match &workspace.layout {
-            LayoutNode::Tabs { labels, children, .. } => {
+            LayoutNode::Tabs {
+                labels, children, ..
+            } => {
                 assert_eq!(labels, &["tab-b", "tab-a"]);
                 assert!(matches!(&children[0], LayoutNode::Panel { id } if id == "b"));
                 assert!(matches!(&children[1], LayoutNode::Panel { id } if id == "a"));
@@ -1681,7 +1687,9 @@ mod tests {
 
         assert!(moved);
         match &layout {
-            LayoutNode::Tabs { labels, children, .. } => {
+            LayoutNode::Tabs {
+                labels, children, ..
+            } => {
                 assert_eq!(labels, &["tab-b", "tab-c", "tab-a"]);
                 assert!(matches!(&children[0], LayoutNode::Panel { id } if id == "b"));
                 assert!(matches!(&children[1], LayoutNode::Panel { id } if id == "c"));

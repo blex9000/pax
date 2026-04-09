@@ -1,6 +1,6 @@
 Pax — Workspace Manager con Pannelli Eterogenei
 
-Workspace manager GUI cross-platform in Rust (GTK4 + VTE), stile Tilix, con pannelli di tipi diversi: terminale, SSH, tmux remoto, markdown viewer, browser embed.
+Workspace manager GUI cross-platform in Rust (GTK4 + VTE), stile Tilix, con pannelli di tipi diversi: terminale, SSH, tmux remoto, markdown viewer ed editor codice.
 
 Piattaforme: Linux (primario), macOS (supportato).
 
@@ -61,17 +61,12 @@ curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
 # Dipendenze GTK4 + SourceView
 sudo apt install libgtk-4-dev libadwaita-1-dev libvte-2.91-gtk4-dev libgtksourceview-5-dev
 
-# Opzionale (pannello browser)
-sudo apt install libwebkitgtk-6.0-dev
-
 # Debug: GTK Inspector
 gsettings set org.gtk.Settings.Debug enable-inspector-keybinding true
 # Poi Ctrl+Shift+D nella finestra per aprire l'inspector
 ───────
 
 macOS (Homebrew)
-
-Su macOS il pannello browser usa il browser di default del sistema invece di embeddare WebKitGTK dentro GTK.
 
 ─── bash ───
 brew install gtk4 libadwaita gtksourceview5 pkg-config
@@ -131,7 +126,6 @@ Tipi di pannello
 | markdown | Viewer/editor per note .md | Sì | Sì |
 | code_editor | Editor codice con file tree, git, search/replace | Sì (richiede sourceview) | Sì (richiede sourceview) |
 | code_editor (SSH) | Editor remoto via SSH — stesse feature del code_editor locale | Sì | Sì |
-| browser | Browser per dashboard, docs | WebKitGTK embedded | Browser di default del sistema |
 
 Tipi di layout
 
