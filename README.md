@@ -71,6 +71,8 @@ gsettings set org.gtk.Settings.Debug enable-inspector-keybinding true
 
 macOS (Homebrew)
 
+Su macOS il pannello browser usa il browser di default del sistema invece di embeddare WebKitGTK dentro GTK.
+
 ─── bash ───
 brew install gtk4 libadwaita gtksourceview5 pkg-config
 ───────
@@ -129,7 +131,7 @@ Tipi di pannello
 | markdown | Viewer/editor per note .md | Sì | Sì |
 | code_editor | Editor codice con file tree, git, search/replace | Sì (richiede sourceview) | Sì (richiede sourceview) |
 | code_editor (SSH) | Editor remoto via SSH — stesse feature del code_editor locale | Sì | Sì |
-| browser | WebView per dashboard, docs | WebKitGTK | Non disponibile |
+| browser | Browser per dashboard, docs | WebKitGTK embedded | Browser di default del sistema |
 
 Tipi di layout
 

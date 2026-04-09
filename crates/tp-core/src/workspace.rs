@@ -136,7 +136,7 @@ pub enum PanelType {
     Markdown {
         file: String,
     },
-    /// Embedded browser (WebKitGTK)
+    /// Browser panel: embedded WebKitGTK on Linux, native browser launcher on macOS.
     Browser {
         url: String,
     },

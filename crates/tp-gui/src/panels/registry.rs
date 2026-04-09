@@ -238,10 +238,15 @@ pub fn build_default_registry() -> PanelRegistry {
     );
 
     // Browser
+    let browser_description = if cfg!(target_os = "linux") {
+        "Embedded web browser for dashboards"
+    } else {
+        "Native browser launcher for dashboards"
+    };
     reg.register(
         "browser",
         "Web Browser",
-        "Embedded web browser for dashboards",
+        browser_description,
         "web-browser-symbolic",
         false,
         |config| {

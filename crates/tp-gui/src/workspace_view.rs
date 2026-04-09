@@ -500,8 +500,8 @@ impl WorkspaceView {
                 notebook.set_tab_label(&widget, Some(&new_label));
             }
         }
-        // markdown and code_editor need configuration (file/directory)
-        matches!(type_id, "markdown" | "code_editor")
+        // markdown, browser and code_editor need configuration first
+        matches!(type_id, "markdown" | "browser" | "code_editor")
     }
 
     /// Get a reference to the panel registry.
