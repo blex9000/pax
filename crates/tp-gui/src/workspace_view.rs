@@ -444,17 +444,7 @@ impl WorkspaceView {
 
         state.pending_offset += step;
         state.suppress_commit_once = true;
-        let original_dirty = state.original_dirty;
-
-        self.rebuild_layout();
-        self.rebuild_focus_order();
-        if let Some(index) = self.focus.order.iter().position(|id| id == panel_id) {
-            self.focus.index = index;
-            self.focus.focus_current_pub(&self.hosts);
-        }
-        self.select_workspace_tab_for_panel(panel_id);
-        self.dirty = original_dirty;
-        true
+        move_workspace_notebook_page_live(&self.hosts, panel_id, step)
     }
 
     pub fn clear_tab_edit_commit_suppression(&mut self, panel_id: &str) {
@@ -1383,6 +1373,30 @@ fn select_workspace_tab_for_panel_recursive(widget: &gtk4::Widget, panel_id: &st
         child = current.next_sibling();
     }
     false
+}
+
+fn move_workspace_notebook_page_live(
+    hosts: &HashMap<String, PanelHost>,
+    panel_id: &str,
+    step: i32,
+) -> bool {
+    let Some(host) = hosts.get(panel_id) else {
+        return false;
+    };
+    let widget = host.widget().clone();
+    let Some(notebook) = find_notebook_ancestor(&widget) else {
+        return false;
+    };
+    let Some(position) = notebook.page_num(&widget) else {
+        return false;
+    };
+    let target = position as i32 + step;
+    if !(0..notebook.n_pages() as i32).contains(&target) {
+        return false;
+    }
+    notebook.reorder_child(&widget, Some(target as u32));
+    notebook.set_current_page(Some(target as u32));
+    true
 }
 
 #[cfg(test)]

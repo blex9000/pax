@@ -199,9 +199,11 @@ pub fn build_tab_label(
     {
         let cb = action_cb.clone();
         let panel_id = tab_panel_id.clone();
+        let update_move_buttons = update_move_buttons.clone();
         move_left_btn.connect_clicked(move |_| {
             if let (Some(ref cb), Some(panel_id)) = (&cb, panel_id.as_ref()) {
                 cb(&format!("nb:{}", panel_id), PanelAction::PreviewTabMove(-1));
+                update_move_buttons();
             }
         });
     }
@@ -209,9 +211,11 @@ pub fn build_tab_label(
     {
         let cb = action_cb.clone();
         let panel_id = tab_panel_id.clone();
+        let update_move_buttons = update_move_buttons.clone();
         move_right_btn.connect_clicked(move |_| {
             if let (Some(ref cb), Some(panel_id)) = (&cb, panel_id.as_ref()) {
                 cb(&format!("nb:{}", panel_id), PanelAction::PreviewTabMove(1));
+                update_move_buttons();
             }
         });
     }
