@@ -69,7 +69,7 @@ impl FileTree {
         actions_bar.set_margin_end(4);
         actions_bar.set_margin_bottom(2);
 
-        let collapse_btn = gtk4::Button::from_icon_name("view-list-symbolic");
+        let collapse_btn = gtk4::Button::from_icon_name("go-up-symbolic");
         collapse_btn.add_css_class("flat");
         collapse_btn.set_tooltip_text(Some("Collapse All"));
 

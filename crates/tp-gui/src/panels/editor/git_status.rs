@@ -40,11 +40,14 @@ impl GitStatusView {
         on_git_action: OnGitAction,
     ) -> Self {
         let container = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
+        container.add_css_class("editor-sidebar-pane");
 
         let scroll = gtk4::ScrolledWindow::new();
         scroll.set_vexpand(true);
+        scroll.add_css_class("editor-sidebar-pane-scroll");
 
         let list_container = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
+        list_container.add_css_class("editor-sidebar-pane-content");
         let loading_label = gtk4::Label::new(Some("Loading git status..."));
         loading_label.add_css_class("dim-label");
         loading_label.set_margin_top(16);
@@ -56,6 +59,7 @@ impl GitStatusView {
         container.append(&gtk4::Separator::new(gtk4::Orientation::Horizontal));
 
         let commit_box = gtk4::Box::new(gtk4::Orientation::Vertical, 4);
+        commit_box.add_css_class("editor-sidebar-pane-footer");
         commit_box.set_margin_start(4);
         commit_box.set_margin_end(4);
         commit_box.set_margin_top(4);

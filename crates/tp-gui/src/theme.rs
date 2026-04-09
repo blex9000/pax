@@ -453,6 +453,28 @@ paned > separator { min-width: 1px; min-height: 1px; }
   color: alpha(@view_fg_color, 0.58);
   opacity: 0.72;
 }
+.editor-sidebar-pane,
+.editor-sidebar-pane-scroll,
+.editor-sidebar-pane-scroll viewport,
+.editor-sidebar-pane-content,
+.editor-sidebar-pane-list,
+.editor-sidebar-pane-list > row {
+  background-color: @view_bg_color;
+  color: @view_fg_color;
+}
+.editor-sidebar-pane-content,
+.editor-sidebar-pane-list > row > box,
+.editor-sidebar-pane-list > row > box > * {
+  background-color: transparent;
+}
+.editor-sidebar-pane-footer {
+  background-color: @view_bg_color;
+  color: @view_fg_color;
+  border-top: 1px solid alpha(@borders, 0.4);
+  border-right: none;
+  border-bottom: none;
+  border-left: none;
+}
 .card, button.card, .welcome-action-btn { background-color: @card_bg_color; color: @card_fg_color; }
 entry,
 spinbutton,
@@ -678,6 +700,8 @@ mod tests {
         assert!(BASE_CSS.contains(".editor-file-tree-header"));
         assert!(BASE_CSS.contains(".editor-file-tree-header-wrap"));
         assert!(BASE_CSS.contains("box.panel-footer-bar.editor-file-preview-footer"));
+        assert!(BASE_CSS.contains(".editor-sidebar-pane-list"));
+        assert!(BASE_CSS.contains(".editor-sidebar-pane-footer"));
         assert!(BASE_CSS.contains("background-color: @view_bg_color;"));
         assert!(BASE_CSS.contains("color: @view_fg_color;"));
         assert!(BASE_CSS.contains(".editor-file-tree-entry.editor-file-tree-ignored"));

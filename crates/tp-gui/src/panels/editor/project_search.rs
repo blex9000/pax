@@ -36,6 +36,7 @@ struct SearchResult {
 impl ProjectSearch {
     pub fn new(root_dir: &Path, on_click: OnResultClick, backend: Arc<dyn FileBackend>) -> Self {
         let container = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
+        container.add_css_class("editor-sidebar-pane");
 
         let header = gtk4::Label::new(Some("Search in Files"));
         header.add_css_class("heading");
@@ -82,9 +83,11 @@ impl ProjectSearch {
         // Results list
         let scroll = gtk4::ScrolledWindow::new();
         scroll.set_vexpand(true);
+        scroll.add_css_class("editor-sidebar-pane-scroll");
 
         let results_list = gtk4::ListBox::new();
         results_list.add_css_class("navigation-sidebar");
+        results_list.add_css_class("editor-sidebar-pane-list");
         scroll.set_child(Some(&results_list));
         container.append(&scroll);
 
