@@ -132,13 +132,17 @@ pub fn build_tab_label(
         gesture.set_propagation_phase(gtk4::PropagationPhase::Bubble);
         gesture.connect_released(move |g, n_press, _, _| {
             if n_press == 2 {
-                suppress_entry_changed.set(true);
-                entry.set_text(&initial_name);
-                suppress_entry_changed.set(false);
-                edit_stack.set_visible_child_name("edit");
-                update_move_buttons();
                 let entry = entry.clone();
+                let edit_stack = edit_stack.clone();
+                let update_move_buttons = update_move_buttons.clone();
+                let suppress_entry_changed = suppress_entry_changed.clone();
+                let initial_name_for_ui = initial_name.clone();
                 gtk4::glib::idle_add_local_once(move || {
+                    suppress_entry_changed.set(true);
+                    entry.set_text(&initial_name_for_ui);
+                    suppress_entry_changed.set(false);
+                    edit_stack.set_visible_child_name("edit");
+                    update_move_buttons();
                     entry.grab_focus();
                     entry.set_position(-1);
                 });
