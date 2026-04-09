@@ -104,7 +104,9 @@ impl ProjectSearch {
             let seq = request_seq.clone();
             search_entry.connect_activate(move |entry| {
                 let query = entry.text().to_string();
-                if query.is_empty() { return; }
+                if query.is_empty() {
+                    return;
+                }
                 *lq.borrow_mut() = query.clone();
                 request_search(
                     &results_list_c,
@@ -129,7 +131,8 @@ impl ProjectSearch {
                 let query = lq.borrow().clone();
                 // Find first match in this file
                 let results = results_s.borrow();
-                let first_line = results.iter()
+                let first_line = results
+                    .iter()
                     .find(|r| r.path == file_path)
                     .map(|r| r.line_num)
                     .unwrap_or(1);
@@ -150,7 +153,9 @@ impl ProjectSearch {
             replace_all_btn.connect_clicked(move |_| {
                 let query = se.text().to_string();
                 let replacement = re.text().to_string();
-                if query.is_empty() { return; }
+                if query.is_empty() {
+                    return;
+                }
                 let request_id = seq.get().wrapping_add(1);
                 seq.set(request_id);
                 status_l.set_text("Replacing...");
@@ -244,7 +249,11 @@ fn render_results(
         }
     }
 
-    status_label.set_text(&format!("{} matches in {} files", total_matches, file_groups.len()));
+    status_label.set_text(&format!(
+        "{} matches in {} files",
+        total_matches,
+        file_groups.len()
+    ));
 
     for (file_path, match_count, _first_line) in &file_groups {
         let rel = file_path.strip_prefix(root).unwrap_or(file_path);
@@ -311,22 +320,21 @@ fn search_in_files(root: &Path, query: &str, backend: &dyn FileBackend) -> Vec<S
     if backend.is_remote() {
         // Use backend search for remote
         match backend.search_files(query) {
-            Ok(hits) => {
-                hits.into_iter()
-                    .take(500)
-                    .map(|(path_str, line_num, line_text)| {
-                        let path = root.join(&path_str);
-                        let match_start = regex.find(&line_text).map(|m| m.start()).unwrap_or(0);
-                        SearchResult {
-                            path,
-                            line_num: line_num as u32,
-                            line_text,
-                            match_start,
-                            match_len: query.len(),
-                        }
-                    })
-                    .collect()
-            }
+            Ok(hits) => hits
+                .into_iter()
+                .take(500)
+                .map(|(path_str, line_num, line_text)| {
+                    let path = root.join(&path_str);
+                    let match_start = regex.find(&line_text).map(|m| m.start()).unwrap_or(0);
+                    SearchResult {
+                        path,
+                        line_num: line_num as u32,
+                        line_text,
+                        match_start,
+                        match_len: query.len(),
+                    }
+                })
+                .collect(),
             Err(_) => Vec::new(),
         }
     } else {
@@ -343,10 +351,9 @@ fn search_in_files(root: &Path, query: &str, backend: &dyn FileBackend) -> Vec<S
             // Skip binary files
             if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
                 match ext {
-                    "png" | "jpg" | "jpeg" | "gif" | "ico" | "woff" | "woff2" | "ttf" |
-                    "otf" | "eot" | "zip" | "tar" | "gz" | "bz2" | "xz" | "7z" |
-                    "exe" | "dll" | "so" | "dylib" | "o" | "a" | "class" | "pyc" |
-                    "db" | "sqlite" | "lock" => continue,
+                    "png" | "jpg" | "jpeg" | "gif" | "ico" | "woff" | "woff2" | "ttf" | "otf"
+                    | "eot" | "zip" | "tar" | "gz" | "bz2" | "xz" | "7z" | "exe" | "dll" | "so"
+                    | "dylib" | "o" | "a" | "class" | "pyc" | "db" | "sqlite" | "lock" => continue,
                     _ => {}
                 }
             }
@@ -361,7 +368,9 @@ fn search_in_files(root: &Path, query: &str, backend: &dyn FileBackend) -> Vec<S
                             match_start: mat.start(),
                             match_len: query.len(),
                         });
-                        if results.len() > 500 { return results; }
+                        if results.len() > 500 {
+                            return results;
+                        }
                     }
                 }
             }
@@ -372,7 +381,12 @@ fn search_in_files(root: &Path, query: &str, backend: &dyn FileBackend) -> Vec<S
 }
 
 /// Replace all occurrences of query with replacement across project files.
-fn replace_in_files(root: &Path, query: &str, replacement: &str, backend: &dyn FileBackend) -> usize {
+fn replace_in_files(
+    root: &Path,
+    query: &str,
+    replacement: &str,
+    backend: &dyn FileBackend,
+) -> usize {
     let regex = match RegexBuilder::new(&regex::escape(query))
         .case_insensitive(true)
         .build()
@@ -393,10 +407,9 @@ fn replace_in_files(root: &Path, query: &str, replacement: &str, backend: &dyn F
 
         if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
             match ext {
-                "png" | "jpg" | "jpeg" | "gif" | "ico" | "woff" | "woff2" | "ttf" |
-                "otf" | "eot" | "zip" | "tar" | "gz" | "bz2" | "xz" | "7z" |
-                "exe" | "dll" | "so" | "dylib" | "o" | "a" | "class" | "pyc" |
-                "db" | "sqlite" | "lock" => continue,
+                "png" | "jpg" | "jpeg" | "gif" | "ico" | "woff" | "woff2" | "ttf" | "otf"
+                | "eot" | "zip" | "tar" | "gz" | "bz2" | "xz" | "7z" | "exe" | "dll" | "so"
+                | "dylib" | "o" | "a" | "class" | "pyc" | "db" | "sqlite" | "lock" => continue,
                 _ => {}
             }
         }

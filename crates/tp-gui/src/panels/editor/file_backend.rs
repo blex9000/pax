@@ -87,7 +87,11 @@ pub trait FileBackend: std::fmt::Debug + Send + Sync {
 
     /// Backend type identifier (for logging/UI).
     fn backend_type(&self) -> &str {
-        if self.is_remote() { "ssh" } else { "local" }
+        if self.is_remote() {
+            "ssh"
+        } else {
+            "local"
+        }
     }
 }
 
@@ -101,7 +105,9 @@ pub struct LocalFileBackend {
 
 impl LocalFileBackend {
     pub fn new(root_dir: &Path) -> Self {
-        Self { root_dir: root_dir.to_path_buf() }
+        Self {
+            root_dir: root_dir.to_path_buf(),
+        }
     }
 }
 
@@ -116,7 +122,9 @@ impl FileBackend for LocalFileBackend {
         }
         result.sort_by(|a, b| {
             // Directories first, then alphabetical
-            b.is_dir.cmp(&a.is_dir).then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase()))
+            b.is_dir
+                .cmp(&a.is_dir)
+                .then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase()))
         });
         Ok(result)
     }
@@ -142,7 +150,9 @@ impl FileBackend for LocalFileBackend {
     }
 
     fn copy_file(&self, from: &Path, to: &Path) -> Result<(), String> {
-        std::fs::copy(from, to).map(|_| ()).map_err(|e| e.to_string())
+        std::fs::copy(from, to)
+            .map(|_| ())
+            .map_err(|e| e.to_string())
     }
 
     fn create_dir(&self, path: &Path) -> Result<(), String> {
@@ -194,10 +204,17 @@ pub struct SshFileBackend {
 impl SshFileBackend {
     pub fn new(
         root_dir: &str,
-        host: &str, port: u16, user: &str,
-        password: Option<&str>, identity_file: Option<&str>,
+        host: &str,
+        port: u16,
+        user: &str,
+        password: Option<&str>,
+        identity_file: Option<&str>,
     ) -> Self {
-        let control_path = format!("/tmp/pax_ssh_{}_{}", host.replace('.', "_"), std::process::id());
+        let control_path = format!(
+            "/tmp/pax_ssh_{}_{}",
+            host.replace('.', "_"),
+            std::process::id()
+        );
 
         let connected = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
         let connecting = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
@@ -207,7 +224,9 @@ impl SshFileBackend {
             user: user.to_string(),
             port,
             password: password.map(|s| s.to_string()),
-            identity_file: identity_file.filter(|s| !s.is_empty()).map(|s| s.to_string()),
+            identity_file: identity_file
+                .filter(|s| !s.is_empty())
+                .map(|s| s.to_string()),
             control_path,
             connected,
             connecting,
@@ -223,7 +242,10 @@ impl SshFileBackend {
     /// Non-blocking: spawns SSH in a background std::thread.
     /// Sets `connected` flag to true only after successful connection.
     fn setup_control_master(&self) {
-        if self.connecting.swap(true, std::sync::atomic::Ordering::SeqCst) {
+        if self
+            .connecting
+            .swap(true, std::sync::atomic::Ordering::SeqCst)
+        {
             return;
         }
         let flag = self.connected.clone();
@@ -261,12 +283,18 @@ impl SshFileBackend {
         };
 
         cmd.args([
-            "-o", "StrictHostKeyChecking=no",
-            "-o", "ConnectTimeout=3",
-            "-o", &format!("ControlPath={}", self.control_path),
-            "-o", "ControlMaster=auto",
-            "-o", "ControlPersist=300",
-            "-p", &self.port.to_string(),
+            "-o",
+            "StrictHostKeyChecking=no",
+            "-o",
+            "ConnectTimeout=3",
+            "-o",
+            &format!("ControlPath={}", self.control_path),
+            "-o",
+            "ControlMaster=auto",
+            "-o",
+            "ControlPersist=300",
+            "-p",
+            &self.port.to_string(),
         ]);
 
         if let Some(ref key) = self.identity_file {
@@ -291,16 +319,23 @@ impl SshFileBackend {
         }
         let mut cmd = self.base_ssh_command();
         cmd.arg(remote_cmd);
-        let output = cmd.output().map_err(|e| format!("SSH exec failed: {}", e))?;
+        let output = cmd
+            .output()
+            .map_err(|e| format!("SSH exec failed: {}", e))?;
         if output.status.success() {
             Ok(String::from_utf8_lossy(&output.stdout).to_string())
         } else {
             let stderr = String::from_utf8_lossy(&output.stderr).to_string();
             if stderr.contains("Connection") || stderr.contains("closed") {
-                self.connected.store(false, std::sync::atomic::Ordering::Relaxed);
+                self.connected
+                    .store(false, std::sync::atomic::Ordering::Relaxed);
                 self.setup_control_master();
             }
-            Err(if stderr.is_empty() { format!("exit {}", output.status) } else { stderr })
+            Err(if stderr.is_empty() {
+                format!("exit {}", output.status)
+            } else {
+                stderr
+            })
         }
     }
 
@@ -315,9 +350,13 @@ impl SshFileBackend {
         cmd.arg(remote_cmd);
         cmd.stdin(std::process::Stdio::piped());
 
-        let mut child = cmd.spawn().map_err(|e| format!("SSH spawn failed: {}", e))?;
+        let mut child = cmd
+            .spawn()
+            .map_err(|e| format!("SSH spawn failed: {}", e))?;
         if let Some(ref mut stdin) = child.stdin {
-            stdin.write_all(input.as_bytes()).map_err(|e| format!("Write stdin: {}", e))?;
+            stdin
+                .write_all(input.as_bytes())
+                .map_err(|e| format!("Write stdin: {}", e))?;
         }
         let status = child.wait().map_err(|e| format!("SSH wait: {}", e))?;
         if status.success() {
@@ -326,7 +365,6 @@ impl SshFileBackend {
             Err(format!("SSH command failed: {}", status))
         }
     }
-
 }
 
 impl FileBackend for SshFileBackend {
@@ -337,7 +375,9 @@ impl FileBackend for SshFileBackend {
         let mut result = Vec::new();
         for line in output.lines() {
             let line = line.trim();
-            if line.is_empty() || line == "./" || line == "../" { continue; }
+            if line.is_empty() || line == "./" || line == "../" {
+                continue;
+            }
             if line.ends_with('/') {
                 result.push(DirEntry {
                     name: line.trim_end_matches('/').to_string(),
@@ -352,7 +392,9 @@ impl FileBackend for SshFileBackend {
         }
         // Directories first, then alphabetical
         result.sort_by(|a, b| {
-            b.is_dir.cmp(&a.is_dir).then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase()))
+            b.is_dir
+                .cmp(&a.is_dir)
+                .then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase()))
         });
         Ok(result)
     }
@@ -369,13 +411,17 @@ impl FileBackend for SshFileBackend {
     }
 
     fn file_exists(&self, path: &Path) -> bool {
-        self.ssh_exec(&format!("test -e {} && echo yes", shell_quote(&path.to_string_lossy())))
-            .map(|s| s.trim() == "yes")
-            .unwrap_or(false)
+        self.ssh_exec(&format!(
+            "test -e {} && echo yes",
+            shell_quote(&path.to_string_lossy())
+        ))
+        .map(|s| s.trim() == "yes")
+        .unwrap_or(false)
     }
 
     fn delete_file(&self, path: &Path) -> Result<(), String> {
-        self.ssh_exec(&format!("rm -f {}", shell_quote(&path.to_string_lossy()))).map(|_| ())
+        self.ssh_exec(&format!("rm -f {}", shell_quote(&path.to_string_lossy())))
+            .map(|_| ())
     }
 
     fn rename_file(&self, from: &Path, to: &Path) -> Result<(), String> {
@@ -383,7 +429,8 @@ impl FileBackend for SshFileBackend {
             "mv {} {}",
             shell_quote(&from.to_string_lossy()),
             shell_quote(&to.to_string_lossy()),
-        )).map(|_| ())
+        ))
+        .map(|_| ())
     }
 
     fn copy_file(&self, from: &Path, to: &Path) -> Result<(), String> {
@@ -391,15 +438,21 @@ impl FileBackend for SshFileBackend {
             "cp {} {}",
             shell_quote(&from.to_string_lossy()),
             shell_quote(&to.to_string_lossy()),
-        )).map(|_| ())
+        ))
+        .map(|_| ())
     }
 
     fn create_dir(&self, path: &Path) -> Result<(), String> {
-        self.ssh_exec(&format!("mkdir -p {}", shell_quote(&path.to_string_lossy()))).map(|_| ())
+        self.ssh_exec(&format!(
+            "mkdir -p {}",
+            shell_quote(&path.to_string_lossy())
+        ))
+        .map(|_| ())
     }
 
     fn git_command(&self, args: &[&str]) -> Result<String, String> {
-        let git_args = args.iter()
+        let git_args = args
+            .iter()
             .map(|a| shell_quote(a))
             .collect::<Vec<_>>()
             .join(" ");
@@ -430,8 +483,10 @@ impl Drop for SshFileBackend {
             std::process::Command::new("ssh")
         };
         cmd.args([
-            "-o", &format!("ControlPath={}", self.control_path),
-            "-O", "exit",
+            "-o",
+            &format!("ControlPath={}", self.control_path),
+            "-O",
+            "exit",
         ]);
         if let Some(ref key) = self.identity_file {
             cmd.args(["-i", key]);
@@ -459,20 +514,40 @@ mod tests {
     }
 
     impl FileBackend for MockBackend {
-        fn list_dir(&self, _path: &Path) -> Result<Vec<DirEntry>, String> { unreachable!() }
-        fn read_file(&self, _path: &Path) -> Result<String, String> { unreachable!() }
-        fn write_file(&self, _path: &Path, _content: &str) -> Result<(), String> { unreachable!() }
-        fn file_exists(&self, _path: &Path) -> bool { false }
-        fn delete_file(&self, _path: &Path) -> Result<(), String> { unreachable!() }
-        fn rename_file(&self, _from: &Path, _to: &Path) -> Result<(), String> { unreachable!() }
-        fn copy_file(&self, _from: &Path, _to: &Path) -> Result<(), String> { unreachable!() }
-        fn create_dir(&self, _path: &Path) -> Result<(), String> { unreachable!() }
+        fn list_dir(&self, _path: &Path) -> Result<Vec<DirEntry>, String> {
+            unreachable!()
+        }
+        fn read_file(&self, _path: &Path) -> Result<String, String> {
+            unreachable!()
+        }
+        fn write_file(&self, _path: &Path, _content: &str) -> Result<(), String> {
+            unreachable!()
+        }
+        fn file_exists(&self, _path: &Path) -> bool {
+            false
+        }
+        fn delete_file(&self, _path: &Path) -> Result<(), String> {
+            unreachable!()
+        }
+        fn rename_file(&self, _from: &Path, _to: &Path) -> Result<(), String> {
+            unreachable!()
+        }
+        fn copy_file(&self, _from: &Path, _to: &Path) -> Result<(), String> {
+            unreachable!()
+        }
+        fn create_dir(&self, _path: &Path) -> Result<(), String> {
+            unreachable!()
+        }
         fn git_command(&self, args: &[&str]) -> Result<String, String> {
             *self.args.lock().unwrap() = args.iter().map(|s| s.to_string()).collect();
             Ok(self.output.clone())
         }
-        fn root(&self) -> &Path { Path::new(".") }
-        fn is_remote(&self) -> bool { false }
+        fn root(&self) -> &Path {
+            Path::new(".")
+        }
+        fn is_remote(&self) -> bool {
+            false
+        }
     }
 
     #[test]
@@ -488,6 +563,9 @@ mod tests {
             backend.args.lock().unwrap().as_slice(),
             ["grep", "-n", "--no-color", "-i", "--", "hello"]
         );
-        assert_eq!(results, vec![("src/main.rs".to_string(), 12, "Hello World".to_string())]);
+        assert_eq!(
+            results,
+            vec![("src/main.rs".to_string(), 12, "Hello World".to_string())]
+        );
     }
 }

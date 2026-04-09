@@ -32,7 +32,11 @@ struct CommitEntry {
 }
 
 impl GitLogView {
-    pub fn new(_root_dir: &Path, on_commit_click: OnCommitClick, backend: Arc<dyn FileBackend>) -> Self {
+    pub fn new(
+        _root_dir: &Path,
+        on_commit_click: OnCommitClick,
+        backend: Arc<dyn FileBackend>,
+    ) -> Self {
         let container = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
 
         let header = gtk4::Label::new(Some("History"));
@@ -129,7 +133,12 @@ impl GitLogView {
     /// Refresh the commit list.
     pub fn refresh(&self) {
         let filter = self.file_filter.borrow().clone();
-        request_commits(&self.list_box, self.backend.clone(), filter, self.request_seq.clone());
+        request_commits(
+            &self.list_box,
+            self.backend.clone(),
+            filter,
+            self.request_seq.clone(),
+        );
     }
 
     /// Filter commits by a specific file path (relative to root).
@@ -163,19 +172,22 @@ fn load_commits(backend: &dyn FileBackend, file_filter: Option<&str>) -> Vec<Com
         Err(_) => return Vec::new(),
     };
 
-    stdout.lines().filter_map(|line| {
-        let parts: Vec<&str> = line.splitn(4, '\x1f').collect();
-        if parts.len() == 4 {
-            Some(CommitEntry {
-                hash: parts[0].to_string(),
-                subject: parts[1].to_string(),
-                author: parts[2].to_string(),
-                date: parts[3].to_string(),
-            })
-        } else {
-            None
-        }
-    }).collect()
+    stdout
+        .lines()
+        .filter_map(|line| {
+            let parts: Vec<&str> = line.splitn(4, '\x1f').collect();
+            if parts.len() == 4 {
+                Some(CommitEntry {
+                    hash: parts[0].to_string(),
+                    subject: parts[1].to_string(),
+                    author: parts[2].to_string(),
+                    date: parts[3].to_string(),
+                })
+            } else {
+                None
+            }
+        })
+        .collect()
 }
 
 fn request_commits(

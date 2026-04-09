@@ -28,12 +28,17 @@ pub struct GitStatusView {
 #[derive(Debug, Clone)]
 struct GitFileEntry {
     path: PathBuf,
-    status: String,      // "M", "A", "D", "??"
+    status: String, // "M", "A", "D", "??"
     staged: bool,
 }
 
 impl GitStatusView {
-    pub fn new(root_dir: &Path, on_diff_open: OnDiffOpen, backend: Arc<dyn FileBackend>, on_git_action: OnGitAction) -> Self {
+    pub fn new(
+        root_dir: &Path,
+        on_diff_open: OnDiffOpen,
+        backend: Arc<dyn FileBackend>,
+        on_git_action: OnGitAction,
+    ) -> Self {
         let container = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
 
         let scroll = gtk4::ScrolledWindow::new();
@@ -82,7 +87,9 @@ impl GitStatusView {
             let action_cb = on_git_action.clone();
             commit_btn.connect_clicked(move |_btn| {
                 let msg = entry.text().to_string();
-                if msg.is_empty() { return; }
+                if msg.is_empty() {
+                    return;
+                }
                 match be.git_command(&["commit", "-m", &msg]) {
                     Ok(_) => {
                         entry.set_text("");
@@ -150,7 +157,10 @@ impl GitStatusView {
             badge.add_css_class(badge_class);
             top_row.append(&badge);
 
-            let rel = entry.path.strip_prefix(&self.root_dir).unwrap_or(&entry.path);
+            let rel = entry
+                .path
+                .strip_prefix(&self.root_dir)
+                .unwrap_or(&entry.path);
             let rel_str = rel.to_string_lossy().to_string();
 
             // Make filename a link button for opening diff
@@ -204,38 +214,47 @@ impl GitStatusView {
                 top_row.append(&btn);
             }
             self.list_container.append(&outer);
-            self.list_container.append(&gtk4::Separator::new(gtk4::Orientation::Horizontal));
+            self.list_container
+                .append(&gtk4::Separator::new(gtk4::Orientation::Horizontal));
         }
     }
 }
 
 fn parse_porcelain(output: &str, root: &Path) -> Vec<GitFileEntry> {
-    output.lines().filter_map(|line| {
-        if line.len() < 4 { return None; }
-        let index_status = line.chars().nth(0).unwrap_or(' ');
-        let work_status = line.chars().nth(1).unwrap_or(' ');
-        let raw_path = line[3..].trim();
+    output
+        .lines()
+        .filter_map(|line| {
+            if line.len() < 4 {
+                return None;
+            }
+            let index_status = line.chars().nth(0).unwrap_or(' ');
+            let work_status = line.chars().nth(1).unwrap_or(' ');
+            let raw_path = line[3..].trim();
 
-        let staged = index_status != ' ' && index_status != '?';
-        let status = if index_status == '?' && work_status == '?' {
-            "??".to_string()
-        } else if staged {
-            index_status.to_string()
-        } else {
-            work_status.to_string()
-        };
-        let file_path = if matches!(status.as_str(), "R" | "C") {
-            raw_path.rsplit_once(" -> ").map(|(_, new_path)| new_path).unwrap_or(raw_path)
-        } else {
-            raw_path
-        };
+            let staged = index_status != ' ' && index_status != '?';
+            let status = if index_status == '?' && work_status == '?' {
+                "??".to_string()
+            } else if staged {
+                index_status.to_string()
+            } else {
+                work_status.to_string()
+            };
+            let file_path = if matches!(status.as_str(), "R" | "C") {
+                raw_path
+                    .rsplit_once(" -> ")
+                    .map(|(_, new_path)| new_path)
+                    .unwrap_or(raw_path)
+            } else {
+                raw_path
+            };
 
-        Some(GitFileEntry {
-            path: root.join(file_path),
-            status,
-            staged,
+            Some(GitFileEntry {
+                path: root.join(file_path),
+                status,
+                staged,
+            })
         })
-    }).collect()
+        .collect()
 }
 
 #[cfg(test)]
@@ -281,7 +300,8 @@ pub fn compute_diff(backend: &dyn FileBackend, file_path: &Path) -> Vec<DiffHunk
     // Get HEAD version
     let root = backend.root();
     let rel = file_path.strip_prefix(root).unwrap_or(file_path);
-    let old_content = backend.git_show(&format!("HEAD:{}", rel.to_string_lossy()))
+    let old_content = backend
+        .git_show(&format!("HEAD:{}", rel.to_string_lossy()))
         .unwrap_or_default();
 
     // Get working version
@@ -298,30 +318,55 @@ pub fn compute_diff(backend: &dyn FileBackend, file_path: &Path) -> Vec<DiffHunk
 
         for op in &group {
             match op {
-                similar::DiffOp::Equal { old_index, new_index, len } => {
-                    if old_start == 0 { old_start = *old_index + 1; }
-                    if new_start == 0 { new_start = *new_index + 1; }
+                similar::DiffOp::Equal {
+                    old_index,
+                    new_index,
+                    len,
+                } => {
+                    if old_start == 0 {
+                        old_start = *old_index + 1;
+                    }
+                    if new_start == 0 {
+                        new_start = *new_index + 1;
+                    }
                     for i in 0..*len {
                         let line = diff.old_slices()[old_index + i].to_string();
                         old_lines.push(format!(" {}", line));
                         new_lines.push(format!(" {}", line));
                     }
                 }
-                similar::DiffOp::Delete { old_index, old_len, .. } => {
-                    if old_start == 0 { old_start = *old_index + 1; }
+                similar::DiffOp::Delete {
+                    old_index, old_len, ..
+                } => {
+                    if old_start == 0 {
+                        old_start = *old_index + 1;
+                    }
                     for i in 0..*old_len {
                         old_lines.push(format!("-{}", diff.old_slices()[old_index + i]));
                     }
                 }
-                similar::DiffOp::Insert { new_index, new_len, .. } => {
-                    if new_start == 0 { new_start = *new_index + 1; }
+                similar::DiffOp::Insert {
+                    new_index, new_len, ..
+                } => {
+                    if new_start == 0 {
+                        new_start = *new_index + 1;
+                    }
                     for i in 0..*new_len {
                         new_lines.push(format!("+{}", diff.new_slices()[new_index + i]));
                     }
                 }
-                similar::DiffOp::Replace { old_index, old_len, new_index, new_len } => {
-                    if old_start == 0 { old_start = *old_index + 1; }
-                    if new_start == 0 { new_start = *new_index + 1; }
+                similar::DiffOp::Replace {
+                    old_index,
+                    old_len,
+                    new_index,
+                    new_len,
+                } => {
+                    if old_start == 0 {
+                        old_start = *old_index + 1;
+                    }
+                    if new_start == 0 {
+                        new_start = *new_index + 1;
+                    }
                     for i in 0..*old_len {
                         old_lines.push(format!("-{}", diff.old_slices()[old_index + i]));
                     }
@@ -346,8 +391,13 @@ pub fn compute_diff(backend: &dyn FileBackend, file_path: &Path) -> Vec<DiffHunk
 }
 
 /// Revert a single hunk by restoring old lines at the hunk position.
-pub fn revert_hunk(backend: &dyn FileBackend, file_path: &Path, hunk: &DiffHunk) -> Result<(), String> {
-    let content = backend.read_file(file_path)
+pub fn revert_hunk(
+    backend: &dyn FileBackend,
+    file_path: &Path,
+    hunk: &DiffHunk,
+) -> Result<(), String> {
+    let content = backend
+        .read_file(file_path)
         .map_err(|e| format!("Cannot read file: {}", e))?;
     let lines: Vec<&str> = content.lines().collect();
 
@@ -369,7 +419,9 @@ pub fn revert_hunk(backend: &dyn FileBackend, file_path: &Path, hunk: &DiffHunk)
     }
 
     // Skip new lines in the hunk
-    let new_actual_count = hunk.new_lines.iter()
+    let new_actual_count = hunk
+        .new_lines
+        .iter()
         .filter(|l| l.starts_with('+') || l.starts_with(' '))
         .count();
     i += new_actual_count;
@@ -381,6 +433,7 @@ pub fn revert_hunk(backend: &dyn FileBackend, file_path: &Path, hunk: &DiffHunk)
     }
 
     let output = result.join("\n");
-    backend.write_file(file_path, &output)
+    backend
+        .write_file(file_path, &output)
         .map_err(|e| format!("Cannot write file: {}", e))
 }

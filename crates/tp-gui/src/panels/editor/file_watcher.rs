@@ -1,13 +1,13 @@
-use gtk4::prelude::*;
 use gtk4::glib;
+use gtk4::prelude::*;
 use std::cell::{Cell, RefCell};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::Arc;
 
-use super::EditorState;
 use super::file_backend::FileBackend;
 use super::task::run_blocking;
+use super::EditorState;
 
 #[derive(Clone)]
 struct WatchedFileSnapshot {
@@ -34,17 +34,19 @@ pub fn start_watchers(
     let is_remote = backend.is_remote();
     let poll = state.borrow().poll_interval;
 
-    start_open_file_watcher(state.clone(), info_bar_container, backend.clone(), is_remote);
+    start_open_file_watcher(
+        state.clone(),
+        info_bar_container,
+        backend.clone(),
+        is_remote,
+    );
     if !is_remote {
         start_tree_watcher(state.clone(), on_tree_changed, is_remote, poll);
     }
     start_git_watcher(state, on_git_changed, backend, is_remote, poll);
 }
 
-pub fn request_git_status_refresh(
-    on_changed: Rc<dyn Fn(String)>,
-    backend: Arc<dyn FileBackend>,
-) {
+pub fn request_git_status_refresh(on_changed: Rc<dyn Fn(String)>, backend: Arc<dyn FileBackend>) {
     run_blocking(
         move || backend.git_command(&["status", "--porcelain"]),
         move |result| {
@@ -98,7 +100,8 @@ fn start_open_file_watcher(
 
                 let mut st = state_c.borrow_mut();
                 for change in changes {
-                    let Some(open_file) = st.open_files.iter_mut().find(|f| f.path == change.path) else {
+                    let Some(open_file) = st.open_files.iter_mut().find(|f| f.path == change.path)
+                    else {
                         continue;
                     };
 
@@ -125,7 +128,9 @@ fn start_open_file_watcher(
                         continue;
                     }
 
-                    if change.last_disk_mtime == 0 || change.last_disk_mtime == open_file.last_disk_mtime {
+                    if change.last_disk_mtime == 0
+                        || change.last_disk_mtime == open_file.last_disk_mtime
+                    {
                         continue;
                     }
                     open_file.last_disk_mtime = change.last_disk_mtime;
@@ -298,7 +303,9 @@ fn show_conflict_bar(
 
     let label = gtk4::Label::new(Some(&format!(
         "\"{}\" changed on disk.",
-        path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default()
+        path.file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_default()
     )));
     bar.add_child(&label);
 
@@ -345,7 +352,11 @@ fn show_conflict_bar(
 fn get_mtime(path: &Path) -> u64 {
     std::fs::metadata(path)
         .and_then(|m| m.modified())
-        .map(|t| t.duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs())
+        .map(|t| {
+            t.duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs()
+        })
         .unwrap_or(0)
 }
 
@@ -360,9 +371,7 @@ fn dir_hash(dir: &Path, is_remote: bool) -> u64 {
     use std::hash::{Hash, Hasher};
 
     let mut hasher = DefaultHasher::new();
-    let walker = ignore::WalkBuilder::new(dir)
-        .max_depth(Some(5))
-        .build();
+    let walker = ignore::WalkBuilder::new(dir).max_depth(Some(5)).build();
 
     for entry in walker.flatten() {
         entry.path().hash(&mut hasher);
