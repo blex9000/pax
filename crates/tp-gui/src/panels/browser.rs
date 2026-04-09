@@ -114,6 +114,8 @@ fn build_embedded_browser_panel(
     container.append(&web_view);
     container.append(&status_label);
 
+    setup_linux_browser_context_menu(&web_view, &status_label);
+
     let is_loading = Rc::new(Cell::new(false));
 
     address_entry.set_text(initial_uri);
@@ -140,15 +142,7 @@ fn build_embedded_browser_panel(
         let web_view = web_view.clone();
         let status_label = status_label.clone();
         devtools_btn.connect_clicked(move |_| {
-            if let Some(settings) = webkit6::prelude::WebViewExt::settings(&web_view) {
-                settings.set_enable_developer_extras(true);
-            }
-            if let Some(inspector) = web_view.inspector() {
-                inspector.show();
-                status_label.set_text("Developer Tools opened");
-            } else {
-                status_label.set_text("Developer Tools unavailable");
-            }
+            open_linux_browser_devtools(&web_view, &status_label);
         });
     }
 
@@ -267,6 +261,243 @@ fn load_linux_browser_uri(web_view: &webkit6::WebView, uri: &str, status_label: 
     }
 
     web_view.load_uri(uri);
+}
+
+#[cfg(target_os = "linux")]
+fn setup_linux_browser_context_menu(web_view: &webkit6::WebView, status_label: &gtk4::Label) {
+    let status_label = status_label.clone();
+    web_view.connect_context_menu(move |view, context_menu, hit_test| {
+        let popover = gtk4::Popover::new();
+        crate::theme::configure_popover(&popover);
+        popover.set_has_arrow(false);
+        popover.set_autohide(true);
+
+        let menu_box = gtk4::Box::new(gtk4::Orientation::Vertical, 2);
+        menu_box.set_margin_top(4);
+        menu_box.set_margin_bottom(4);
+        menu_box.set_margin_start(4);
+        menu_box.set_margin_end(4);
+
+        append_browser_context_action(
+            &menu_box,
+            "go-previous-symbolic",
+            "Back",
+            view.can_go_back(),
+            {
+                let view = view.clone();
+                let popover = popover.clone();
+                move || {
+                    view.go_back();
+                    popover.popdown();
+                }
+            },
+        );
+        append_browser_context_action(
+            &menu_box,
+            "go-next-symbolic",
+            "Forward",
+            view.can_go_forward(),
+            {
+                let view = view.clone();
+                let popover = popover.clone();
+                move || {
+                    view.go_forward();
+                    popover.popdown();
+                }
+            },
+        );
+        append_browser_context_action(&menu_box, "view-refresh-symbolic", "Reload", true, {
+            let view = view.clone();
+            let popover = popover.clone();
+            move || {
+                view.reload();
+                popover.popdown();
+            }
+        });
+        append_browser_context_action(
+            &menu_box,
+            "applications-development-symbolic",
+            "Developer Tools",
+            true,
+            {
+                let view = view.clone();
+                let status_label = status_label.clone();
+                let popover = popover.clone();
+                move || {
+                    open_linux_browser_devtools(&view, &status_label);
+                    popover.popdown();
+                }
+            },
+        );
+
+        let mut has_dynamic_items = false;
+
+        if hit_test.context_is_link() {
+            has_dynamic_items = true;
+            append_browser_context_separator(&menu_box);
+            if let Some(link_uri) = hit_test.link_uri().map(|value| value.to_string()) {
+                append_browser_context_action(
+                    &menu_box,
+                    "document-open-symbolic",
+                    "Open Link Externally",
+                    true,
+                    {
+                        let status_label = status_label.clone();
+                        let popover = popover.clone();
+                        let link_uri = link_uri.clone();
+                        move || {
+                            launch_uri(&link_uri, &status_label);
+                            popover.popdown();
+                        }
+                    },
+                );
+                append_browser_context_action(
+                    &menu_box,
+                    "edit-copy-symbolic",
+                    "Copy Link",
+                    true,
+                    {
+                        let popover = popover.clone();
+                        move || {
+                            if let Some(display) = gtk4::gdk::Display::default() {
+                                display.clipboard().set_text(&link_uri);
+                            }
+                            popover.popdown();
+                        }
+                    },
+                );
+            }
+        }
+
+        if hit_test.context_is_editable() || hit_test.context_is_selection() {
+            if !has_dynamic_items {
+                append_browser_context_separator(&menu_box);
+            }
+            append_browser_context_action(&menu_box, "edit-copy-symbolic", "Copy", true, {
+                let view = view.clone();
+                let popover = popover.clone();
+                move || {
+                    view.execute_editing_command("Copy");
+                    popover.popdown();
+                }
+            });
+            append_browser_context_action(
+                &menu_box,
+                "edit-cut-symbolic",
+                "Cut",
+                hit_test.context_is_editable(),
+                {
+                    let view = view.clone();
+                    let popover = popover.clone();
+                    move || {
+                        view.execute_editing_command("Cut");
+                        popover.popdown();
+                    }
+                },
+            );
+            append_browser_context_action(
+                &menu_box,
+                "edit-paste-symbolic",
+                "Paste",
+                hit_test.context_is_editable(),
+                {
+                    let view = view.clone();
+                    let popover = popover.clone();
+                    move || {
+                        view.execute_editing_command("Paste");
+                        popover.popdown();
+                    }
+                },
+            );
+            append_browser_context_action(
+                &menu_box,
+                "edit-select-all-symbolic",
+                "Select All",
+                true,
+                {
+                    let view = view.clone();
+                    let popover = popover.clone();
+                    move || {
+                        view.execute_editing_command("SelectAll");
+                        popover.popdown();
+                    }
+                },
+            );
+        }
+
+        popover.set_child(Some(&menu_box));
+        popover.set_parent(view);
+        if let Some((x, y)) = context_menu.event().and_then(|event| event.position()) {
+            popover.set_pointing_to(Some(&gtk4::gdk::Rectangle::new(x as i32, y as i32, 1, 1)));
+        }
+        popover.connect_closed(|popover| {
+            popover.unparent();
+        });
+        popover.popup();
+        true
+    });
+}
+
+#[cfg(target_os = "linux")]
+fn append_browser_context_action<F>(
+    menu_box: &gtk4::Box,
+    icon_name: &str,
+    label: &str,
+    sensitive: bool,
+    on_activate: F,
+) where
+    F: Fn() + 'static,
+{
+    let button = gtk4::Button::new();
+    button.add_css_class("flat");
+    button.add_css_class("app-popover-button");
+    button.set_sensitive(sensitive);
+
+    let row = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
+    let icon = gtk4::Image::from_icon_name(icon_name);
+    row.append(&icon);
+
+    let text = gtk4::Label::new(Some(label));
+    text.set_hexpand(true);
+    text.set_halign(gtk4::Align::Start);
+    row.append(&text);
+
+    button.set_child(Some(&row));
+    button.connect_clicked(move |_| on_activate());
+    menu_box.append(&button);
+}
+
+#[cfg(target_os = "linux")]
+fn append_browser_context_separator(menu_box: &gtk4::Box) {
+    menu_box.append(&gtk4::Separator::new(gtk4::Orientation::Horizontal));
+}
+
+#[cfg(target_os = "linux")]
+fn open_linux_browser_devtools(web_view: &webkit6::WebView, status_label: &gtk4::Label) {
+    if let Some(settings) = webkit6::prelude::WebViewExt::settings(web_view) {
+        settings.set_enable_developer_extras(true);
+    }
+    if let Some(inspector) = web_view.inspector() {
+        inspector.show();
+        status_label.set_text("Developer Tools opened");
+    } else {
+        status_label.set_text("Developer Tools unavailable");
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn launch_uri(uri: &str, status_label: &gtk4::Label) {
+    let launcher = gtk4::UriLauncher::new(uri);
+    let status_label = status_label.clone();
+    let uri = uri.to_string();
+    launcher.launch(
+        None::<&gtk4::Window>,
+        None::<&gtk4::gio::Cancellable>,
+        move |result| match result {
+            Ok(()) => status_label.set_text(&format!("Opened {}", uri)),
+            Err(error) => status_label.set_text(&format!("Open failed: {}", error)),
+        },
+    );
 }
 
 #[cfg(target_os = "macos")]
