@@ -423,6 +423,10 @@ mod tests {
             unreachable!()
         }
 
+        fn delete_dir(&self, _path: &Path) -> Result<(), String> {
+            unreachable!()
+        }
+
         fn rename_file(&self, _from: &Path, _to: &Path) -> Result<(), String> {
             unreachable!()
         }

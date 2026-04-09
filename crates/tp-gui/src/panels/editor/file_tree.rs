@@ -173,14 +173,12 @@ impl FileTree {
                     .strip_prefix(&root)
                     .unwrap_or(&selected_path)
                     .to_path_buf();
-                let target_dir =
-                    creation_target_dir(&root, &ents, clicked_idx, selected_idx);
+                let target_dir = creation_target_dir(&root, &ents, clicked_idx, selected_idx);
                 let selected_is_dir = selected_entry
                     .as_ref()
                     .map(|entry| entry.is_dir)
                     .unwrap_or(true);
-                let parent_window =
-                    find_transient_parent_window(lb.upcast_ref::<gtk4::Widget>());
+                let parent_window = find_transient_parent_window(lb.upcast_ref::<gtk4::Widget>());
                 let refresh_tree: Rc<dyn Fn()> = {
                     let root = root.clone();
                     let backend = backend.clone();
@@ -396,7 +394,23 @@ impl FileTree {
                     }
                     menu_box.append(&rename_btn);
 
-                    if !is_dir {
+                    if is_dir {
+                        let del_btn = make_item("user-trash-symbolic", "Delete Folder");
+                        {
+                            let p = path.clone();
+                            let be = backend.clone();
+                            let refresh_tree = refresh_tree.clone();
+                            del_btn.connect_clicked(move |btn| {
+                                if be.delete_dir(&p).is_ok() {
+                                    refresh_tree();
+                                }
+                                if let Some(pop) = btn.ancestor(gtk4::Popover::static_type()) {
+                                    pop.downcast_ref::<gtk4::Popover>().unwrap().popdown();
+                                }
+                            });
+                        }
+                        menu_box.append(&del_btn);
+                    } else {
                         let dup_btn = make_item("document-save-as-symbolic", "Duplicate File");
                         {
                             let p = path.clone();
@@ -467,9 +481,7 @@ impl FileTree {
                         popover.unparent();
                     }
                 });
-                popover.set_pointing_to(Some(&gtk4::gdk::Rectangle::new(
-                    x as i32, y as i32, 1, 1,
-                )));
+                popover.set_pointing_to(Some(&gtk4::gdk::Rectangle::new(x as i32, y as i32, 1, 1)));
                 popover.popup();
             });
             list_box.add_controller(gesture);
@@ -1196,12 +1208,7 @@ fn resolve_tree_selection(
     clicked_index
         .or(selected_index)
         .and_then(|idx| entries.get(idx).cloned())
-        .or_else(|| {
-            entries
-                .iter()
-                .find(|entry| entry.path == root)
-                .cloned()
-        })
+        .or_else(|| entries.iter().find(|entry| entry.path == root).cloned())
 }
 
 fn creation_target_dir(
@@ -1222,7 +1229,9 @@ fn creation_target_dir(
 }
 
 fn find_transient_parent_window(anchor: &impl IsA<gtk4::Widget>) -> Option<gtk4::Window> {
-    anchor.root().and_then(|root| root.downcast::<gtk4::Window>().ok())
+    anchor
+        .root()
+        .and_then(|root| root.downcast::<gtk4::Window>().ok())
 }
 
 fn show_name_input_dialog(

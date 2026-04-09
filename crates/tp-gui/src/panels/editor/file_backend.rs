@@ -42,6 +42,9 @@ pub trait FileBackend: std::fmt::Debug + Send + Sync {
     /// Delete a file.
     fn delete_file(&self, path: &Path) -> Result<(), String>;
 
+    /// Delete a directory recursively.
+    fn delete_dir(&self, path: &Path) -> Result<(), String>;
+
     /// Rename/move a file.
     fn rename_file(&self, from: &Path, to: &Path) -> Result<(), String>;
 
@@ -153,6 +156,10 @@ impl FileBackend for LocalFileBackend {
 
     fn delete_file(&self, path: &Path) -> Result<(), String> {
         std::fs::remove_file(path).map_err(|e| e.to_string())
+    }
+
+    fn delete_dir(&self, path: &Path) -> Result<(), String> {
+        std::fs::remove_dir_all(path).map_err(|e| e.to_string())
     }
 
     fn rename_file(&self, from: &Path, to: &Path) -> Result<(), String> {
@@ -437,6 +444,11 @@ impl FileBackend for SshFileBackend {
             .map(|_| ())
     }
 
+    fn delete_dir(&self, path: &Path) -> Result<(), String> {
+        self.ssh_exec(&format!("rm -rf {}", shell_quote(&path.to_string_lossy())))
+            .map(|_| ())
+    }
+
     fn rename_file(&self, from: &Path, to: &Path) -> Result<(), String> {
         self.ssh_exec(&format!(
             "mv {} {}",
@@ -631,6 +643,9 @@ mod tests {
         fn delete_file(&self, _path: &Path) -> Result<(), String> {
             unreachable!()
         }
+        fn delete_dir(&self, _path: &Path) -> Result<(), String> {
+            unreachable!()
+        }
         fn rename_file(&self, _from: &Path, _to: &Path) -> Result<(), String> {
             unreachable!()
         }
@@ -688,7 +703,9 @@ mod tests {
         let backend = LocalFileBackend::new(dir.path());
         let entries = backend.list_dir(dir.path()).unwrap();
 
-        assert!(entries.iter().any(|entry| entry.name == ".env" && !entry.is_ignored));
+        assert!(entries
+            .iter()
+            .any(|entry| entry.name == ".env" && !entry.is_ignored));
         assert!(entries
             .iter()
             .any(|entry| entry.name == "visible.rs" && !entry.is_ignored));
@@ -698,5 +715,21 @@ mod tests {
         assert!(entries
             .iter()
             .any(|entry| entry.name == "ignored_dir" && entry.is_ignored && entry.is_dir));
+    }
+
+    #[test]
+    fn local_delete_dir_removes_non_empty_directory() {
+        let dir = tempdir().unwrap();
+        let nested = dir.path().join("src/nested");
+        std::fs::create_dir_all(&nested).unwrap();
+        std::fs::write(nested.join("main.rs"), "fn main() {}\n").unwrap();
+
+        let backend = LocalFileBackend::new(dir.path());
+        let target = dir.path().join("src");
+        assert!(target.exists());
+
+        backend.delete_dir(&target).unwrap();
+
+        assert!(!target.exists());
     }
 }

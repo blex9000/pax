@@ -74,6 +74,7 @@ pub fn show_settings_dialog(
     let theme_row = make_row("Theme");
     let theme_dropdown =
         gtk4::DropDown::from_strings(&Theme::all().iter().map(|t| t.label()).collect::<Vec<_>>());
+    theme_dropdown.add_css_class("settings-theme-dropdown");
     let current_idx = Theme::all()
         .iter()
         .position(|t| *t == current.theme)

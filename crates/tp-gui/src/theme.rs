@@ -534,6 +534,44 @@ popover.app-popover button.app-popover-button:hover {
   background-color: alpha(@accent_bg_color, 0.18);
   color: @popover_fg_color;
 }
+window.app-dialog dropdown.settings-theme-dropdown > popover.menu,
+.editor-sidebar-pane dropdown > popover.menu {
+  background-color: transparent;
+  background-image: none;
+  box-shadow: none;
+}
+window.app-dialog dropdown.settings-theme-dropdown > popover.menu > contents,
+.editor-sidebar-pane dropdown > popover.menu > contents {
+  background-color: @popover_bg_color;
+  color: @popover_fg_color;
+  border: 1px solid alpha(@borders, 0.9);
+  border-radius: 12px;
+  box-shadow: none;
+  padding: 4px;
+}
+window.app-dialog dropdown.settings-theme-dropdown > popover.menu scrolledwindow,
+window.app-dialog dropdown.settings-theme-dropdown > popover.menu viewport,
+.editor-sidebar-pane dropdown > popover.menu scrolledwindow,
+.editor-sidebar-pane dropdown > popover.menu viewport {
+  background-color: transparent;
+  background-image: none;
+  border: none;
+  box-shadow: none;
+}
+window.app-dialog dropdown.settings-theme-dropdown > popover.menu listview,
+window.app-dialog dropdown.settings-theme-dropdown > popover.menu row,
+.editor-sidebar-pane dropdown > popover.menu listview,
+.editor-sidebar-pane dropdown > popover.menu row {
+  background-color: transparent;
+  color: @popover_fg_color;
+}
+window.app-dialog dropdown.settings-theme-dropdown > popover.menu row:hover,
+window.app-dialog dropdown.settings-theme-dropdown > popover.menu row:selected,
+.editor-sidebar-pane dropdown > popover.menu row:hover,
+.editor-sidebar-pane dropdown > popover.menu row:selected {
+  background-color: alpha(@accent_bg_color, 0.18);
+  color: @popover_fg_color;
+}
 ";
 
 const CATPPUCCIN_MOCHA_CSS: &str = "\
@@ -727,5 +765,15 @@ mod tests {
         assert!(BASE_CSS.contains("background-color: transparent;"));
         assert!(BASE_CSS.contains("border: none;"));
         assert!(!BASE_CSS.contains("text,\ndropdown > button"));
+    }
+
+    #[test]
+    fn dropdown_popups_use_transparent_internal_wrappers() {
+        assert!(
+            BASE_CSS.contains("window.app-dialog dropdown.settings-theme-dropdown > popover.menu")
+        );
+        assert!(BASE_CSS.contains(".editor-sidebar-pane dropdown > popover.menu > contents"));
+        assert!(BASE_CSS.contains("popover.menu scrolledwindow,"));
+        assert!(BASE_CSS.contains("background-color: transparent;"));
     }
 }

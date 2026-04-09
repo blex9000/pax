@@ -38,6 +38,7 @@ impl GitLogView {
         backend: Arc<dyn FileBackend>,
     ) -> Self {
         let container = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
+        container.add_css_class("editor-sidebar-pane");
 
         let header = gtk4::Label::new(Some("History"));
         header.add_css_class("heading");
@@ -67,8 +68,10 @@ impl GitLogView {
 
         let list_box = gtk4::ListBox::new();
         list_box.set_selection_mode(gtk4::SelectionMode::Single);
+        list_box.add_css_class("editor-sidebar-pane-list");
 
         let scroll = gtk4::ScrolledWindow::new();
+        scroll.add_css_class("editor-sidebar-pane-scroll");
         scroll.set_child(Some(&list_box));
         scroll.set_vexpand(true);
         container.append(&scroll);
