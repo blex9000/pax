@@ -97,7 +97,7 @@ fn setup_welcome_ui(window: &Rc<adw::ApplicationWindow>) {
         use crate::widgets::welcome::WelcomeChoice;
         match choice {
             WelcomeChoice::NewWorkspace => {
-                let ws = pax_core::template::empty_workspace("untitled");
+                let ws = new_workspace_with_preferred_theme("untitled");
                 setup_workspace_ui(&win, ws, None);
             }
             WelcomeChoice::OpenFile => {
@@ -582,7 +582,7 @@ fn setup_workspace_ui(
             let win2 = win.clone();
             let sa2 = sa.clone();
             let on_continue: Rc<dyn Fn()> = Rc::new(move || {
-                let empty = pax_core::template::empty_workspace("untitled");
+                let empty = new_workspace_with_preferred_theme("untitled");
                 if let Err(e) = ws2.borrow_mut().load_workspace(empty, None) {
                     sb2.borrow().set_message(&format!("Error: {}", e));
                 }
@@ -667,6 +667,7 @@ fn setup_workspace_ui(
             let sa2 = sa.clone();
             crate::dialogs::settings::show_settings_dialog(&*win, &current, move |new_settings| {
                 apply_theme(new_settings.theme);
+                save_preferred_theme(new_settings.theme);
                 {
                     let mut view = ws2.borrow_mut();
                     view.rename_workspace(&new_settings.workspace_name);
@@ -1034,8 +1035,37 @@ thread_local! {
 
 fn load_css() {
     // Startup chrome should be deterministic. The welcome page always starts
-    // from the app default theme; opening a workspace then applies its own theme.
-    apply_theme(Theme::default());
+    // from the preferred app theme if present, otherwise Nord.
+    apply_theme(load_preferred_theme());
+}
+
+fn new_workspace_with_preferred_theme(name: &str) -> Workspace {
+    let mut workspace = pax_core::template::empty_workspace(name);
+    workspace.settings.theme = load_preferred_theme().to_id().to_string();
+    workspace
+}
+
+fn load_preferred_theme() -> Theme {
+    let db_path = pax_db::Database::default_path();
+    let Ok(db) = pax_db::Database::open(&db_path) else {
+        return Theme::default();
+    };
+    load_preferred_theme_from_db(&db).unwrap_or_default()
+}
+
+fn load_preferred_theme_from_db(db: &pax_db::Database) -> Option<Theme> {
+    db.get_app_preference("theme")
+        .ok()
+        .flatten()
+        .map(|value| Theme::from_id(&value))
+}
+
+fn save_preferred_theme(theme: Theme) {
+    let db_path = pax_db::Database::default_path();
+    let Ok(db) = pax_db::Database::open(&db_path) else {
+        return;
+    };
+    let _ = db.set_app_preference("theme", theme.to_id());
 }
 
 fn apply_theme(theme: Theme) {
@@ -1077,11 +1107,20 @@ fn apply_theme(theme: Theme) {
 
 #[cfg(test)]
 mod tests {
-    use super::Theme;
+    use super::{load_preferred_theme_from_db, Theme};
+    use pax_db::Database;
 
     #[test]
     fn startup_theme_uses_default_theme() {
         assert_eq!(Theme::default(), Theme::Nord);
+    }
+
+    #[test]
+    fn startup_theme_uses_saved_preference_from_db() {
+        let db = Database::open_memory().unwrap();
+        db.set_app_preference("theme", "dracula").unwrap();
+
+        assert_eq!(load_preferred_theme_from_db(&db), Some(Theme::Dracula));
     }
 }
 

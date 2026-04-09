@@ -1,6 +1,7 @@
-pub mod schema;
 pub mod commands;
 pub mod output;
+pub mod preferences;
+pub mod schema;
 pub mod workspaces;
 
 use anyhow::Result;
@@ -40,4 +41,3 @@ impl Database {
         data_dir.join("pax.db")
     }
 }
-

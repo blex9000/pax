@@ -14,8 +14,11 @@ pub fn run_migrations(db: &Database) -> Result<()> {
     )?;
 
     let applied: Vec<String> = {
-        let mut stmt = db.conn.prepare("SELECT name FROM _migrations ORDER BY id")?;
-        let result = stmt.query_map([], |row| row.get(0))?
+        let mut stmt = db
+            .conn
+            .prepare("SELECT name FROM _migrations ORDER BY id")?;
+        let result = stmt
+            .query_map([], |row| row.get(0))?
             .filter_map(|r| r.ok())
             .collect();
         result
@@ -24,6 +27,7 @@ pub fn run_migrations(db: &Database) -> Result<()> {
     apply_sql_migration(db, &applied, "001_initial", MIGRATION_001)?;
     apply_sql_migration(db, &applied, "002_fts5", MIGRATION_002)?;
     ensure_workspace_metadata_key_migration(db, &applied)?;
+    apply_sql_migration(db, &applied, "004_app_preferences", MIGRATION_004)?;
 
     Ok(())
 }
@@ -37,10 +41,8 @@ fn apply_sql_migration(db: &Database, applied: &[String], name: &str, sql: &str)
 }
 
 fn record_migration(db: &Database, name: &str) -> Result<()> {
-    db.conn.execute(
-        "INSERT INTO _migrations (name) VALUES (?1)",
-        [name],
-    )?;
+    db.conn
+        .execute("INSERT INTO _migrations (name) VALUES (?1)", [name])?;
     Ok(())
 }
 
@@ -164,9 +166,9 @@ fn table_has_column(db: &Database, table_name: &str, column_name: &str) -> Resul
 fn load_legacy_workspace_rows(
     db: &Database,
 ) -> Result<Vec<(String, Option<String>, String, String, i64)>> {
-    let mut stmt = db.conn.prepare(
-        "SELECT name, config_path, last_opened, open_count FROM workspace_metadata_old",
-    )?;
+    let mut stmt = db
+        .conn
+        .prepare("SELECT name, config_path, last_opened, open_count FROM workspace_metadata_old")?;
     let rows = stmt.query_map([], |row| {
         let name: String = row.get(0)?;
         let config_path: Option<String> = row.get(1)?;
@@ -236,6 +238,14 @@ CREATE TRIGGER IF NOT EXISTS saved_output_ai AFTER INSERT ON saved_output BEGIN
 END;
 ";
 
+const MIGRATION_004: &str = "
+CREATE TABLE IF NOT EXISTS app_preferences (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL,
+    updated_at TEXT DEFAULT (datetime('now'))
+);
+";
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -257,13 +267,9 @@ mod tests {
     #[test]
     fn migration_003_upgrades_old_workspace_metadata_schema() {
         let db = setup_db_without_running_migrations();
-        db.conn
-            .execute_batch(MIGRATION_001)
-            .unwrap();
+        db.conn.execute_batch(MIGRATION_001).unwrap();
         record_migration(&db, "001_initial").unwrap();
-        db.conn
-            .execute_batch(MIGRATION_002)
-            .unwrap();
+        db.conn.execute_batch(MIGRATION_002).unwrap();
         record_migration(&db, "002_fts5").unwrap();
         db.conn
             .execute(
@@ -331,7 +337,9 @@ mod tests {
         assert!(!table_exists(&db, "workspace_metadata_old").unwrap());
         let rows: i64 = db
             .conn
-            .query_row("SELECT COUNT(*) FROM workspace_metadata", [], |row| row.get(0))
+            .query_row("SELECT COUNT(*) FROM workspace_metadata", [], |row| {
+                row.get(0)
+            })
             .unwrap();
         assert_eq!(rows, 2);
         let legacy_count: i64 = db
@@ -347,6 +355,24 @@ mod tests {
             .conn
             .query_row(
                 "SELECT COUNT(*) FROM _migrations WHERE name = '003_workspace_metadata_key'",
+                [],
+                |row| row.get::<_, i64>(0),
+            )
+            .unwrap();
+        assert_eq!(applied, 1);
+    }
+
+    #[test]
+    fn migration_004_creates_app_preferences_table() {
+        let db = setup_db_without_running_migrations();
+
+        run_migrations(&db).unwrap();
+
+        assert!(table_exists(&db, "app_preferences").unwrap());
+        let applied = db
+            .conn
+            .query_row(
+                "SELECT COUNT(*) FROM _migrations WHERE name = '004_app_preferences'",
                 [],
                 |row| row.get::<_, i64>(0),
             )
