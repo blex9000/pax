@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<style-scheme id="pax-graphite" name="Pax Graphite" version="1.0">
+  <author>Pax</author>
+  <description>Graphite for Pax editor</description>
+  <metadata><property name="variant">dark</property></metadata>
+
+  <color name="bg"         value="#0f141b"/>
+  <color name="surface"    value="#1a2230"/>
+  <color name="fg"         value="#e5ecf3"/>
+  <color name="comment"    value="#7f8b99"/>
+  <color name="blue"       value="#7cb2ff"/>
+  <color name="cyan"       value="#71c6d4"/>
+  <color name="green"      value="#8ecf9f"/>
+  <color name="orange"     value="#d9a56f"/>
+  <color name="purple"     value="#b19cff"/>
+  <color name="red"        value="#ff8b7f"/>
+  <color name="yellow"     value="#e7c86e"/>
+
+  <style name="text"                        foreground="fg" background="bg"/>
+  <style name="cursor"                      foreground="fg"/>
+  <style name="selection"                   background="surface"/>
+  <style name="current-line"                background="surface"/>
+  <style name="line-numbers"                foreground="comment" background="bg"/>
+  <style name="current-line-number"         foreground="blue" background="surface"/>
+  <style name="bracket-match"               foreground="fg" background="surface" bold="true"/>
+
+  <style name="def:comment"                 foreground="comment" italic="true"/>
+  <style name="def:constant"                foreground="purple"/>
+  <style name="def:string"                  foreground="green"/>
+  <style name="def:character"               foreground="green"/>
+  <style name="def:number"                  foreground="orange"/>
+  <style name="def:boolean"                 foreground="orange"/>
+  <style name="def:floating-point"          foreground="orange"/>
+  <style name="def:keyword"                 foreground="blue" bold="true"/>
+  <style name="def:type"                    foreground="cyan"/>
+  <style name="def:function"                foreground="green"/>
+  <style name="def:builtin"                 foreground="cyan"/>
+  <style name="def:identifier"              foreground="fg"/>
+  <style name="def:preprocessor"            foreground="purple"/>
+  <style name="def:error"                   foreground="red" underline="true"/>
+  <style name="def:warning"                 foreground="yellow" underline="true"/>
+  <style name="def:note"                    foreground="cyan" bold="true"/>
+  <style name="def:special-char"            foreground="yellow"/>
+  <style name="def:operator"                foreground="blue"/>
+  <style name="def:statement"               foreground="blue"/>
+  <style name="search-match"                background="#rgba(110,167,255,0.30)"/>
+</style-scheme>

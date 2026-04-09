@@ -939,10 +939,10 @@ fn build_native_browser_launcher_panel(
     body.set_vexpand(true);
     body.set_halign(gtk4::Align::Center);
     body.set_valign(gtk4::Align::Center);
-    body.set_margin_top(24);
-    body.set_margin_bottom(24);
-    body.set_margin_start(24);
-    body.set_margin_end(24);
+    body.set_margin_top(18);
+    body.set_margin_bottom(18);
+    body.set_margin_start(18);
+    body.set_margin_end(18);
 
     let icon = gtk4::Image::from_icon_name("web-browser-symbolic");
     icon.set_pixel_size(64);
@@ -1109,10 +1109,10 @@ fn launch_in_default_browser(uri: &str, status_label: &gtk4::Label) {
 fn build_browser_toolbar() -> BrowserToolbar {
     let toolbar = gtk4::Box::new(gtk4::Orientation::Horizontal, 4);
     toolbar.add_css_class("markdown-toolbar");
-    toolbar.set_margin_start(4);
-    toolbar.set_margin_end(4);
-    toolbar.set_margin_top(2);
-    toolbar.set_margin_bottom(2);
+    toolbar.set_margin_start(2);
+    toolbar.set_margin_end(2);
+    toolbar.set_margin_top(1);
+    toolbar.set_margin_bottom(1);
 
     let back_btn = gtk4::Button::new();
     back_btn.set_icon_name("go-previous-symbolic");
@@ -1149,9 +1149,9 @@ fn build_browser_toolbar() -> BrowserToolbar {
     status_label.add_css_class("caption");
     status_label.add_css_class("dim-label");
     status_label.set_halign(gtk4::Align::Start);
-    status_label.set_margin_start(8);
-    status_label.set_margin_end(8);
-    status_label.set_margin_bottom(4);
+    status_label.set_margin_start(6);
+    status_label.set_margin_end(6);
+    status_label.set_margin_bottom(3);
 
     toolbar.append(&back_btn);
     toolbar.append(&forward_btn);

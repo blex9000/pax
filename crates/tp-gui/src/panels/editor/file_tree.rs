@@ -65,9 +65,9 @@ impl FileTree {
         let actions_bar = gtk4::Box::new(gtk4::Orientation::Horizontal, 2);
         actions_bar.add_css_class("editor-sidebar-toolbar");
         actions_bar.add_css_class("editor-file-tree-actions");
-        actions_bar.set_margin_start(4);
-        actions_bar.set_margin_end(4);
-        actions_bar.set_margin_bottom(2);
+        actions_bar.set_margin_start(2);
+        actions_bar.set_margin_end(2);
+        actions_bar.set_margin_bottom(1);
 
         let collapse_btn = gtk4::Button::from_icon_name("go-up-symbolic");
         collapse_btn.add_css_class("flat");

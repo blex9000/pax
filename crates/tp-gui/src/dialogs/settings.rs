@@ -39,10 +39,10 @@ pub fn show_settings_dialog(
     crate::theme::configure_dialog_window(&dialog);
 
     let vbox = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
-    vbox.set_margin_top(16);
-    vbox.set_margin_bottom(16);
-    vbox.set_margin_start(20);
-    vbox.set_margin_end(20);
+    vbox.set_margin_top(12);
+    vbox.set_margin_bottom(12);
+    vbox.set_margin_start(16);
+    vbox.set_margin_end(16);
 
     // ── Workspace ─────────────────────────────────────
 
@@ -159,7 +159,7 @@ pub fn show_settings_dialog(
 
     let btn_box = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
     btn_box.set_halign(gtk4::Align::End);
-    btn_box.set_margin_top(20);
+    btn_box.set_margin_top(16);
 
     let cancel_btn = gtk4::Button::with_label("Cancel");
     cancel_btn.add_css_class("flat");
@@ -203,9 +203,9 @@ pub fn show_settings_dialog(
 }
 
 fn make_row(label: &str) -> gtk4::Box {
-    let row = gtk4::Box::new(gtk4::Orientation::Horizontal, 12);
-    row.set_margin_top(4);
-    row.set_margin_bottom(4);
+    let row = gtk4::Box::new(gtk4::Orientation::Horizontal, 10);
+    row.set_margin_top(3);
+    row.set_margin_bottom(3);
     let lbl = gtk4::Label::new(Some(label));
     lbl.set_halign(gtk4::Align::Start);
     lbl.set_xalign(0.0);
@@ -216,7 +216,7 @@ fn make_row(label: &str) -> gtk4::Box {
 
 fn add_separator(vbox: &gtk4::Box) {
     let sep = gtk4::Separator::new(gtk4::Orientation::Horizontal);
-    sep.set_margin_top(12);
-    sep.set_margin_bottom(12);
+    sep.set_margin_top(8);
+    sep.set_margin_bottom(8);
     vbox.append(&sep);
 }
