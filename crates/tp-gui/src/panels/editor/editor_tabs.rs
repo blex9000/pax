@@ -71,6 +71,7 @@ impl EditorTabs {
         let status_bar = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
         status_bar.add_css_class("panel-footer-bar");
         status_bar.add_css_class("panel-footer");
+        status_bar.add_css_class("editor-file-preview-footer");
 
         let status_lang = gtk4::Label::new(Some("Plain Text"));
         status_lang.set_halign(gtk4::Align::Start);

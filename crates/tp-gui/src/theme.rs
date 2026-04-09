@@ -313,6 +313,14 @@ box.panel-title-bar, box.panel-footer-bar, .status-bar, .markdown-toolbar { back
   border-bottom: none;
   border-left: none;
 }
+.editor-file-preview-footer {
+  background-color: @view_bg_color;
+  color: @view_fg_color;
+  border-top: 1px solid alpha(@borders, 0.4);
+  border-right: none;
+  border-bottom: none;
+  border-left: none;
+}
 notebook.workspace-tabs,
 notebook.workspace-tabs > header,
 notebook.workspace-tabs > header > tabs,
@@ -668,6 +676,7 @@ mod tests {
         assert!(BASE_CSS.contains(".editor-file-tree-actions"));
         assert!(BASE_CSS.contains(".editor-file-tree-header"));
         assert!(BASE_CSS.contains(".editor-file-tree-header-wrap"));
+        assert!(BASE_CSS.contains(".editor-file-preview-footer"));
         assert!(BASE_CSS.contains("background-color: @view_bg_color;"));
         assert!(BASE_CSS.contains("color: @view_fg_color;"));
         assert!(BASE_CSS.contains(".editor-file-tree-entry.editor-file-tree-ignored"));
