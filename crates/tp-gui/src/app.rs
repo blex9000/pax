@@ -342,15 +342,33 @@ fn setup_workspace_ui(
                                     sb_for_cb.borrow().set_message("Tab removed");
                                 }
                             }
-                            PanelAction::MoveTabBy(offset) => {
-                                if ws_for_cb.borrow_mut().move_tab_by_panel_id(real_id, offset) {
-                                    let message = if offset < 0 {
-                                        "Tab moved left"
-                                    } else {
-                                        "Tab moved right"
-                                    };
-                                    sb_for_cb.borrow().set_message(message);
+                            PanelAction::BeginTabEdit { name, is_layout } => {
+                                ws_for_cb
+                                    .borrow_mut()
+                                    .begin_tab_edit(real_id, name, is_layout);
+                            }
+                            PanelAction::UpdateTabDraft(name) => {
+                                ws_for_cb.borrow_mut().update_tab_edit_draft(real_id, name);
+                            }
+                            PanelAction::PreviewTabMove(offset) => {
+                                if ws_for_cb
+                                    .borrow_mut()
+                                    .preview_tab_edit_move(real_id, offset)
+                                {
+                                    let ws_for_idle = ws_for_cb.clone();
+                                    let panel_id = real_id.to_string();
+                                    glib::idle_add_local_once(move || {
+                                        ws_for_idle
+                                            .borrow_mut()
+                                            .clear_tab_edit_commit_suppression(&panel_id);
+                                    });
                                 }
+                            }
+                            PanelAction::CommitTabEdit => {
+                                ws_for_cb.borrow_mut().commit_tab_edit(real_id);
+                            }
+                            PanelAction::CancelTabEdit => {
+                                ws_for_cb.borrow_mut().cancel_tab_edit(real_id);
                             }
                             _ => {}
                         }
@@ -554,7 +572,11 @@ fn setup_workspace_ui(
                 }
                 PanelAction::AddTabToNotebook
                 | PanelAction::RemoveTab
-                | PanelAction::MoveTabBy(_) => {}
+                | PanelAction::BeginTabEdit { .. }
+                | PanelAction::UpdateTabDraft(_)
+                | PanelAction::PreviewTabMove(_)
+                | PanelAction::CommitTabEdit
+                | PanelAction::CancelTabEdit => {}
             }
             actions::update_dirty_ui(&ws_for_cb, &win_for_cb, &sa_for_cb);
         });

@@ -14,6 +14,18 @@ use crate::panels::chooser::{ChooserPanel, OnTypeChosen};
 use crate::panels::registry::{self, PanelCreateConfig, PanelRegistry};
 use crate::widget_builder::*;
 
+#[derive(Clone)]
+struct ActiveTabEdit {
+    panel_id: String,
+    draft_name: String,
+    is_layout: bool,
+    original_name: String,
+    original_workspace: Workspace,
+    original_dirty: bool,
+    pending_offset: i32,
+    suppress_commit_once: bool,
+}
+
 /// Builds the GTK widget tree from a workspace layout.
 pub struct WorkspaceView {
     root_widget: gtk4::Widget,
@@ -34,6 +46,7 @@ pub struct WorkspaceView {
     sync_panels: std::collections::HashSet<String>,
     /// Callback for terminal input sync propagation.
     sync_input_cb: Option<std::rc::Rc<dyn Fn(&str, &[u8])>>,
+    tab_edit: Option<ActiveTabEdit>,
 }
 
 impl WorkspaceView {
@@ -65,7 +78,7 @@ impl WorkspaceView {
         }
 
         // Build layout widget tree
-        let root_widget = build_layout_widget(&workspace.layout, &hosts, &workspace.panels);
+        let root_widget = build_layout_widget(&workspace.layout, &hosts, &workspace.panels, None);
         root_widget.set_vexpand(true);
         root_widget.set_hexpand(true);
 
@@ -109,6 +122,7 @@ impl WorkspaceView {
             zoomed_panel: None,
             sync_panels: std::collections::HashSet::new(),
             sync_input_cb: None,
+            tab_edit: None,
         };
 
         // Focus first panel
@@ -175,13 +189,13 @@ impl WorkspaceView {
             hosts.insert(panel_cfg.id.clone(), host);
         }
 
-        let root_widget = build_layout_widget(&ws.layout, &hosts, &ws.panels);
+        let root_widget = build_layout_widget(&ws.layout, &hosts, &ws.panels, None);
         root_widget.set_vexpand(true);
         root_widget.set_hexpand(true);
         self.root_box.append(&root_widget);
 
         if let Some(ref cb) = self.action_cb {
-            update_notebook_labels_recursive(&root_widget, cb, &hosts, &ws);
+            update_notebook_labels_recursive(&root_widget, cb, &hosts, &ws, None);
             add_plus_buttons_recursive(&root_widget, cb);
         }
 
@@ -190,6 +204,7 @@ impl WorkspaceView {
         self.workspace = ws;
         self.registry = registry;
         self.dirty = false;
+        self.tab_edit = None;
 
         self.next_panel_id = self
             .workspace
@@ -386,6 +401,124 @@ impl WorkspaceView {
         changed
     }
 
+    pub fn begin_tab_edit(&mut self, panel_id: &str, draft_name: String, is_layout: bool) -> bool {
+        self.tab_edit = Some(ActiveTabEdit {
+            panel_id: panel_id.to_string(),
+            draft_name: draft_name.clone(),
+            is_layout,
+            original_name: draft_name,
+            original_workspace: self.workspace.clone(),
+            original_dirty: self.dirty,
+            pending_offset: 0,
+            suppress_commit_once: false,
+        });
+        self.rebuild_layout();
+        self.select_workspace_tab_for_panel(panel_id);
+        true
+    }
+
+    pub fn update_tab_edit_draft(&mut self, panel_id: &str, draft_name: String) -> bool {
+        let Some(state) = self.tab_edit.as_mut() else {
+            return false;
+        };
+        if state.panel_id != panel_id {
+            return false;
+        }
+        state.draft_name = draft_name;
+        true
+    }
+
+    pub fn preview_tab_edit_move(&mut self, panel_id: &str, step: i32) -> bool {
+        let Some(state) = self.tab_edit.as_mut() else {
+            return false;
+        };
+        if state.panel_id != panel_id {
+            return false;
+        }
+
+        let moved =
+            crate::layout_ops::move_tab_in_layout(&mut self.workspace.layout, panel_id, step);
+        if !moved {
+            return false;
+        }
+
+        state.pending_offset += step;
+        state.suppress_commit_once = true;
+        let original_dirty = state.original_dirty;
+
+        self.rebuild_layout();
+        self.rebuild_focus_order();
+        if let Some(index) = self.focus.order.iter().position(|id| id == panel_id) {
+            self.focus.index = index;
+            self.focus.focus_current_pub(&self.hosts);
+        }
+        self.select_workspace_tab_for_panel(panel_id);
+        self.dirty = original_dirty;
+        true
+    }
+
+    pub fn clear_tab_edit_commit_suppression(&mut self, panel_id: &str) {
+        if let Some(state) = self.tab_edit.as_mut() {
+            if state.panel_id == panel_id {
+                state.suppress_commit_once = false;
+            }
+        }
+    }
+
+    pub fn commit_tab_edit(&mut self, panel_id: &str) -> bool {
+        let Some(state) = self.tab_edit.clone() else {
+            return false;
+        };
+        if state.panel_id != panel_id {
+            return false;
+        }
+        if state.suppress_commit_once {
+            return false;
+        }
+
+        self.tab_edit = None;
+
+        let trimmed_name = state.draft_name.trim();
+        let mut changed = state.pending_offset != 0;
+        if !trimmed_name.is_empty() && state.draft_name != state.original_name {
+            if state.is_layout {
+                changed |=
+                    rename_tab_label_model(&mut self.workspace.layout, panel_id, &state.draft_name);
+            } else {
+                changed |= rename_panel_model(&mut self.workspace, panel_id, &state.draft_name);
+                if let Some(host) = self.hosts.get(panel_id) {
+                    host.set_title(&state.draft_name);
+                }
+            }
+        }
+
+        self.rebuild_layout();
+        self.select_workspace_tab_for_panel(panel_id);
+        self.dirty = state.original_dirty || changed;
+        changed
+    }
+
+    pub fn cancel_tab_edit(&mut self, panel_id: &str) -> bool {
+        let Some(state) = self.tab_edit.clone() else {
+            return false;
+        };
+        if state.panel_id != panel_id {
+            return false;
+        }
+
+        self.workspace = state.original_workspace;
+        self.tab_edit = None;
+        self.rebuild_layout();
+        self.rebuild_focus_order();
+        if let Some(index) = self.focus.order.iter().position(|id| id == panel_id) {
+            self.focus.index = index;
+            self.focus.focus_current_pub(&self.hosts);
+        }
+        self.select_workspace_tab_for_panel(panel_id);
+        self.dirty = state.original_dirty;
+        true
+    }
+
     pub fn move_tab_by_panel_id(&mut self, panel_id: &str, direction: i32) -> bool {
         let moved = crate::layout_ops::move_tab_in_layout_steps(
             &mut self.workspace.layout,
@@ -423,6 +556,13 @@ impl WorkspaceView {
         self.config_path
             .as_ref()
             .map(|p| p.to_string_lossy().to_string())
+    }
+
+    fn current_tab_label_edit_state(&self) -> Option<TabLabelEditState> {
+        self.tab_edit.as_ref().map(|state| TabLabelEditState {
+            panel_id: state.panel_id.clone(),
+            draft_name: state.draft_name.clone(),
+        })
     }
 
     /// Set callback for when a panel type is chosen from the chooser.
@@ -517,7 +657,14 @@ impl WorkspaceView {
             // Update tab label in Notebook widget if inside one
             let widget = host.widget().clone();
             if let Some(notebook) = find_notebook_ancestor(&widget) {
-                let new_label = build_tab_label(type_id, type_id, &self.action_cb, &widget);
+                let edit_state = self.current_tab_label_edit_state();
+                let new_label = build_tab_label(
+                    type_id,
+                    type_id,
+                    &self.action_cb,
+                    &widget,
+                    edit_state.as_ref(),
+                );
                 notebook.set_tab_label(&widget, Some(&new_label));
             }
         }
@@ -539,7 +686,14 @@ impl WorkspaceView {
             host.set_action_callback(cb.clone());
         }
         // Update notebook tab labels with close buttons and + buttons
-        update_notebook_labels_recursive(&self.root_widget, &cb, &self.hosts, &self.workspace);
+        let edit_state = self.current_tab_label_edit_state();
+        update_notebook_labels_recursive(
+            &self.root_widget,
+            &cb,
+            &self.hosts,
+            &self.workspace,
+            edit_state.as_ref(),
+        );
         add_plus_buttons_recursive(&self.root_widget, &cb);
         // Reconnect chooser callbacks
         if let Some(ref tc) = self.on_type_chosen {
@@ -671,11 +825,13 @@ impl WorkspaceView {
             }
         }
         // Rebuild from model (passing action_cb so tab labels get close buttons)
+        let edit_state = self.current_tab_label_edit_state();
         let root_widget = build_layout_widget_inner(
             &self.workspace.layout,
             &self.hosts,
             &self.workspace.panels,
             &self.action_cb,
+            edit_state.as_ref(),
         );
         root_widget.set_vexpand(true);
         root_widget.set_hexpand(true);

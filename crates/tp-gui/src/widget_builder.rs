@@ -1,5 +1,4 @@
 use gtk4::prelude::*;
-use std::cell::Cell;
 use std::collections::HashMap;
 use std::rc::Rc;
 
@@ -7,6 +6,12 @@ use pax_core::workspace::{LayoutNode, PanelConfig, Workspace};
 
 use crate::backend_factory::panel_type_to_id;
 use crate::panel_host::{PanelAction, PanelActionCallback, PanelHost, COLLAPSE_SIZE};
+
+#[derive(Debug, Clone)]
+pub struct TabLabelEditState {
+    pub panel_id: String,
+    pub draft_name: String,
+}
 
 // ── Widget helpers ───────────────────────────────────────────────────────────
 
@@ -29,11 +34,24 @@ pub fn build_tab_label(
     panel_type_id: &str,
     action_cb: &Option<PanelActionCallback>,
     child_widget: &gtk4::Widget,
+    edit_state: Option<&TabLabelEditState>,
 ) -> gtk4::Widget {
     let hbox = gtk4::Box::new(gtk4::Orientation::Horizontal, 4);
+    let tab_panel_id = find_first_panel_id(child_widget);
+    let is_layout = panel_type_id == "__layout__";
+    let active_edit = tab_panel_id
+        .as_deref()
+        .zip(edit_state)
+        .and_then(|(panel_id, state)| {
+            if state.panel_id == panel_id {
+                Some(state.clone())
+            } else {
+                None
+            }
+        });
 
     // Only show type icon for single-panel tabs, not for layout tabs
-    if panel_type_id != "__layout__" {
+    if !is_layout {
         let icon_name = match panel_type_id {
             "terminal" => "utilities-terminal-symbolic",
             "markdown" => "text-x-generic-symbolic",
@@ -76,12 +94,6 @@ pub fn build_tab_label(
 
     stack.add_named(&edit_box, Some("edit"));
     stack.set_visible_child_name("label");
-
-    let original_page = Rc::new(Cell::new(None::<u32>));
-    let pending_offset = Rc::new(Cell::new(0_i32));
-    let suppress_cancel = Rc::new(Cell::new(false));
-    let is_layout = panel_type_id == "__layout__";
-
     let update_move_buttons: Rc<dyn Fn()> = Rc::new({
         let child_widget = child_widget.clone();
         let move_left_btn = move_left_btn.clone();
@@ -102,89 +114,24 @@ pub fn build_tab_label(
         }
     });
 
-    let finish_edit: Rc<dyn Fn(bool)> = Rc::new({
-        let stack = stack.clone();
-        let label = label.clone();
-        let entry = entry.clone();
-        let cb = action_cb.clone();
-        let child_widget = child_widget.clone();
-        let original_page = original_page.clone();
-        let pending_offset = pending_offset.clone();
-        let suppress_cancel = suppress_cancel.clone();
-        move |commit| {
-            let original_label = label.text().to_string();
-            let new_name = entry.text().to_string();
-            let trimmed_name = new_name.trim().to_string();
-            let move_offset = pending_offset.get();
-            let original_page_value = original_page.get();
-
-            if commit {
-                suppress_cancel.set(false);
-                pending_offset.set(0);
-                original_page.set(None);
-                stack.set_visible_child_name("label");
-
-                if !trimmed_name.is_empty() && new_name != original_label {
-                    label.set_text(&new_name);
-                    if let Some(ref cb) = cb {
-                        if is_layout {
-                            if let Some(pid) = find_first_panel_id(&child_widget) {
-                                cb(&pid, PanelAction::RenameTab(new_name.clone()));
-                            }
-                        } else {
-                            find_panel_id_recursive(&child_widget, &|panel_id| {
-                                cb(panel_id, PanelAction::Rename(new_name.clone()));
-                            });
-                        }
-                    }
-                } else {
-                    entry.set_text(&original_label);
-                }
-
-                if move_offset != 0 {
-                    if let Some(ref cb) = cb {
-                        if let Some(pid) = find_first_panel_id(&child_widget) {
-                            cb(&format!("nb:{}", pid), PanelAction::MoveTabBy(move_offset));
-                        }
-                    }
-                }
-            } else {
-                if suppress_cancel.get() {
-                    return;
-                }
-                if let Some(original_page) = original_page_value {
-                    restore_workspace_tab_preview(&child_widget, original_page);
-                }
-                entry.set_text(&original_label);
-                pending_offset.set(0);
-                original_page.set(None);
-                suppress_cancel.set(false);
-                stack.set_visible_child_name("label");
-            }
-        }
-    });
-
     {
-        let s = stack.clone();
-        let e = entry.clone();
-        let l = label.clone();
-        let original_page = original_page.clone();
-        let pending_offset = pending_offset.clone();
-        let update_move_buttons = update_move_buttons.clone();
-        let child_widget = child_widget.clone();
+        let cb = action_cb.clone();
+        let panel_id = tab_panel_id.clone();
+        let initial_name = name.to_string();
         let gesture = gtk4::GestureClick::new();
         gesture.set_button(1);
         gesture.set_propagation_phase(gtk4::PropagationPhase::Bubble);
         gesture.connect_released(move |g, n_press, _, _| {
             if n_press == 2 {
-                e.set_text(&l.text());
-                original_page.set(
-                    find_notebook_ancestor(&child_widget).and_then(|nb| nb.page_num(&child_widget)),
-                );
-                pending_offset.set(0);
-                update_move_buttons();
-                s.set_visible_child_name("edit");
-                e.grab_focus();
+                if let (Some(ref cb), Some(panel_id)) = (&cb, panel_id.as_ref()) {
+                    cb(
+                        &format!("nb:{}", panel_id),
+                        PanelAction::BeginTabEdit {
+                            name: initial_name.clone(),
+                            is_layout,
+                        },
+                    );
+                }
                 g.set_state(gtk4::EventSequenceState::Claimed);
             }
         });
@@ -192,19 +139,37 @@ pub fn build_tab_label(
     }
 
     {
-        let finish_edit = finish_edit.clone();
-        entry.connect_activate(move |entry| {
-            let _ = entry;
-            finish_edit(true);
+        let cb = action_cb.clone();
+        let panel_id = tab_panel_id.clone();
+        entry.connect_changed(move |entry| {
+            if let (Some(ref cb), Some(panel_id)) = (&cb, panel_id.as_ref()) {
+                cb(
+                    &format!("nb:{}", panel_id),
+                    PanelAction::UpdateTabDraft(entry.text().to_string()),
+                );
+            }
         });
     }
 
     {
-        let finish_edit = finish_edit.clone();
+        let cb = action_cb.clone();
+        let panel_id = tab_panel_id.clone();
+        entry.connect_activate(move |_| {
+            if let (Some(ref cb), Some(panel_id)) = (&cb, panel_id.as_ref()) {
+                cb(&format!("nb:{}", panel_id), PanelAction::CommitTabEdit);
+            }
+        });
+    }
+
+    {
+        let cb = action_cb.clone();
+        let panel_id = tab_panel_id.clone();
         let key_ctrl = gtk4::EventControllerKey::new();
         key_ctrl.connect_key_pressed(move |_, key, _, _| {
             if key == gtk4::gdk::Key::Escape {
-                finish_edit(false);
+                if let (Some(ref cb), Some(panel_id)) = (&cb, panel_id.as_ref()) {
+                    cb(&format!("nb:{}", panel_id), PanelAction::CancelTabEdit);
+                }
                 return gtk4::glib::Propagation::Stop;
             }
             gtk4::glib::Propagation::Proceed
@@ -213,53 +178,48 @@ pub fn build_tab_label(
     }
 
     // Focus-out: save and close when leaving the tab title editor.
-    // Internal arrow clicks suppress this path until their preview move finishes.
     {
-        let finish_edit = finish_edit.clone();
+        let cb = action_cb.clone();
+        let panel_id = tab_panel_id.clone();
         let focus_ctrl = gtk4::EventControllerFocus::new();
         focus_ctrl.connect_leave(move |_| {
-            finish_edit(true);
+            if let (Some(ref cb), Some(panel_id)) = (&cb, panel_id.as_ref()) {
+                cb(&format!("nb:{}", panel_id), PanelAction::CommitTabEdit);
+            }
         });
         edit_box.add_controller(focus_ctrl);
     }
 
     {
-        let child_widget = child_widget.clone();
-        let pending_offset = pending_offset.clone();
-        let suppress_cancel = suppress_cancel.clone();
-        let update_move_buttons = update_move_buttons.clone();
-        let entry = entry.clone();
+        let cb = action_cb.clone();
+        let panel_id = tab_panel_id.clone();
         move_left_btn.connect_clicked(move |_| {
-            suppress_cancel.set(true);
-            if preview_move_workspace_tab(&child_widget, -1) {
-                pending_offset.set(pending_offset.get() - 1);
-                update_move_buttons();
-                entry.grab_focus();
+            if let (Some(ref cb), Some(panel_id)) = (&cb, panel_id.as_ref()) {
+                cb(&format!("nb:{}", panel_id), PanelAction::PreviewTabMove(-1));
             }
-            let suppress_cancel = suppress_cancel.clone();
-            gtk4::glib::idle_add_local_once(move || {
-                suppress_cancel.set(false);
-            });
         });
     }
 
     {
-        let child_widget = child_widget.clone();
-        let pending_offset = pending_offset.clone();
-        let suppress_cancel = suppress_cancel.clone();
-        let update_move_buttons = update_move_buttons.clone();
-        let entry = entry.clone();
+        let cb = action_cb.clone();
+        let panel_id = tab_panel_id.clone();
         move_right_btn.connect_clicked(move |_| {
-            suppress_cancel.set(true);
-            if preview_move_workspace_tab(&child_widget, 1) {
-                pending_offset.set(pending_offset.get() + 1);
-                update_move_buttons();
-                entry.grab_focus();
+            if let (Some(ref cb), Some(panel_id)) = (&cb, panel_id.as_ref()) {
+                cb(&format!("nb:{}", panel_id), PanelAction::PreviewTabMove(1));
             }
-            let suppress_cancel = suppress_cancel.clone();
-            gtk4::glib::idle_add_local_once(move || {
-                suppress_cancel.set(false);
-            });
+        });
+    }
+
+    if let Some(active_edit) = active_edit {
+        label.set_text(&active_edit.draft_name);
+        entry.set_text(&active_edit.draft_name);
+        stack.set_visible_child_name("edit");
+        let entry = entry.clone();
+        let update_move_buttons = update_move_buttons.clone();
+        gtk4::glib::idle_add_local_once(move || {
+            update_move_buttons();
+            entry.grab_focus();
+            entry.set_position(-1);
         });
     }
 
@@ -287,62 +247,6 @@ pub fn build_tab_label(
     hbox.upcast::<gtk4::Widget>()
 }
 
-fn preview_move_workspace_tab(child_widget: &gtk4::Widget, step: i32) -> bool {
-    let Some(notebook) = find_notebook_ancestor(child_widget) else {
-        return false;
-    };
-    let Some(position) = notebook.page_num(child_widget) else {
-        return false;
-    };
-    let target = position as i32 + step;
-    if !(0..notebook.n_pages() as i32).contains(&target) {
-        return false;
-    }
-
-    move_notebook_page_to(&notebook, child_widget, target as u32)
-}
-
-fn restore_workspace_tab_preview(child_widget: &gtk4::Widget, position: u32) -> bool {
-    let Some(notebook) = find_notebook_ancestor(child_widget) else {
-        return false;
-    };
-    if position >= notebook.n_pages() {
-        return false;
-    }
-
-    move_notebook_page_to(&notebook, child_widget, position)
-}
-
-fn move_notebook_page_to(
-    notebook: &gtk4::Notebook,
-    child_widget: &gtk4::Widget,
-    position: u32,
-) -> bool {
-    let Some(current_position) = notebook.page_num(child_widget) else {
-        return false;
-    };
-    if current_position == position {
-        notebook.set_current_page(Some(position));
-        return true;
-    }
-
-    let tab_label = notebook.tab_label(child_widget);
-    let menu_label = notebook.menu_label(child_widget);
-    notebook.remove_page(Some(current_position));
-    if let Some(menu_label) = menu_label.as_ref() {
-        notebook.insert_page_menu(
-            child_widget,
-            tab_label.as_ref(),
-            Some(menu_label),
-            Some(position),
-        );
-    } else {
-        notebook.insert_page(child_widget, tab_label.as_ref(), Some(position));
-    }
-    notebook.set_current_page(Some(position));
-    true
-}
-
 /// Rebuild tab labels on existing Notebooks from the layout model.
 /// Walks the widget tree and layout tree in parallel so each Notebook
 /// gets labels from its corresponding Tabs node — no ambiguous matching.
@@ -351,8 +255,15 @@ pub fn update_notebook_labels_recursive(
     action_cb: &PanelActionCallback,
     _hosts: &HashMap<String, PanelHost>,
     workspace: &Workspace,
+    edit_state: Option<&TabLabelEditState>,
 ) {
-    update_labels_with_layout(widget, action_cb, &workspace.layout, &workspace.panels);
+    update_labels_with_layout(
+        widget,
+        action_cb,
+        &workspace.layout,
+        &workspace.panels,
+        edit_state,
+    );
 }
 
 fn update_labels_with_layout(
@@ -360,6 +271,7 @@ fn update_labels_with_layout(
     action_cb: &PanelActionCallback,
     layout_node: &LayoutNode,
     panels: &[PanelConfig],
+    edit_state: Option<&TabLabelEditState>,
 ) {
     if let Ok(notebook) = widget.clone().downcast::<gtk4::Notebook>() {
         if let LayoutNode::Tabs { children, labels } = layout_node {
@@ -393,12 +305,19 @@ fn update_labels_with_layout(
                         type_id,
                         &Some(action_cb.clone()),
                         &page_widget,
+                        edit_state,
                     );
                     notebook.set_tab_label(&page_widget, Some(&label));
 
                     // Recurse into child layout nodes and page widgets
                     if let Some(child_node) = children.get(i as usize) {
-                        update_labels_with_layout(&page_widget, action_cb, child_node, panels);
+                        update_labels_with_layout(
+                            &page_widget,
+                            action_cb,
+                            child_node,
+                            panels,
+                            edit_state,
+                        );
                     }
                 }
             }
@@ -415,7 +334,7 @@ fn update_labels_with_layout(
                 if let Some(w) = paned.start_child() {
                     let w = unwrap_collapse_wrapper(&w);
                     if let Some(c) = children.first() {
-                        update_labels_with_layout(&w, action_cb, c, panels);
+                        update_labels_with_layout(&w, action_cb, c, panels, edit_state);
                     }
                 }
                 if let Some(w) = paned.end_child() {
@@ -423,7 +342,7 @@ fn update_labels_with_layout(
                     // For 2 children: second child. For 3+: rest is a nested Paned.
                     if children.len() == 2 {
                         if let Some(c) = children.get(1) {
-                            update_labels_with_layout(&w, action_cb, c, panels);
+                            update_labels_with_layout(&w, action_cb, c, panels, edit_state);
                         }
                     }
                     // For 3+ children the rest_node is built recursively in build_paned,
@@ -552,8 +471,9 @@ pub fn build_layout_widget(
     node: &LayoutNode,
     hosts: &HashMap<String, PanelHost>,
     panels: &[PanelConfig],
+    edit_state: Option<&TabLabelEditState>,
 ) -> gtk4::Widget {
-    build_layout_widget_inner(node, hosts, panels, &None)
+    build_layout_widget_inner(node, hosts, panels, &None, edit_state)
 }
 
 pub fn build_layout_widget_inner(
@@ -561,6 +481,7 @@ pub fn build_layout_widget_inner(
     hosts: &HashMap<String, PanelHost>,
     panels: &[PanelConfig],
     action_cb: &Option<PanelActionCallback>,
+    edit_state: Option<&TabLabelEditState>,
 ) -> gtk4::Widget {
     match node {
         LayoutNode::Panel { id } => {
@@ -580,6 +501,7 @@ pub fn build_layout_widget_inner(
             hosts,
             panels,
             action_cb,
+            edit_state,
             gtk4::Orientation::Horizontal,
         ),
         LayoutNode::Vsplit { children, ratios } => build_paned(
@@ -588,6 +510,7 @@ pub fn build_layout_widget_inner(
             hosts,
             panels,
             action_cb,
+            edit_state,
             gtk4::Orientation::Vertical,
         ),
         LayoutNode::Tabs { children, labels } => {
@@ -597,7 +520,8 @@ pub fn build_layout_widget_inner(
             notebook.add_css_class("workspace-tabs");
 
             for (i, child) in children.iter().enumerate() {
-                let child_widget = build_layout_widget_inner(child, hosts, panels, action_cb);
+                let child_widget =
+                    build_layout_widget_inner(child, hosts, panels, action_cb, edit_state);
                 let label_text = labels
                     .get(i)
                     .cloned()
@@ -608,7 +532,13 @@ pub fn build_layout_widget_inner(
                     label_text
                 );
                 let panel_type_id = get_panel_type_id(child, panels);
-                let label = build_tab_label(&label_text, panel_type_id, action_cb, &child_widget);
+                let label = build_tab_label(
+                    &label_text,
+                    panel_type_id,
+                    action_cb,
+                    &child_widget,
+                    edit_state,
+                );
                 notebook.append_page(&child_widget, Some(&label));
 
                 // Panels inside tabs keep their title bar visible
@@ -679,13 +609,14 @@ fn build_paned(
     hosts: &HashMap<String, PanelHost>,
     panels: &[PanelConfig],
     action_cb: &Option<PanelActionCallback>,
+    edit_state: Option<&TabLabelEditState>,
     orientation: gtk4::Orientation,
 ) -> gtk4::Widget {
     if children.is_empty() {
         return gtk4::Box::new(orientation, 0).upcast::<gtk4::Widget>();
     }
     if children.len() == 1 {
-        return build_layout_widget_inner(&children[0], hosts, panels, action_cb);
+        return build_layout_widget_inner(&children[0], hosts, panels, action_cb, edit_state);
     }
 
     let sum: f64 = ratios.iter().take(children.len()).sum();
@@ -715,12 +646,14 @@ fn build_paned(
             hosts,
             panels,
             action_cb,
+            edit_state,
         ));
         let w2 = maybe_wrap(build_layout_widget_inner(
             &children[1],
             hosts,
             panels,
             action_cb,
+            edit_state,
         ));
         let c1_fixed = subtree_has_min_size(&children[0], panels);
         let c2_fixed = subtree_has_min_size(&children[1], panels);
@@ -741,6 +674,7 @@ fn build_paned(
         hosts,
         panels,
         action_cb,
+        edit_state,
     ));
     let rest_nodes = &children[1..];
     let rest = maybe_wrap(build_paned(
@@ -749,6 +683,7 @@ fn build_paned(
         hosts,
         panels,
         action_cb,
+        edit_state,
         orientation,
     ));
     let c1_fixed = subtree_has_min_size(&children[0], panels);

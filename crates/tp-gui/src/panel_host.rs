@@ -50,8 +50,19 @@ pub enum PanelAction {
     AddTabToNotebook,
     /// Remove current tab from Notebook (from tab bar menu)
     RemoveTab,
-    /// Persist a notebook tab move by signed offset
-    MoveTabBy(i32),
+    /// Begin editing a workspace tab label
+    BeginTabEdit {
+        name: String,
+        is_layout: bool,
+    },
+    /// Update the in-progress tab label draft text
+    UpdateTabDraft(String),
+    /// Preview move of the currently edited workspace tab
+    PreviewTabMove(i32),
+    /// Commit the in-progress workspace tab edit
+    CommitTabEdit,
+    /// Cancel the in-progress workspace tab edit
+    CancelTabEdit,
     /// Toggle zoom/fullscreen
     Zoom,
     /// Toggle sync input
@@ -717,8 +728,12 @@ fn build_panel_menu(panel_id: &str, action_cb: Option<PanelActionCallback>) -> g
             PanelAction::Close => "window-close-symbolic",
             PanelAction::AddTabToNotebook => "tab-new-symbolic",
             PanelAction::RemoveTab => "window-close-symbolic",
-            PanelAction::MoveTabBy(offset) if offset < 0 => "go-previous-symbolic",
-            PanelAction::MoveTabBy(_) => "go-next-symbolic",
+            PanelAction::BeginTabEdit { .. } => "document-edit-symbolic",
+            PanelAction::UpdateTabDraft(_) => "document-edit-symbolic",
+            PanelAction::PreviewTabMove(offset) if offset < 0 => "go-previous-symbolic",
+            PanelAction::PreviewTabMove(_) => "go-next-symbolic",
+            PanelAction::CommitTabEdit => "object-select-symbolic",
+            PanelAction::CancelTabEdit => "process-stop-symbolic",
             PanelAction::Zoom => "view-fullscreen-symbolic",
             PanelAction::Sync => "media-playlist-consecutive-symbolic",
             PanelAction::Rename(_) => "document-edit-symbolic",
@@ -741,7 +756,11 @@ fn build_panel_menu(panel_id: &str, action_cb: Option<PanelActionCallback>) -> g
             PanelAction::Close => "Ctrl+Shift+W",
             PanelAction::AddTabToNotebook => "",
             PanelAction::RemoveTab => "",
-            PanelAction::MoveTabBy(_) => "",
+            PanelAction::BeginTabEdit { .. } => "Dbl-click",
+            PanelAction::UpdateTabDraft(_) => "",
+            PanelAction::PreviewTabMove(_) => "",
+            PanelAction::CommitTabEdit => "Enter",
+            PanelAction::CancelTabEdit => "Esc",
             PanelAction::Zoom => "Ctrl+Z",
             PanelAction::Sync => "Ctrl+Shift+S",
             PanelAction::Rename(_) => "Dbl-click",
