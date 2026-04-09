@@ -130,6 +130,7 @@ impl TerminalInner {
 
         // Register VTE for theme color updates
         crate::theme::register_vte_terminal(&vte);
+        vte.add_css_class("terminal-surface");
 
         let widget = vte.clone().upcast::<gtk4::Widget>();
         Self {
