@@ -148,10 +148,11 @@ fn setup_workspace_ui(
     config_path: Option<&Path>,
 ) {
     let ws_name = workspace.name.clone();
+    let workspace_theme = Theme::from_id(&workspace.settings.theme);
     window.set_title(Some(&format!("Pax — {}", ws_name)));
 
     // Apply saved theme
-    apply_theme(Theme::from_id(&workspace.settings.theme));
+    apply_theme(workspace_theme);
 
     // Header bar with hamburger menu
     let header = adw::HeaderBar::new();
@@ -583,9 +584,11 @@ fn setup_workspace_ui(
             let sa2 = sa.clone();
             let on_continue: Rc<dyn Fn()> = Rc::new(move || {
                 let empty = new_workspace_with_preferred_theme("untitled");
+                let empty_theme = Theme::from_id(&empty.settings.theme);
                 if let Err(e) = ws2.borrow_mut().load_workspace(empty, None) {
                     sb2.borrow().set_message(&format!("Error: {}", e));
                 }
+                apply_theme(empty_theme);
                 actions::update_dirty_ui(&ws2, &win2, &sa2);
                 actions::update_status_bar_path(&ws2, &sb2);
             });
@@ -780,6 +783,7 @@ fn setup_workspace_ui(
     toolbar_view.add_top_bar(&header);
     toolbar_view.set_content(Some(&content_box));
     window.set_content(Some(&toolbar_view));
+    apply_theme(workspace_theme);
 
     // Keyboard shortcuts
     let controller = gtk4::EventControllerKey::new();
@@ -1040,8 +1044,12 @@ fn load_css() {
 }
 
 fn new_workspace_with_preferred_theme(name: &str) -> Workspace {
+    workspace_with_theme(name, load_preferred_theme())
+}
+
+fn workspace_with_theme(name: &str, theme: Theme) -> Workspace {
     let mut workspace = pax_core::template::empty_workspace(name);
-    workspace.settings.theme = load_preferred_theme().to_id().to_string();
+    workspace.settings.theme = theme.to_id().to_string();
     workspace
 }
 
@@ -1107,7 +1115,7 @@ fn apply_theme(theme: Theme) {
 
 #[cfg(test)]
 mod tests {
-    use super::{load_preferred_theme_from_db, Theme};
+    use super::{load_preferred_theme_from_db, workspace_with_theme, Theme};
     use pax_db::Database;
 
     #[test]
@@ -1121,6 +1129,13 @@ mod tests {
         db.set_app_preference("theme", "dracula").unwrap();
 
         assert_eq!(load_preferred_theme_from_db(&db), Some(Theme::Dracula));
+    }
+
+    #[test]
+    fn new_workspace_inherits_selected_theme() {
+        let workspace = workspace_with_theme("untitled", Theme::Dracula);
+
+        assert_eq!(workspace.settings.theme, "dracula");
     }
 }
 
