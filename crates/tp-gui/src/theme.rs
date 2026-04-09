@@ -267,6 +267,11 @@ toolbarview.app-toolbar-view .top-bar > * { background-color: @headerbar_bg_colo
 headerbar.app-headerbar { background-color: @headerbar_bg_color; color: @headerbar_fg_color; border: none; }
 headerbar.app-headerbar box, headerbar.app-headerbar label, headerbar.app-headerbar image, headerbar.app-headerbar button, headerbar.app-headerbar menubutton > button { color: @headerbar_fg_color; }
 box.panel-title-bar, box.panel-footer-bar, .status-bar, .markdown-toolbar { background-color: @headerbar_bg_color; color: @headerbar_fg_color; }
+.editor-sidebar-toolbar-surface,
+.editor-sidebar-toolbar {
+  background-color: @headerbar_bg_color;
+  color: @headerbar_fg_color;
+}
 notebook.workspace-tabs,
 notebook.workspace-tabs > header,
 notebook.workspace-tabs > header > tabs,
