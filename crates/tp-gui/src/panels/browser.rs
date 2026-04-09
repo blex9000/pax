@@ -3,30 +3,57 @@ use std::cell::{Cell, RefCell};
 use std::path::{Component, Path, PathBuf};
 use std::rc::Rc;
 
+#[cfg(target_os = "macos")]
+use gtk4::glib;
+#[cfg(target_os = "macos")]
+use std::time::Duration;
+
 #[cfg(target_os = "linux")]
 use webkit6::prelude::*;
+#[cfg(target_os = "macos")]
+use {
+    gdk4_macos::MacosSurface,
+    objc2::{rc::Retained, MainThreadMarker},
+    objc2_app_kit::{NSAutoresizingMaskOptions, NSView, NSWindow},
+    objc2_foundation::{NSPoint, NSRect, NSSize, NSString, NSURLRequest, NSURL},
+    objc2_web_kit::WKWebView,
+};
 
 use super::PanelBackend;
 
-#[derive(Debug)]
 pub struct BrowserPanel {
     widget: gtk4::Widget,
     focus_widget: gtk4::Widget,
     current_uri: Rc<RefCell<Option<String>>>,
+    #[cfg(target_os = "macos")]
+    _native_bridge: MacEmbeddedBrowser,
+}
+
+impl std::fmt::Debug for BrowserPanel {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("BrowserPanel").finish()
+    }
 }
 
 impl BrowserPanel {
     pub fn new(url: &str, workspace_dir: Option<&str>) -> Self {
         let current_uri = Rc::new(RefCell::new(None));
         let workspace_dir = workspace_dir.map(str::to_string);
-        let initial_uri =
-            normalized_browser_uri(url, workspace_dir.as_deref()).unwrap_or_else(|| "about:blank".to_string());
+        let initial_uri = normalized_browser_uri(url, workspace_dir.as_deref())
+            .unwrap_or_else(|| "about:blank".to_string());
 
         #[cfg(target_os = "linux")]
         let (widget, focus_widget) =
             build_embedded_browser_panel(&initial_uri, workspace_dir.as_deref(), &current_uri);
 
-        #[cfg(not(target_os = "linux"))]
+        #[cfg(target_os = "macos")]
+        let (widget, focus_widget, native_bridge) = build_macos_embedded_browser_panel(
+            &initial_uri,
+            workspace_dir.as_deref(),
+            &current_uri,
+        );
+
+        #[cfg(all(not(target_os = "linux"), not(target_os = "macos")))]
         let (widget, focus_widget) = build_native_browser_launcher_panel(
             &initial_uri,
             workspace_dir.as_deref(),
@@ -37,6 +64,8 @@ impl BrowserPanel {
             widget,
             focus_widget,
             current_uri,
+            #[cfg(target_os = "macos")]
+            _native_bridge: native_bridge,
         }
     }
 }
@@ -100,7 +129,8 @@ fn build_embedded_browser_panel(
         let status_label = status_label.clone();
         let workspace_dir = workspace_dir.map(str::to_string);
         address_entry.connect_activate(move |entry| {
-            let Some(uri) = normalized_browser_uri(entry.text().as_str(), workspace_dir.as_deref()) else {
+            let Some(uri) = normalized_browser_uri(entry.text().as_str(), workspace_dir.as_deref())
+            else {
                 status_label.set_text("Invalid URL or file path");
                 return;
             };
@@ -213,7 +243,358 @@ fn build_embedded_browser_panel(
     )
 }
 
-#[cfg(not(target_os = "linux"))]
+#[cfg(target_os = "macos")]
+#[derive(Debug)]
+struct MacEmbeddedBrowser {
+    state: Rc<MacWebViewState>,
+    sync_source: Option<glib::SourceId>,
+}
+
+#[cfg(target_os = "macos")]
+impl Drop for MacEmbeddedBrowser {
+    fn drop(&mut self) {
+        if let Some(source) = self.sync_source.take() {
+            source.remove();
+        }
+        self.state.detach();
+    }
+}
+
+#[cfg(target_os = "macos")]
+#[derive(Debug)]
+struct MacWebViewState {
+    web_view: Retained<WKWebView>,
+    attached_host_ptr: Cell<usize>,
+}
+
+#[cfg(target_os = "macos")]
+impl MacWebViewState {
+    fn detach(&self) {
+        unsafe {
+            self.web_view.setHidden(true);
+            self.web_view.removeFromSuperview();
+        }
+        self.attached_host_ptr.set(0);
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn build_macos_embedded_browser_panel(
+    initial_uri: &str,
+    workspace_dir: Option<&str>,
+    current_uri: &Rc<RefCell<Option<String>>>,
+) -> (gtk4::Widget, gtk4::Widget, MacEmbeddedBrowser) {
+    let container = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
+
+    let toolbar = build_browser_toolbar();
+    let back_btn = toolbar.back_btn.clone();
+    let forward_btn = toolbar.forward_btn.clone();
+    let reload_btn = toolbar.reload_btn.clone();
+    let address_entry = toolbar.address_entry.clone();
+    let progress = toolbar.progress.clone();
+    let status_label = toolbar.status_label.clone();
+
+    container.append(&toolbar.toolbar);
+    container.append(&progress);
+
+    let placeholder = gtk4::Frame::new(None);
+    placeholder.set_hexpand(true);
+    placeholder.set_vexpand(true);
+    placeholder.add_css_class("browser-panel-host");
+
+    let loading_label = gtk4::Label::new(Some("Loading WebKit view..."));
+    loading_label.add_css_class("dim-label");
+    loading_label.set_halign(gtk4::Align::Center);
+    loading_label.set_valign(gtk4::Align::Center);
+    placeholder.set_child(Some(&loading_label));
+
+    container.append(&placeholder);
+    container.append(&status_label);
+
+    let mtm = MainThreadMarker::new().expect("WKWebView must be created on the main thread");
+    let web_view = unsafe { WKWebView::new(mtm) };
+    unsafe {
+        web_view.setHidden(true);
+        web_view.setAutoresizingMask(
+            NSAutoresizingMaskOptions::ViewWidthSizable
+                | NSAutoresizingMaskOptions::ViewHeightSizable,
+        );
+    }
+
+    let state = Rc::new(MacWebViewState {
+        web_view,
+        attached_host_ptr: Cell::new(0),
+    });
+
+    let navigate_to = {
+        let state = state.clone();
+        let status_label = status_label.clone();
+        let current_uri = current_uri.clone();
+        move |uri: String| {
+            *current_uri.borrow_mut() = Some(uri.clone());
+            load_wkwebview_uri(&state.web_view, &uri, &status_label);
+        }
+    };
+
+    address_entry.set_text(initial_uri);
+    navigate_to(initial_uri.to_string());
+
+    {
+        let workspace_dir = workspace_dir.map(str::to_string);
+        let status_label = status_label.clone();
+        let address_entry = address_entry.clone();
+        let navigate_to = navigate_to.clone();
+        address_entry.connect_activate(move |entry| {
+            let Some(uri) = normalized_browser_uri(entry.text().as_str(), workspace_dir.as_deref())
+            else {
+                status_label.set_text("Invalid URL or file path");
+                return;
+            };
+            entry.set_text(&uri);
+            navigate_to(uri);
+        });
+    }
+
+    {
+        let state = state.clone();
+        back_btn.connect_clicked(move |_| unsafe {
+            state.web_view.goBack();
+        });
+    }
+
+    {
+        let state = state.clone();
+        forward_btn.connect_clicked(move |_| unsafe {
+            state.web_view.goForward();
+        });
+    }
+
+    {
+        let state = state.clone();
+        reload_btn.connect_clicked(move |_| unsafe {
+            if state.web_view.isLoading() {
+                state.web_view.stopLoading();
+            } else {
+                state.web_view.reload();
+            }
+        });
+    }
+
+    let sync_source = {
+        let state = state.clone();
+        let placeholder = placeholder.clone();
+        let address_entry = address_entry.clone();
+        let back_btn = back_btn.clone();
+        let forward_btn = forward_btn.clone();
+        let reload_btn = reload_btn.clone();
+        let progress = progress.clone();
+        let status_label = status_label.clone();
+        let current_uri = current_uri.clone();
+
+        Some(glib::timeout_add_local(
+            Duration::from_millis(60),
+            move || {
+                sync_wkwebview_host(&state, &placeholder);
+                poll_wkwebview_state(
+                    &state.web_view,
+                    &address_entry,
+                    &back_btn,
+                    &forward_btn,
+                    &reload_btn,
+                    &progress,
+                    &status_label,
+                    &current_uri,
+                );
+                glib::ControlFlow::Continue
+            },
+        ))
+    };
+
+    let native_bridge = MacEmbeddedBrowser { state, sync_source };
+
+    (
+        container.upcast::<gtk4::Widget>(),
+        address_entry.upcast::<gtk4::Widget>(),
+        native_bridge,
+    )
+}
+
+#[cfg(target_os = "macos")]
+fn sync_wkwebview_host(state: &MacWebViewState, placeholder: &gtk4::Frame) {
+    if !placeholder.is_drawable() || !placeholder.is_visible() {
+        unsafe {
+            state.web_view.setHidden(true);
+        }
+        return;
+    }
+
+    let Some(window_widget) = placeholder.ancestor(gtk4::Window::static_type()) else {
+        state.detach();
+        return;
+    };
+    let Ok(window) = window_widget.downcast::<gtk4::Window>() else {
+        state.detach();
+        return;
+    };
+    let Some(surface) = window.surface() else {
+        state.detach();
+        return;
+    };
+    let Ok(macos_surface) = surface.downcast::<MacosSurface>() else {
+        state.detach();
+        return;
+    };
+    let Some(ns_window) = (unsafe { Retained::<NSWindow>::retain(macos_surface.native().cast()) })
+    else {
+        state.detach();
+        return;
+    };
+    let Some(content_view) = (unsafe { ns_window.contentView() }) else {
+        state.detach();
+        return;
+    };
+
+    let window_widget: gtk4::Widget = window.upcast();
+    let Some(bounds) = placeholder.compute_bounds(&window_widget) else {
+        unsafe {
+            state.web_view.setHidden(true);
+        }
+        return;
+    };
+
+    let width = f64::from(bounds.width()).round().max(0.0);
+    let height = f64::from(bounds.height()).round().max(0.0);
+    if width <= 1.0 || height <= 1.0 {
+        unsafe {
+            state.web_view.setHidden(true);
+        }
+        return;
+    }
+
+    let host_ptr = (&*content_view as *const NSView) as usize;
+    if state.attached_host_ptr.get() != host_ptr {
+        state.detach();
+        unsafe {
+            content_view.addSubview(&state.web_view);
+        }
+        state.attached_host_ptr.set(host_ptr);
+    }
+
+    let root_height = f64::from(window_widget.allocated_height());
+    let origin_x = f64::from(bounds.x()).round();
+    let origin_y = (root_height - f64::from(bounds.y()) - height)
+        .round()
+        .max(0.0);
+    let frame = NSRect::new(NSPoint::new(origin_x, origin_y), NSSize::new(width, height));
+
+    unsafe {
+        state.web_view.setFrame(frame);
+        state.web_view.setHidden(false);
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn poll_wkwebview_state(
+    web_view: &WKWebView,
+    address_entry: &gtk4::Entry,
+    back_btn: &gtk4::Button,
+    forward_btn: &gtk4::Button,
+    reload_btn: &gtk4::Button,
+    progress: &gtk4::ProgressBar,
+    status_label: &gtk4::Label,
+    current_uri: &Rc<RefCell<Option<String>>>,
+) {
+    let is_loading = unsafe { web_view.isLoading() };
+    back_btn.set_sensitive(unsafe { web_view.canGoBack() });
+    forward_btn.set_sensitive(unsafe { web_view.canGoForward() });
+    reload_btn.set_icon_name(if is_loading {
+        "process-stop-symbolic"
+    } else {
+        "view-refresh-symbolic"
+    });
+
+    let progress_value = unsafe { web_view.estimatedProgress() }.clamp(0.0, 1.0);
+    progress.set_fraction(progress_value);
+    progress.set_visible(is_loading);
+
+    let uri = unsafe { web_view.URL() }
+        .and_then(|url| unsafe { url.absoluteString() })
+        .map(|value| value.to_string());
+    if let Some(uri) = uri {
+        *current_uri.borrow_mut() = Some(uri.clone());
+        if !address_entry.has_focus() && address_entry.text().as_str() != uri {
+            address_entry.set_text(&uri);
+        }
+    }
+
+    if is_loading {
+        status_label.set_text("Loading...");
+        return;
+    }
+
+    let title = unsafe { web_view.title() }.map(|value| value.to_string());
+    status_label.set_text(title.as_deref().unwrap_or(""));
+}
+
+#[cfg(target_os = "macos")]
+fn load_wkwebview_uri(web_view: &WKWebView, uri: &str, status_label: &gtk4::Label) {
+    if uri == "about:blank" {
+        let html =
+            NSString::from_str("<html><body style=\"background: transparent\"></body></html>");
+        unsafe {
+            web_view.loadHTMLString_baseURL(&html, None);
+        }
+        status_label.set_text("");
+        return;
+    }
+
+    if let Some(path) = file_path_from_browser_uri(uri) {
+        let load_path = path.canonicalize().unwrap_or(path);
+        let read_access = if load_path.is_dir() {
+            load_path.clone()
+        } else {
+            load_path
+                .parent()
+                .map(Path::to_path_buf)
+                .unwrap_or_else(|| load_path.clone())
+        };
+
+        let file_url = ns_file_url(&load_path);
+        let read_access_url = ns_file_url(&read_access);
+        unsafe {
+            web_view.loadFileURL_allowingReadAccessToURL(&file_url, &read_access_url);
+        }
+        status_label.set_text("Loading...");
+        return;
+    }
+
+    let uri_string = NSString::from_str(uri);
+    let Some(url) = (unsafe { NSURL::URLWithString(&uri_string) }) else {
+        status_label.set_text("Invalid URL");
+        return;
+    };
+    let request = NSURLRequest::requestWithURL(&url);
+    unsafe {
+        web_view.loadRequest(&request);
+    }
+    status_label.set_text("Loading...");
+}
+
+#[cfg(target_os = "macos")]
+fn file_path_from_browser_uri(uri: &str) -> Option<PathBuf> {
+    uri.starts_with("file://")
+        .then(|| gtk4::gio::File::for_uri(uri).path())
+        .flatten()
+}
+
+#[cfg(target_os = "macos")]
+fn ns_file_url(path: &Path) -> Retained<NSURL> {
+    let path_string = path.to_string_lossy();
+    let ns_path = NSString::from_str(&path_string);
+    NSURL::fileURLWithPath(&ns_path)
+}
+
+#[cfg(all(not(target_os = "linux"), not(target_os = "macos")))]
 fn build_native_browser_launcher_panel(
     initial_uri: &str,
     workspace_dir: Option<&str>,
@@ -322,7 +703,8 @@ fn build_native_browser_launcher_panel(
         let set_current_uri = set_current_uri.clone();
         let workspace_dir = workspace_dir.map(str::to_string);
         address_entry.connect_activate(move |entry| {
-            let Some(uri) = normalized_browser_uri(entry.text().as_str(), workspace_dir.as_deref()) else {
+            let Some(uri) = normalized_browser_uri(entry.text().as_str(), workspace_dir.as_deref())
+            else {
                 status_label.set_text("Invalid URL or file path");
                 return;
             };
@@ -392,7 +774,7 @@ fn build_native_browser_launcher_panel(
     )
 }
 
-#[cfg(not(target_os = "linux"))]
+#[cfg(all(not(target_os = "linux"), not(target_os = "macos")))]
 fn launch_in_default_browser(uri: &str, status_label: &gtk4::Label) {
     status_label.set_text("Opening in default browser...");
     let launcher = gtk4::UriLauncher::new(uri);

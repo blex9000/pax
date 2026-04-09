@@ -35,3 +35,10 @@ uuid = { workspace = true }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 webkit6 = "0.4"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+gdk4-macos = "0.9"
+objc2 = "0.6"
+objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSGraphics", "NSResponder", "NSView", "NSWindow"] }
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "objc2-core-foundation", "NSGeometry", "NSString", "NSURL", "NSURLRequest"] }
+objc2-web-kit = { version = "0.3", default-features = false, features = ["std", "objc2-app-kit", "objc2-core-foundation", "WKNavigation", "WKWebView", "WKWebViewConfiguration"] }
