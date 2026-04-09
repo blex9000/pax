@@ -51,7 +51,6 @@ pub fn build_tab_label(
     stack.add_named(&label, Some("label"));
 
     let edit_box = gtk4::Box::new(gtk4::Orientation::Horizontal, 4);
-    edit_box.set_hexpand(true);
     let move_left_btn = gtk4::Button::new();
     move_left_btn.set_icon_name("go-previous-symbolic");
     move_left_btn.set_tooltip_text(Some("Move tab left"));
@@ -63,7 +62,6 @@ pub fn build_tab_label(
     let entry = gtk4::Entry::new();
     entry.set_text(name);
     entry.set_width_chars(12);
-    entry.set_hexpand(true);
     edit_box.append(&entry);
 
     let move_right_btn = gtk4::Button::new();
@@ -214,7 +212,7 @@ pub fn build_tab_label(
         focus_ctrl.connect_leave(move |_| {
             finish_edit(false);
         });
-        entry.add_controller(focus_ctrl);
+        edit_box.add_controller(focus_ctrl);
     }
 
     {
