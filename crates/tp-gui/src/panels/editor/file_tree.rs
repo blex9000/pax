@@ -67,21 +67,11 @@ impl FileTree {
         actions_bar.set_margin_end(4);
         actions_bar.set_margin_bottom(2);
 
-        let new_file_btn = gtk4::Button::from_icon_name("document-new-symbolic");
-        new_file_btn.add_css_class("flat");
-        new_file_btn.set_tooltip_text(Some("New File"));
-
-        let new_dir_btn = gtk4::Button::from_icon_name("folder-new-symbolic");
-        new_dir_btn.add_css_class("flat");
-        new_dir_btn.set_tooltip_text(Some("New Folder"));
-
         let collapse_btn = gtk4::Button::from_icon_name("view-list-symbolic");
         collapse_btn.add_css_class("flat");
         collapse_btn.set_tooltip_text(Some("Collapse All"));
 
         actions_bar.append(&collapse_btn);
-        actions_bar.append(&new_file_btn);
-        actions_bar.append(&new_dir_btn);
 
         let file_index: Rc<RefCell<Vec<PathBuf>>> = Rc::new(RefCell::new(Vec::new()));
         let entries: Rc<RefCell<Vec<FileEntry>>> = Rc::new(RefCell::new(Vec::new()));
@@ -156,6 +146,7 @@ impl FileTree {
             let root = root_dir.to_path_buf();
             let ctx_cb = on_context_action.clone();
             let backend = backend.clone();
+            let on_open = on_file_open.clone();
             let gesture = gtk4::GestureClick::new();
             gesture.set_button(3); // right-click
             gesture.connect_pressed(move |g, _n, x, y| {
@@ -163,15 +154,28 @@ impl FileTree {
                 let Some(lb) = widget.downcast_ref::<gtk4::ListBox>() else {
                     return;
                 };
-                let Some(row) = lb.row_at_y(y as i32) else {
-                    return;
-                };
-                let idx = row.index() as usize;
+                let clicked_row = lb.row_at_y(y as i32);
+                if let Some(ref row) = clicked_row {
+                    lb.select_row(Some(row));
+                }
+                let clicked_idx = clicked_row.as_ref().map(|row| row.index() as usize);
+                let selected_idx = lb.selected_row().map(|row| row.index() as usize);
                 let ents = entries_c.borrow();
-                let Some(entry) = ents.get(idx) else { return };
-                let is_dir = entry.is_dir;
-                let path = entry.path.clone();
-                let rel = path.strip_prefix(&root).unwrap_or(&path).to_path_buf();
+                let selected_entry = resolve_tree_selection(&root, &ents, clicked_idx, selected_idx);
+                let selected_path = selected_entry
+                    .as_ref()
+                    .map(|entry| entry.path.clone())
+                    .unwrap_or_else(|| root.clone());
+                let rel = selected_path
+                    .strip_prefix(&root)
+                    .unwrap_or(&selected_path)
+                    .to_path_buf();
+                let target_dir =
+                    creation_target_dir(&root, &ents, clicked_idx, selected_idx);
+                let selected_is_dir = selected_entry
+                    .as_ref()
+                    .map(|entry| entry.is_dir)
+                    .unwrap_or(true);
                 let refresh_tree: Rc<dyn Fn()> = {
                     let root = root.clone();
                     let backend = backend.clone();
@@ -218,6 +222,73 @@ impl FileTree {
                     btn
                 };
 
+                let create_file_btn = make_item("document-new-symbolic", "New File");
+                {
+                    let target_dir = target_dir.clone();
+                    let be = backend.clone();
+                    let refresh_tree = refresh_tree.clone();
+                    let on_open = on_open.clone();
+                    create_file_btn.connect_clicked(move |btn| {
+                        if let Some(pop) = btn.ancestor(gtk4::Popover::static_type()) {
+                            pop.downcast_ref::<gtk4::Popover>().unwrap().popdown();
+                        }
+                        let target_dir = target_dir.clone();
+                        let be = be.clone();
+                        let refresh_tree = refresh_tree.clone();
+                        let on_open = on_open.clone();
+                        show_name_input_dialog(
+                            btn.upcast_ref::<gtk4::Widget>(),
+                            "New File",
+                            "Create File",
+                            "",
+                            Rc::new(move |name| {
+                                let Some(dest) = creation_destination_for_dir(&target_dir, &name)
+                                else {
+                                    return;
+                                };
+                                if be.write_file(&dest, "").is_ok() {
+                                    refresh_tree();
+                                    on_open(&dest);
+                                }
+                            }),
+                        );
+                    });
+                }
+                menu_box.append(&create_file_btn);
+
+                let create_folder_btn = make_item("folder-new-symbolic", "New Folder");
+                {
+                    let target_dir = target_dir.clone();
+                    let be = backend.clone();
+                    let refresh_tree = refresh_tree.clone();
+                    create_folder_btn.connect_clicked(move |btn| {
+                        if let Some(pop) = btn.ancestor(gtk4::Popover::static_type()) {
+                            pop.downcast_ref::<gtk4::Popover>().unwrap().popdown();
+                        }
+                        let target_dir = target_dir.clone();
+                        let be = be.clone();
+                        let refresh_tree = refresh_tree.clone();
+                        show_name_input_dialog(
+                            btn.upcast_ref::<gtk4::Widget>(),
+                            "New Folder",
+                            "Create Folder",
+                            "",
+                            Rc::new(move |name| {
+                                let Some(dest) = creation_destination_for_dir(&target_dir, &name)
+                                else {
+                                    return;
+                                };
+                                if be.create_dir(&dest).is_ok() {
+                                    refresh_tree();
+                                }
+                            }),
+                        );
+                    });
+                }
+                menu_box.append(&create_folder_btn);
+
+                menu_box.append(&gtk4::Separator::new(gtk4::Orientation::Horizontal));
+
                 // ── Clipboard ──
                 let copy_rel = make_item("edit-copy-symbolic", "Copy Relative Path");
                 {
@@ -235,7 +306,7 @@ impl FileTree {
 
                 let copy_abs = make_item("edit-copy-symbolic", "Copy Absolute Path");
                 {
-                    let abs_str = path.to_string_lossy().to_string();
+                    let abs_str = selected_path.to_string_lossy().to_string();
                     copy_abs.connect_clicked(move |btn| {
                         if let Some(d) = gtk4::gdk::Display::default() {
                             d.clipboard().set_text(&abs_str);
@@ -247,140 +318,129 @@ impl FileTree {
                 }
                 menu_box.append(&copy_abs);
 
-                menu_box.append(&gtk4::Separator::new(gtk4::Orientation::Horizontal));
+                if selected_entry.is_some() {
+                    menu_box.append(&gtk4::Separator::new(gtk4::Orientation::Horizontal));
+                }
 
                 // ── Rename ──
-                let rename_btn = make_item(
-                    "document-edit-symbolic",
-                    if is_dir {
-                        "Rename Folder"
-                    } else {
-                        "Rename File"
-                    },
-                );
-                {
-                    let p = path.clone();
-                    let be = backend.clone();
-                    let refresh_tree = refresh_tree.clone();
-                    rename_btn.connect_clicked(move |btn| {
-                        // Close popover first
-                        if let Some(pop) = btn.ancestor(gtk4::Popover::static_type()) {
-                            pop.downcast_ref::<gtk4::Popover>().unwrap().popdown();
-                        }
-                        // Show a small rename dialog
-                        let dialog = gtk4::Window::builder()
-                            .title("Rename")
-                            .modal(true)
-                            .default_width(350)
-                            .default_height(80)
-                            .build();
-                        crate::theme::configure_dialog_window(&dialog);
-                        let vbox = gtk4::Box::new(gtk4::Orientation::Vertical, 8);
-                        vbox.set_margin_top(12);
-                        vbox.set_margin_bottom(12);
-                        vbox.set_margin_start(12);
-                        vbox.set_margin_end(12);
-                        let entry = gtk4::Entry::new();
-                        let current_name = p
-                            .file_name()
-                            .unwrap_or_default()
-                            .to_string_lossy()
-                            .to_string();
-                        entry.set_text(&current_name);
-                        vbox.append(&entry);
-                        let ok_btn = gtk4::Button::with_label(if is_dir {
+                if let Some(entry) = selected_entry {
+                    let path = entry.path.clone();
+                    let is_dir = selected_is_dir;
+                    let rename_btn = make_item(
+                        "document-edit-symbolic",
+                        if is_dir {
                             "Rename Folder"
                         } else {
                             "Rename File"
-                        });
-                        ok_btn.add_css_class("suggested-action");
-                        let pp = p.clone();
-                        let be2 = be.clone();
-                        let d = dialog.clone();
+                        },
+                    );
+                    {
+                        let p = path.clone();
+                        let be = backend.clone();
                         let refresh_tree = refresh_tree.clone();
-                        ok_btn.connect_clicked(move |_| {
-                            let new_name = entry.text().to_string();
-                            if new_name != current_name {
-                                if let Some(dest) = rename_destination_for_path(&pp, &new_name) {
-                                    if be2.rename_file(&pp, &dest).is_ok() {
-                                        refresh_tree();
+                        rename_btn.connect_clicked(move |btn| {
+                            if let Some(pop) = btn.ancestor(gtk4::Popover::static_type()) {
+                                pop.downcast_ref::<gtk4::Popover>().unwrap().popdown();
+                            }
+                            let current_name = p
+                                .file_name()
+                                .unwrap_or_default()
+                                .to_string_lossy()
+                                .to_string();
+                            let initial_name = current_name.clone();
+                            let p = p.clone();
+                            let be = be.clone();
+                            let refresh_tree = refresh_tree.clone();
+                            show_name_input_dialog(
+                                btn.upcast_ref::<gtk4::Widget>(),
+                                "Rename",
+                                if is_dir { "Rename Folder" } else { "Rename File" },
+                                &initial_name,
+                                Rc::new(move |new_name| {
+                                    if new_name == current_name {
+                                        return;
                                     }
+                                    if let Some(dest) = rename_destination_for_path(&p, &new_name)
+                                    {
+                                        if be.rename_file(&p, &dest).is_ok() {
+                                            refresh_tree();
+                                        }
+                                    }
+                                }),
+                            );
+                        });
+                    }
+                    menu_box.append(&rename_btn);
+
+                    if !is_dir {
+                        let dup_btn = make_item("document-save-as-symbolic", "Duplicate File");
+                        {
+                            let p = path.clone();
+                            let be = backend.clone();
+                            let refresh_tree = refresh_tree.clone();
+                            dup_btn.connect_clicked(move |btn| {
+                                let result = if let Some(ext) = p.extension() {
+                                    let stem = p.file_stem().unwrap_or_default().to_string_lossy();
+                                    let new_name =
+                                        format!("{}_copy.{}", stem, ext.to_string_lossy());
+                                    let dest = p.with_file_name(new_name);
+                                    be.copy_file(&p, &dest)
+                                } else {
+                                    let name = p.file_name().unwrap_or_default().to_string_lossy();
+                                    let dest = p.with_file_name(format!("{}_copy", name));
+                                    be.copy_file(&p, &dest)
+                                };
+                                if result.is_ok() {
+                                    refresh_tree();
                                 }
-                            }
-                            d.close();
-                        });
-                        vbox.append(&ok_btn);
-                        dialog.set_child(Some(&vbox));
-                        dialog.present();
-                    });
-                }
-                menu_box.append(&rename_btn);
+                                if let Some(pop) = btn.ancestor(gtk4::Popover::static_type()) {
+                                    pop.downcast_ref::<gtk4::Popover>().unwrap().popdown();
+                                }
+                            });
+                        }
+                        menu_box.append(&dup_btn);
 
-                if !is_dir {
-                    let dup_btn = make_item("document-save-as-symbolic", "Duplicate File");
-                    {
-                        let p = path.clone();
-                        let be = backend.clone();
-                        let refresh_tree = refresh_tree.clone();
-                        dup_btn.connect_clicked(move |btn| {
-                            let result = if let Some(ext) = p.extension() {
-                                let stem = p.file_stem().unwrap_or_default().to_string_lossy();
-                                let new_name = format!("{}_copy.{}", stem, ext.to_string_lossy());
-                                let dest = p.with_file_name(new_name);
-                                be.copy_file(&p, &dest)
-                            } else {
-                                let name = p.file_name().unwrap_or_default().to_string_lossy();
-                                let dest = p.with_file_name(format!("{}_copy", name));
-                                be.copy_file(&p, &dest)
-                            };
-                            if result.is_ok() {
-                                refresh_tree();
-                            }
-                            if let Some(pop) = btn.ancestor(gtk4::Popover::static_type()) {
-                                pop.downcast_ref::<gtk4::Popover>().unwrap().popdown();
-                            }
-                        });
-                    }
-                    menu_box.append(&dup_btn);
+                        let del_btn = make_item("user-trash-symbolic", "Delete File");
+                        {
+                            let p = path.clone();
+                            let be = backend.clone();
+                            let refresh_tree = refresh_tree.clone();
+                            del_btn.connect_clicked(move |btn| {
+                                if be.delete_file(&p).is_ok() {
+                                    refresh_tree();
+                                }
+                                if let Some(pop) = btn.ancestor(gtk4::Popover::static_type()) {
+                                    pop.downcast_ref::<gtk4::Popover>().unwrap().popdown();
+                                }
+                            });
+                        }
+                        menu_box.append(&del_btn);
 
-                    let del_btn = make_item("user-trash-symbolic", "Delete File");
-                    {
-                        let p = path.clone();
-                        let be = backend.clone();
-                        let refresh_tree = refresh_tree.clone();
-                        del_btn.connect_clicked(move |btn| {
-                            if be.delete_file(&p).is_ok() {
-                                refresh_tree();
-                            }
-                            if let Some(pop) = btn.ancestor(gtk4::Popover::static_type()) {
-                                pop.downcast_ref::<gtk4::Popover>().unwrap().popdown();
-                            }
-                        });
-                    }
-                    menu_box.append(&del_btn);
+                        menu_box.append(&gtk4::Separator::new(gtk4::Orientation::Horizontal));
 
-                    menu_box.append(&gtk4::Separator::new(gtk4::Orientation::Horizontal));
-
-                    // ── Git ──
-                    if let Some(ref ctx) = ctx_cb {
-                        let hist_btn = make_item("document-open-recent-symbolic", "Git History");
-                        let cb = ctx.clone();
-                        let p = path.clone();
-                        hist_btn.connect_clicked(move |btn| {
-                            cb("git-history", &p);
-                            if let Some(pop) = btn.ancestor(gtk4::Popover::static_type()) {
-                                pop.downcast_ref::<gtk4::Popover>().unwrap().popdown();
-                            }
-                        });
-                        menu_box.append(&hist_btn);
+                        if let Some(ref ctx) = ctx_cb {
+                            let hist_btn =
+                                make_item("document-open-recent-symbolic", "Git History");
+                            let cb = ctx.clone();
+                            let p = path.clone();
+                            hist_btn.connect_clicked(move |btn| {
+                                cb("git-history", &p);
+                                if let Some(pop) = btn.ancestor(gtk4::Popover::static_type()) {
+                                    pop.downcast_ref::<gtk4::Popover>().unwrap().popdown();
+                                }
+                            });
+                            menu_box.append(&hist_btn);
+                        }
                     }
                 }
 
                 let popover = gtk4::Popover::new();
                 crate::theme::configure_popover(&popover);
                 popover.set_child(Some(&menu_box));
-                popover.set_parent(&row);
-                popover.set_pointing_to(Some(&gtk4::gdk::Rectangle::new(x as i32, 0, 1, 1)));
+                popover.set_parent(lb);
+                popover.set_pointing_to(Some(&gtk4::gdk::Rectangle::new(
+                    x as i32, y as i32, 1, 1,
+                )));
                 popover.popup();
             });
             list_box.add_controller(gesture);
@@ -409,24 +469,6 @@ impl FileTree {
                     "Collapsing files...",
                     "No files found",
                 );
-            });
-        }
-
-        // New file button
-        {
-            let root = root_dir.to_path_buf();
-            let be = backend.clone();
-            new_file_btn.connect_clicked(move |_| {
-                let _ = be.write_file(&root.join("untitled"), "");
-            });
-        }
-
-        // New folder button
-        {
-            let root = root_dir.to_path_buf();
-            let be = backend.clone();
-            new_dir_btn.connect_clicked(move |_| {
-                let _ = be.create_dir(&root.join("new_folder"));
             });
         }
 
@@ -1100,6 +1142,126 @@ fn rename_destination_for_path(path: &Path, new_name: &str) -> Option<PathBuf> {
     }
 }
 
+fn creation_destination_for_dir(dir: &Path, name: &str) -> Option<PathBuf> {
+    let trimmed = name.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    let mut components = Path::new(trimmed).components();
+    let component = components.next()?;
+    if components.next().is_some() {
+        return None;
+    }
+
+    match component {
+        std::path::Component::Normal(name) => Some(dir.join(name)),
+        _ => None,
+    }
+}
+
+fn resolve_tree_selection(
+    root: &Path,
+    entries: &[FileEntry],
+    clicked_index: Option<usize>,
+    selected_index: Option<usize>,
+) -> Option<FileEntry> {
+    clicked_index
+        .or(selected_index)
+        .and_then(|idx| entries.get(idx).cloned())
+        .or_else(|| {
+            entries
+                .iter()
+                .find(|entry| entry.path == root)
+                .cloned()
+        })
+}
+
+fn creation_target_dir(
+    root: &Path,
+    entries: &[FileEntry],
+    clicked_index: Option<usize>,
+    selected_index: Option<usize>,
+) -> PathBuf {
+    match resolve_tree_selection(root, entries, clicked_index, selected_index) {
+        Some(entry) if entry.is_dir => entry.path,
+        Some(entry) => entry
+            .path
+            .parent()
+            .map(Path::to_path_buf)
+            .unwrap_or_else(|| root.to_path_buf()),
+        None => root.to_path_buf(),
+    }
+}
+
+fn show_name_input_dialog(
+    anchor: &impl IsA<gtk4::Widget>,
+    title: &str,
+    button_label: &str,
+    initial_value: &str,
+    on_submit: Rc<dyn Fn(String)>,
+) {
+    let dialog = gtk4::Window::builder()
+        .title(title)
+        .modal(true)
+        .default_width(360)
+        .default_height(110)
+        .build();
+    if let Some(win) = anchor.root().and_then(|r| r.downcast::<gtk4::Window>().ok()) {
+        dialog.set_transient_for(Some(&win));
+    }
+    dialog.set_destroy_with_parent(true);
+    crate::theme::configure_dialog_window(&dialog);
+
+    let vbox = gtk4::Box::new(gtk4::Orientation::Vertical, 12);
+    vbox.set_margin_top(16);
+    vbox.set_margin_bottom(16);
+    vbox.set_margin_start(16);
+    vbox.set_margin_end(16);
+
+    let entry = gtk4::Entry::new();
+    entry.set_text(initial_value);
+    vbox.append(&entry);
+
+    let button_row = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
+    button_row.set_halign(gtk4::Align::End);
+    let cancel_btn = gtk4::Button::with_label("Cancel");
+    let ok_btn = gtk4::Button::with_label(button_label);
+    ok_btn.add_css_class("suggested-action");
+    button_row.append(&cancel_btn);
+    button_row.append(&ok_btn);
+    vbox.append(&button_row);
+    dialog.set_child(Some(&vbox));
+
+    {
+        let dialog = dialog.clone();
+        cancel_btn.connect_clicked(move |_| dialog.close());
+    }
+
+    let submit: Rc<dyn Fn()> = Rc::new({
+        let dialog = dialog.clone();
+        let entry = entry.clone();
+        move || {
+            on_submit(entry.text().to_string());
+            dialog.close();
+        }
+    });
+
+    {
+        let submit = submit.clone();
+        ok_btn.connect_clicked(move |_| submit());
+    }
+
+    {
+        let submit = submit.clone();
+        entry.connect_activate(move |_| submit());
+    }
+
+    dialog.present();
+    entry.grab_focus();
+    entry.set_position(-1);
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1186,5 +1348,76 @@ mod tests {
         assert_eq!(rename_destination_for_path(path, "  "), None);
         assert_eq!(rename_destination_for_path(path, "../other.rs"), None);
         assert_eq!(rename_destination_for_path(path, "nested/other.rs"), None);
+    }
+
+    #[test]
+    fn creation_target_prefers_clicked_directory() {
+        let root = PathBuf::from("/tmp/demo");
+        let entries = vec![
+            FileEntry {
+                path: root.join("src"),
+                name: "src".into(),
+                is_dir: true,
+                depth: 0,
+                expanded: false,
+            },
+            FileEntry {
+                path: root.join("src/main.rs"),
+                name: "main.rs".into(),
+                is_dir: false,
+                depth: 1,
+                expanded: false,
+            },
+        ];
+
+        assert_eq!(
+            creation_target_dir(&root, &entries, Some(0), Some(1)),
+            root.join("src")
+        );
+    }
+
+    #[test]
+    fn creation_target_uses_selected_folder_or_file_parent() {
+        let root = PathBuf::from("/tmp/demo");
+        let entries = vec![
+            FileEntry {
+                path: root.join("src"),
+                name: "src".into(),
+                is_dir: true,
+                depth: 0,
+                expanded: false,
+            },
+            FileEntry {
+                path: root.join("src/main.rs"),
+                name: "main.rs".into(),
+                is_dir: false,
+                depth: 1,
+                expanded: false,
+            },
+        ];
+
+        assert_eq!(
+            creation_target_dir(&root, &entries, None, Some(0)),
+            root.join("src")
+        );
+        assert_eq!(
+            creation_target_dir(&root, &entries, None, Some(1)),
+            root.join("src")
+        );
+        assert_eq!(creation_target_dir(&root, &entries, None, None), root);
+    }
+
+    #[test]
+    fn creation_destination_rejects_empty_or_nested_names() {
+        let dir = Path::new("/tmp/demo/src");
+
+        assert_eq!(creation_destination_for_dir(dir, ""), None);
+        assert_eq!(creation_destination_for_dir(dir, "  "), None);
+        assert_eq!(creation_destination_for_dir(dir, "../other.rs"), None);
+        assert_eq!(creation_destination_for_dir(dir, "nested/other.rs"), None);
+        assert_eq!(
+            creation_destination_for_dir(dir, "new.rs"),
+            Some(PathBuf::from("/tmp/demo/src/new.rs"))
+        );
     }
 }

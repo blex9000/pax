@@ -397,7 +397,7 @@ impl CodeEditorPanel {
         }
 
         // Fuzzy finder overlay
-        let fuzzy_finder = fuzzy_finder::FuzzyFinder::new(
+        let fuzzy_finder = Rc::new(fuzzy_finder::FuzzyFinder::new(
             &PathBuf::from(root_dir),
             file_tree.file_index.clone(),
             Rc::new({
@@ -407,7 +407,7 @@ impl CodeEditorPanel {
                     tabs_c.open_file(path, &state_c);
                 }
             }),
-        );
+        ));
 
         // Sidebar toggle button — visible only when sidebar is hidden
         let sidebar_open_btn = gtk4::Button::from_icon_name("go-next-symbolic");
@@ -467,6 +467,20 @@ impl CodeEditorPanel {
             widget.add_controller(gesture);
         }
 
+        {
+            let fuzzy_finder = fuzzy_finder.clone();
+            let shortcut_ctrl = gtk4::ShortcutController::new();
+            shortcut_ctrl.set_scope(gtk4::ShortcutScope::Managed);
+            if let Some(trigger) = gtk4::ShortcutTrigger::parse_string("<Control>p") {
+                let action = gtk4::CallbackAction::new(move |_, _| {
+                    fuzzy_finder.show();
+                    gtk4::glib::Propagation::Stop
+                });
+                shortcut_ctrl.add_shortcut(gtk4::Shortcut::new(Some(trigger), Some(action)));
+            }
+            widget.add_controller(shortcut_ctrl);
+        }
+
         // Keybindings: Ctrl+S save, Ctrl+W close, Ctrl+Tab next tab, Ctrl+B sidebar, Ctrl+P fuzzy finder, Ctrl+Shift+G git view
         {
             let state_c = state.clone();
@@ -474,7 +488,6 @@ impl CodeEditorPanel {
             key_ctrl.set_propagation_phase(gtk4::PropagationPhase::Capture);
             let tabs_ref = tabs_rc.clone();
             let sidebar_ref = sidebar.clone();
-            let fuzzy_finder_ref = Rc::new(fuzzy_finder);
             let git_btn_ref = git_btn.clone();
             let search_btn_ref = search_btn.clone();
             let save_backend = backend.clone();
@@ -529,10 +542,6 @@ impl CodeEditorPanel {
                         }
                         gtk4::gdk::Key::h => {
                             tabs_ref.show_replace();
-                            return gtk4::glib::Propagation::Stop;
-                        }
-                        gtk4::gdk::Key::p => {
-                            fuzzy_finder_ref.show();
                             return gtk4::glib::Propagation::Stop;
                         }
                         gtk4::gdk::Key::g

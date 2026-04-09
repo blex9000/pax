@@ -311,6 +311,37 @@ fn setup_workspace_ui(
         let win_for_cb = window_rc.clone();
         let sa_for_cb = save_action.clone();
         let cb: crate::panel_host::PanelActionCallback = Rc::new(move |panel_id, action| {
+            if panel_id.strip_prefix("nb-tab:").is_some() {
+                match action {
+                    PanelAction::UpdateTabDraft { tab_id, name } => {
+                        ws_for_cb.borrow_mut().update_tab_edit_draft(&tab_id, name);
+                    }
+                    PanelAction::PreviewTabMove { tab_id, offset } => {
+                        if ws_for_cb
+                            .borrow_mut()
+                            .preview_tab_edit_move(&tab_id, offset)
+                        {
+                            let ws_for_idle = ws_for_cb.clone();
+                            let tab_id = tab_id.clone();
+                            glib::idle_add_local_once(move || {
+                                ws_for_idle
+                                    .borrow_mut()
+                                    .clear_tab_edit_commit_suppression(&tab_id);
+                            });
+                        }
+                    }
+                    PanelAction::CommitTabEdit { tab_id } => {
+                        ws_for_cb.borrow_mut().commit_tab_edit(&tab_id);
+                    }
+                    PanelAction::CancelTabEdit { tab_id } => {
+                        ws_for_cb.borrow_mut().cancel_tab_edit(&tab_id);
+                    }
+                    _ => {}
+                }
+                actions::update_dirty_ui(&ws_for_cb, &win_for_cb, &sa_for_cb);
+                return;
+            }
+
             // "nb:<panel_id>" means action on notebook
             if let Some(real_id) = panel_id.strip_prefix("nb:") {
                 let view = ws_for_cb.borrow();
