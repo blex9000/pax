@@ -342,6 +342,24 @@ fn setup_workspace_ui(
                 return;
             }
 
+            if let Some(tabs_path) = panel_id.strip_prefix("nb-tabs:") {
+                match action {
+                    PanelAction::AddTabToNotebook => {
+                        if let Some(tabs_path) = crate::widget_builder::decode_tab_path(tabs_path)
+                        {
+                            if let Some(new_id) =
+                                ws_for_cb.borrow_mut().add_tab_to_tabs_path(&tabs_path)
+                            {
+                                sb_for_cb.borrow().set_message(&format!("Tab + → {}", new_id));
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+                actions::update_dirty_ui(&ws_for_cb, &win_for_cb, &sa_for_cb);
+                return;
+            }
+
             // "nb:<panel_id>" means action on notebook
             if let Some(real_id) = panel_id.strip_prefix("nb:") {
                 let view = ws_for_cb.borrow();
@@ -351,13 +369,7 @@ fn setup_workspace_ui(
                         drop(view);
                         match action {
                             PanelAction::AddTabToNotebook => {
-                                if let Some(new_id) =
-                                    ws_for_cb.borrow_mut().add_tab_to_notebook(&nb)
-                                {
-                                    sb_for_cb
-                                        .borrow()
-                                        .set_message(&format!("Tab + → {}", new_id));
-                                }
+                                let _ = nb;
                             }
                             PanelAction::RemoveTab => {
                                 {

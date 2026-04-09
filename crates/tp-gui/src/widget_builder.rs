@@ -21,6 +21,15 @@ pub fn encode_tab_path(path: &[usize]) -> String {
         .join(".")
 }
 
+pub fn decode_tab_path(path: &str) -> Option<Vec<usize>> {
+    if path.is_empty() {
+        return Some(Vec::new());
+    }
+    path.split('.')
+        .map(|part| part.parse::<usize>().ok())
+        .collect()
+}
+
 // ── Widget helpers ───────────────────────────────────────────────────────────
 
 pub fn add_plus_buttons_recursive(widget: &gtk4::Widget, action_cb: &PanelActionCallback) {
@@ -427,9 +436,16 @@ fn setup_notebook_menu_widget(notebook: &gtk4::Notebook, action_cb: Option<Panel
         add_btn.connect_clicked(move |_| {
             if let Some(ref cb) = cb {
                 if let Some(page) = nb.nth_page(nb.current_page()) {
-                    // Find first panel ID in the current page (not all — would add multiple tabs)
-                    if let Some(pid) = find_first_panel_id(&page) {
-                        cb(&format!("nb:{}", pid), PanelAction::AddTabToNotebook);
+                    if let Some(tab_label) = nb.tab_label(&page) {
+                        if let Some((_, mut tab_path, _)) =
+                            decode_tab_label_metadata(&tab_label.widget_name())
+                        {
+                            tab_path.pop();
+                            cb(
+                                &format!("nb-tabs:{}", encode_tab_path(&tab_path)),
+                                PanelAction::AddTabToNotebook,
+                            );
+                        }
                     }
                 }
             }

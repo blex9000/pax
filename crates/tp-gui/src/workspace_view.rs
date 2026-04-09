@@ -8,7 +8,7 @@ use crate::backend_factory::{
     create_backend_from_registry, insert_ssh_extra, panel_type_to_create_config, panel_type_to_id,
 };
 use crate::focus::FocusManager;
-use crate::layout_ops::{add_to_existing_tabs, remove_from_layout, replace_in_layout};
+use crate::layout_ops::{remove_from_layout, replace_in_layout};
 use crate::panel_host::{PanelActionCallback, PanelHost};
 use crate::panels::chooser::{ChooserPanel, OnTypeChosen};
 use crate::panels::registry::{self, PanelCreateConfig, PanelRegistry};
@@ -553,9 +553,8 @@ impl WorkspaceView {
         let Some(index) = self.focus.order.iter().position(|id| id == panel_id) else {
             return false;
         };
-        self.focus.index = index;
         self.select_workspace_tab_for_panel(panel_id);
-        self.focus.focus_current_pub(&self.hosts);
+        self.focus.set_focus_index(index, &self.hosts);
         true
     }
 
@@ -1096,13 +1095,8 @@ impl WorkspaceView {
         Some(new_id)
     }
 
-    /// Add a new tab to an existing Notebook. Called by the "+" button.
-    pub fn add_tab_to_notebook(&mut self, notebook: &gtk4::Notebook) -> Option<String> {
-        // Find which panel is currently active in this notebook to locate in model
-        let current_page = notebook.current_page()?;
-        let current_widget = notebook.nth_page(Some(current_page))?;
-        let sibling_id = self.find_panel_id_in_widget(&current_widget)?;
-
+    /// Add a new tab to the exact Tabs node identified by its layout path.
+    pub fn add_tab_to_tabs_path(&mut self, tabs_path: &[usize]) -> Option<String> {
         let new_id = self.alloc_panel_id();
         let new_name = format!("New Panel {}", &new_id[1..]);
 
@@ -1112,13 +1106,15 @@ impl WorkspaceView {
         host.set_backend(backend);
 
         // Update model
-        add_to_existing_tabs(
+        if !crate::layout_ops::add_to_tabs_at_path(
             &mut self.workspace.layout,
-            &sibling_id,
+            tabs_path,
             &new_id,
             &new_name,
             &new_tab_id(),
-        );
+        ) {
+            return None;
+        }
         self.workspace.panels.push(new_cfg);
         self.hosts.insert(new_id.clone(), host);
 
@@ -1128,24 +1124,6 @@ impl WorkspaceView {
         self.focus_panel_after_rebuild(&new_id);
 
         Some(new_id)
-    }
-
-    fn find_panel_id_in_widget(&self, widget: &gtk4::Widget) -> Option<String> {
-        // Direct match
-        for (id, host) in &self.hosts {
-            if host.widget() == widget {
-                return Some(id.clone());
-            }
-        }
-        // Recursive: search inside containers (wrappers, nested Paneds)
-        let mut child = widget.first_child();
-        while let Some(c) = child {
-            if let Some(id) = self.find_panel_id_in_widget(&c) {
-                return Some(id);
-            }
-            child = c.next_sibling();
-        }
-        None
     }
 
     fn select_workspace_tab_for_panel(&self, panel_id: &str) -> bool {

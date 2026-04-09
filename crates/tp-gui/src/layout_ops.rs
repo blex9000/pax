@@ -239,6 +239,48 @@ pub fn add_to_existing_tabs(
     }
 }
 
+/// Add a new panel to the exact Tabs node at the provided layout path.
+/// The path addresses the Tabs node itself, not one of its page children.
+pub fn add_to_tabs_at_path(
+    node: &mut LayoutNode,
+    tabs_path: &[usize],
+    new_id: &str,
+    new_label: &str,
+    new_tab_id_value: &str,
+) -> bool {
+    if tabs_path.is_empty() {
+        if let LayoutNode::Tabs {
+            children,
+            labels,
+            tab_ids,
+        } = node
+        {
+            children.push(LayoutNode::Panel {
+                id: new_id.to_string(),
+            });
+            labels.push(new_label.to_string());
+            tab_ids.push(new_tab_id_value.to_string());
+            return true;
+        }
+        return false;
+    }
+
+    let (next, rest) = match tabs_path.split_first() {
+        Some(parts) => parts,
+        None => return false,
+    };
+
+    match node {
+        LayoutNode::Tabs { children, .. }
+        | LayoutNode::Hsplit { children, .. }
+        | LayoutNode::Vsplit { children, .. } => children
+            .get_mut(*next)
+            .map(|child| add_to_tabs_at_path(child, rest, new_id, new_label, new_tab_id_value))
+            .unwrap_or(false),
+        LayoutNode::Panel { .. } => false,
+    }
+}
+
 /// Check if a node IS exactly this panel (direct match only).
 pub fn is_panel_direct(node: &LayoutNode, panel_id: &str) -> bool {
     matches!(node, LayoutNode::Panel { id } if id == panel_id)
@@ -967,6 +1009,45 @@ mod tests {
             let inner = find_tab_labels(&children[0]).unwrap();
             assert_eq!(inner[0], "inner1");
             assert_eq!(inner[1], "renamed_inner");
+        }
+    }
+
+    #[test]
+    fn add_tab_to_tabs_at_path_targets_exact_root_tabs_node() {
+        let mut layout = tabs(
+            vec![
+                vsplit(vec![
+                    tabs(vec![panel("a"), panel("b")], vec!["inner-a", "inner-b"]),
+                    panel("c"),
+                ]),
+                panel("d"),
+            ],
+            vec!["outer-left", "outer-right"],
+        );
+
+        let added = add_to_tabs_at_path(&mut layout, &[], "e", "outer-e", "tab-e");
+
+        assert!(added);
+        if let LayoutNode::Tabs {
+            children,
+            labels,
+            tab_ids,
+        } = &layout
+        {
+            assert_eq!(labels, &["outer-left", "outer-right", "outer-e"]);
+            assert_eq!(tab_ids[2], "tab-e");
+            assert!(matches!(&children[2], LayoutNode::Panel { id } if id == "e"));
+            if let LayoutNode::Vsplit { children, .. } = &children[0] {
+                if let LayoutNode::Tabs { labels, .. } = &children[0] {
+                    assert_eq!(labels, &["inner-a", "inner-b"]);
+                } else {
+                    panic!("expected nested tabs");
+                }
+            } else {
+                panic!("expected vsplit");
+            }
+        } else {
+            panic!("expected root tabs");
         }
     }
 }
