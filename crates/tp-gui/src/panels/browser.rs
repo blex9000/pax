@@ -860,7 +860,7 @@ fn load_wkwebview_uri(web_view: &WKWebView, uri: &str, status_label: &gtk4::Labe
 
 #[cfg(target_os = "macos")]
 fn configure_macos_browser_inspection(web_view: &WKWebView) -> bool {
-    if web_view.responds_to(sel!(setInspectable:)) {
+    if web_view.class().responds_to(sel!(setInspectable:)) {
         unsafe {
             web_view.setInspectable(true);
         }
