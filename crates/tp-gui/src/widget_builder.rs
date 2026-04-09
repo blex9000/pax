@@ -57,6 +57,7 @@ pub fn build_tab_label(
     move_left_btn.add_css_class("flat");
     move_left_btn.add_css_class("circular");
     move_left_btn.set_focus_on_click(false);
+    move_left_btn.set_focusable(false);
     edit_box.append(&move_left_btn);
 
     let entry = gtk4::Entry::new();
@@ -70,6 +71,7 @@ pub fn build_tab_label(
     move_right_btn.add_css_class("flat");
     move_right_btn.add_css_class("circular");
     move_right_btn.set_focus_on_click(false);
+    move_right_btn.set_focusable(false);
     edit_box.append(&move_right_btn);
 
     stack.add_named(&edit_box, Some("edit"));
@@ -210,14 +212,13 @@ pub fn build_tab_label(
         entry.add_controller(key_ctrl);
     }
 
-    // Focus-out: just cancel edit (save only on Enter).
-    // Cannot save on focus-out because GTK emits focus-leave during rebuild,
-    // causing RefCell borrow panic when the callback tries to access workspace.
+    // Focus-out: save and close when leaving the tab title editor.
+    // Internal arrow clicks suppress this path until their preview move finishes.
     {
         let finish_edit = finish_edit.clone();
         let focus_ctrl = gtk4::EventControllerFocus::new();
         focus_ctrl.connect_leave(move |_| {
-            finish_edit(false);
+            finish_edit(true);
         });
         edit_box.add_controller(focus_ctrl);
     }
@@ -228,8 +229,18 @@ pub fn build_tab_label(
         let suppress_cancel = suppress_cancel.clone();
         let update_move_buttons = update_move_buttons.clone();
         let entry = entry.clone();
-        move_left_btn.connect_clicked(move |_| {
-            suppress_cancel.set(true);
+        let gesture = gtk4::GestureClick::new();
+        gesture.set_button(1);
+        let suppress_cancel_on_press = suppress_cancel.clone();
+        gesture.connect_pressed(move |_, _, _, _| {
+            suppress_cancel_on_press.set(true);
+        });
+        let child_widget = child_widget.clone();
+        let pending_offset = pending_offset.clone();
+        let suppress_cancel = suppress_cancel.clone();
+        let update_move_buttons = update_move_buttons.clone();
+        let entry = entry.clone();
+        gesture.connect_released(move |g, _, _, _| {
             if preview_move_workspace_tab(&child_widget, -1) {
                 pending_offset.set(pending_offset.get() - 1);
                 update_move_buttons();
@@ -239,7 +250,9 @@ pub fn build_tab_label(
             gtk4::glib::idle_add_local_once(move || {
                 suppress_cancel.set(false);
             });
+            g.set_state(gtk4::EventSequenceState::Claimed);
         });
+        move_left_btn.add_controller(gesture);
     }
 
     {
@@ -248,8 +261,18 @@ pub fn build_tab_label(
         let suppress_cancel = suppress_cancel.clone();
         let update_move_buttons = update_move_buttons.clone();
         let entry = entry.clone();
-        move_right_btn.connect_clicked(move |_| {
-            suppress_cancel.set(true);
+        let gesture = gtk4::GestureClick::new();
+        gesture.set_button(1);
+        let suppress_cancel_on_press = suppress_cancel.clone();
+        gesture.connect_pressed(move |_, _, _, _| {
+            suppress_cancel_on_press.set(true);
+        });
+        let child_widget = child_widget.clone();
+        let pending_offset = pending_offset.clone();
+        let suppress_cancel = suppress_cancel.clone();
+        let update_move_buttons = update_move_buttons.clone();
+        let entry = entry.clone();
+        gesture.connect_released(move |g, _, _, _| {
             if preview_move_workspace_tab(&child_widget, 1) {
                 pending_offset.set(pending_offset.get() + 1);
                 update_move_buttons();
@@ -259,7 +282,9 @@ pub fn build_tab_label(
             gtk4::glib::idle_add_local_once(move || {
                 suppress_cancel.set(false);
             });
+            g.set_state(gtk4::EventSequenceState::Claimed);
         });
+        move_right_btn.add_controller(gesture);
     }
 
     hbox.append(&stack);
