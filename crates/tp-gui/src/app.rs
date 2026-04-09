@@ -342,6 +342,16 @@ fn setup_workspace_ui(
                                     sb_for_cb.borrow().set_message("Tab removed");
                                 }
                             }
+                            PanelAction::MoveTabLeft => {
+                                if ws_for_cb.borrow_mut().move_tab_by_panel_id(real_id, -1) {
+                                    sb_for_cb.borrow().set_message("Tab moved left");
+                                }
+                            }
+                            PanelAction::MoveTabRight => {
+                                if ws_for_cb.borrow_mut().move_tab_by_panel_id(real_id, 1) {
+                                    sb_for_cb.borrow().set_message("Tab moved right");
+                                }
+                            }
                             _ => {}
                         }
                     }
@@ -542,7 +552,10 @@ fn setup_workspace_ui(
                         ws_for_cb.borrow_mut().set_focus_index(idx);
                     }
                 }
-                PanelAction::AddTabToNotebook | PanelAction::RemoveTab => {}
+                PanelAction::AddTabToNotebook
+                | PanelAction::RemoveTab
+                | PanelAction::MoveTabLeft
+                | PanelAction::MoveTabRight => {}
             }
             actions::update_dirty_ui(&ws_for_cb, &win_for_cb, &sa_for_cb);
         });

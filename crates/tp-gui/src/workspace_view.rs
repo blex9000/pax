@@ -386,6 +386,24 @@ impl WorkspaceView {
         changed
     }
 
+    pub fn move_tab_by_panel_id(&mut self, panel_id: &str, direction: i32) -> bool {
+        let moved =
+            crate::layout_ops::move_tab_in_layout(&mut self.workspace.layout, panel_id, direction);
+        if !moved {
+            return false;
+        }
+
+        self.rebuild_layout();
+        self.rebuild_focus_order();
+        if let Some(index) = self.focus.order.iter().position(|id| id == panel_id) {
+            self.focus.index = index;
+            self.focus.focus_current_pub(&self.hosts);
+        }
+        self.select_workspace_tab_for_panel(panel_id);
+        self.dirty = true;
+        true
+    }
+
     pub fn workspace_name(&self) -> &str {
         &self.workspace.name
     }
@@ -929,6 +947,10 @@ impl WorkspaceView {
         None
     }
 
+    fn select_workspace_tab_for_panel(&self, panel_id: &str) -> bool {
+        select_workspace_tab_for_panel_recursive(&self.root_widget, panel_id)
+    }
+
     fn make_empty_config(&self, id: &str, name: &str) -> PanelConfig {
         PanelConfig {
             id: id.to_string(),
@@ -1175,6 +1197,35 @@ fn rename_tab_label_model(layout: &mut LayoutNode, panel_id: &str, new_name: &st
     crate::layout_ops::update_tab_label_in_layout(layout, panel_id, new_name)
 }
 
+fn select_workspace_tab_for_panel_recursive(widget: &gtk4::Widget, panel_id: &str) -> bool {
+    if let Ok(notebook) = widget.clone().downcast::<gtk4::Notebook>() {
+        if notebook.has_css_class("workspace-tabs") {
+            for index in 0..notebook.n_pages() {
+                if let Some(page) = notebook.nth_page(Some(index)) {
+                    if crate::widget_builder::find_first_panel_id(&page).as_deref()
+                        == Some(panel_id)
+                    {
+                        notebook.set_current_page(Some(index));
+                        return true;
+                    }
+                    if select_workspace_tab_for_panel_recursive(&page, panel_id) {
+                        return true;
+                    }
+                }
+            }
+        }
+    }
+
+    let mut child = widget.first_child();
+    while let Some(current) = child {
+        if select_workspace_tab_for_panel_recursive(&current, panel_id) {
+            return true;
+        }
+        child = current.next_sibling();
+    }
+    false
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1265,6 +1316,23 @@ mod tests {
         );
         match &workspace.layout {
             LayoutNode::Tabs { labels, .. } => assert_eq!(labels[0], "Custom Tab"),
+            _ => panic!("expected tabs layout"),
+        }
+    }
+
+    #[test]
+    fn move_tab_by_panel_id_reorders_layout_labels() {
+        let mut workspace = sample_workspace();
+
+        let moved = crate::layout_ops::move_tab_in_layout(&mut workspace.layout, "b", -1);
+
+        assert!(moved);
+        match &workspace.layout {
+            LayoutNode::Tabs { labels, children } => {
+                assert_eq!(labels, &["tab-b", "tab-a"]);
+                assert!(matches!(&children[0], LayoutNode::Panel { id } if id == "b"));
+                assert!(matches!(&children[1], LayoutNode::Panel { id } if id == "a"));
+            }
             _ => panic!("expected tabs layout"),
         }
     }

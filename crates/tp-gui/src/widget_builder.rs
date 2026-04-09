@@ -22,7 +22,12 @@ pub fn add_plus_buttons_recursive(widget: &gtk4::Widget, action_cb: &PanelAction
     }
 }
 
-pub fn build_tab_label(name: &str, panel_type_id: &str, action_cb: &Option<PanelActionCallback>, child_widget: &gtk4::Widget) -> gtk4::Widget {
+pub fn build_tab_label(
+    name: &str,
+    panel_type_id: &str,
+    action_cb: &Option<PanelActionCallback>,
+    child_widget: &gtk4::Widget,
+) -> gtk4::Widget {
     let hbox = gtk4::Box::new(gtk4::Orientation::Horizontal, 4);
 
     // Only show type icon for single-panel tabs, not for layout tabs
@@ -141,7 +146,94 @@ pub fn build_tab_label(name: &str, panel_type_id: &str, action_cb: &Option<Panel
     });
 
     hbox.append(&close_btn);
+
+    {
+        let cb = action_cb.clone();
+        let widget = child_widget.clone();
+        let hbox_for_menu = hbox.clone();
+        let gesture = gtk4::GestureClick::new();
+        gesture.set_button(3);
+        gesture.set_propagation_phase(gtk4::PropagationPhase::Bubble);
+        gesture.connect_pressed(move |_gesture, _n_press, x, y| {
+            let Some(ref cb) = cb else {
+                return;
+            };
+            let Some(notebook) = find_notebook_ancestor(&widget) else {
+                return;
+            };
+            let Some(page_index) = notebook.page_num(&widget) else {
+                return;
+            };
+            let Some(panel_id) = find_first_panel_id(&widget) else {
+                return;
+            };
+
+            let popover = gtk4::Popover::new();
+            crate::theme::configure_popover(&popover);
+            let menu_box = gtk4::Box::new(gtk4::Orientation::Vertical, 2);
+            menu_box.set_margin_top(4);
+            menu_box.set_margin_bottom(4);
+            menu_box.set_margin_start(4);
+            menu_box.set_margin_end(4);
+
+            let move_left =
+                build_tab_context_menu_button("go-previous-symbolic", "Move Left", page_index > 0);
+            {
+                let cb = cb.clone();
+                let popover = popover.clone();
+                let panel_id = panel_id.clone();
+                move_left.connect_clicked(move |_| {
+                    cb(&format!("nb:{}", panel_id), PanelAction::MoveTabLeft);
+                    popover.popdown();
+                });
+            }
+            menu_box.append(&move_left);
+
+            let move_right = build_tab_context_menu_button(
+                "go-next-symbolic",
+                "Move Right",
+                page_index + 1 < notebook.n_pages(),
+            );
+            {
+                let cb = cb.clone();
+                let popover = popover.clone();
+                move_right.connect_clicked(move |_| {
+                    cb(&format!("nb:{}", panel_id), PanelAction::MoveTabRight);
+                    popover.popdown();
+                });
+            }
+            menu_box.append(&move_right);
+
+            popover.set_child(Some(&menu_box));
+            popover.set_parent(&hbox_for_menu);
+            popover.set_pointing_to(Some(&gtk4::gdk::Rectangle::new(x as i32, y as i32, 1, 1)));
+            popover.connect_closed(|popover| {
+                popover.unparent();
+            });
+            popover.popup();
+        });
+        hbox.add_controller(gesture);
+    }
+
     hbox.upcast::<gtk4::Widget>()
+}
+
+fn build_tab_context_menu_button(icon_name: &str, label: &str, sensitive: bool) -> gtk4::Button {
+    let button = gtk4::Button::new();
+    button.add_css_class("flat");
+    button.add_css_class("app-popover-button");
+    button.set_sensitive(sensitive);
+
+    let row = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
+    row.append(&gtk4::Image::from_icon_name(icon_name));
+
+    let text = gtk4::Label::new(Some(label));
+    text.set_hexpand(true);
+    text.set_halign(gtk4::Align::Start);
+    row.append(&text);
+
+    button.set_child(Some(&row));
+    button
 }
 
 /// Rebuild tab labels on existing Notebooks from the layout model.
@@ -167,20 +259,34 @@ fn update_labels_with_layout(
             for i in 0..notebook.n_pages() {
                 if let Some(page_widget) = notebook.nth_page(Some(i)) {
                     // Label: always from the model
-                    let label_text = labels.get(i as usize).cloned()
+                    let label_text = labels
+                        .get(i as usize)
+                        .cloned()
                         .unwrap_or_else(|| format!("Tab {}", i + 1));
 
                     // Type icon: check if it's a single panel or a layout
                     let type_id = if let Some(LayoutNode::Panel { id }) = children.get(i as usize) {
-                        panels.iter().find(|p| p.id == *id)
+                        panels
+                            .iter()
+                            .find(|p| p.id == *id)
                             .map(|p| panel_type_to_id(&p.effective_type()))
                             .unwrap_or("__empty__")
                     } else {
                         "__layout__"
                     };
 
-                    tracing::debug!("update_labels_with_layout: tab {}: label='{}' type='{}'", i, label_text, type_id);
-                    let label = build_tab_label(&label_text, type_id, &Some(action_cb.clone()), &page_widget);
+                    tracing::debug!(
+                        "update_labels_with_layout: tab {}: label='{}' type='{}'",
+                        i,
+                        label_text,
+                        type_id
+                    );
+                    let label = build_tab_label(
+                        &label_text,
+                        type_id,
+                        &Some(action_cb.clone()),
+                        &page_widget,
+                    );
                     notebook.set_tab_label(&page_widget, Some(&label));
 
                     // Recurse into child layout nodes and page widgets
@@ -219,7 +325,7 @@ fn update_labels_with_layout(
             }
         }
         LayoutNode::Panel { .. } => {} // Leaf — nothing to recurse
-        _ => {} // Tabs handled above
+        _ => {}                        // Tabs handled above
     }
 }
 
@@ -282,7 +388,6 @@ pub fn find_panel_id_recursive(widget: &gtk4::Widget, callback: &dyn Fn(&str)) {
     }
 }
 
-
 pub fn find_notebook_ancestor(widget: &gtk4::Widget) -> Option<gtk4::Notebook> {
     let mut current = widget.parent();
     for _ in 0..10 {
@@ -322,7 +427,9 @@ pub fn detach_widget(widget: &gtk4::Widget) {
 
 fn get_panel_type_id(node: &LayoutNode, panels: &[PanelConfig]) -> &'static str {
     if let LayoutNode::Panel { id } = node {
-        panels.iter().find(|p| p.id == *id)
+        panels
+            .iter()
+            .find(|p| p.id == *id)
             .map(|p| {
                 let et = p.effective_type();
                 panel_type_to_id(&et)
@@ -360,12 +467,22 @@ pub fn build_layout_widget_inner(
                 label.upcast::<gtk4::Widget>()
             }
         }
-        LayoutNode::Hsplit { children, ratios } => {
-            build_paned(children, ratios, hosts, panels, action_cb, gtk4::Orientation::Horizontal)
-        }
-        LayoutNode::Vsplit { children, ratios } => {
-            build_paned(children, ratios, hosts, panels, action_cb, gtk4::Orientation::Vertical)
-        }
+        LayoutNode::Hsplit { children, ratios } => build_paned(
+            children,
+            ratios,
+            hosts,
+            panels,
+            action_cb,
+            gtk4::Orientation::Horizontal,
+        ),
+        LayoutNode::Vsplit { children, ratios } => build_paned(
+            children,
+            ratios,
+            hosts,
+            panels,
+            action_cb,
+            gtk4::Orientation::Vertical,
+        ),
         LayoutNode::Tabs { children, labels } => {
             let notebook = gtk4::Notebook::new();
             notebook.set_show_tabs(true);
@@ -374,8 +491,15 @@ pub fn build_layout_widget_inner(
 
             for (i, child) in children.iter().enumerate() {
                 let child_widget = build_layout_widget_inner(child, hosts, panels, action_cb);
-                let label_text = labels.get(i).cloned().unwrap_or_else(|| format!("Tab {}", i + 1));
-                tracing::debug!("build Notebook tab {}: label='{}' from model", i, label_text);
+                let label_text = labels
+                    .get(i)
+                    .cloned()
+                    .unwrap_or_else(|| format!("Tab {}", i + 1));
+                tracing::debug!(
+                    "build Notebook tab {}: label='{}' from model",
+                    i,
+                    label_text
+                );
                 let panel_type_id = get_panel_type_id(child, panels);
                 let label = build_tab_label(&label_text, panel_type_id, action_cb, &child_widget);
                 notebook.append_page(&child_widget, Some(&label));
@@ -398,10 +522,17 @@ pub fn build_layout_widget_inner(
                             } else {
                                 paned.allocation().height()
                             };
-                            let is_start = paned.start_child()
-                                .map(|c| nb.is_ancestor(&c) || c.eq(nb.upcast_ref::<gtk4::Widget>()))
+                            let is_start = paned
+                                .start_child()
+                                .map(|c| {
+                                    nb.is_ancestor(&c) || c.eq(nb.upcast_ref::<gtk4::Widget>())
+                                })
                                 .unwrap_or(false);
-                            let my_size = if is_start { paned.position() } else { total - paned.position() };
+                            let my_size = if is_start {
+                                paned.position()
+                            } else {
+                                total - paned.position()
+                            };
                             if my_size <= 60 {
                                 paned.set_position(total / 2);
                             }
@@ -435,8 +566,6 @@ fn setup_paned_ratio(paned: &gtk4::Paned, ratio: f64, orientation: gtk4::Orienta
     });
 }
 
-
-
 fn build_paned(
     children: &[LayoutNode],
     ratios: &[f64],
@@ -454,7 +583,11 @@ fn build_paned(
 
     let sum: f64 = ratios.iter().take(children.len()).sum();
     let normalized: Vec<f64> = if sum > 0.0 {
-        ratios.iter().take(children.len()).map(|r| r / sum).collect()
+        ratios
+            .iter()
+            .take(children.len())
+            .map(|r| r / sum)
+            .collect()
     } else {
         vec![1.0 / children.len() as f64; children.len()]
     };
@@ -470,8 +603,18 @@ fn build_paned(
 
     if children.len() == 2 {
         let paned = gtk4::Paned::new(orientation);
-        let w1 = maybe_wrap(build_layout_widget_inner(&children[0], hosts, panels, action_cb));
-        let w2 = maybe_wrap(build_layout_widget_inner(&children[1], hosts, panels, action_cb));
+        let w1 = maybe_wrap(build_layout_widget_inner(
+            &children[0],
+            hosts,
+            panels,
+            action_cb,
+        ));
+        let w2 = maybe_wrap(build_layout_widget_inner(
+            &children[1],
+            hosts,
+            panels,
+            action_cb,
+        ));
         let c1_fixed = subtree_has_min_size(&children[0], panels);
         let c2_fixed = subtree_has_min_size(&children[1], panels);
         paned.set_start_child(Some(&w1));
@@ -486,9 +629,21 @@ fn build_paned(
     }
 
     let paned = gtk4::Paned::new(orientation);
-    let w1 = maybe_wrap(build_layout_widget_inner(&children[0], hosts, panels, action_cb));
+    let w1 = maybe_wrap(build_layout_widget_inner(
+        &children[0],
+        hosts,
+        panels,
+        action_cb,
+    ));
     let rest_nodes = &children[1..];
-    let rest = maybe_wrap(build_paned(rest_nodes, &ratios[1..], hosts, panels, action_cb, orientation));
+    let rest = maybe_wrap(build_paned(
+        rest_nodes,
+        &ratios[1..],
+        hosts,
+        panels,
+        action_cb,
+        orientation,
+    ));
     let c1_fixed = subtree_has_min_size(&children[0], panels);
     let rest_fixed = rest_nodes.iter().any(|n| subtree_has_min_size(n, panels));
     paned.set_start_child(Some(&w1));
@@ -507,7 +662,10 @@ fn build_paned(
 const COLLAPSE_WRAPPER_CLASS: &str = "paned-collapse-wrapper";
 
 /// Recursively find the first PanelHost inside a widget subtree.
-fn find_panel_host_in<'a>(widget: &gtk4::Widget, hosts: &'a HashMap<String, PanelHost>) -> Option<&'a PanelHost> {
+fn find_panel_host_in<'a>(
+    widget: &gtk4::Widget,
+    hosts: &'a HashMap<String, PanelHost>,
+) -> Option<&'a PanelHost> {
     let name = widget.widget_name();
     if let Some(host) = hosts.get(name.as_str()) {
         return Some(host);
@@ -651,7 +809,10 @@ impl DragCollapseTarget {
 }
 
 /// Build a DragCollapseTarget from a Paned's child.
-fn find_collapse_target(child: &Option<gtk4::Widget>, hosts: &HashMap<String, PanelHost>) -> Option<DragCollapseTarget> {
+fn find_collapse_target(
+    child: &Option<gtk4::Widget>,
+    hosts: &HashMap<String, PanelHost>,
+) -> Option<DragCollapseTarget> {
     let c = child.as_ref()?;
 
     // Case 1: direct PanelHost
@@ -670,8 +831,7 @@ fn find_collapse_target(child: &Option<gtk4::Widget>, hosts: &HashMap<String, Pa
     if let Ok(wrapper) = c.clone().downcast::<gtk4::Box>() {
         if wrapper.has_css_class(COLLAPSE_WRAPPER_CLASS) {
             let content = wrapper.first_child()?;
-            let collapsed_view = content.next_sibling()?
-                .downcast::<gtk4::Box>().ok()?;
+            let collapsed_view = content.next_sibling()?.downcast::<gtk4::Box>().ok()?;
             return Some(DragCollapseTarget {
                 outer: wrapper,
                 content,
@@ -709,17 +869,23 @@ fn setup_paned_drag_collapse(paned: &gtk4::Paned, hosts: &HashMap<String, PanelH
 
     tracing::debug!(
         "setup_paned_drag_collapse: orient={:?}, start={}, end={}",
-        orient, start.is_some(), end.is_some()
+        orient,
+        start.is_some(),
+        end.is_some()
     );
 
-    if start.is_none() && end.is_none() { return; }
+    if start.is_none() && end.is_none() {
+        return;
+    }
 
     let guard = std::rc::Rc::new(std::cell::Cell::new(false));
     // Shared guard for idle snap — prevents notify handler from reacting to our set_position
     let snap_guard = guard.clone();
 
     paned.connect_notify_local(Some("position"), move |paned, _| {
-        if guard.get() { return; }
+        if guard.get() {
+            return;
+        }
         guard.set(true);
 
         let total = if orient == gtk4::Orientation::Horizontal {
@@ -727,7 +893,10 @@ fn setup_paned_drag_collapse(paned: &gtk4::Paned, hosts: &HashMap<String, PanelH
         } else {
             paned.allocation().height()
         };
-        if total <= 0 { guard.set(false); return; }
+        if total <= 0 {
+            guard.set(false);
+            return;
+        }
 
         let pos = paned.position();
         let start_size = pos;
@@ -736,7 +905,9 @@ fn setup_paned_drag_collapse(paned: &gtk4::Paned, hosts: &HashMap<String, PanelH
         // Helper: collapse a target
         let do_collapse = |target: &DragCollapseTarget, is_start: bool| {
             target.content.set_visible(false);
-            if let Some(ref f) = target.footer { f.set_visible(false); }
+            if let Some(ref f) = target.footer {
+                f.set_visible(false);
+            }
             target.collapsed_view.set_visible(true);
             target.outer.set_size_request(COLLAPSE_SIZE, COLLAPSE_SIZE);
             let icon = match (orient, is_start) {
@@ -745,7 +916,11 @@ fn setup_paned_drag_collapse(paned: &gtk4::Paned, hosts: &HashMap<String, PanelH
                 (_, true) => "go-down-symbolic",
                 (_, false) => "go-up-symbolic",
             };
-            if let Some(img) = target.collapsed_view.first_child().and_then(|c| c.downcast::<gtk4::Image>().ok()) {
+            if let Some(img) = target
+                .collapsed_view
+                .first_child()
+                .and_then(|c| c.downcast::<gtk4::Image>().ok())
+            {
                 img.set_icon_name(Some(icon));
             }
         };
@@ -789,10 +964,18 @@ fn setup_paned_drag_collapse(paned: &gtk4::Paned, hosts: &HashMap<String, PanelH
             let g = snap_guard.clone();
             gtk4::glib::idle_add_local_once(move || {
                 g.set(true); // Block notify handler during our set_position
-                let t = if orient == gtk4::Orientation::Horizontal { p.allocation().width() } else { p.allocation().height() };
+                let t = if orient == gtk4::Orientation::Horizontal {
+                    p.allocation().width()
+                } else {
+                    p.allocation().height()
+                };
                 if t > 0 {
-                    if need_snap_start { p.set_position(COLLAPSE_SIZE); }
-                    if need_snap_end { p.set_position(t - COLLAPSE_SIZE); }
+                    if need_snap_start {
+                        p.set_position(COLLAPSE_SIZE);
+                    }
+                    if need_snap_end {
+                        p.set_position(t - COLLAPSE_SIZE);
+                    }
                 }
                 g.set(false);
             });
@@ -803,8 +986,16 @@ fn setup_paned_drag_collapse(paned: &gtk4::Paned, hosts: &HashMap<String, PanelH
 }
 
 pub fn apply_min_size(host: &PanelHost, cfg: &PanelConfig) {
-    let w = if cfg.min_width > 0 { cfg.min_width as i32 } else { -1 };
-    let h = if cfg.min_height > 0 { cfg.min_height as i32 } else { -1 };
+    let w = if cfg.min_width > 0 {
+        cfg.min_width as i32
+    } else {
+        -1
+    };
+    let h = if cfg.min_height > 0 {
+        cfg.min_height as i32
+    } else {
+        -1
+    };
     if w > 0 || h > 0 {
         host.widget().set_size_request(w, h);
     }
@@ -812,9 +1003,9 @@ pub fn apply_min_size(host: &PanelHost, cfg: &PanelConfig) {
 
 fn subtree_has_min_size(node: &LayoutNode, panels: &[PanelConfig]) -> bool {
     match node {
-        LayoutNode::Panel { id } => {
-            panels.iter().any(|p| p.id == *id && (p.min_width > 0 || p.min_height > 0))
-        }
+        LayoutNode::Panel { id } => panels
+            .iter()
+            .any(|p| p.id == *id && (p.min_width > 0 || p.min_height > 0)),
         LayoutNode::Hsplit { children, .. }
         | LayoutNode::Vsplit { children, .. }
         | LayoutNode::Tabs { children, .. } => {
@@ -830,34 +1021,74 @@ pub fn sync_ratios_recursive(widget: &gtk4::Widget, node: &mut LayoutNode) {
     match node {
         LayoutNode::Panel { .. } => {}
         LayoutNode::Hsplit { children, ratios } | LayoutNode::Vsplit { children, ratios } => {
-            if children.len() < 2 { return; }
+            if children.len() < 2 {
+                return;
+            }
             if let Ok(paned) = widget.clone().downcast::<gtk4::Paned>() {
                 let alloc = paned.allocation();
-                let total = if paned.orientation() == gtk4::Orientation::Horizontal { alloc.width() } else { alloc.height() };
+                let total = if paned.orientation() == gtk4::Orientation::Horizontal {
+                    alloc.width()
+                } else {
+                    alloc.height()
+                };
                 if total > 0 {
                     let pos = paned.position();
                     let r1 = pos as f64 / total as f64;
                     let r2 = 1.0 - r1;
                     if children.len() == 2 {
-                        if ratios.len() >= 2 { ratios[0] = r1; ratios[1] = r2; }
-                        if let Some(w1) = paned.start_child() { sync_ratios_recursive(&w1, &mut children[0]); }
-                        if let Some(w2) = paned.end_child() { sync_ratios_recursive(&w2, &mut children[1]); }
+                        if ratios.len() >= 2 {
+                            ratios[0] = r1;
+                            ratios[1] = r2;
+                        }
+                        if let Some(w1) = paned.start_child() {
+                            sync_ratios_recursive(&w1, &mut children[0]);
+                        }
+                        if let Some(w2) = paned.end_child() {
+                            sync_ratios_recursive(&w2, &mut children[1]);
+                        }
                     } else {
-                        if !ratios.is_empty() { ratios[0] = r1; }
-                        if let Some(w1) = paned.start_child() { sync_ratios_recursive(&w1, &mut children[0]); }
+                        if !ratios.is_empty() {
+                            ratios[0] = r1;
+                        }
+                        if let Some(w1) = paned.start_child() {
+                            sync_ratios_recursive(&w1, &mut children[0]);
+                        }
                         if let Some(w2) = paned.end_child() {
                             let rest_children = children[1..].to_vec();
-                            let rest_ratios = if ratios.len() > 1 { ratios[1..].to_vec() } else { vec![1.0; rest_children.len()] };
-                            let mut rest_node = if is_hsplit {
-                                LayoutNode::Hsplit { children: rest_children, ratios: rest_ratios }
+                            let rest_ratios = if ratios.len() > 1 {
+                                ratios[1..].to_vec()
                             } else {
-                                LayoutNode::Vsplit { children: rest_children, ratios: rest_ratios }
+                                vec![1.0; rest_children.len()]
+                            };
+                            let mut rest_node = if is_hsplit {
+                                LayoutNode::Hsplit {
+                                    children: rest_children,
+                                    ratios: rest_ratios,
+                                }
+                            } else {
+                                LayoutNode::Vsplit {
+                                    children: rest_children,
+                                    ratios: rest_ratios,
+                                }
                             };
                             sync_ratios_recursive(&w2, &mut rest_node);
                             match rest_node {
-                                LayoutNode::Hsplit { children: rc, ratios: rr } | LayoutNode::Vsplit { children: rc, ratios: rr } => {
-                                    for (i, c) in rc.into_iter().enumerate() { children[i + 1] = c; }
-                                    for (i, r) in rr.into_iter().enumerate() { if i + 1 < ratios.len() { ratios[i + 1] = r; } }
+                                LayoutNode::Hsplit {
+                                    children: rc,
+                                    ratios: rr,
+                                }
+                                | LayoutNode::Vsplit {
+                                    children: rc,
+                                    ratios: rr,
+                                } => {
+                                    for (i, c) in rc.into_iter().enumerate() {
+                                        children[i + 1] = c;
+                                    }
+                                    for (i, r) in rr.into_iter().enumerate() {
+                                        if i + 1 < ratios.len() {
+                                            ratios[i + 1] = r;
+                                        }
+                                    }
                                 }
                                 _ => {}
                             }

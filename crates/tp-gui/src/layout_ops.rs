@@ -7,19 +7,40 @@ pub fn debug_layout_tree(node: &LayoutNode, path: &str) {
             tracing::debug!("LAYOUT {}: Panel({})", path, id);
         }
         LayoutNode::Hsplit { children, ratios } => {
-            tracing::debug!("LAYOUT {}: Hsplit({} children, ratios={:?})", path, children.len(), ratios.iter().map(|r| format!("{:.2}", r)).collect::<Vec<_>>());
+            tracing::debug!(
+                "LAYOUT {}: Hsplit({} children, ratios={:?})",
+                path,
+                children.len(),
+                ratios
+                    .iter()
+                    .map(|r| format!("{:.2}", r))
+                    .collect::<Vec<_>>()
+            );
             for (i, c) in children.iter().enumerate() {
                 debug_layout_tree(c, &format!("{}/h{}", path, i));
             }
         }
         LayoutNode::Vsplit { children, ratios } => {
-            tracing::debug!("LAYOUT {}: Vsplit({} children, ratios={:?})", path, children.len(), ratios.iter().map(|r| format!("{:.2}", r)).collect::<Vec<_>>());
+            tracing::debug!(
+                "LAYOUT {}: Vsplit({} children, ratios={:?})",
+                path,
+                children.len(),
+                ratios
+                    .iter()
+                    .map(|r| format!("{:.2}", r))
+                    .collect::<Vec<_>>()
+            );
             for (i, c) in children.iter().enumerate() {
                 debug_layout_tree(c, &format!("{}/v{}", path, i));
             }
         }
         LayoutNode::Tabs { children, labels } => {
-            tracing::debug!("LAYOUT {}: Tabs({} children, labels={:?})", path, children.len(), labels);
+            tracing::debug!(
+                "LAYOUT {}: Tabs({} children, labels={:?})",
+                path,
+                children.len(),
+                labels
+            );
             for (i, c) in children.iter().enumerate() {
                 debug_layout_tree(c, &format!("{}/t{}", path, i));
             }
@@ -66,9 +87,7 @@ fn has_panels(node: &LayoutNode) -> bool {
         LayoutNode::Panel { .. } => true,
         LayoutNode::Hsplit { children, .. }
         | LayoutNode::Vsplit { children, .. }
-        | LayoutNode::Tabs { children, .. } => {
-            children.iter().any(|c| has_panels(c))
-        }
+        | LayoutNode::Tabs { children, .. } => children.iter().any(|c| has_panels(c)),
     }
 }
 
@@ -122,7 +141,12 @@ pub fn remove_from_layout(node: &LayoutNode, panel_id: &str) -> LayoutNode {
                 let processed = remove_from_layout(child, panel_id);
                 if has_panels(&processed) {
                     new_children.push(processed);
-                    new_labels.push(labels.get(i).cloned().unwrap_or_else(|| format!("Tab {}", i + 1)));
+                    new_labels.push(
+                        labels
+                            .get(i)
+                            .cloned()
+                            .unwrap_or_else(|| format!("Tab {}", i + 1)),
+                    );
                 }
             }
             if new_children.len() == 1 {
@@ -152,12 +176,19 @@ fn collapse_split(children: Vec<LayoutNode>, ratios: Vec<f64>, is_hsplit: bool) 
 }
 
 /// Try to add a new panel to an existing Tabs node that contains the given panel.
-pub fn add_to_existing_tabs(node: &mut LayoutNode, panel_id: &str, new_id: &str, new_label: &str) -> bool {
+pub fn add_to_existing_tabs(
+    node: &mut LayoutNode,
+    panel_id: &str,
+    new_id: &str,
+    new_label: &str,
+) -> bool {
     match node {
         LayoutNode::Tabs { children, labels } => {
             let contains = children.iter().any(|c| is_panel_with_id(c, panel_id));
             if contains {
-                children.push(LayoutNode::Panel { id: new_id.to_string() });
+                children.push(LayoutNode::Panel {
+                    id: new_id.to_string(),
+                });
                 labels.push(new_label.to_string());
                 return true;
             }
@@ -232,6 +263,45 @@ pub fn update_tab_label_in_layout(node: &mut LayoutNode, panel_id: &str, new_lab
     }
 }
 
+/// Move the INNERMOST tab containing `panel_id` by one position.
+/// Returns true if a move happened.
+pub fn move_tab_in_layout(node: &mut LayoutNode, panel_id: &str, direction: i32) -> bool {
+    match node {
+        LayoutNode::Tabs { children, labels } => {
+            for child in children.iter_mut() {
+                if move_tab_in_layout(child, panel_id, direction) {
+                    return true;
+                }
+            }
+
+            for (index, child) in children.iter().enumerate() {
+                if is_panel_with_id(child, panel_id) {
+                    let target = index as i32 + direction;
+                    if !(0..children.len() as i32).contains(&target) {
+                        return false;
+                    }
+                    let target = target as usize;
+                    children.swap(index, target);
+                    if index < labels.len() && target < labels.len() {
+                        labels.swap(index, target);
+                    }
+                    return true;
+                }
+            }
+            false
+        }
+        LayoutNode::Hsplit { children, .. } | LayoutNode::Vsplit { children, .. } => {
+            for child in children.iter_mut() {
+                if move_tab_in_layout(child, panel_id, direction) {
+                    return true;
+                }
+            }
+            false
+        }
+        LayoutNode::Panel { .. } => false,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -242,12 +312,18 @@ mod tests {
 
     fn hsplit(children: Vec<LayoutNode>) -> LayoutNode {
         let n = children.len();
-        LayoutNode::Hsplit { children, ratios: vec![1.0 / n as f64; n] }
+        LayoutNode::Hsplit {
+            children,
+            ratios: vec![1.0 / n as f64; n],
+        }
     }
 
     fn vsplit(children: Vec<LayoutNode>) -> LayoutNode {
         let n = children.len();
-        LayoutNode::Vsplit { children, ratios: vec![1.0 / n as f64; n] }
+        LayoutNode::Vsplit {
+            children,
+            ratios: vec![1.0 / n as f64; n],
+        }
     }
 
     fn tabs(children: Vec<LayoutNode>, labels: Vec<&str>) -> LayoutNode {
@@ -258,7 +334,10 @@ mod tests {
     }
 
     fn panel_ids(node: &LayoutNode) -> Vec<String> {
-        node.panel_ids().into_iter().map(|s| s.to_string()).collect()
+        node.panel_ids()
+            .into_iter()
+            .map(|s| s.to_string())
+            .collect()
     }
 
     // ── remove_from_layout ──
@@ -363,6 +442,76 @@ mod tests {
         }
     }
 
+    #[test]
+    fn move_tab_left_swaps_children_and_labels() {
+        let mut layout = tabs(
+            vec![panel("a"), panel("b"), panel("c")],
+            vec!["first", "second", "third"],
+        );
+
+        let moved = move_tab_in_layout(&mut layout, "b", -1);
+
+        assert!(moved);
+        if let LayoutNode::Tabs { children, labels } = &layout {
+            assert!(matches!(&children[0], LayoutNode::Panel { id } if id == "b"));
+            assert!(matches!(&children[1], LayoutNode::Panel { id } if id == "a"));
+            assert_eq!(labels, &["second", "first", "third"]);
+        } else {
+            panic!("expected Tabs");
+        }
+    }
+
+    #[test]
+    fn move_tab_right_uses_innermost_tabs_node() {
+        let mut layout = tabs(
+            vec![
+                vsplit(vec![
+                    panel("a"),
+                    tabs(vec![panel("b"), panel("c")], vec!["inner-b", "inner-c"]),
+                ]),
+                panel("d"),
+            ],
+            vec!["outer-left", "outer-right"],
+        );
+
+        let moved = move_tab_in_layout(&mut layout, "b", 1);
+
+        assert!(moved);
+        if let LayoutNode::Tabs {
+            children: outer_children,
+            labels: outer_labels,
+        } = &layout
+        {
+            assert_eq!(outer_labels, &["outer-left", "outer-right"]);
+            if let LayoutNode::Vsplit { children, .. } = &outer_children[0] {
+                if let LayoutNode::Tabs { labels, children } = &children[1] {
+                    assert_eq!(labels, &["inner-c", "inner-b"]);
+                    assert!(matches!(&children[0], LayoutNode::Panel { id } if id == "c"));
+                    assert!(matches!(&children[1], LayoutNode::Panel { id } if id == "b"));
+                } else {
+                    panic!("expected inner tabs");
+                }
+            } else {
+                panic!("expected outer vsplit");
+            }
+        } else {
+            panic!("expected outer tabs");
+        }
+    }
+
+    #[test]
+    fn move_tab_out_of_bounds_returns_false() {
+        let mut layout = tabs(vec![panel("a"), panel("b")], vec!["first", "second"]);
+
+        assert!(!move_tab_in_layout(&mut layout, "a", -1));
+        assert!(!move_tab_in_layout(&mut layout, "b", 1));
+        if let LayoutNode::Tabs { labels, .. } = &layout {
+            assert_eq!(labels, &["first", "second"]);
+        } else {
+            panic!("expected tabs");
+        }
+    }
+
     // ── add_to_existing_tabs ──
 
     #[test]
@@ -396,9 +545,7 @@ mod tests {
     #[test]
     fn replace_panel_in_nested_layout() {
         let layout = vsplit(vec![panel("a"), panel("b")]);
-        let result = replace_in_layout(&layout, "a", &|_| {
-            hsplit(vec![panel("a"), panel("c")])
-        });
+        let result = replace_in_layout(&layout, "a", &|_| hsplit(vec![panel("a"), panel("c")]));
         let ids = panel_ids(&result);
         assert!(ids.contains(&"a".to_string()));
         assert!(ids.contains(&"b".to_string()));
@@ -408,16 +555,27 @@ mod tests {
     // ── Label preservation tests ──
 
     fn get_tab_labels(node: &LayoutNode) -> Option<Vec<String>> {
-        if let LayoutNode::Tabs { labels, .. } = node { Some(labels.clone()) } else { None }
+        if let LayoutNode::Tabs { labels, .. } = node {
+            Some(labels.clone())
+        } else {
+            None
+        }
     }
 
     /// Find first Tabs node in tree and return its labels
     fn find_tab_labels(node: &LayoutNode) -> Option<Vec<String>> {
-        if let LayoutNode::Tabs { labels, .. } = node { return Some(labels.clone()); }
+        if let LayoutNode::Tabs { labels, .. } = node {
+            return Some(labels.clone());
+        }
         match node {
-            LayoutNode::Hsplit { children, .. } | LayoutNode::Vsplit { children, .. }
+            LayoutNode::Hsplit { children, .. }
+            | LayoutNode::Vsplit { children, .. }
             | LayoutNode::Tabs { children, .. } => {
-                for c in children { if let Some(l) = find_tab_labels(c) { return Some(l); } }
+                for c in children {
+                    if let Some(l) = find_tab_labels(c) {
+                        return Some(l);
+                    }
+                }
                 None
             }
             _ => None,
@@ -446,10 +604,7 @@ mod tests {
 
     #[test]
     fn rename_tab_then_add_child_preserves_label() {
-        let mut layout = tabs(
-            vec![panel("a"), panel("b")],
-            vec!["custom_a", "custom_b"],
-        );
+        let mut layout = tabs(vec![panel("a"), panel("b")], vec!["custom_a", "custom_b"]);
         update_tab_label_in_layout(&mut layout, "a", "renamed_a");
 
         // Add a new tab
@@ -485,14 +640,9 @@ mod tests {
 
     #[test]
     fn split_inside_tab_preserves_labels() {
-        let mut layout = tabs(
-            vec![panel("a"), panel("b")],
-            vec!["custom_a", "custom_b"],
-        );
+        let mut layout = tabs(vec![panel("a"), panel("b")], vec!["custom_a", "custom_b"]);
         // Simulate split: replace panel a with Vsplit[a, c]
-        layout = replace_in_layout(&layout, "a", &|_| {
-            vsplit(vec![panel("a"), panel("c")])
-        });
+        layout = replace_in_layout(&layout, "a", &|_| vsplit(vec![panel("a"), panel("c")]));
         let labels = get_tab_labels(&layout).unwrap();
         assert_eq!(labels[0], "custom_a", "label must survive split");
         assert_eq!(labels[1], "custom_b");

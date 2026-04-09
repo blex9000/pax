@@ -50,6 +50,10 @@ pub enum PanelAction {
     AddTabToNotebook,
     /// Remove current tab from Notebook (from tab bar menu)
     RemoveTab,
+    /// Move current notebook tab one position to the left
+    MoveTabLeft,
+    /// Move current notebook tab one position to the right
+    MoveTabRight,
     /// Toggle zoom/fullscreen
     Zoom,
     /// Toggle sync input
@@ -715,6 +719,8 @@ fn build_panel_menu(panel_id: &str, action_cb: Option<PanelActionCallback>) -> g
             PanelAction::Close => "window-close-symbolic",
             PanelAction::AddTabToNotebook => "tab-new-symbolic",
             PanelAction::RemoveTab => "window-close-symbolic",
+            PanelAction::MoveTabLeft => "go-previous-symbolic",
+            PanelAction::MoveTabRight => "go-next-symbolic",
             PanelAction::Zoom => "view-fullscreen-symbolic",
             PanelAction::Sync => "media-playlist-consecutive-symbolic",
             PanelAction::Rename(_) => "document-edit-symbolic",
@@ -737,6 +743,8 @@ fn build_panel_menu(panel_id: &str, action_cb: Option<PanelActionCallback>) -> g
             PanelAction::Close => "Ctrl+Shift+W",
             PanelAction::AddTabToNotebook => "",
             PanelAction::RemoveTab => "",
+            PanelAction::MoveTabLeft => "",
+            PanelAction::MoveTabRight => "",
             PanelAction::Zoom => "Ctrl+Z",
             PanelAction::Sync => "Ctrl+Shift+S",
             PanelAction::Rename(_) => "Dbl-click",
