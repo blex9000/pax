@@ -51,7 +51,12 @@ impl FileTree {
         Self::new_with_context(root_dir, on_file_open, None, backend)
     }
 
-    pub fn new_with_context(root_dir: &Path, on_file_open: OnFileOpen, on_context_action: Option<OnContextAction>, backend: Arc<dyn FileBackend>) -> Self {
+    pub fn new_with_context(
+        root_dir: &Path,
+        on_file_open: OnFileOpen,
+        on_context_action: Option<OnContextAction>,
+        backend: Arc<dyn FileBackend>,
+    ) -> Self {
         let container = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
 
         // Action buttons bar at bottom
@@ -139,6 +144,11 @@ impl FileTree {
         // Right-click context menu on files
         {
             let entries_c = entries.clone();
+            let entries_for_refresh = entries.clone();
+            let list_box_for_refresh = list_box.clone();
+            let scroll_for_refresh = scroll.clone();
+            let file_index_for_refresh = file_index.clone();
+            let request_seq_for_refresh = request_seq.clone();
             let root = root_dir.to_path_buf();
             let ctx_cb = on_context_action.clone();
             let backend = backend.clone();
@@ -146,15 +156,42 @@ impl FileTree {
             gesture.set_button(3); // right-click
             gesture.connect_pressed(move |g, _n, x, y| {
                 let Some(widget) = g.widget() else { return };
-                let Some(lb) = widget.downcast_ref::<gtk4::ListBox>() else { return };
-                let Some(row) = lb.row_at_y(y as i32) else { return };
+                let Some(lb) = widget.downcast_ref::<gtk4::ListBox>() else {
+                    return;
+                };
+                let Some(row) = lb.row_at_y(y as i32) else {
+                    return;
+                };
                 let idx = row.index() as usize;
                 let ents = entries_c.borrow();
                 let Some(entry) = ents.get(idx) else { return };
-                if entry.is_dir { return; }
-
+                let is_dir = entry.is_dir;
                 let path = entry.path.clone();
                 let rel = path.strip_prefix(&root).unwrap_or(&path).to_path_buf();
+                let refresh_tree: Rc<dyn Fn()> = {
+                    let root = root.clone();
+                    let backend = backend.clone();
+                    let list_box = list_box_for_refresh.clone();
+                    let scroll = scroll_for_refresh.clone();
+                    let entries = entries_for_refresh.clone();
+                    let file_index = file_index_for_refresh.clone();
+                    let request_seq = request_seq_for_refresh.clone();
+                    Rc::new(move || {
+                        request_tree_reload(
+                            &list_box,
+                            &scroll,
+                            &root,
+                            &entries,
+                            &file_index,
+                            backend.clone(),
+                            request_seq.clone(),
+                            collect_expanded_dirs(&entries.borrow()),
+                            false,
+                            "Refreshing files...",
+                            "No files found",
+                        );
+                    })
+                };
 
                 let menu_box = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
                 menu_box.set_margin_top(4);
@@ -182,7 +219,9 @@ impl FileTree {
                 {
                     let rel_str = rel.to_string_lossy().to_string();
                     copy_rel.connect_clicked(move |btn| {
-                        if let Some(d) = gtk4::gdk::Display::default() { d.clipboard().set_text(&rel_str); }
+                        if let Some(d) = gtk4::gdk::Display::default() {
+                            d.clipboard().set_text(&rel_str);
+                        }
                         if let Some(p) = btn.ancestor(gtk4::Popover::static_type()) {
                             p.downcast_ref::<gtk4::Popover>().unwrap().popdown();
                         }
@@ -194,7 +233,9 @@ impl FileTree {
                 {
                     let abs_str = path.to_string_lossy().to_string();
                     copy_abs.connect_clicked(move |btn| {
-                        if let Some(d) = gtk4::gdk::Display::default() { d.clipboard().set_text(&abs_str); }
+                        if let Some(d) = gtk4::gdk::Display::default() {
+                            d.clipboard().set_text(&abs_str);
+                        }
                         if let Some(p) = btn.ancestor(gtk4::Popover::static_type()) {
                             p.downcast_ref::<gtk4::Popover>().unwrap().popdown();
                         }
@@ -204,11 +245,19 @@ impl FileTree {
 
                 menu_box.append(&gtk4::Separator::new(gtk4::Orientation::Horizontal));
 
-                // ── File operations ──
-                let rename_btn = make_item("document-edit-symbolic", "Rename");
+                // ── Rename ──
+                let rename_btn = make_item(
+                    "document-edit-symbolic",
+                    if is_dir {
+                        "Rename Folder"
+                    } else {
+                        "Rename File"
+                    },
+                );
                 {
                     let p = path.clone();
                     let be = backend.clone();
+                    let refresh_tree = refresh_tree.clone();
                     rename_btn.connect_clicked(move |btn| {
                         // Close popover first
                         if let Some(pop) = btn.ancestor(gtk4::Popover::static_type()) {
@@ -228,19 +277,31 @@ impl FileTree {
                         vbox.set_margin_start(12);
                         vbox.set_margin_end(12);
                         let entry = gtk4::Entry::new();
-                        let current_name = p.file_name().unwrap_or_default().to_string_lossy().to_string();
+                        let current_name = p
+                            .file_name()
+                            .unwrap_or_default()
+                            .to_string_lossy()
+                            .to_string();
                         entry.set_text(&current_name);
                         vbox.append(&entry);
-                        let ok_btn = gtk4::Button::with_label("Rename");
+                        let ok_btn = gtk4::Button::with_label(if is_dir {
+                            "Rename Folder"
+                        } else {
+                            "Rename File"
+                        });
                         ok_btn.add_css_class("suggested-action");
                         let pp = p.clone();
                         let be2 = be.clone();
                         let d = dialog.clone();
+                        let refresh_tree = refresh_tree.clone();
                         ok_btn.connect_clicked(move |_| {
                             let new_name = entry.text().to_string();
-                            if !new_name.is_empty() && new_name != current_name {
-                                let dest = pp.with_file_name(&new_name);
-                                let _ = be2.rename_file(&pp, &dest);
+                            if new_name != current_name {
+                                if let Some(dest) = rename_destination_for_path(&pp, &new_name) {
+                                    if be2.rename_file(&pp, &dest).is_ok() {
+                                        refresh_tree();
+                                    }
+                                }
                             }
                             d.close();
                         });
@@ -251,55 +312,64 @@ impl FileTree {
                 }
                 menu_box.append(&rename_btn);
 
-                let dup_btn = make_item("document-save-as-symbolic", "Duplicate File");
-                {
-                    let p = path.clone();
-                    let be = backend.clone();
-                    dup_btn.connect_clicked(move |btn| {
-                        if let Some(ext) = p.extension() {
-                            let stem = p.file_stem().unwrap_or_default().to_string_lossy();
-                            let new_name = format!("{}_copy.{}", stem, ext.to_string_lossy());
-                            let dest = p.with_file_name(new_name);
-                            let _ = be.copy_file(&p, &dest);
-                        } else {
-                            let name = p.file_name().unwrap_or_default().to_string_lossy();
-                            let dest = p.with_file_name(format!("{}_copy", name));
-                            let _ = be.copy_file(&p, &dest);
-                        }
-                        if let Some(pop) = btn.ancestor(gtk4::Popover::static_type()) {
-                            pop.downcast_ref::<gtk4::Popover>().unwrap().popdown();
-                        }
-                    });
-                }
-                menu_box.append(&dup_btn);
+                if !is_dir {
+                    let dup_btn = make_item("document-save-as-symbolic", "Duplicate File");
+                    {
+                        let p = path.clone();
+                        let be = backend.clone();
+                        let refresh_tree = refresh_tree.clone();
+                        dup_btn.connect_clicked(move |btn| {
+                            let result = if let Some(ext) = p.extension() {
+                                let stem = p.file_stem().unwrap_or_default().to_string_lossy();
+                                let new_name = format!("{}_copy.{}", stem, ext.to_string_lossy());
+                                let dest = p.with_file_name(new_name);
+                                be.copy_file(&p, &dest)
+                            } else {
+                                let name = p.file_name().unwrap_or_default().to_string_lossy();
+                                let dest = p.with_file_name(format!("{}_copy", name));
+                                be.copy_file(&p, &dest)
+                            };
+                            if result.is_ok() {
+                                refresh_tree();
+                            }
+                            if let Some(pop) = btn.ancestor(gtk4::Popover::static_type()) {
+                                pop.downcast_ref::<gtk4::Popover>().unwrap().popdown();
+                            }
+                        });
+                    }
+                    menu_box.append(&dup_btn);
 
-                let del_btn = make_item("user-trash-symbolic", "Delete File");
-                {
-                    let p = path.clone();
-                    let be = backend.clone();
-                    del_btn.connect_clicked(move |btn| {
-                        let _ = be.delete_file(&p);
-                        if let Some(pop) = btn.ancestor(gtk4::Popover::static_type()) {
-                            pop.downcast_ref::<gtk4::Popover>().unwrap().popdown();
-                        }
-                    });
-                }
-                menu_box.append(&del_btn);
+                    let del_btn = make_item("user-trash-symbolic", "Delete File");
+                    {
+                        let p = path.clone();
+                        let be = backend.clone();
+                        let refresh_tree = refresh_tree.clone();
+                        del_btn.connect_clicked(move |btn| {
+                            if be.delete_file(&p).is_ok() {
+                                refresh_tree();
+                            }
+                            if let Some(pop) = btn.ancestor(gtk4::Popover::static_type()) {
+                                pop.downcast_ref::<gtk4::Popover>().unwrap().popdown();
+                            }
+                        });
+                    }
+                    menu_box.append(&del_btn);
 
-                menu_box.append(&gtk4::Separator::new(gtk4::Orientation::Horizontal));
+                    menu_box.append(&gtk4::Separator::new(gtk4::Orientation::Horizontal));
 
-                // ── Git ──
-                if let Some(ref ctx) = ctx_cb {
-                    let hist_btn = make_item("document-open-recent-symbolic", "Git History");
-                    let cb = ctx.clone();
-                    let p = path.clone();
-                    hist_btn.connect_clicked(move |btn| {
-                        cb("git-history", &p);
-                        if let Some(pop) = btn.ancestor(gtk4::Popover::static_type()) {
-                            pop.downcast_ref::<gtk4::Popover>().unwrap().popdown();
-                        }
-                    });
-                    menu_box.append(&hist_btn);
+                    // ── Git ──
+                    if let Some(ref ctx) = ctx_cb {
+                        let hist_btn = make_item("document-open-recent-symbolic", "Git History");
+                        let cb = ctx.clone();
+                        let p = path.clone();
+                        hist_btn.connect_clicked(move |btn| {
+                            cb("git-history", &p);
+                            if let Some(pop) = btn.ancestor(gtk4::Popover::static_type()) {
+                                pop.downcast_ref::<gtk4::Popover>().unwrap().popdown();
+                            }
+                        });
+                        menu_box.append(&hist_btn);
+                    }
                 }
 
                 let popover = gtk4::Popover::new();
@@ -413,7 +483,9 @@ impl FileTree {
         let mut ancestors: Vec<PathBuf> = Vec::new();
         let mut parent = file_path.parent();
         while let Some(p) = parent {
-            if p == self.root_dir { break; }
+            if p == self.root_dir {
+                break;
+            }
             ancestors.push(p.to_path_buf());
             parent = p.parent();
         }
@@ -424,12 +496,14 @@ impl FileTree {
         for ancestor in &ancestors {
             let needs_expand = {
                 let ents = self.entries.borrow();
-                ents.iter().any(|e| e.path == *ancestor && e.is_dir && !e.expanded)
+                ents.iter()
+                    .any(|e| e.path == *ancestor && e.is_dir && !e.expanded)
             };
             if needs_expand {
                 let idx_and_depth = {
                     let ents = self.entries.borrow();
-                    ents.iter().enumerate()
+                    ents.iter()
+                        .enumerate()
                         .find(|(_, e)| e.path == *ancestor && e.is_dir)
                         .map(|(i, e)| (i, e.depth))
                 };
@@ -506,7 +580,9 @@ fn build_row_widget(entry: &FileEntry, root: &Path, guides: &[bool], is_last: bo
 
             // Draw vertical continuation lines for ancestor levels
             for (level, &has_sibling) in guides_owned.iter().enumerate() {
-                if !has_sibling { continue; }
+                if !has_sibling {
+                    continue;
+                }
                 let x = level as f64 * GUIDE_W + GUIDE_W / 2.0;
                 cr.move_to(x + 0.5, 0.0);
                 cr.line_to(x + 0.5, h);
@@ -518,9 +594,9 @@ fn build_row_widget(entry: &FileEntry, root: &Path, guides: &[bool], is_last: bo
             // Vertical line: from top to mid (or full height if not last)
             cr.move_to(x + 0.5, 0.0);
             if is_last_owned {
-                cr.line_to(x + 0.5, mid_y);   // └
+                cr.line_to(x + 0.5, mid_y); // └
             } else {
-                cr.line_to(x + 0.5, h);       // ├
+                cr.line_to(x + 0.5, h); // ├
             }
             // Horizontal line: from vertical to the right edge
             cr.move_to(x + 0.5, mid_y + 0.5);
@@ -575,8 +651,8 @@ fn build_row_widget(entry: &FileEntry, root: &Path, guides: &[bool], is_last: bo
 /// Pick an appropriate symbolic icon for a file based on its extension.
 fn file_icon_name(name: &str) -> &'static str {
     match name.rsplit('.').next().unwrap_or("") {
-        "rs" | "py" | "js" | "ts" | "c" | "cpp" | "h" | "go" | "java"
-        | "rb" | "sh" | "bash" | "zsh" | "lua" | "zig" => "text-x-script-symbolic",
+        "rs" | "py" | "js" | "ts" | "c" | "cpp" | "h" | "go" | "java" | "rb" | "sh" | "bash"
+        | "zsh" | "lua" | "zig" => "text-x-script-symbolic",
         "json" | "toml" | "yaml" | "yml" | "xml" | "ini" | "conf" => "text-x-generic-symbolic",
         "md" | "txt" | "rst" | "org" => "text-x-generic-symbolic",
         "png" | "jpg" | "jpeg" | "gif" | "svg" | "webp" | "ico" => "image-x-generic-symbolic",
@@ -591,8 +667,12 @@ fn file_icon_name(name: &str) -> &'static str {
 fn has_next_sibling(entries: &[FileEntry], idx: usize) -> bool {
     let depth = entries[idx].depth;
     for e in &entries[idx + 1..] {
-        if e.depth == depth { return true; }
-        if e.depth < depth { return false; }
+        if e.depth == depth {
+            return true;
+        }
+        if e.depth < depth {
+            return false;
+        }
     }
     false
 }
@@ -698,7 +778,14 @@ fn request_tree_reload(
     let retry_expanded_dirs = expanded_dirs.clone();
 
     run_blocking(
-        move || build_tree_snapshot(&build_root, &expanded_dirs, &*backend_for_task, expand_root_dirs),
+        move || {
+            build_tree_snapshot(
+                &build_root,
+                &expanded_dirs,
+                &*backend_for_task,
+                expand_root_dirs,
+            )
+        },
         move |result| {
             if request_seq_c.get() != request_id {
                 return;
@@ -779,7 +866,15 @@ fn toggle_dir(
         ents[idx].expanded = true;
         let mut new_entries = Vec::new();
         let mut new_index = Vec::new();
-        if build_file_entries(dir_path, &mut new_entries, &mut new_index, depth + 1, backend).is_err() {
+        if build_file_entries(
+            dir_path,
+            &mut new_entries,
+            &mut new_index,
+            depth + 1,
+            backend,
+        )
+        .is_err()
+        {
             ents[idx].expanded = false;
             return;
         }
@@ -798,8 +893,7 @@ fn restore_expanded(
     expanded_dirs: &[PathBuf],
     backend: &dyn FileBackend,
 ) -> Result<(), String> {
-    let expanded_dirs: std::collections::HashSet<PathBuf> =
-        expanded_dirs.iter().cloned().collect();
+    let expanded_dirs: std::collections::HashSet<PathBuf> = expanded_dirs.iter().cloned().collect();
     let mut i = 0;
     while i < entries.len() {
         if entries[i].is_dir && !entries[i].expanded && expanded_dirs.contains(&entries[i].path) {
@@ -808,7 +902,13 @@ fn restore_expanded(
             entries[i].expanded = true;
             let mut new_entries = Vec::new();
             let mut new_index = Vec::new();
-            build_file_entries(&dir_path, &mut new_entries, &mut new_index, depth + 1, backend)?;
+            build_file_entries(
+                &dir_path,
+                &mut new_entries,
+                &mut new_index,
+                depth + 1,
+                backend,
+            )?;
             file_index.extend(new_index);
             let insert_pos = i + 1;
             for (j, entry) in new_entries.into_iter().enumerate() {
@@ -827,7 +927,13 @@ fn build_tree_snapshot(
     expand_root_dirs: bool,
 ) -> Result<TreeSnapshot, String> {
     let mut snapshot = TreeSnapshot::default();
-    build_collapsed_entries(root, &mut snapshot.entries, &mut snapshot.file_index, 0, backend)?;
+    build_collapsed_entries(
+        root,
+        &mut snapshot.entries,
+        &mut snapshot.file_index,
+        0,
+        backend,
+    )?;
 
     let mut dirs_to_expand = expanded_dirs.to_vec();
     if expand_root_dirs && !backend.is_remote() {
@@ -972,6 +1078,24 @@ fn list_directory_entries(
     Ok((dirs, files))
 }
 
+fn rename_destination_for_path(path: &Path, new_name: &str) -> Option<PathBuf> {
+    let trimmed = new_name.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    let mut components = Path::new(trimmed).components();
+    let component = components.next()?;
+    if components.next().is_some() {
+        return None;
+    }
+
+    match component {
+        std::path::Component::Normal(name) => Some(path.with_file_name(name)),
+        _ => None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -988,10 +1112,10 @@ mod tests {
 
         let snapshot = build_tree_snapshot(dir.path(), &[], &backend, true).unwrap();
 
-        assert!(snapshot
-            .entries
-            .iter()
-            .any(|entry| entry.name == "src" && entry.is_dir && entry.depth == 0 && entry.expanded));
+        assert!(snapshot.entries.iter().any(|entry| entry.name == "src"
+            && entry.is_dir
+            && entry.depth == 0
+            && entry.expanded));
         assert!(snapshot
             .entries
             .iter()
@@ -1008,7 +1132,11 @@ mod tests {
         std::fs::create_dir_all(dir.path().join("src")).unwrap();
         std::fs::create_dir_all(dir.path().join("tests")).unwrap();
         std::fs::write(dir.path().join("src/main.rs"), "fn main() {}\n").unwrap();
-        std::fs::write(dir.path().join("tests/app.rs"), "#[test]\nfn it_works() {}\n").unwrap();
+        std::fs::write(
+            dir.path().join("tests/app.rs"),
+            "#[test]\nfn it_works() {}\n",
+        )
+        .unwrap();
         let backend = LocalFileBackend::new(dir.path());
 
         let snapshot =
@@ -1030,5 +1158,29 @@ mod tests {
             .entries
             .iter()
             .any(|entry| entry.name == "main.rs" && !entry.is_dir));
+    }
+
+    #[test]
+    fn rename_destination_replaces_only_the_basename() {
+        let path = Path::new("/tmp/demo/src/main.rs");
+
+        assert_eq!(
+            rename_destination_for_path(path, "lib.rs"),
+            Some(PathBuf::from("/tmp/demo/src/lib.rs"))
+        );
+        assert_eq!(
+            rename_destination_for_path(Path::new("/tmp/demo/assets"), "static"),
+            Some(PathBuf::from("/tmp/demo/static"))
+        );
+    }
+
+    #[test]
+    fn rename_destination_rejects_empty_or_nested_names() {
+        let path = Path::new("/tmp/demo/src/main.rs");
+
+        assert_eq!(rename_destination_for_path(path, ""), None);
+        assert_eq!(rename_destination_for_path(path, "  "), None);
+        assert_eq!(rename_destination_for_path(path, "../other.rs"), None);
+        assert_eq!(rename_destination_for_path(path, "nested/other.rs"), None);
     }
 }

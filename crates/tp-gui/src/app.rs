@@ -234,13 +234,17 @@ fn setup_workspace_ui(
         let win = window_rc.clone();
         let sa = save_action.clone();
         let cb: crate::panels::chooser::OnTypeChosen = Rc::new(move |panel_id, type_id| {
-            let needs_config = type_id == "markdown" || type_id == "code_editor";
+            let needs_config =
+                type_id == "markdown" || type_id == "browser" || type_id == "code_editor";
 
             if needs_config {
                 // For panels that need a file/directory, show config FIRST
                 let default_type = match type_id {
                     "markdown" => pax_core::workspace::PanelType::Markdown {
                         file: String::new(),
+                    },
+                    "browser" => pax_core::workspace::PanelType::Browser {
+                        url: "https://example.com".to_string(),
                     },
                     "code_editor" => pax_core::workspace::PanelType::CodeEditor {
                         root_dir: String::new(),

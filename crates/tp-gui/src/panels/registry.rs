@@ -237,7 +237,7 @@ pub fn build_default_registry() -> PanelRegistry {
         },
     );
 
-    // Browser (placeholder)
+    // Browser
     reg.register(
         "browser",
         "Web Browser",
@@ -250,15 +250,8 @@ pub fn build_default_registry() -> PanelRegistry {
                 .get("url")
                 .map(|s| s.as_str())
                 .unwrap_or("about:blank");
-            let content = format!(
-                "# Browser\n\nURL: {}\n\n(WebKitGTK integration pending)",
-                url
-            );
-            let tmp = std::env::temp_dir().join(format!("pax_browser_{}.md", std::process::id()));
-            std::fs::write(&tmp, &content).ok();
-            Box::new(super::markdown::MarkdownPanel::new(
-                tmp.to_str().unwrap_or("/tmp/placeholder.md"),
-            ))
+            let workspace_dir = config.extra.get("__workspace_dir__").map(|s| s.as_str());
+            Box::new(super::browser::BrowserPanel::new(url, workspace_dir))
         },
     );
 

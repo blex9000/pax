@@ -1,3 +1,4 @@
+pub mod browser;
 pub mod chooser;
 pub mod editor;
 pub mod markdown;

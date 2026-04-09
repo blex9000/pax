@@ -28,6 +28,7 @@ sourceview5 = { version = "0.9", optional = true }
 ignore = "0.4"
 similar = "2"
 regex = { workspace = true }
+webkit6 = "0.4"
 
 [dev-dependencies]
 tempfile = "3"
