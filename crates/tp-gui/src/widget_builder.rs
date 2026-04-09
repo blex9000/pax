@@ -49,6 +49,7 @@ pub fn build_tab_label(
     let tab_panel_id = find_first_panel_id(child_widget);
     let tab_path_key = encode_tab_path(tab_path);
     let is_layout = panel_type_id == "__layout__";
+    hbox.set_widget_name(&encode_tab_label_metadata(&tab_path_key, is_layout));
     let active_edit = edit_state
         .filter(|state| state.tab_path == tab_path_key)
         .cloned();
@@ -117,51 +118,6 @@ pub fn build_tab_label(
             move_right_btn.set_sensitive(position + 1 < notebook.n_pages());
         }
     });
-
-    {
-        let cb = action_cb.clone();
-        let panel_id = tab_panel_id.clone();
-        let initial_name = name.to_string();
-        let tab_path_key = tab_path_key.clone();
-        let edit_stack = stack.clone();
-        let entry = entry.clone();
-        let update_move_buttons = update_move_buttons.clone();
-        let suppress_entry_changed = suppress_entry_changed.clone();
-        let gesture = gtk4::GestureClick::new();
-        gesture.set_button(1);
-        gesture.set_propagation_phase(gtk4::PropagationPhase::Bubble);
-        gesture.connect_released(move |g, n_press, _, _| {
-            if n_press == 2 {
-                let entry = entry.clone();
-                let edit_stack = edit_stack.clone();
-                let update_move_buttons = update_move_buttons.clone();
-                let suppress_entry_changed = suppress_entry_changed.clone();
-                let initial_name_for_ui = initial_name.clone();
-                gtk4::glib::idle_add_local_once(move || {
-                    suppress_entry_changed.set(true);
-                    entry.set_text(&initial_name_for_ui);
-                    suppress_entry_changed.set(false);
-                    edit_stack.set_visible_child_name("edit");
-                    update_move_buttons();
-                    entry.grab_focus();
-                    entry.set_position(-1);
-                });
-                if let (Some(ref cb), Some(panel_id)) = (&cb, panel_id.as_ref()) {
-                    cb(
-                        &format!("nb:{}", panel_id),
-                        PanelAction::BeginTabEdit {
-                            tab_path: tab_path_key.clone(),
-                            panel_id: panel_id.clone(),
-                            name: initial_name.clone(),
-                            is_layout,
-                        },
-                    );
-                }
-                g.set_state(gtk4::EventSequenceState::Claimed);
-            }
-        });
-        stack.add_controller(gesture);
-    }
 
     {
         let cb = action_cb.clone();
@@ -443,7 +399,7 @@ fn setup_notebook_menu_widget(notebook: &gtk4::Notebook, action_cb: Option<Panel
     add_btn.set_tooltip_text(Some("Add tab"));
     {
         let nb = notebook.clone();
-        let cb = action_cb;
+        let cb = action_cb.clone();
         add_btn.connect_clicked(move |_| {
             if let Some(ref cb) = cb {
                 if let Some(page) = nb.nth_page(nb.current_page()) {
@@ -456,6 +412,196 @@ fn setup_notebook_menu_widget(notebook: &gtk4::Notebook, action_cb: Option<Panel
         });
     }
     notebook.set_action_widget(&add_btn, gtk4::PackType::End);
+
+    if notebook.has_css_class("pax-tab-edit-gesture") {
+        return;
+    }
+    notebook.add_css_class("pax-tab-edit-gesture");
+
+    let nb = notebook.clone();
+    let cb = action_cb;
+    let gesture = gtk4::GestureClick::new();
+    gesture.set_button(1);
+    gesture.set_propagation_phase(gtk4::PropagationPhase::Bubble);
+    gesture.connect_released(move |g, n_press, x, y| {
+        if n_press != 2 {
+            return;
+        }
+        let Some(picked) = nb.pick(x, y, gtk4::PickFlags::DEFAULT) else {
+            return;
+        };
+        for i in 0..nb.n_pages() {
+            let Some(page_widget) = nb.nth_page(Some(i)) else {
+                continue;
+            };
+            let Some(tab_label) = nb.tab_label(&page_widget) else {
+                continue;
+            };
+            if !widget_is_same_or_descendant(&picked, &tab_label) {
+                continue;
+            }
+            let Some((tab_path, is_layout)) = decode_tab_label_metadata(&tab_label.widget_name())
+            else {
+                continue;
+            };
+            let panel_id = find_first_panel_id(&page_widget).unwrap_or_default();
+            let draft_name =
+                find_tab_label_text(&tab_label).unwrap_or_else(|| format!("Tab {}", i + 1));
+            activate_tab_label_editor(&tab_label, &page_widget, &draft_name);
+            if let Some(ref cb) = cb {
+                cb(
+                    &format!("nb:{}", panel_id),
+                    PanelAction::BeginTabEdit {
+                        tab_path: encode_tab_path(&tab_path),
+                        panel_id,
+                        name: draft_name,
+                        is_layout,
+                    },
+                );
+            }
+            g.set_state(gtk4::EventSequenceState::Claimed);
+            break;
+        }
+    });
+    notebook.add_controller(gesture);
+}
+
+fn encode_tab_label_metadata(tab_path: &str, is_layout: bool) -> String {
+    format!(
+        "pax-tab:{}:{}",
+        if is_layout { "layout" } else { "panel" },
+        tab_path
+    )
+}
+
+fn decode_tab_label_metadata(widget_name: &str) -> Option<(Vec<usize>, bool)> {
+    let rest = widget_name.strip_prefix("pax-tab:")?;
+    let (kind, path) = rest.split_once(':')?;
+    let is_layout = match kind {
+        "layout" => true,
+        "panel" => false,
+        _ => return None,
+    };
+    let tab_path = if path.is_empty() {
+        Vec::new()
+    } else {
+        path.split('.')
+            .map(|part| part.parse::<usize>().ok())
+            .collect::<Option<Vec<_>>>()?
+    };
+    Some((tab_path, is_layout))
+}
+
+fn activate_tab_label_editor(
+    tab_label: &gtk4::Widget,
+    page_widget: &gtk4::Widget,
+    draft_name: &str,
+) {
+    let Some(stack) = find_descendant_stack(tab_label) else {
+        return;
+    };
+    let Some(entry) = find_descendant_entry(tab_label) else {
+        return;
+    };
+    if entry.text().as_str() != draft_name {
+        entry.set_text(draft_name);
+    }
+    update_tab_move_buttons(tab_label, page_widget);
+    stack.set_visible_child_name("edit");
+    gtk4::glib::idle_add_local_once(move || {
+        entry.grab_focus();
+        entry.set_position(-1);
+    });
+}
+
+fn update_tab_move_buttons(tab_label: &gtk4::Widget, page_widget: &gtk4::Widget) {
+    let Some(notebook) = find_notebook_ancestor(page_widget) else {
+        return;
+    };
+    let Some(position) = notebook.page_num(page_widget) else {
+        return;
+    };
+    let buttons = collect_descendant_buttons(tab_label);
+    if let Some(button) = buttons.first() {
+        button.set_sensitive(position > 0);
+    }
+    if let Some(button) = buttons.get(1) {
+        button.set_sensitive(position + 1 < notebook.n_pages());
+    }
+}
+
+fn find_tab_label_text(widget: &gtk4::Widget) -> Option<String> {
+    find_descendant_label(widget).map(|label| label.text().to_string())
+}
+
+fn find_descendant_stack(widget: &gtk4::Widget) -> Option<gtk4::Stack> {
+    if let Ok(stack) = widget.clone().downcast::<gtk4::Stack>() {
+        return Some(stack);
+    }
+    let mut child = widget.first_child();
+    while let Some(c) = child {
+        if let Some(stack) = find_descendant_stack(&c) {
+            return Some(stack);
+        }
+        child = c.next_sibling();
+    }
+    None
+}
+
+fn find_descendant_entry(widget: &gtk4::Widget) -> Option<gtk4::Entry> {
+    if let Ok(entry) = widget.clone().downcast::<gtk4::Entry>() {
+        return Some(entry);
+    }
+    let mut child = widget.first_child();
+    while let Some(c) = child {
+        if let Some(entry) = find_descendant_entry(&c) {
+            return Some(entry);
+        }
+        child = c.next_sibling();
+    }
+    None
+}
+
+fn find_descendant_label(widget: &gtk4::Widget) -> Option<gtk4::Label> {
+    if let Ok(label) = widget.clone().downcast::<gtk4::Label>() {
+        return Some(label);
+    }
+    let mut child = widget.first_child();
+    while let Some(c) = child {
+        if let Some(label) = find_descendant_label(&c) {
+            return Some(label);
+        }
+        child = c.next_sibling();
+    }
+    None
+}
+
+fn collect_descendant_buttons(widget: &gtk4::Widget) -> Vec<gtk4::Button> {
+    let mut buttons = Vec::new();
+    collect_descendant_buttons_inner(widget, &mut buttons);
+    buttons
+}
+
+fn collect_descendant_buttons_inner(widget: &gtk4::Widget, out: &mut Vec<gtk4::Button>) {
+    if let Ok(button) = widget.clone().downcast::<gtk4::Button>() {
+        out.push(button);
+    }
+    let mut child = widget.first_child();
+    while let Some(c) = child {
+        collect_descendant_buttons_inner(&c, out);
+        child = c.next_sibling();
+    }
+}
+
+fn widget_is_same_or_descendant(widget: &gtk4::Widget, ancestor: &gtk4::Widget) -> bool {
+    let mut current = Some(widget.clone());
+    while let Some(w) = current {
+        if w == *ancestor {
+            return true;
+        }
+        current = w.parent();
+    }
+    false
 }
 
 /// Find the first panel ID inside a widget tree.
