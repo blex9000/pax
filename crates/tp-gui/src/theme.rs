@@ -41,11 +41,24 @@ where
 /// Mark transient app windows/dialogs so the theme can target their surfaces.
 pub fn configure_dialog_window<W>(window: &W)
 where
-    W: IsA<gtk4::Widget>,
+    W: IsA<gtk4::Window> + IsA<gtk4::Widget>,
 {
     use gtk4::prelude::*;
 
     window.add_css_class("app-dialog");
+
+    let header = libadwaita::HeaderBar::new();
+    header.add_css_class("app-headerbar");
+    header.set_show_end_title_buttons(true);
+    header.set_show_start_title_buttons(true);
+
+    if let Some(title) = window.title() {
+        let title_label = gtk4::Label::new(Some(&title));
+        title_label.add_css_class("heading");
+        header.set_title_widget(Some(&title_label));
+    }
+
+    window.set_titlebar(Some(&header));
 }
 
 /// Register a VTE terminal for theme updates.
