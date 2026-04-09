@@ -388,7 +388,7 @@ popover.app-popover > contents {
   padding: 4px;
 }
 popover.app-popover > arrow {
-  background-color: transparent;
+  background-color: @popover_bg_color;
   color: @popover_bg_color;
 }
 popover.app-popover menu,
@@ -557,6 +557,11 @@ window.app-dialog dropdown.settings-theme-dropdown > popover.menu viewport,
   background-image: none;
   border: none;
   box-shadow: none;
+}
+window.app-dialog dropdown.settings-theme-dropdown > popover.menu > arrow,
+.editor-sidebar-pane dropdown > popover.menu > arrow {
+  background-color: @popover_bg_color;
+  color: @popover_bg_color;
 }
 window.app-dialog dropdown.settings-theme-dropdown > popover.menu listview,
 window.app-dialog dropdown.settings-theme-dropdown > popover.menu row,
@@ -781,6 +786,7 @@ mod tests {
             BASE_CSS.contains("window.app-dialog dropdown.settings-theme-dropdown > popover.menu")
         );
         assert!(BASE_CSS.contains(".editor-sidebar-pane dropdown > popover.menu > contents"));
+        assert!(BASE_CSS.contains("> popover.menu > arrow"));
         assert!(BASE_CSS.contains("popover.menu scrolledwindow,"));
         assert!(BASE_CSS.contains("background-color: transparent;"));
     }
