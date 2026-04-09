@@ -404,12 +404,20 @@ paned > separator { min-width: 1px; min-height: 1px; }
 entry,
 spinbutton,
 textview,
-text,
 dropdown > button,
 combobox > box > button {
   background-color: @view_bg_color;
   color: @view_fg_color;
   border-color: alpha(@borders, 0.8);
+  background-image: none;
+  box-shadow: none;
+}
+entry text,
+spinbutton text,
+textview text {
+  background-color: transparent;
+  color: @view_fg_color;
+  border: none;
   box-shadow: none;
 }
 entry image,
@@ -423,7 +431,6 @@ combobox > box > button image {
 entry:focus,
 spinbutton:focus-within,
 textview:focus,
-text:focus,
 dropdown > button:focus,
 combobox > box > button:focus {
   border-color: @accent_color;
@@ -630,5 +637,13 @@ mod tests {
         assert!(BASE_CSS.contains("entry selection,"));
         assert!(BASE_CSS.contains("background-color: @accent_bg_color;"));
         assert!(!BASE_CSS.contains("alpha(@accent_bg_color, 0.32)"));
+    }
+
+    #[test]
+    fn form_controls_only_draw_borders_on_outer_widget() {
+        assert!(BASE_CSS.contains("entry text,"));
+        assert!(BASE_CSS.contains("background-color: transparent;"));
+        assert!(BASE_CSS.contains("border: none;"));
+        assert!(!BASE_CSS.contains("text,\ndropdown > button"));
     }
 }
