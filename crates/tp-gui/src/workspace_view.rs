@@ -420,7 +420,6 @@ impl WorkspaceView {
             pending_offset: 0,
             suppress_commit_once: false,
         });
-        self.refresh_tab_labels();
         true
     }
 
@@ -565,7 +564,7 @@ impl WorkspaceView {
         })
     }
 
-    fn refresh_tab_labels(&self) {
+    pub fn refresh_tab_labels(&self) {
         let Some(ref cb) = self.action_cb else {
             return;
         };

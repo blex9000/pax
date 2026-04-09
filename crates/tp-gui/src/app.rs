@@ -353,9 +353,15 @@ fn setup_workspace_ui(
                                     .filter(|part| !part.is_empty())
                                     .filter_map(|part| part.parse::<usize>().ok())
                                     .collect::<Vec<_>>();
-                                ws_for_cb
+                                if ws_for_cb
                                     .borrow_mut()
-                                    .begin_tab_edit(&panel_id, tab_path, name, is_layout);
+                                    .begin_tab_edit(&panel_id, tab_path, name, is_layout)
+                                {
+                                    let ws_for_idle = ws_for_cb.clone();
+                                    glib::idle_add_local_once(move || {
+                                        ws_for_idle.borrow().refresh_tab_labels();
+                                    });
+                                }
                             }
                             PanelAction::UpdateTabDraft(name) => {
                                 ws_for_cb.borrow_mut().update_tab_edit_draft(real_id, name);
