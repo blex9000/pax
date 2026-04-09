@@ -110,18 +110,13 @@ fn build_embedded_browser_panel(
     let web_view = webkit6::WebView::new();
     web_view.set_hexpand(true);
     web_view.set_vexpand(true);
-
-    let scrolled = gtk4::ScrolledWindow::new();
-    scrolled.set_child(Some(&web_view));
-    scrolled.set_hexpand(true);
-    scrolled.set_vexpand(true);
-    container.append(&scrolled);
+    container.append(&web_view);
     container.append(&status_label);
 
     let is_loading = Rc::new(Cell::new(false));
 
     address_entry.set_text(initial_uri);
-    web_view.load_uri(initial_uri);
+    load_linux_browser_uri(&web_view, initial_uri, &status_label);
     *current_uri.borrow_mut() = Some(initial_uri.to_string());
 
     {
@@ -136,7 +131,7 @@ fn build_embedded_browser_panel(
             };
             status_label.set_text("");
             entry.set_text(&uri);
-            web_view.load_uri(&uri);
+            load_linux_browser_uri(&web_view, &uri, &status_label);
         });
     }
 
@@ -241,6 +236,20 @@ fn build_embedded_browser_panel(
         container.upcast::<gtk4::Widget>(),
         web_view.upcast::<gtk4::Widget>(),
     )
+}
+
+#[cfg(target_os = "linux")]
+fn load_linux_browser_uri(web_view: &webkit6::WebView, uri: &str, status_label: &gtk4::Label) {
+    if uri == "about:blank" {
+        web_view.load_html(
+            &browser_placeholder_html(),
+            Some("https://pax.local/browser"),
+        );
+        status_label.set_text("Browser panel ready");
+        return;
+    }
+
+    web_view.load_uri(uri);
 }
 
 #[cfg(target_os = "macos")]
@@ -938,6 +947,64 @@ fn normalized_browser_uri(input: &str, workspace_dir: Option<&str>) -> Option<St
     Some(format!("https://{}", trimmed))
 }
 
+fn browser_placeholder_html() -> String {
+    r#"<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="color-scheme" content="dark light">
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #2e3440;
+      --card: #3b4252;
+      --fg: #eceff4;
+      --muted: #d8dee9;
+      --accent: #88c0d0;
+      font-family: Inter, system-ui, sans-serif;
+    }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: grid;
+      place-items: center;
+      background: var(--bg);
+      color: var(--fg);
+    }
+    .card {
+      max-width: 38rem;
+      margin: 2rem;
+      padding: 1.5rem 1.75rem;
+      border-radius: 14px;
+      background: var(--card);
+      box-shadow: 0 18px 48px rgba(0, 0, 0, 0.2);
+    }
+    h1 {
+      margin: 0 0 0.5rem;
+      font-size: 1.35rem;
+    }
+    p {
+      margin: 0.5rem 0;
+      color: var(--muted);
+      line-height: 1.5;
+    }
+    code {
+      color: var(--accent);
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    }
+  </style>
+</head>
+<body>
+  <section class="card">
+    <h1>Browser panel ready</h1>
+    <p>Insert a URL like <code>https://example.com</code> or a local target such as <code>localhost:3000</code>.</p>
+    <p>Relative HTML files inside the workspace are supported too.</p>
+  </section>
+</body>
+</html>"#
+        .to_string()
+}
+
 fn has_uri_scheme(value: &str) -> bool {
     value.starts_with("about:")
         || value.starts_with("data:")
@@ -990,7 +1057,7 @@ fn expand_home_path(value: &str) -> Option<PathBuf> {
 
 #[cfg(test)]
 mod tests {
-    use super::{normalized_browser_uri, BrowserHistory};
+    use super::{browser_placeholder_html, normalized_browser_uri, BrowserHistory};
     use tempfile::tempdir;
 
     #[test]
@@ -1052,5 +1119,12 @@ mod tests {
 
         assert!(uri.starts_with("file://"));
         assert!(uri.contains("preview.html"));
+    }
+
+    #[test]
+    fn browser_placeholder_is_visibly_branded() {
+        let html = browser_placeholder_html();
+        assert!(html.contains("Browser panel ready"));
+        assert!(html.contains("localhost:3000"));
     }
 }

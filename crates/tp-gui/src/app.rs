@@ -1033,20 +1033,9 @@ thread_local! {
 }
 
 fn load_css() {
-    // Try to restore theme from last used workspace
-    let theme = load_last_theme().unwrap_or_default();
-    apply_theme(theme);
-}
-
-/// Load the theme from the most recently opened workspace.
-fn load_last_theme() -> Option<Theme> {
-    let db_path = pax_db::Database::default_path();
-    let db = pax_db::Database::open(&db_path).ok()?;
-    let workspaces = db.list_workspaces_limit(1).ok()?;
-    let record = workspaces.first()?;
-    let path = record.config_path.as_ref()?;
-    let ws = pax_core::config::load_workspace(std::path::Path::new(path)).ok()?;
-    Some(Theme::from_id(&ws.settings.theme))
+    // Startup chrome should be deterministic. The welcome page always starts
+    // from the app default theme; opening a workspace then applies its own theme.
+    apply_theme(Theme::default());
 }
 
 fn apply_theme(theme: Theme) {
@@ -1083,6 +1072,16 @@ fn apply_theme(theme: Theme) {
 
     for widget in gtk4::Window::list_toplevels() {
         widget.queue_draw();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Theme;
+
+    #[test]
+    fn startup_theme_uses_default_theme() {
+        assert_eq!(Theme::default(), Theme::Nord);
     }
 }
 
