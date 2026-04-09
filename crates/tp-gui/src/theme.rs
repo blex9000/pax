@@ -432,7 +432,7 @@ combobox > box > button:focus {
 entry selection,
 text selection,
 textview text selection {
-  background-color: alpha(@accent_bg_color, 0.32);
+  background-color: @accent_bg_color;
   color: @accent_fg_color;
 }
 button.git-has-changes, togglebutton.git-has-changes { color: #ff8c00; }
@@ -623,5 +623,12 @@ mod tests {
         assert!(BASE_CSS.contains("window.app-dialog,"));
         assert!(BASE_CSS.contains("background-color: @headerbar_bg_color;"));
         assert!(BASE_CSS.contains("color: @headerbar_fg_color;"));
+    }
+
+    #[test]
+    fn text_selection_uses_full_accent_surface_for_contrast() {
+        assert!(BASE_CSS.contains("entry selection,"));
+        assert!(BASE_CSS.contains("background-color: @accent_bg_color;"));
+        assert!(!BASE_CSS.contains("alpha(@accent_bg_color, 0.32)"));
     }
 }
