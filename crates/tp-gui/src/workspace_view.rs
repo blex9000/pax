@@ -564,6 +564,19 @@ impl WorkspaceView {
         })
     }
 
+    pub fn active_tab_edit_snapshot(
+        &self,
+    ) -> Option<(gtk4::Widget, Workspace, Vec<usize>, String)> {
+        self.tab_edit.as_ref().map(|state| {
+            (
+                self.root_widget.clone(),
+                self.workspace.clone(),
+                state.tab_path.clone(),
+                state.draft_name.clone(),
+            )
+        })
+    }
+
     pub fn refresh_tab_labels(&self) {
         let Some(ref cb) = self.action_cb else {
             return;
