@@ -161,7 +161,8 @@ impl FileTree {
                 let clicked_idx = clicked_row.as_ref().map(|row| row.index() as usize);
                 let selected_idx = lb.selected_row().map(|row| row.index() as usize);
                 let ents = entries_c.borrow();
-                let selected_entry = resolve_tree_selection(&root, &ents, clicked_idx, selected_idx);
+                let selected_entry =
+                    resolve_tree_selection(&root, &ents, clicked_idx, selected_idx);
                 let selected_path = selected_entry
                     .as_ref()
                     .map(|entry| entry.path.clone())
@@ -176,6 +177,8 @@ impl FileTree {
                     .as_ref()
                     .map(|entry| entry.is_dir)
                     .unwrap_or(true);
+                let parent_window =
+                    find_transient_parent_window(lb.upcast_ref::<gtk4::Widget>());
                 let refresh_tree: Rc<dyn Fn()> = {
                     let root = root.clone();
                     let backend = backend.clone();
@@ -228,30 +231,35 @@ impl FileTree {
                     let be = backend.clone();
                     let refresh_tree = refresh_tree.clone();
                     let on_open = on_open.clone();
+                    let parent_window = parent_window.clone();
                     create_file_btn.connect_clicked(move |btn| {
                         if let Some(pop) = btn.ancestor(gtk4::Popover::static_type()) {
                             pop.downcast_ref::<gtk4::Popover>().unwrap().popdown();
                         }
+                        let parent_window = parent_window.clone();
                         let target_dir = target_dir.clone();
                         let be = be.clone();
                         let refresh_tree = refresh_tree.clone();
                         let on_open = on_open.clone();
-                        show_name_input_dialog(
-                            btn.upcast_ref::<gtk4::Widget>(),
-                            "New File",
-                            "Create File",
-                            "",
-                            Rc::new(move |name| {
-                                let Some(dest) = creation_destination_for_dir(&target_dir, &name)
-                                else {
-                                    return;
-                                };
-                                if be.write_file(&dest, "").is_ok() {
-                                    refresh_tree();
-                                    on_open(&dest);
-                                }
-                            }),
-                        );
+                        glib::idle_add_local_once(move || {
+                            show_name_input_dialog(
+                                parent_window.as_ref(),
+                                "New File",
+                                "Create File",
+                                "",
+                                Rc::new(move |name| {
+                                    let Some(dest) =
+                                        creation_destination_for_dir(&target_dir, &name)
+                                    else {
+                                        return;
+                                    };
+                                    if be.write_file(&dest, "").is_ok() {
+                                        refresh_tree();
+                                        on_open(&dest);
+                                    }
+                                }),
+                            );
+                        });
                     });
                 }
                 menu_box.append(&create_file_btn);
@@ -261,28 +269,33 @@ impl FileTree {
                     let target_dir = target_dir.clone();
                     let be = backend.clone();
                     let refresh_tree = refresh_tree.clone();
+                    let parent_window = parent_window.clone();
                     create_folder_btn.connect_clicked(move |btn| {
                         if let Some(pop) = btn.ancestor(gtk4::Popover::static_type()) {
                             pop.downcast_ref::<gtk4::Popover>().unwrap().popdown();
                         }
+                        let parent_window = parent_window.clone();
                         let target_dir = target_dir.clone();
                         let be = be.clone();
                         let refresh_tree = refresh_tree.clone();
-                        show_name_input_dialog(
-                            btn.upcast_ref::<gtk4::Widget>(),
-                            "New Folder",
-                            "Create Folder",
-                            "",
-                            Rc::new(move |name| {
-                                let Some(dest) = creation_destination_for_dir(&target_dir, &name)
-                                else {
-                                    return;
-                                };
-                                if be.create_dir(&dest).is_ok() {
-                                    refresh_tree();
-                                }
-                            }),
-                        );
+                        glib::idle_add_local_once(move || {
+                            show_name_input_dialog(
+                                parent_window.as_ref(),
+                                "New Folder",
+                                "Create Folder",
+                                "",
+                                Rc::new(move |name| {
+                                    let Some(dest) =
+                                        creation_destination_for_dir(&target_dir, &name)
+                                    else {
+                                        return;
+                                    };
+                                    if be.create_dir(&dest).is_ok() {
+                                        refresh_tree();
+                                    }
+                                }),
+                            );
+                        });
                     });
                 }
                 menu_box.append(&create_folder_btn);
@@ -338,10 +351,12 @@ impl FileTree {
                         let p = path.clone();
                         let be = backend.clone();
                         let refresh_tree = refresh_tree.clone();
+                        let parent_window = parent_window.clone();
                         rename_btn.connect_clicked(move |btn| {
                             if let Some(pop) = btn.ancestor(gtk4::Popover::static_type()) {
                                 pop.downcast_ref::<gtk4::Popover>().unwrap().popdown();
                             }
+                            let parent_window = parent_window.clone();
                             let current_name = p
                                 .file_name()
                                 .unwrap_or_default()
@@ -351,23 +366,30 @@ impl FileTree {
                             let p = p.clone();
                             let be = be.clone();
                             let refresh_tree = refresh_tree.clone();
-                            show_name_input_dialog(
-                                btn.upcast_ref::<gtk4::Widget>(),
-                                "Rename",
-                                if is_dir { "Rename Folder" } else { "Rename File" },
-                                &initial_name,
-                                Rc::new(move |new_name| {
-                                    if new_name == current_name {
-                                        return;
-                                    }
-                                    if let Some(dest) = rename_destination_for_path(&p, &new_name)
-                                    {
-                                        if be.rename_file(&p, &dest).is_ok() {
-                                            refresh_tree();
+                            glib::idle_add_local_once(move || {
+                                show_name_input_dialog(
+                                    parent_window.as_ref(),
+                                    "Rename",
+                                    if is_dir {
+                                        "Rename Folder"
+                                    } else {
+                                        "Rename File"
+                                    },
+                                    &initial_name,
+                                    Rc::new(move |new_name| {
+                                        if new_name == current_name {
+                                            return;
                                         }
-                                    }
-                                }),
-                            );
+                                        if let Some(dest) =
+                                            rename_destination_for_path(&p, &new_name)
+                                        {
+                                            if be.rename_file(&p, &dest).is_ok() {
+                                                refresh_tree();
+                                            }
+                                        }
+                                    }),
+                                );
+                            });
                         });
                     }
                     menu_box.append(&rename_btn);
@@ -438,6 +460,11 @@ impl FileTree {
                 crate::theme::configure_popover(&popover);
                 popover.set_child(Some(&menu_box));
                 popover.set_parent(lb);
+                popover.connect_closed(|popover| {
+                    if popover.parent().is_some() {
+                        popover.unparent();
+                    }
+                });
                 popover.set_pointing_to(Some(&gtk4::gdk::Rectangle::new(
                     x as i32, y as i32, 1, 1,
                 )));
@@ -1194,8 +1221,12 @@ fn creation_target_dir(
     }
 }
 
+fn find_transient_parent_window(anchor: &impl IsA<gtk4::Widget>) -> Option<gtk4::Window> {
+    anchor.root().and_then(|root| root.downcast::<gtk4::Window>().ok())
+}
+
 fn show_name_input_dialog(
-    anchor: &impl IsA<gtk4::Widget>,
+    transient_parent: Option<&gtk4::Window>,
     title: &str,
     button_label: &str,
     initial_value: &str,
@@ -1207,8 +1238,8 @@ fn show_name_input_dialog(
         .default_width(360)
         .default_height(110)
         .build();
-    if let Some(win) = anchor.root().and_then(|r| r.downcast::<gtk4::Window>().ok()) {
-        dialog.set_transient_for(Some(&win));
+    if let Some(win) = transient_parent {
+        dialog.set_transient_for(Some(win));
     }
     dialog.set_destroy_with_parent(true);
     crate::theme::configure_dialog_window(&dialog);
@@ -1419,5 +1450,22 @@ mod tests {
             creation_destination_for_dir(dir, "new.rs"),
             Some(PathBuf::from("/tmp/demo/src/new.rs"))
         );
+    }
+
+    #[test]
+    fn find_transient_parent_window_uses_widget_root_window() {
+        if gtk4::init().is_err() {
+            return;
+        }
+
+        let window = gtk4::Window::new();
+        let container = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
+        let button = gtk4::Button::with_label("Create");
+        container.append(&button);
+        window.set_child(Some(&container));
+
+        let resolved = find_transient_parent_window(&button).expect("parent window");
+
+        assert_eq!(resolved, window);
     }
 }
