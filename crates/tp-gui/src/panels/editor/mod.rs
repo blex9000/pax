@@ -1,29 +1,29 @@
 #[cfg(feature = "sourceview")]
 mod editor_tabs;
 // Submodules for future tasks (stubs for now)
+pub mod file_backend;
 #[cfg(feature = "sourceview")]
 pub mod file_tree;
-#[cfg(feature = "sourceview")]
-pub mod git_status;
 #[cfg(feature = "sourceview")]
 pub mod file_watcher;
 #[cfg(feature = "sourceview")]
 pub mod fuzzy_finder;
 #[cfg(feature = "sourceview")]
-pub mod project_search;
-#[cfg(feature = "sourceview")]
 pub mod git_log;
 #[cfg(feature = "sourceview")]
+pub mod git_status;
+#[cfg(feature = "sourceview")]
+pub mod project_search;
+#[cfg(feature = "sourceview")]
 pub mod task;
-pub mod file_backend;
 
 use std::cell::RefCell;
 use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::Arc;
 
-use gtk4::prelude::*;
 use super::PanelBackend;
+use gtk4::prelude::*;
 
 /// A position in a file (for navigation history).
 #[cfg(feature = "sourceview")]
@@ -36,7 +36,9 @@ pub struct FilePosition {
 /// State shared across all editor sub-components.
 impl std::fmt::Debug for EditorState {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("EditorState").field("root_dir", &self.root_dir).finish()
+        f.debug_struct("EditorState")
+            .field("root_dir", &self.root_dir)
+            .finish()
     }
 }
 pub struct EditorState {
@@ -94,16 +96,25 @@ impl CodeEditorPanel {
     /// Create a code editor for a remote project via SSH.
     /// Uses SshFileBackend (direct SSH commands with ControlMaster) — no SSHFS.
     pub fn new_remote(
-        host: &str, port: u16, user: &str,
-        password: Option<&str>, identity_file: Option<&str>,
+        host: &str,
+        port: u16,
+        user: &str,
+        password: Option<&str>,
+        identity_file: Option<&str>,
         remote_path: &str,
     ) -> Self {
         let ssh_label = format!("{}@{}", user, host);
 
         // Create SSH backend — ControlMaster connection established in constructor
-        let backend: Arc<dyn file_backend::FileBackend> = Arc::new(
-            file_backend::SshFileBackend::new(remote_path, host, port, user, password, identity_file)
-        );
+        let backend: Arc<dyn file_backend::FileBackend> =
+            Arc::new(file_backend::SshFileBackend::new(
+                remote_path,
+                host,
+                port,
+                user,
+                password,
+                identity_file,
+            ));
 
         let mut panel = Self::new_with_backend(remote_path, backend);
         panel.ssh_info = Some(ssh_label);
@@ -111,7 +122,9 @@ impl CodeEditorPanel {
     }
 
     pub fn new(root_dir: &str) -> Self {
-        let backend = Arc::new(file_backend::LocalFileBackend::new(&PathBuf::from(root_dir)));
+        let backend = Arc::new(file_backend::LocalFileBackend::new(&PathBuf::from(
+            root_dir,
+        )));
         let mut panel = Self::new_with_backend(root_dir, backend);
         panel.ssh_info = None;
         panel
@@ -149,6 +162,7 @@ impl CodeEditorPanel {
 
         // Activity bar: Files / Git toggle
         let activity_bar = gtk4::Box::new(gtk4::Orientation::Horizontal, 2);
+        activity_bar.add_css_class("chrome-surface");
         activity_bar.set_margin_start(4);
         activity_bar.set_margin_end(4);
         activity_bar.set_margin_top(2);
@@ -307,10 +321,17 @@ impl CodeEditorPanel {
                     let st = state_c.borrow();
                     if let Some(idx) = st.active_tab {
                         if let Some(open_file) = st.open_files.get(idx) {
-                            if let Some(iter) = open_file.buffer.iter_at_line((line_num as i32) - 1) {
+                            if let Some(iter) = open_file.buffer.iter_at_line((line_num as i32) - 1)
+                            {
                                 open_file.buffer.place_cursor(&iter);
                                 drop(st);
-                                tabs_c.source_view.scroll_to_iter(&mut iter.clone(), 0.1, false, 0.0, 0.0);
+                                tabs_c.source_view.scroll_to_iter(
+                                    &mut iter.clone(),
+                                    0.1,
+                                    false,
+                                    0.0,
+                                    0.0,
+                                );
 
                                 // Activate search highlight for the query in the opened file
                                 if !query.is_empty() {
@@ -340,13 +361,17 @@ impl CodeEditorPanel {
         {
             let stack = sidebar_stack.clone();
             files_btn.connect_toggled(move |btn| {
-                if btn.is_active() { stack.set_visible_child_name("files"); }
+                if btn.is_active() {
+                    stack.set_visible_child_name("files");
+                }
             });
         }
         {
             let stack = sidebar_stack.clone();
             git_btn.connect_toggled(move |btn| {
-                if btn.is_active() { stack.set_visible_child_name("git"); }
+                if btn.is_active() {
+                    stack.set_visible_child_name("git");
+                }
             });
         }
         {
@@ -377,7 +402,9 @@ impl CodeEditorPanel {
             Rc::new({
                 let state_c = state.clone();
                 let tabs_c = tabs_rc.clone();
-                move |path| { tabs_c.open_file(path, &state_c); }
+                move |path| {
+                    tabs_c.open_file(path, &state_c);
+                }
             }),
         );
 
@@ -488,7 +515,9 @@ impl CodeEditorPanel {
                             sidebar_open_btn_ref.set_visible(!st.sidebar_visible);
                             return gtk4::glib::Propagation::Stop;
                         }
-                        gtk4::gdk::Key::f if modifier.contains(gtk4::gdk::ModifierType::SHIFT_MASK) => {
+                        gtk4::gdk::Key::f
+                            if modifier.contains(gtk4::gdk::ModifierType::SHIFT_MASK) =>
+                        {
                             // Ctrl+Shift+F → search in project files
                             search_btn_ref.set_active(true);
                             return gtk4::glib::Propagation::Stop;
@@ -505,7 +534,9 @@ impl CodeEditorPanel {
                             fuzzy_finder_ref.show();
                             return gtk4::glib::Propagation::Stop;
                         }
-                        gtk4::gdk::Key::g if modifier.contains(gtk4::gdk::ModifierType::SHIFT_MASK) => {
+                        gtk4::gdk::Key::g
+                            if modifier.contains(gtk4::gdk::ModifierType::SHIFT_MASK) =>
+                        {
                             git_btn_ref.set_active(true);
                             return gtk4::glib::Propagation::Stop;
                         }
@@ -591,7 +622,11 @@ impl CodeEditorPanel {
             );
         }
 
-        Self { widget, state, ssh_info: None }
+        Self {
+            widget,
+            state,
+            ssh_info: None,
+        }
     }
 }
 
@@ -604,29 +639,45 @@ fn push_nav_position(state: &Rc<RefCell<EditorState>>) {
             if let Some(f) = st.open_files.get(idx) {
                 let buf = &f.buffer;
                 let iter = buf.iter_at_mark(&buf.get_insert());
-                Some(FilePosition { path: f.path.clone(), line: iter.line() })
-            } else { None }
-        } else { None }
+                Some(FilePosition {
+                    path: f.path.clone(),
+                    line: iter.line(),
+                })
+            } else {
+                None
+            }
+        } else {
+            None
+        }
     };
     if let Some(pos) = pos {
         let mut st = state.borrow_mut();
         st.nav_back.push(pos);
         st.nav_forward.clear(); // new action clears forward stack
-        if st.nav_back.len() > 50 { st.nav_back.remove(0); }
+        if st.nav_back.len() > 50 {
+            st.nav_back.remove(0);
+        }
     }
 }
 
 /// Navigate back or forward in file history.
 /// Two-stack approach: back stack and forward stack, like a browser.
 #[cfg(feature = "sourceview")]
-fn navigate_history(state: &Rc<RefCell<EditorState>>, tabs: &Rc<editor_tabs::EditorTabs>, forward: bool) {
+fn navigate_history(
+    state: &Rc<RefCell<EditorState>>,
+    tabs: &Rc<editor_tabs::EditorTabs>,
+    forward: bool,
+) {
     // Get current position to save on the opposite stack
     let current_pos = {
         let st = state.borrow();
         st.active_tab.and_then(|idx| {
             st.open_files.get(idx).map(|f| {
                 let iter = f.buffer.iter_at_mark(&f.buffer.get_insert());
-                FilePosition { path: f.path.clone(), line: iter.line() }
+                FilePosition {
+                    path: f.path.clone(),
+                    line: iter.line(),
+                }
             })
         })
     };
@@ -634,14 +685,18 @@ fn navigate_history(state: &Rc<RefCell<EditorState>>, tabs: &Rc<editor_tabs::Edi
     let target = {
         let mut st = state.borrow_mut();
         if forward {
-            if st.nav_forward.is_empty() { return; }
+            if st.nav_forward.is_empty() {
+                return;
+            }
             // Push current to back stack
             if let Some(cur) = current_pos {
                 st.nav_back.push(cur);
             }
             st.nav_forward.pop()
         } else {
-            if st.nav_back.is_empty() { return; }
+            if st.nav_back.is_empty() {
+                return;
+            }
             // Push current to forward stack
             if let Some(cur) = current_pos {
                 st.nav_forward.push(cur);
@@ -689,7 +744,11 @@ fn navigate_history(state: &Rc<RefCell<EditorState>>, tabs: &Rc<editor_tabs::Edi
             if let Some(idx) = st.active_tab {
                 if let Some(f) = st.open_files.get(idx) {
                     let buf = &f.buffer;
-                    let target_line = if line < buf.line_count() { line } else { buf.line_count() - 1 };
+                    let target_line = if line < buf.line_count() {
+                        line
+                    } else {
+                        buf.line_count() - 1
+                    };
                     if let Some(iter) = buf.iter_at_line(target_line) {
                         buf.place_cursor(&iter);
                         sv.scroll_to_iter(&mut iter.clone(), 0.1, false, 0.0, 0.0);
@@ -705,7 +764,9 @@ fn navigate_history(state: &Rc<RefCell<EditorState>>, tabs: &Rc<editor_tabs::Edi
 fn show_recent_files_popup(state: &Rc<RefCell<EditorState>>, tabs: &Rc<editor_tabs::EditorTabs>) {
     let recent = state.borrow().recent_files.clone();
     let root = state.borrow().root_dir.clone();
-    if recent.is_empty() { return; }
+    if recent.is_empty() {
+        return;
+    }
 
     let dialog = gtk4::Window::builder()
         .title("Recent Files")
@@ -764,14 +825,17 @@ fn show_recent_files_popup(state: &Rc<RefCell<EditorState>>, tabs: &Rc<editor_ta
 /// SSH ControlMaster connection is cleaned up by SshFileBackend::Drop.
 #[cfg(feature = "sourceview")]
 impl Drop for CodeEditorPanel {
-    fn drop(&mut self) {
-    }
+    fn drop(&mut self) {}
 }
 
 #[cfg(feature = "sourceview")]
 impl PanelBackend for CodeEditorPanel {
-    fn panel_type(&self) -> &str { "code_editor" }
-    fn widget(&self) -> &gtk4::Widget { &self.widget }
+    fn panel_type(&self) -> &str {
+        "code_editor"
+    }
+    fn widget(&self) -> &gtk4::Widget {
+        &self.widget
+    }
     fn on_focus(&self) {}
 
     fn ssh_label(&self) -> Option<String> {
@@ -783,7 +847,8 @@ impl PanelBackend for CodeEditorPanel {
         st.active_tab.and_then(|idx| {
             st.open_files.get(idx).map(|f| {
                 let buf = &f.buffer;
-                buf.text(&buf.start_iter(), &buf.end_iter(), false).to_string()
+                buf.text(&buf.start_iter(), &buf.end_iter(), false)
+                    .to_string()
             })
         })
     }
@@ -803,17 +868,30 @@ impl CodeEditorPanel {
         label.set_margin_top(32);
         label.set_margin_bottom(32);
         label.add_css_class("dim-label");
-        Self { widget: label.upcast::<gtk4::Widget>() }
+        Self {
+            widget: label.upcast::<gtk4::Widget>(),
+        }
     }
 
-    pub fn new_remote(_host: &str, _port: u16, _user: &str, _password: Option<&str>, _identity_file: Option<&str>, _remote_path: &str) -> Self {
+    pub fn new_remote(
+        _host: &str,
+        _port: u16,
+        _user: &str,
+        _password: Option<&str>,
+        _identity_file: Option<&str>,
+        _remote_path: &str,
+    ) -> Self {
         Self::new("")
     }
 }
 
 #[cfg(not(feature = "sourceview"))]
 impl PanelBackend for CodeEditorPanel {
-    fn panel_type(&self) -> &str { "code_editor" }
-    fn widget(&self) -> &gtk4::Widget { &self.widget }
+    fn panel_type(&self) -> &str {
+        "code_editor"
+    }
+    fn widget(&self) -> &gtk4::Widget {
+        &self.widget
+    }
     fn on_focus(&self) {}
 }

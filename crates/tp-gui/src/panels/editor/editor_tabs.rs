@@ -66,6 +66,7 @@ impl EditorTabs {
 
         // InfoBar container (for file-changed-on-disk warnings)
         let info_bar_container = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
+        info_bar_container.add_css_class("chrome-surface");
 
         // Status bar
         let status_bar = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
@@ -97,12 +98,14 @@ impl EditorTabs {
         // Track cursor position
         {
             let pos_label = status_pos.clone();
-            source_view.buffer().connect_notify_local(Some("cursor-position"), move |buf, _| {
-                let iter = buf.iter_at_offset(buf.cursor_position());
-                let line = iter.line() + 1;
-                let col = iter.line_offset() + 1;
-                pos_label.set_text(&format!("Ln {}, Col {}", line, col));
-            });
+            source_view
+                .buffer()
+                .connect_notify_local(Some("cursor-position"), move |buf, _| {
+                    let iter = buf.iter_at_offset(buf.cursor_position());
+                    let line = iter.line() + 1;
+                    let col = iter.line_offset() + 1;
+                    pos_label.set_text(&format!("Ln {}, Col {}", line, col));
+                });
         }
 
         // Switch page: update SourceView buffer and status bar when tab changes.
@@ -123,7 +126,11 @@ impl EditorTabs {
                         } else {
                             lang_l.set_text("Plain Text");
                         }
-                        mod_l.set_text(if open_file.modified { "\u{25CF} Modified" } else { "" });
+                        mod_l.set_text(if open_file.modified {
+                            "\u{25CF} Modified"
+                        } else {
+                            ""
+                        });
                     }
                     st.active_tab = Some(idx);
                 }
@@ -132,6 +139,7 @@ impl EditorTabs {
 
         // ── Search/Replace bar (hidden by default) ──────────────────
         let search_bar = gtk4::Box::new(gtk4::Orientation::Vertical, 2);
+        search_bar.add_css_class("chrome-surface");
         search_bar.set_margin_start(4);
         search_bar.set_margin_end(4);
         search_bar.set_margin_top(2);
@@ -199,7 +207,8 @@ impl EditorTabs {
         search_settings.set_wrap_around(true);
 
         // Helper: get or create SearchContext for the current SourceView buffer
-        let active_ctx: Rc<RefCell<Option<sourceview5::SearchContext>>> = Rc::new(RefCell::new(None));
+        let active_ctx: Rc<RefCell<Option<sourceview5::SearchContext>>> =
+            Rc::new(RefCell::new(None));
         let ensure_ctx = {
             let sv = source_view.clone();
             let ss = search_settings.clone();
@@ -231,13 +240,20 @@ impl EditorTabs {
                 let cl = count_l.clone();
                 ctx.connect_notify_local(Some("occurrences-count"), move |ctx, _| {
                     let n = ctx.occurrences_count();
-                    if n > 0 { cl.set_text(&format!("{} found", n)); }
-                    else { cl.set_text("No results"); }
+                    if n > 0 {
+                        cl.set_text(&format!("{} found", n));
+                    } else {
+                        cl.set_text("No results");
+                    }
                 });
                 let n = ctx.occurrences_count();
-                if text.is_empty() { count_l.set_text(""); }
-                else if n > 0 { count_l.set_text(&format!("{} found", n)); }
-                else { count_l.set_text("No results"); }
+                if text.is_empty() {
+                    count_l.set_text("");
+                } else if n > 0 {
+                    count_l.set_text(&format!("{} found", n));
+                } else {
+                    count_l.set_text("No results");
+                }
             });
         }
 
@@ -398,7 +414,9 @@ impl EditorTabs {
         content_stack.set_vexpand(true);
         content_stack.set_hexpand(true);
 
-        let welcome = gtk4::Label::new(Some("Open a file from the sidebar\nor press Ctrl+P to search"));
+        let welcome = gtk4::Label::new(Some(
+            "Open a file from the sidebar\nor press Ctrl+P to search",
+        ));
         welcome.add_css_class("dim-label");
         welcome.set_vexpand(true);
         welcome.set_valign(gtk4::Align::Center);
@@ -435,7 +453,9 @@ impl EditorTabs {
             let p = path.to_path_buf();
             st.recent_files.retain(|r| r != &p);
             st.recent_files.insert(0, p);
-            if st.recent_files.len() > 10 { st.recent_files.truncate(10); }
+            if st.recent_files.len() > 10 {
+                st.recent_files.truncate(10);
+            }
         }
 
         // Check if already open
@@ -477,7 +497,8 @@ impl EditorTabs {
         buf.set_enable_undo(true);
 
         let mtime = get_mtime(path);
-        let file_name = path.file_name()
+        let file_name = path
+            .file_name()
             .map(|n| n.to_string_lossy().to_string())
             .unwrap_or_else(|| "untitled".to_string());
 
@@ -524,12 +545,16 @@ impl EditorTabs {
             // Compare buffer content against saved content for accurate dirty detection
             let saved_for_changed = state.borrow().open_files[idx].saved_content.clone();
             buf.connect_changed(move |buf| {
-                let current = buf.text(&buf.start_iter(), &buf.end_iter(), false).to_string();
+                let current = buf
+                    .text(&buf.start_iter(), &buf.end_iter(), false)
+                    .to_string();
                 let is_dirty = current != *saved_for_changed.borrow();
                 dot_c.set_text(if is_dirty { "\u{25CF} " } else { "" });
                 mod_label.set_text(if is_dirty { "\u{25CF} Modified" } else { "" });
                 if let Ok(mut st) = state_c.try_borrow_mut() {
-                    if let Some(file_idx) = st.open_files.iter().position(|f| f.path == path_for_dirty) {
+                    if let Some(file_idx) =
+                        st.open_files.iter().position(|f| f.path == path_for_dirty)
+                    {
                         st.open_files[file_idx].modified = is_dirty;
                     }
                 }
@@ -551,10 +576,16 @@ impl EditorTabs {
                     let (empty_after, new_idx);
                     {
                         let mut st = state_c.borrow_mut();
-                        if let Some(idx) = st.open_files.iter().position(|f| f.path == path_for_close) {
+                        if let Some(idx) =
+                            st.open_files.iter().position(|f| f.path == path_for_close)
+                        {
                             st.open_files.remove(idx);
                             empty_after = st.open_files.is_empty();
-                            new_idx = if empty_after { 0 } else { idx.min(st.open_files.len() - 1) };
+                            new_idx = if empty_after {
+                                0
+                            } else {
+                                idx.min(st.open_files.len() - 1)
+                            };
                             if empty_after {
                                 st.active_tab = None;
                             } else {
@@ -575,8 +606,11 @@ impl EditorTabs {
             close_btn.connect_clicked(move |btn| {
                 let is_modified = {
                     let st = state_c.borrow();
-                    st.open_files.iter().find(|f| f.path == path_for_close)
-                        .map(|f| f.modified).unwrap_or(false)
+                    st.open_files
+                        .iter()
+                        .find(|f| f.path == path_for_close)
+                        .map(|f| f.modified)
+                        .unwrap_or(false)
                 };
                 if is_modified {
                     // Show save/discard dialog
@@ -595,10 +629,12 @@ impl EditorTabs {
                     vbox.set_margin_start(16);
                     vbox.set_margin_end(16);
 
-                    let file_name = path_for_close.file_name()
+                    let file_name = path_for_close
+                        .file_name()
                         .map(|n| n.to_string_lossy().to_string())
                         .unwrap_or_else(|| "file".to_string());
-                    let msg = gtk4::Label::new(Some(&format!("\"{}\" has unsaved changes.", file_name)));
+                    let msg =
+                        gtk4::Label::new(Some(&format!("\"{}\" has unsaved changes.", file_name)));
                     vbox.append(&msg);
 
                     let btn_row = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
@@ -647,8 +683,13 @@ impl EditorTabs {
                                 let st = sc.borrow();
                                 let backend = st.backend.clone();
                                 if let Some(f) = st.open_files.iter().find(|f| f.path == pfc) {
-                                    let text = f.buffer.text(&f.buffer.start_iter(), &f.buffer.end_iter(), false).to_string();
-                                    backend.write_file(&f.path, &text).map(|_| (f.path.clone(), text))
+                                    let text = f
+                                        .buffer
+                                        .text(&f.buffer.start_iter(), &f.buffer.end_iter(), false)
+                                        .to_string();
+                                    backend
+                                        .write_file(&f.path, &text)
+                                        .map(|_| (f.path.clone(), text))
                                 } else {
                                     Err("File not found".to_string())
                                 }
@@ -656,7 +697,9 @@ impl EditorTabs {
                             match save_result {
                                 Ok((fpath, text)) => {
                                     if let Ok(mut st) = sc.try_borrow_mut() {
-                                        if let Some(f) = st.open_files.iter_mut().find(|f| f.path == fpath) {
+                                        if let Some(f) =
+                                            st.open_files.iter_mut().find(|f| f.path == fpath)
+                                        {
                                             f.modified = false;
                                             f.last_disk_mtime = get_mtime(&f.path);
                                             *f.saved_content.borrow_mut() = text;
@@ -708,15 +751,25 @@ impl EditorTabs {
             } else {
                 self.status_lang.set_text("Plain Text");
             }
-            self.status_modified.set_text(if open_file.modified { "\u{25CF} Modified" } else { "" });
+            self.status_modified.set_text(if open_file.modified {
+                "\u{25CF} Modified"
+            } else {
+                ""
+            });
         }
     }
 
     /// Show a side-by-side diff view for the given file.
     /// The diff replaces the content_stack view. Close button goes back to editor.
-    pub fn show_diff(&self, root: &Path, file_path: &Path, backend: Arc<dyn super::file_backend::FileBackend>) {
+    pub fn show_diff(
+        &self,
+        root: &Path,
+        file_path: &Path,
+        backend: Arc<dyn super::file_backend::FileBackend>,
+    ) {
         let rel = file_path.strip_prefix(root).unwrap_or(file_path);
-        let old_content = backend.git_show(&format!("HEAD:{}", rel.to_string_lossy()))
+        let old_content = backend
+            .git_show(&format!("HEAD:{}", rel.to_string_lossy()))
             .unwrap_or_default();
         let new_content = backend.read_file(file_path).unwrap_or_default();
 
@@ -814,14 +867,22 @@ impl EditorTabs {
             let ns = new_scroll.clone();
             let s = syncing.clone();
             old_scroll.vadjustment().connect_value_changed(move |adj| {
-                if !s.get() { s.set(true); ns.vadjustment().set_value(adj.value()); s.set(false); }
+                if !s.get() {
+                    s.set(true);
+                    ns.vadjustment().set_value(adj.value());
+                    s.set(false);
+                }
             });
         }
         {
             let os = old_scroll.clone();
             let s = syncing.clone();
             new_scroll.vadjustment().connect_value_changed(move |adj| {
-                if !s.get() { s.set(true); os.vadjustment().set_value(adj.value()); s.set(false); }
+                if !s.get() {
+                    s.set(true);
+                    os.vadjustment().set_value(adj.value());
+                    s.set(false);
+                }
             });
         }
 
@@ -885,11 +946,15 @@ impl EditorTabs {
 
         // Column labels
         let labels = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
-        let old_label = gtk4::Label::new(Some(&format!("← PRIMA  {}  (HEAD)", rel.to_string_lossy())));
+        let old_label =
+            gtk4::Label::new(Some(&format!("← PRIMA  {}  (HEAD)", rel.to_string_lossy())));
         old_label.add_css_class("dim-label");
         old_label.set_hexpand(true);
         old_label.set_margin_start(8);
-        let new_label = gtk4::Label::new(Some(&format!("→ DOPO  {}  (working)", rel.to_string_lossy())));
+        let new_label = gtk4::Label::new(Some(&format!(
+            "→ DOPO  {}  (working)",
+            rel.to_string_lossy()
+        )));
         new_label.add_css_class("dim-label");
         new_label.set_hexpand(true);
         new_label.set_margin_start(8);
@@ -911,7 +976,9 @@ impl EditorTabs {
             let be = backend.clone();
             let key_ctrl = gtk4::EventControllerKey::new();
             key_ctrl.connect_key_pressed(move |_, key, _, modifier| {
-                if modifier.contains(gtk4::gdk::ModifierType::CONTROL_MASK) && key == gtk4::gdk::Key::s {
+                if modifier.contains(gtk4::gdk::ModifierType::CONTROL_MASK)
+                    && key == gtk4::gdk::Key::s
+                {
                     let text = nb.text(&nb.start_iter(), &nb.end_iter(), false).to_string();
                     let _ = be.write_file(&fp, &text);
                     tracing::info!("Diff: saved working copy");
@@ -981,7 +1048,9 @@ impl EditorTabs {
             if let Some(idx) = st.active_tab {
                 if let Some(open_file) = st.open_files.get_mut(idx) {
                     let buf = &open_file.buffer;
-                    let text = buf.text(&buf.start_iter(), &buf.end_iter(), false).to_string();
+                    let text = buf
+                        .text(&buf.start_iter(), &buf.end_iter(), false)
+                        .to_string();
                     if let Err(e) = backend.write_file(&open_file.path, &text) {
                         tracing::error!("Failed to save {}: {}", open_file.path.display(), e);
                         return;
@@ -1014,7 +1083,10 @@ impl EditorTabs {
             None => return,
         };
 
-        let is_modified = state.borrow().open_files.get(idx)
+        let is_modified = state
+            .borrow()
+            .open_files
+            .get(idx)
             .map(|f| f.modified)
             .unwrap_or(false);
 
@@ -1030,10 +1102,16 @@ impl EditorTabs {
         let new_idx;
         {
             let mut st = state.borrow_mut();
-            if idx >= st.open_files.len() { return; }
+            if idx >= st.open_files.len() {
+                return;
+            }
             st.open_files.remove(idx);
             empty_after = st.open_files.is_empty();
-            new_idx = if empty_after { 0 } else { idx.min(st.open_files.len() - 1) };
+            new_idx = if empty_after {
+                0
+            } else {
+                idx.min(st.open_files.len() - 1)
+            };
             if empty_after {
                 st.active_tab = None;
             } else {
@@ -1111,7 +1189,9 @@ impl EditorTabs {
             for line in &hunk.new_lines {
                 if line.starts_with('+') {
                     if line_num < buf.line_count() as usize {
-                        let start = buf.iter_at_line(line_num as i32).unwrap_or(buf.start_iter());
+                        let start = buf
+                            .iter_at_line(line_num as i32)
+                            .unwrap_or(buf.start_iter());
                         let mut end = start.clone();
                         end.forward_to_line_end();
                         buf.apply_tag_by_name(tag_name, &start, &end);
@@ -1124,9 +1204,15 @@ impl EditorTabs {
         }
     }
     /// Show a commit's diff: header with info, file list, click file for side-by-side diff.
-    pub fn show_commit_diff(&self, _root: &Path, commit_hash: &str, backend: Arc<dyn super::file_backend::FileBackend>) {
+    pub fn show_commit_diff(
+        &self,
+        _root: &Path,
+        commit_hash: &str,
+        backend: Arc<dyn super::file_backend::FileBackend>,
+    ) {
         // Get commit info
-        let info = backend.git_command(&["log", "-1", "--format=%H%n%s%n%an%n%ar", commit_hash])
+        let info = backend
+            .git_command(&["log", "-1", "--format=%H%n%s%n%an%n%ar", commit_hash])
             .unwrap_or_default();
 
         let info_lines: Vec<&str> = info.lines().collect();
@@ -1136,16 +1222,37 @@ impl EditorTabs {
         let date = info_lines.get(3).copied().unwrap_or("");
 
         // Get list of changed files with status
-        let diff_stat = backend.git_command(&["diff-tree", "--no-commit-id", "-r", "--name-status", commit_hash])
+        let diff_stat = backend
+            .git_command(&[
+                "diff-tree",
+                "--no-commit-id",
+                "-r",
+                "--name-status",
+                commit_hash,
+            ])
             .unwrap_or_default();
 
         // Get numeric stats (additions/deletions per file)
-        let numstat = backend.git_command(&["diff-tree", "--no-commit-id", "-r", "--numstat", commit_hash])
+        let numstat = backend
+            .git_command(&[
+                "diff-tree",
+                "--no-commit-id",
+                "-r",
+                "--numstat",
+                commit_hash,
+            ])
             .unwrap_or_default();
-        let stats: std::collections::HashMap<&str, (String, String)> = numstat.lines().filter_map(|line| {
-            let parts: Vec<&str> = line.splitn(3, '\t').collect();
-            if parts.len() == 3 { Some((parts[2], (parts[0].to_string(), parts[1].to_string()))) } else { None }
-        }).collect();
+        let stats: std::collections::HashMap<&str, (String, String)> = numstat
+            .lines()
+            .filter_map(|line| {
+                let parts: Vec<&str> = line.splitn(3, '\t').collect();
+                if parts.len() == 3 {
+                    Some((parts[2], (parts[0].to_string(), parts[1].to_string())))
+                } else {
+                    None
+                }
+            })
+            .collect();
 
         // Build UI
         let commit_box = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
@@ -1210,7 +1317,9 @@ impl EditorTabs {
 
         for line in diff_stat.lines() {
             let parts: Vec<&str> = line.splitn(2, '\t').collect();
-            if parts.len() != 2 { continue; }
+            if parts.len() != 2 {
+                continue;
+            }
             let status_char = parts[0];
             let file_path_str = parts[1];
 
@@ -1278,7 +1387,8 @@ impl EditorTabs {
         if let Some(old) = self.content_stack.child_by_name("commit-diff") {
             self.content_stack.remove(&old);
         }
-        self.content_stack.add_named(&commit_box, Some("commit-diff"));
+        self.content_stack
+            .add_named(&commit_box, Some("commit-diff"));
         self.content_stack.set_visible_child_name("commit-diff");
 
         // Back button
@@ -1306,9 +1416,11 @@ fn show_commit_file_diff(
 ) {
     // Get old version (parent commit) and new version (this commit)
     let parent = format!("{}~1", commit_hash);
-    let old_content = backend.git_show(&format!("{}:{}", parent, file_rel))
+    let old_content = backend
+        .git_show(&format!("{}:{}", parent, file_rel))
         .unwrap_or_default();
-    let new_content = backend.git_show(&format!("{}:{}", commit_hash, file_rel))
+    let new_content = backend
+        .git_show(&format!("{}:{}", commit_hash, file_rel))
         .unwrap_or_default();
 
     let old_buf = sourceview5::Buffer::new(None::<&gtk4::TextTagTable>);
@@ -1351,7 +1463,10 @@ fn show_commit_file_diff(
         let mut new_line = 0i32;
         for change in diff.iter_all_changes() {
             match change.tag() {
-                similar::ChangeTag::Equal => { old_line += 1; new_line += 1; }
+                similar::ChangeTag::Equal => {
+                    old_line += 1;
+                    new_line += 1;
+                }
                 similar::ChangeTag::Delete => {
                     if let Some(start) = old_buf.iter_at_line(old_line) {
                         let mut end = start.clone();
@@ -1396,14 +1511,22 @@ fn show_commit_file_diff(
         let ns = new_scroll.clone();
         let s = syncing.clone();
         old_scroll.vadjustment().connect_value_changed(move |adj| {
-            if !s.get() { s.set(true); ns.vadjustment().set_value(adj.value()); s.set(false); }
+            if !s.get() {
+                s.set(true);
+                ns.vadjustment().set_value(adj.value());
+                s.set(false);
+            }
         });
     }
     {
         let os = old_scroll.clone();
         let s = syncing;
         new_scroll.vadjustment().connect_value_changed(move |adj| {
-            if !s.get() { s.set(true); os.vadjustment().set_value(adj.value()); s.set(false); }
+            if !s.get() {
+                s.set(true);
+                os.vadjustment().set_value(adj.value());
+                s.set(false);
+            }
         });
     }
 
@@ -1422,7 +1545,12 @@ fn show_commit_file_diff(
     back_btn.set_tooltip_text(Some("Back to commit"));
     header.append(&back_btn);
 
-    let file_label = gtk4::Label::new(Some(&format!("{}  {} → {}", file_rel, &parent[..parent.len().min(8)], &commit_hash[..commit_hash.len().min(8)])));
+    let file_label = gtk4::Label::new(Some(&format!(
+        "{}  {} → {}",
+        file_rel,
+        &parent[..parent.len().min(8)],
+        &commit_hash[..commit_hash.len().min(8)]
+    )));
     file_label.add_css_class("heading");
     file_label.set_hexpand(true);
     file_label.set_halign(gtk4::Align::Start);
@@ -1448,11 +1576,19 @@ fn show_commit_file_diff(
 
     // Column labels
     let labels = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
-    let old_label = gtk4::Label::new(Some(&format!("← PRIMA  {}  ({})", file_rel, &parent[..parent.len().min(8)])));
+    let old_label = gtk4::Label::new(Some(&format!(
+        "← PRIMA  {}  ({})",
+        file_rel,
+        &parent[..parent.len().min(8)]
+    )));
     old_label.add_css_class("dim-label");
     old_label.set_hexpand(true);
     old_label.set_margin_start(8);
-    let new_label = gtk4::Label::new(Some(&format!("→ DOPO  {}  ({})", file_rel, &commit_hash[..commit_hash.len().min(8)])));
+    let new_label = gtk4::Label::new(Some(&format!(
+        "→ DOPO  {}  ({})",
+        file_rel,
+        &commit_hash[..commit_hash.len().min(8)]
+    )));
     new_label.add_css_class("dim-label");
     new_label.set_hexpand(true);
     new_label.set_margin_start(8);
@@ -1485,6 +1621,10 @@ fn show_commit_file_diff(
 fn get_mtime(path: &Path) -> u64 {
     std::fs::metadata(path)
         .and_then(|m| m.modified())
-        .map(|t| t.duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs())
+        .map(|t| {
+            t.duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs()
+        })
         .unwrap_or(0)
 }
