@@ -610,7 +610,7 @@ const CATPPUCCIN_LATTE_CSS: &str = "\
 @define-color card_fg_color #4c4f69;
 @define-color dialog_bg_color #ccd0da;
 @define-color dialog_fg_color #4c4f69;
-@define-color popover_bg_color #ccd0da;
+@define-color popover_bg_color @headerbar_bg_color;
 @define-color popover_fg_color #4c4f69;
 @define-color popover_shade_color alpha(black, 0.12);
 @define-color sidebar_bg_color #ccd0da;
@@ -728,6 +728,14 @@ mod tests {
                 assert!(css.contains(token), "missing token {token} in theme css");
             }
         }
+    }
+
+    #[test]
+    fn catppuccin_latte_uses_headerbar_surface_for_popovers() {
+        assert!(CATPPUCCIN_LATTE_CSS.contains("@define-color headerbar_bg_color #e6e9ef;"));
+        assert!(
+            CATPPUCCIN_LATTE_CSS.contains("@define-color popover_bg_color @headerbar_bg_color;")
+        );
     }
 
     #[test]
