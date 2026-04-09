@@ -13,7 +13,7 @@ use webkit6::prelude::*;
 #[cfg(target_os = "macos")]
 use {
     gdk4_macos::MacosSurface,
-    objc2::{rc::Retained, MainThreadMarker},
+    objc2::{rc::Retained, sel, MainThreadMarker},
     objc2_app_kit::{NSAutoresizingMaskOptions, NSView, NSWindow},
     objc2_foundation::{NSPoint, NSRect, NSSize, NSString, NSURLRequest, NSURL},
     objc2_web_kit::WKWebView,
@@ -584,10 +584,13 @@ fn build_macos_embedded_browser_panel(
         attached_host_ptr: Cell::new(0),
     });
 
-    devtools_btn.set_sensitive(false);
-    devtools_btn.set_tooltip_text(Some(
-        "Developer Tools are not exposed by the embedded macOS browser backend yet",
-    ));
+    let inspectable = configure_macos_browser_inspection(&state.web_view);
+    devtools_btn.set_sensitive(inspectable);
+    devtools_btn.set_tooltip_text(Some(if inspectable {
+        "Open Web Inspector via Control-click > Inspect Element or Safari > Develop"
+    } else {
+        "Web Inspector requires macOS 13.3 or newer"
+    }));
 
     let navigate_to = {
         let state = state.clone();
@@ -615,6 +618,18 @@ fn build_macos_embedded_browser_panel(
             };
             entry.set_text(&uri);
             navigate_to(uri);
+        });
+    }
+
+    {
+        let status_label = status_label.clone();
+        let inspectable = inspectable;
+        devtools_btn.connect_clicked(move |_| {
+            if inspectable {
+                show_macos_browser_devtools_help(&status_label);
+            } else {
+                status_label.set_text("Web Inspector requires macOS 13.3 or newer");
+            }
         });
     }
 
@@ -841,6 +856,28 @@ fn load_wkwebview_uri(web_view: &WKWebView, uri: &str, status_label: &gtk4::Labe
         web_view.loadRequest(&request);
     }
     status_label.set_text("Loading...");
+}
+
+#[cfg(target_os = "macos")]
+fn configure_macos_browser_inspection(web_view: &WKWebView) -> bool {
+    if web_view.responds_to(sel!(setInspectable:)) {
+        unsafe {
+            web_view.setInspectable(true);
+        }
+        true
+    } else {
+        false
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn show_macos_browser_devtools_help(status_label: &gtk4::Label) {
+    status_label.set_text(macos_browser_devtools_help_message());
+}
+
+#[cfg(target_os = "macos")]
+fn macos_browser_devtools_help_message() -> &'static str {
+    "Web Inspector enabled. Use Control-click > Inspect Element or Safari > Develop for this Mac."
 }
 
 #[cfg(target_os = "macos")]
@@ -1325,6 +1362,8 @@ fn expand_home_path(value: &str) -> Option<PathBuf> {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(target_os = "macos")]
+    use super::macos_browser_devtools_help_message;
     use super::{browser_placeholder_html, normalized_browser_uri, BrowserHistory};
     use tempfile::tempdir;
 
@@ -1394,5 +1433,13 @@ mod tests {
         let html = browser_placeholder_html();
         assert!(html.contains("Browser panel ready"));
         assert!(html.contains("localhost:3000"));
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn macos_devtools_help_message_mentions_inspect_element() {
+        let message = macos_browser_devtools_help_message();
+        assert!(message.contains("Inspect Element"));
+        assert!(message.contains("Safari > Develop"));
     }
 }
