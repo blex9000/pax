@@ -58,6 +58,7 @@ impl FileTree {
         backend: Arc<dyn FileBackend>,
     ) -> Self {
         let container = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
+        container.add_css_class("editor-file-tree");
 
         // Action buttons bar at bottom
         let actions_bar = gtk4::Box::new(gtk4::Orientation::Horizontal, 2);
@@ -90,6 +91,7 @@ impl FileTree {
         let list_box = gtk4::ListBox::new();
         list_box.set_selection_mode(gtk4::SelectionMode::Single);
         list_box.add_css_class("navigation-sidebar");
+        list_box.add_css_class("editor-file-tree-list");
         populate_message(
             &list_box,
             if is_remote {
@@ -100,6 +102,7 @@ impl FileTree {
         );
 
         let scroll = gtk4::ScrolledWindow::new();
+        scroll.add_css_class("editor-file-tree-scroll");
         scroll.set_child(Some(&list_box));
         scroll.set_vexpand(true);
 

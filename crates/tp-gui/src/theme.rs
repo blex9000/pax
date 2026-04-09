@@ -384,6 +384,18 @@ paned > separator { min-width: 1px; min-height: 1px; }
 .editor-tabs { border-bottom: 1px solid alpha(@borders, 0.3); }
 .editor-sidebar { border-right: 1px solid alpha(@borders, 0.3); }
 .navigation-sidebar, .boxed-list { background-color: @sidebar_bg_color; color: @sidebar_fg_color; }
+.editor-file-tree,
+.editor-file-tree-scroll,
+.editor-file-tree-scroll viewport,
+.editor-file-tree-list,
+.editor-file-tree-list > row {
+  background-color: @view_bg_color;
+  color: @view_fg_color;
+}
+.editor-file-tree-list > row > box,
+.editor-file-tree-list > row > box > * {
+  background-color: transparent;
+}
 .card, button.card, .welcome-action-btn { background-color: @card_bg_color; color: @card_fg_color; }
 entry,
 spinbutton,
@@ -592,5 +604,13 @@ mod tests {
                 assert!(css.contains(token), "missing token {token} in theme css");
             }
         }
+    }
+
+    #[test]
+    fn editor_file_tree_uses_view_surface_colors() {
+        assert!(BASE_CSS.contains(".editor-file-tree-list"));
+        assert!(BASE_CSS.contains(".editor-file-tree-scroll viewport"));
+        assert!(BASE_CSS.contains("background-color: @view_bg_color;"));
+        assert!(BASE_CSS.contains("color: @view_fg_color;"));
     }
 }
