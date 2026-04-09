@@ -77,6 +77,7 @@ pub fn build_tab_label(
 
     let original_page = Rc::new(Cell::new(None::<u32>));
     let pending_offset = Rc::new(Cell::new(0_i32));
+    let suppress_cancel = Rc::new(Cell::new(false));
     let is_layout = panel_type_id == "__layout__";
 
     let update_move_buttons: Rc<dyn Fn()> = Rc::new({
@@ -107,6 +108,7 @@ pub fn build_tab_label(
         let child_widget = child_widget.clone();
         let original_page = original_page.clone();
         let pending_offset = pending_offset.clone();
+        let suppress_cancel = suppress_cancel.clone();
         move |commit| {
             let original_label = label.text().to_string();
             let new_name = entry.text().to_string();
@@ -115,6 +117,7 @@ pub fn build_tab_label(
             let original_page_value = original_page.get();
 
             if commit {
+                suppress_cancel.set(false);
                 pending_offset.set(0);
                 original_page.set(None);
                 stack.set_visible_child_name("label");
@@ -144,12 +147,16 @@ pub fn build_tab_label(
                     }
                 }
             } else {
+                if suppress_cancel.get() {
+                    return;
+                }
                 if let Some(original_page) = original_page_value {
                     restore_workspace_tab_preview(&child_widget, original_page);
                 }
                 entry.set_text(&original_label);
                 pending_offset.set(0);
                 original_page.set(None);
+                suppress_cancel.set(false);
                 stack.set_visible_child_name("label");
             }
         }
@@ -218,28 +225,40 @@ pub fn build_tab_label(
     {
         let child_widget = child_widget.clone();
         let pending_offset = pending_offset.clone();
+        let suppress_cancel = suppress_cancel.clone();
         let update_move_buttons = update_move_buttons.clone();
         let entry = entry.clone();
         move_left_btn.connect_clicked(move |_| {
+            suppress_cancel.set(true);
             if preview_move_workspace_tab(&child_widget, -1) {
                 pending_offset.set(pending_offset.get() - 1);
                 update_move_buttons();
                 entry.grab_focus();
             }
+            let suppress_cancel = suppress_cancel.clone();
+            gtk4::glib::idle_add_local_once(move || {
+                suppress_cancel.set(false);
+            });
         });
     }
 
     {
         let child_widget = child_widget.clone();
         let pending_offset = pending_offset.clone();
+        let suppress_cancel = suppress_cancel.clone();
         let update_move_buttons = update_move_buttons.clone();
         let entry = entry.clone();
         move_right_btn.connect_clicked(move |_| {
+            suppress_cancel.set(true);
             if preview_move_workspace_tab(&child_widget, 1) {
                 pending_offset.set(pending_offset.get() + 1);
                 update_move_buttons();
                 entry.grab_focus();
             }
+            let suppress_cancel = suppress_cancel.clone();
+            gtk4::glib::idle_add_local_once(move || {
+                suppress_cancel.set(false);
+            });
         });
     }
 
