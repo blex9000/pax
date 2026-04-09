@@ -55,6 +55,8 @@ pub enum LayoutNode {
         children: Vec<LayoutNode>,
         #[serde(default)]
         labels: Vec<String>,
+        #[serde(default)]
+        tab_ids: Vec<String>,
     },
 }
 
@@ -333,6 +335,10 @@ fn default_theme() -> String {
     "nord".to_string()
 }
 
+pub fn new_tab_id() -> String {
+    format!("tab-{}", Uuid::new_v4().simple())
+}
+
 impl LayoutNode {
     /// Collect all panel IDs referenced in this layout.
     pub fn panel_ids(&self) -> Vec<&str> {
@@ -342,6 +348,32 @@ impl LayoutNode {
             | LayoutNode::Vsplit { children, .. }
             | LayoutNode::Tabs { children, .. } => {
                 children.iter().flat_map(|c| c.panel_ids()).collect()
+            }
+        }
+    }
+
+    /// Ensure every Tabs node has a stable tab id for each child.
+    /// Legacy workspaces may deserialize with no tab_ids at all.
+    pub fn ensure_tab_ids(&mut self) {
+        match self {
+            LayoutNode::Panel { .. } => {}
+            LayoutNode::Hsplit { children, .. } | LayoutNode::Vsplit { children, .. } => {
+                for child in children {
+                    child.ensure_tab_ids();
+                }
+            }
+            LayoutNode::Tabs {
+                children, tab_ids, ..
+            } => {
+                for child in children.iter_mut() {
+                    child.ensure_tab_ids();
+                }
+                if tab_ids.len() > children.len() {
+                    tab_ids.truncate(children.len());
+                }
+                while tab_ids.len() < children.len() {
+                    tab_ids.push(new_tab_id());
+                }
             }
         }
     }
@@ -360,14 +392,61 @@ impl Workspace {
             .filter(|p| p.groups.iter().any(|g| g == group))
             .collect()
     }
+
+    pub fn ensure_layout_tab_ids(&mut self) {
+        self.layout.ensure_tab_ids();
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::WorkspaceSettings;
+    use super::{new_tab_id, LayoutNode, Workspace, WorkspaceSettings};
 
     #[test]
     fn workspace_settings_default_to_nord_theme() {
         assert_eq!(WorkspaceSettings::default().theme, "nord");
+    }
+
+    #[test]
+    fn new_tab_id_has_expected_prefix() {
+        assert!(new_tab_id().starts_with("tab-"));
+    }
+
+    #[test]
+    fn ensure_layout_tab_ids_backfills_legacy_tabs() {
+        let mut workspace = Workspace {
+            name: "demo".to_string(),
+            id: uuid::Uuid::new_v4(),
+            layout: LayoutNode::Tabs {
+                children: vec![
+                    LayoutNode::Panel {
+                        id: "a".to_string(),
+                    },
+                    LayoutNode::Panel {
+                        id: "b".to_string(),
+                    },
+                ],
+                labels: vec!["A".to_string(), "B".to_string()],
+                tab_ids: Vec::new(),
+            },
+            panels: Vec::new(),
+            groups: Vec::new(),
+            alerts: Vec::new(),
+            startup_script: None,
+            notes_file: None,
+            settings: WorkspaceSettings::default(),
+            ssh_configs: Vec::new(),
+        };
+
+        workspace.ensure_layout_tab_ids();
+
+        match &workspace.layout {
+            LayoutNode::Tabs { tab_ids, .. } => {
+                assert_eq!(tab_ids.len(), 2);
+                assert_ne!(tab_ids[0], tab_ids[1]);
+                assert!(tab_ids.iter().all(|id| id.starts_with("tab-")));
+            }
+            _ => panic!("expected tabs layout"),
+        }
     }
 }

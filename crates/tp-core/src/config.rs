@@ -7,15 +7,18 @@ use crate::workspace::Workspace;
 pub fn load_workspace(path: &Path) -> Result<Workspace> {
     let content = std::fs::read_to_string(path)
         .with_context(|| format!("Cannot read workspace file: {}", path.display()))?;
-    let ws: Workspace = serde_json::from_str(&content)
+    let mut ws: Workspace = serde_json::from_str(&content)
         .with_context(|| format!("Invalid workspace JSON: {}", path.display()))?;
+    ws.ensure_layout_tab_ids();
     validate_workspace(&ws)?;
     Ok(ws)
 }
 
 /// Save workspace to a JSON file.
 pub fn save_workspace(ws: &Workspace, path: &Path) -> Result<()> {
-    let json = serde_json::to_string_pretty(ws)?;
+    let mut normalized = ws.clone();
+    normalized.ensure_layout_tab_ids();
+    let json = serde_json::to_string_pretty(&normalized)?;
     std::fs::write(path, json)
         .with_context(|| format!("Cannot write workspace file: {}", path.display()))?;
     Ok(())
@@ -169,5 +172,36 @@ mod tests {
         let serialized = serde_json::to_string_pretty(&ws).unwrap();
         let ws2: crate::workspace::Workspace = serde_json::from_str(&serialized).unwrap();
         assert_eq!(ws2.panels[0].effective_type(), ws.panels[0].effective_type());
+    }
+
+    #[test]
+    fn legacy_tabs_are_normalized_with_tab_ids_on_load() {
+        let json = r#"{
+            "name": "tab-test",
+            "layout": {
+                "type": "tabs",
+                "children": [
+                    { "type": "panel", "id": "p1" },
+                    { "type": "panel", "id": "p2" }
+                ],
+                "labels": ["One", "Two"]
+            },
+            "panels": [
+                { "id": "p1", "name": "One" },
+                { "id": "p2", "name": "Two" }
+            ]
+        }"#;
+
+        let mut f = NamedTempFile::new().unwrap();
+        f.write_all(json.as_bytes()).unwrap();
+        let ws = load_workspace(f.path()).unwrap();
+
+        match ws.layout {
+            crate::workspace::LayoutNode::Tabs { tab_ids, .. } => {
+                assert_eq!(tab_ids.len(), 2);
+                assert_ne!(tab_ids[0], tab_ids[1]);
+            }
+            _ => panic!("expected tabs layout"),
+        }
     }
 }

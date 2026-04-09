@@ -344,44 +344,40 @@ fn setup_workspace_ui(
                                 }
                             }
                             PanelAction::BeginTabEdit {
+                                tab_id,
                                 tab_path,
                                 panel_id,
                                 name,
                                 is_layout,
                             } => {
-                                let tab_path = tab_path
-                                    .split('.')
-                                    .filter(|part| !part.is_empty())
-                                    .filter_map(|part| part.parse::<usize>().ok())
-                                    .collect::<Vec<_>>();
                                 if ws_for_cb
                                     .borrow_mut()
-                                    .begin_tab_edit(&panel_id, tab_path, name, is_layout)
+                                    .begin_tab_edit(&panel_id, &tab_id, tab_path, name, is_layout)
                                 {
                                 }
                             }
-                            PanelAction::UpdateTabDraft(name) => {
-                                ws_for_cb.borrow_mut().update_tab_edit_draft(real_id, name);
+                            PanelAction::UpdateTabDraft { tab_id, name } => {
+                                ws_for_cb.borrow_mut().update_tab_edit_draft(&tab_id, name);
                             }
-                            PanelAction::PreviewTabMove(offset) => {
+                            PanelAction::PreviewTabMove { tab_id, offset } => {
                                 if ws_for_cb
                                     .borrow_mut()
-                                    .preview_tab_edit_move(real_id, offset)
+                                    .preview_tab_edit_move(&tab_id, offset)
                                 {
                                     let ws_for_idle = ws_for_cb.clone();
-                                    let panel_id = real_id.to_string();
+                                    let tab_id = tab_id.clone();
                                     glib::idle_add_local_once(move || {
                                         ws_for_idle
                                             .borrow_mut()
-                                            .clear_tab_edit_commit_suppression(&panel_id);
+                                            .clear_tab_edit_commit_suppression(&tab_id);
                                     });
                                 }
                             }
-                            PanelAction::CommitTabEdit => {
-                                ws_for_cb.borrow_mut().commit_tab_edit(real_id);
+                            PanelAction::CommitTabEdit { tab_id } => {
+                                ws_for_cb.borrow_mut().commit_tab_edit(&tab_id);
                             }
-                            PanelAction::CancelTabEdit => {
-                                ws_for_cb.borrow_mut().cancel_tab_edit(real_id);
+                            PanelAction::CancelTabEdit { tab_id } => {
+                                ws_for_cb.borrow_mut().cancel_tab_edit(&tab_id);
                             }
                             _ => {}
                         }
@@ -586,10 +582,10 @@ fn setup_workspace_ui(
                 PanelAction::AddTabToNotebook
                 | PanelAction::RemoveTab
                 | PanelAction::BeginTabEdit { .. }
-                | PanelAction::UpdateTabDraft(_)
-                | PanelAction::PreviewTabMove(_)
-                | PanelAction::CommitTabEdit
-                | PanelAction::CancelTabEdit => {}
+                | PanelAction::UpdateTabDraft { .. }
+                | PanelAction::PreviewTabMove { .. }
+                | PanelAction::CommitTabEdit { .. }
+                | PanelAction::CancelTabEdit { .. } => {}
             }
             actions::update_dirty_ui(&ws_for_cb, &win_for_cb, &sa_for_cb);
         });
@@ -605,15 +601,15 @@ fn setup_workspace_ui(
         outside_click.set_propagation_phase(gtk4::PropagationPhase::Capture);
         outside_click.connect_pressed(move |_, _, x, y| {
             let picked = win_for_click.pick(x, y, gtk4::PickFlags::DEFAULT);
-            let (active_editor, panel_id) = {
+            let (active_editor, tab_id) = {
                 let view = ws_for_click.borrow();
                 let active_editor = crate::widget_builder::find_active_tab_editor_recursive(
                     view.widget().upcast_ref(),
                 );
-                let panel_id = view.active_tab_edit_panel_id();
-                (active_editor, panel_id)
+                let tab_id = view.active_tab_edit_tab_id();
+                (active_editor, tab_id)
             };
-            let (Some(active_editor), Some(panel_id)) = (active_editor, panel_id) else {
+            let (Some(active_editor), Some(tab_id)) = (active_editor, tab_id) else {
                 return;
             };
             let clicked_inside_editor = picked
@@ -632,7 +628,7 @@ fn setup_workspace_ui(
             if clicked_inside_editor {
                 return;
             }
-            if ws_for_click.borrow_mut().commit_tab_edit(&panel_id) {
+            if ws_for_click.borrow_mut().commit_tab_edit(&tab_id) {
                 actions::update_dirty_ui(&ws_for_click, &win_for_click, &sa_for_click);
             }
         });

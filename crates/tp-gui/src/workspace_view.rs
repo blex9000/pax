@@ -2,7 +2,7 @@ use gtk4::prelude::*;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-use pax_core::workspace::{LayoutNode, PanelConfig, PanelType, Workspace};
+use pax_core::workspace::{new_tab_id, LayoutNode, PanelConfig, PanelType, Workspace};
 
 use crate::backend_factory::{
     create_backend_from_registry, insert_ssh_extra, panel_type_to_create_config, panel_type_to_id,
@@ -16,6 +16,7 @@ use crate::widget_builder::*;
 
 #[derive(Clone)]
 struct ActiveTabEdit {
+    tab_id: String,
     tab_path: Vec<usize>,
     panel_id: String,
     draft_name: String,
@@ -54,6 +55,8 @@ impl WorkspaceView {
     /// Build the workspace view from a workspace config.
     /// Call `set_action_callback` after wrapping in Rc<RefCell<>> to enable menu actions.
     pub fn build(workspace: &Workspace, config_path: Option<&Path>) -> Self {
+        let mut workspace = workspace.clone();
+        workspace.ensure_layout_tab_ids();
         let registry = registry::build_default_registry();
         let ws_dir = config_path
             .and_then(|p| p.parent())
@@ -113,7 +116,7 @@ impl WorkspaceView {
             scrolled,
             hosts,
             focus: FocusManager::from_ids(focus_ids),
-            workspace: workspace.clone(),
+            workspace,
             config_path: config_path.map(|p| p.to_path_buf()),
             next_panel_id,
             action_cb: None,
@@ -159,9 +162,10 @@ impl WorkspaceView {
         self.rebuild_from_workspace(ws)
     }
 
-    fn rebuild_from_workspace(&mut self, ws: Workspace) -> Result<(), String> {
+    fn rebuild_from_workspace(&mut self, mut ws: Workspace) -> Result<(), String> {
         // Remove old root widget
         self.root_box.remove(&self.root_widget);
+        ws.ensure_layout_tab_ids();
 
         let registry = registry::build_default_registry();
         let ws_dir = self
@@ -405,11 +409,13 @@ impl WorkspaceView {
     pub fn begin_tab_edit(
         &mut self,
         panel_id: &str,
+        tab_id: &str,
         tab_path: Vec<usize>,
         draft_name: String,
         is_layout: bool,
     ) -> bool {
         self.tab_edit = Some(ActiveTabEdit {
+            tab_id: tab_id.to_string(),
             tab_path,
             panel_id: panel_id.to_string(),
             draft_name: draft_name.clone(),
@@ -423,22 +429,22 @@ impl WorkspaceView {
         true
     }
 
-    pub fn update_tab_edit_draft(&mut self, panel_id: &str, draft_name: String) -> bool {
+    pub fn update_tab_edit_draft(&mut self, tab_id: &str, draft_name: String) -> bool {
         let Some(state) = self.tab_edit.as_mut() else {
             return false;
         };
-        if state.panel_id != panel_id {
+        if state.tab_id != tab_id {
             return false;
         }
         state.draft_name = draft_name;
         true
     }
 
-    pub fn preview_tab_edit_move(&mut self, panel_id: &str, step: i32) -> bool {
+    pub fn preview_tab_edit_move(&mut self, tab_id: &str, step: i32) -> bool {
         let Some(state) = self.tab_edit.as_mut() else {
             return false;
         };
-        if state.panel_id != panel_id {
+        if state.tab_id != tab_id {
             return false;
         }
 
@@ -456,19 +462,19 @@ impl WorkspaceView {
         true
     }
 
-    pub fn clear_tab_edit_commit_suppression(&mut self, panel_id: &str) {
+    pub fn clear_tab_edit_commit_suppression(&mut self, tab_id: &str) {
         if let Some(state) = self.tab_edit.as_mut() {
-            if state.panel_id == panel_id {
+            if state.tab_id == tab_id {
                 state.suppress_commit_once = false;
             }
         }
     }
 
-    pub fn commit_tab_edit(&mut self, panel_id: &str) -> bool {
+    pub fn commit_tab_edit(&mut self, tab_id: &str) -> bool {
         let Some(state) = self.tab_edit.clone() else {
             return false;
         };
-        if state.panel_id != panel_id {
+        if state.tab_id != tab_id {
             return false;
         }
         if state.suppress_commit_once {
@@ -481,30 +487,31 @@ impl WorkspaceView {
         let mut changed = state.pending_offset != 0;
         if !trimmed_name.is_empty() && state.draft_name != state.original_name {
             if state.is_layout {
-                changed |= rename_tab_label_model_by_path(
+                changed |= rename_tab_label_model_by_id(
                     &mut self.workspace.layout,
-                    &state.tab_path,
+                    &state.tab_id,
                     &state.draft_name,
                 );
             } else {
-                changed |= rename_panel_model(&mut self.workspace, panel_id, &state.draft_name);
-                if let Some(host) = self.hosts.get(panel_id) {
+                changed |=
+                    rename_panel_model(&mut self.workspace, &state.panel_id, &state.draft_name);
+                if let Some(host) = self.hosts.get(&state.panel_id) {
                     host.set_title(&state.draft_name);
                 }
             }
         }
 
         self.rebuild_layout();
-        self.select_workspace_tab_for_panel(panel_id);
+        self.select_workspace_tab_for_panel(&state.panel_id);
         self.dirty = state.original_dirty || changed;
         changed
     }
 
-    pub fn cancel_tab_edit(&mut self, panel_id: &str) -> bool {
+    pub fn cancel_tab_edit(&mut self, tab_id: &str) -> bool {
         let Some(state) = self.tab_edit.clone() else {
             return false;
         };
-        if state.panel_id != panel_id {
+        if state.tab_id != tab_id {
             return false;
         }
 
@@ -512,11 +519,11 @@ impl WorkspaceView {
         self.tab_edit = None;
         self.rebuild_layout();
         self.rebuild_focus_order();
-        if let Some(index) = self.focus.order.iter().position(|id| id == panel_id) {
+        if let Some(index) = self.focus.order.iter().position(|id| id == &state.panel_id) {
             self.focus.index = index;
             self.focus.focus_current_pub(&self.hosts);
         }
-        self.select_workspace_tab_for_panel(panel_id);
+        self.select_workspace_tab_for_panel(&state.panel_id);
         self.dirty = state.original_dirty;
         true
     }
@@ -562,13 +569,13 @@ impl WorkspaceView {
 
     fn current_tab_label_edit_state(&self) -> Option<TabLabelEditState> {
         self.tab_edit.as_ref().map(|state| TabLabelEditState {
-            tab_path: encode_tab_path(&state.tab_path),
+            tab_id: state.tab_id.clone(),
             draft_name: state.draft_name.clone(),
         })
     }
 
-    pub fn active_tab_edit_panel_id(&self) -> Option<String> {
-        self.tab_edit.as_ref().map(|state| state.panel_id.clone())
+    pub fn active_tab_edit_tab_id(&self) -> Option<String> {
+        self.tab_edit.as_ref().map(|state| state.tab_id.clone())
     }
 
     pub fn refresh_tab_labels(&self) {
@@ -679,12 +686,20 @@ impl WorkspaceView {
             let widget = host.widget().clone();
             if let Some(notebook) = find_notebook_ancestor(&widget) {
                 let edit_state = self.current_tab_label_edit_state();
+                let tab_id = notebook
+                    .tab_label(&widget)
+                    .and_then(|label| {
+                        crate::widget_builder::decode_tab_label_metadata(&label.widget_name())
+                            .map(|(tab_id, _, _)| tab_id)
+                    })
+                    .unwrap_or_else(new_tab_id);
                 let new_label = build_tab_label(
                     type_id,
                     type_id,
                     &self.action_cb,
                     &widget,
                     edit_state.as_ref(),
+                    &tab_id,
                     &[],
                 );
                 notebook.set_tab_label(&widget, Some(&new_label));
@@ -1061,6 +1076,7 @@ impl WorkspaceView {
                     LayoutNode::Panel { id: new_id.clone() },
                 ],
                 labels: vec![existing_label.clone(), new_name.clone()],
+                tab_ids: vec![new_tab_id(), new_tab_id()],
             });
         self.workspace.panels.push(new_cfg);
         self.hosts.insert(new_id.clone(), host);
@@ -1096,7 +1112,13 @@ impl WorkspaceView {
         host.set_backend(backend);
 
         // Update model
-        add_to_existing_tabs(&mut self.workspace.layout, &sibling_id, &new_id, &new_name);
+        add_to_existing_tabs(
+            &mut self.workspace.layout,
+            &sibling_id,
+            &new_id,
+            &new_name,
+            &new_tab_id(),
+        );
         self.workspace.panels.push(new_cfg);
         self.hosts.insert(new_id.clone(), host);
 
@@ -1383,8 +1405,8 @@ fn rename_tab_label_model(layout: &mut LayoutNode, panel_id: &str, new_name: &st
     crate::layout_ops::update_tab_label_in_layout(layout, panel_id, new_name)
 }
 
-fn rename_tab_label_model_by_path(layout: &mut LayoutNode, tab_path: &[usize], new_name: &str) -> bool {
-    crate::layout_ops::update_tab_label_in_layout_by_path(layout, tab_path, new_name)
+fn rename_tab_label_model_by_id(layout: &mut LayoutNode, tab_id: &str, new_name: &str) -> bool {
+    crate::layout_ops::update_tab_label_in_layout_by_id(layout, tab_id, new_name)
 }
 
 fn select_workspace_tab_for_panel_recursive(widget: &gtk4::Widget, panel_id: &str) -> bool {
@@ -1424,6 +1446,7 @@ mod tests {
         LayoutNode::Tabs {
             children,
             labels: labels.iter().map(|label| (*label).to_string()).collect(),
+            tab_ids: (0..labels.len()).map(|_| new_tab_id()).collect(),
         }
     }
 
@@ -1511,7 +1534,7 @@ mod tests {
     }
 
     #[test]
-    fn rename_tab_label_model_by_path_updates_exact_nested_tab() {
+    fn rename_tab_label_model_by_id_updates_exact_nested_tab() {
         let mut workspace = Workspace {
             name: "demo".to_string(),
             id: uuid::Uuid::new_v4(),
@@ -1542,11 +1565,24 @@ mod tests {
             ssh_configs: Vec::new(),
         };
 
-        let changed =
-            rename_tab_label_model_by_path(&mut workspace.layout, &[0, 1, 1], "freeflow");
+        let target_tab_id = if let LayoutNode::Tabs { children, .. } = &workspace.layout {
+            if let LayoutNode::Vsplit { children, .. } = &children[0] {
+                if let LayoutNode::Tabs { tab_ids, .. } = &children[1] {
+                    tab_ids[1].clone()
+                } else {
+                    panic!("expected nested tabs");
+                }
+            } else {
+                panic!("expected vsplit");
+            }
+        } else {
+            panic!("expected root tabs");
+        };
+
+        let changed = rename_tab_label_model_by_id(&mut workspace.layout, &target_tab_id, "freeflow");
 
         assert!(changed);
-        if let LayoutNode::Tabs { children, labels } = &workspace.layout {
+        if let LayoutNode::Tabs { children, labels, .. } = &workspace.layout {
             assert_eq!(labels[0], "outer");
             assert_eq!(labels[1], "other");
             if let LayoutNode::Vsplit { children, .. } = &children[0] {
@@ -1572,7 +1608,7 @@ mod tests {
 
         assert!(moved);
         match &workspace.layout {
-            LayoutNode::Tabs { labels, children } => {
+            LayoutNode::Tabs { labels, children, .. } => {
                 assert_eq!(labels, &["tab-b", "tab-a"]);
                 assert!(matches!(&children[0], LayoutNode::Panel { id } if id == "b"));
                 assert!(matches!(&children[1], LayoutNode::Panel { id } if id == "a"));
@@ -1596,13 +1632,14 @@ mod tests {
                 },
             ],
             labels: vec!["tab-a".into(), "tab-b".into(), "tab-c".into()],
+            tab_ids: vec![new_tab_id(), new_tab_id(), new_tab_id()],
         };
 
         let moved = crate::layout_ops::move_tab_in_layout_steps(&mut layout, "a", 2);
 
         assert!(moved);
         match &layout {
-            LayoutNode::Tabs { labels, children } => {
+            LayoutNode::Tabs { labels, children, .. } => {
                 assert_eq!(labels, &["tab-b", "tab-c", "tab-a"]);
                 assert!(matches!(&children[0], LayoutNode::Panel { id } if id == "b"));
                 assert!(matches!(&children[1], LayoutNode::Panel { id } if id == "c"));

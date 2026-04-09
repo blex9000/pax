@@ -52,19 +52,20 @@ pub enum PanelAction {
     RemoveTab,
     /// Begin editing a workspace tab label
     BeginTabEdit {
-        tab_path: String,
+        tab_id: String,
+        tab_path: Vec<usize>,
         panel_id: String,
         name: String,
         is_layout: bool,
     },
     /// Update the in-progress tab label draft text
-    UpdateTabDraft(String),
+    UpdateTabDraft { tab_id: String, name: String },
     /// Preview move of the currently edited workspace tab
-    PreviewTabMove(i32),
+    PreviewTabMove { tab_id: String, offset: i32 },
     /// Commit the in-progress workspace tab edit
-    CommitTabEdit,
+    CommitTabEdit { tab_id: String },
     /// Cancel the in-progress workspace tab edit
-    CancelTabEdit,
+    CancelTabEdit { tab_id: String },
     /// Toggle zoom/fullscreen
     Zoom,
     /// Toggle sync input
@@ -731,11 +732,11 @@ fn build_panel_menu(panel_id: &str, action_cb: Option<PanelActionCallback>) -> g
             PanelAction::AddTabToNotebook => "tab-new-symbolic",
             PanelAction::RemoveTab => "window-close-symbolic",
             PanelAction::BeginTabEdit { .. } => "document-edit-symbolic",
-            PanelAction::UpdateTabDraft(_) => "document-edit-symbolic",
-            PanelAction::PreviewTabMove(offset) if offset < 0 => "go-previous-symbolic",
-            PanelAction::PreviewTabMove(_) => "go-next-symbolic",
-            PanelAction::CommitTabEdit => "object-select-symbolic",
-            PanelAction::CancelTabEdit => "process-stop-symbolic",
+            PanelAction::UpdateTabDraft { .. } => "document-edit-symbolic",
+            PanelAction::PreviewTabMove { offset, .. } if offset < 0 => "go-previous-symbolic",
+            PanelAction::PreviewTabMove { .. } => "go-next-symbolic",
+            PanelAction::CommitTabEdit { .. } => "object-select-symbolic",
+            PanelAction::CancelTabEdit { .. } => "process-stop-symbolic",
             PanelAction::Zoom => "view-fullscreen-symbolic",
             PanelAction::Sync => "media-playlist-consecutive-symbolic",
             PanelAction::Rename(_) => "document-edit-symbolic",
@@ -759,10 +760,10 @@ fn build_panel_menu(panel_id: &str, action_cb: Option<PanelActionCallback>) -> g
             PanelAction::AddTabToNotebook => "",
             PanelAction::RemoveTab => "",
             PanelAction::BeginTabEdit { .. } => "Dbl-click",
-            PanelAction::UpdateTabDraft(_) => "",
-            PanelAction::PreviewTabMove(_) => "",
-            PanelAction::CommitTabEdit => "Enter",
-            PanelAction::CancelTabEdit => "Esc",
+            PanelAction::UpdateTabDraft { .. } => "",
+            PanelAction::PreviewTabMove { .. } => "",
+            PanelAction::CommitTabEdit { .. } => "Enter",
+            PanelAction::CancelTabEdit { .. } => "Esc",
             PanelAction::Zoom => "Ctrl+Z",
             PanelAction::Sync => "Ctrl+Shift+S",
             PanelAction::Rename(_) => "Dbl-click",

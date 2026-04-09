@@ -10,7 +10,7 @@ use crate::panel_host::{PanelAction, PanelActionCallback, PanelHost, COLLAPSE_SI
 
 #[derive(Debug, Clone)]
 pub struct TabLabelEditState {
-    pub tab_path: String,
+    pub tab_id: String,
     pub draft_name: String,
 }
 
@@ -43,16 +43,17 @@ pub fn build_tab_label(
     action_cb: &Option<PanelActionCallback>,
     child_widget: &gtk4::Widget,
     edit_state: Option<&TabLabelEditState>,
+    tab_id: &str,
     tab_path: &[usize],
 ) -> gtk4::Widget {
     let hbox = gtk4::Box::new(gtk4::Orientation::Horizontal, 4);
-    let tab_panel_id = find_first_panel_id(child_widget);
     let tab_path_key = encode_tab_path(tab_path);
     let is_layout = panel_type_id == "__layout__";
-    hbox.set_widget_name(&encode_tab_label_metadata(&tab_path_key, is_layout));
+    hbox.set_widget_name(&encode_tab_label_metadata(tab_id, &tab_path_key, is_layout));
     let active_edit = edit_state
-        .filter(|state| state.tab_path == tab_path_key)
+        .filter(|state| state.tab_id == tab_id)
         .cloned();
+    let tab_id_owned = tab_id.to_string();
 
     // Only show type icon for single-panel tabs, not for layout tabs
     if !is_layout {
@@ -121,16 +122,19 @@ pub fn build_tab_label(
 
     {
         let cb = action_cb.clone();
-        let panel_id = tab_panel_id.clone();
+        let tab_id = tab_id_owned.clone();
         let suppress_entry_changed = suppress_entry_changed.clone();
         entry.connect_changed(move |entry| {
             if suppress_entry_changed.get() {
                 return;
             }
-            if let (Some(ref cb), Some(panel_id)) = (&cb, panel_id.as_ref()) {
+            if let Some(ref cb) = cb {
                 cb(
-                    &format!("nb:{}", panel_id),
-                    PanelAction::UpdateTabDraft(entry.text().to_string()),
+                    &format!("nb-tab:{}", tab_id),
+                    PanelAction::UpdateTabDraft {
+                        tab_id: tab_id.clone(),
+                        name: entry.text().to_string(),
+                    },
                 );
             }
         });
@@ -138,22 +142,32 @@ pub fn build_tab_label(
 
     {
         let cb = action_cb.clone();
-        let panel_id = tab_panel_id.clone();
+        let tab_id = tab_id_owned.clone();
         entry.connect_activate(move |_| {
-            if let (Some(ref cb), Some(panel_id)) = (&cb, panel_id.as_ref()) {
-                cb(&format!("nb:{}", panel_id), PanelAction::CommitTabEdit);
+            if let Some(ref cb) = cb {
+                cb(
+                    &format!("nb-tab:{}", tab_id),
+                    PanelAction::CommitTabEdit {
+                        tab_id: tab_id.clone(),
+                    },
+                );
             }
         });
     }
 
     {
         let cb = action_cb.clone();
-        let panel_id = tab_panel_id.clone();
+        let tab_id = tab_id_owned.clone();
         let key_ctrl = gtk4::EventControllerKey::new();
         key_ctrl.connect_key_pressed(move |_, key, _, _| {
             if key == gtk4::gdk::Key::Escape {
-                if let (Some(ref cb), Some(panel_id)) = (&cb, panel_id.as_ref()) {
-                    cb(&format!("nb:{}", panel_id), PanelAction::CancelTabEdit);
+                if let Some(ref cb) = cb {
+                    cb(
+                        &format!("nb-tab:{}", tab_id),
+                        PanelAction::CancelTabEdit {
+                            tab_id: tab_id.clone(),
+                        },
+                    );
                 }
                 return gtk4::glib::Propagation::Stop;
             }
@@ -164,13 +178,19 @@ pub fn build_tab_label(
 
     {
         let cb = action_cb.clone();
-        let panel_id = tab_panel_id.clone();
+        let tab_id = tab_id_owned.clone();
         let child_widget = child_widget.clone();
         let update_move_buttons = update_move_buttons.clone();
         move_left_btn.connect_clicked(move |_| {
-            if let (Some(ref cb), Some(panel_id)) = (&cb, panel_id.as_ref()) {
+            if let Some(ref cb) = cb {
                 preview_move_workspace_tab(&child_widget, -1);
-                cb(&format!("nb:{}", panel_id), PanelAction::PreviewTabMove(-1));
+                cb(
+                    &format!("nb-tab:{}", tab_id),
+                    PanelAction::PreviewTabMove {
+                        tab_id: tab_id.clone(),
+                        offset: -1,
+                    },
+                );
                 update_move_buttons();
             }
         });
@@ -178,13 +198,19 @@ pub fn build_tab_label(
 
     {
         let cb = action_cb.clone();
-        let panel_id = tab_panel_id.clone();
+        let tab_id = tab_id_owned.clone();
         let child_widget = child_widget.clone();
         let update_move_buttons = update_move_buttons.clone();
         move_right_btn.connect_clicked(move |_| {
-            if let (Some(ref cb), Some(panel_id)) = (&cb, panel_id.as_ref()) {
+            if let Some(ref cb) = cb {
                 preview_move_workspace_tab(&child_widget, 1);
-                cb(&format!("nb:{}", panel_id), PanelAction::PreviewTabMove(1));
+                cb(
+                    &format!("nb-tab:{}", tab_id),
+                    PanelAction::PreviewTabMove {
+                        tab_id: tab_id.clone(),
+                        offset: 1,
+                    },
+                );
                 update_move_buttons();
             }
         });
@@ -274,7 +300,12 @@ fn update_labels_with_layout(
     path: &[usize],
 ) {
     if let Ok(notebook) = widget.clone().downcast::<gtk4::Notebook>() {
-        if let LayoutNode::Tabs { children, labels } = layout_node {
+        if let LayoutNode::Tabs {
+            children,
+            labels,
+            tab_ids,
+        } = layout_node
+        {
             for i in 0..notebook.n_pages() {
                 if let Some(page_widget) = notebook.nth_page(Some(i)) {
                     let mut child_path = path.to_vec();
@@ -302,12 +333,17 @@ fn update_labels_with_layout(
                         label_text,
                         type_id
                     );
+                    let tab_id = tab_ids
+                        .get(i as usize)
+                        .cloned()
+                        .unwrap_or_else(pax_core::workspace::new_tab_id);
                     let label = build_tab_label(
                         &label_text,
                         type_id,
                         &Some(action_cb.clone()),
                         &page_widget,
                         edit_state,
+                        &tab_id,
                         &child_path,
                     );
                     notebook.set_tab_label(&page_widget, Some(&label));
@@ -431,7 +467,8 @@ fn setup_notebook_menu_widget(notebook: &gtk4::Notebook, action_cb: Option<Panel
             if !widget_is_same_or_descendant(&picked, &tab_label) {
                 continue;
             }
-            let Some((tab_path, is_layout)) = decode_tab_label_metadata(&tab_label.widget_name())
+            let Some((tab_id, tab_path, is_layout)) =
+                decode_tab_label_metadata(&tab_label.widget_name())
             else {
                 continue;
             };
@@ -443,7 +480,8 @@ fn setup_notebook_menu_widget(notebook: &gtk4::Notebook, action_cb: Option<Panel
                 cb(
                     &format!("nb:{}", panel_id),
                     PanelAction::BeginTabEdit {
-                        tab_path: encode_tab_path(&tab_path),
+                        tab_id,
+                        tab_path,
                         panel_id,
                         name: draft_name,
                         is_layout,
@@ -457,17 +495,19 @@ fn setup_notebook_menu_widget(notebook: &gtk4::Notebook, action_cb: Option<Panel
     notebook.add_controller(gesture);
 }
 
-fn encode_tab_label_metadata(tab_path: &str, is_layout: bool) -> String {
+fn encode_tab_label_metadata(tab_id: &str, tab_path: &str, is_layout: bool) -> String {
     format!(
-        "pax-tab:{}:{}",
+        "pax-tab:{}:{}:{}",
         if is_layout { "layout" } else { "panel" },
+        tab_id,
         tab_path
     )
 }
 
-fn decode_tab_label_metadata(widget_name: &str) -> Option<(Vec<usize>, bool)> {
+pub(crate) fn decode_tab_label_metadata(widget_name: &str) -> Option<(String, Vec<usize>, bool)> {
     let rest = widget_name.strip_prefix("pax-tab:")?;
-    let (kind, path) = rest.split_once(':')?;
+    let (kind, rest) = rest.split_once(':')?;
+    let (tab_id, path) = rest.split_once(':')?;
     let is_layout = match kind {
         "layout" => true,
         "panel" => false,
@@ -480,7 +520,7 @@ fn decode_tab_label_metadata(widget_name: &str) -> Option<(Vec<usize>, bool)> {
             .map(|part| part.parse::<usize>().ok())
             .collect::<Option<Vec<_>>>()?
     };
-    Some((tab_path, is_layout))
+    Some((tab_id.to_string(), tab_path, is_layout))
 }
 
 fn activate_tab_label_editor(
@@ -748,7 +788,11 @@ pub fn build_layout_widget_inner(
             path,
             gtk4::Orientation::Vertical,
         ),
-        LayoutNode::Tabs { children, labels } => {
+        LayoutNode::Tabs {
+            children,
+            labels,
+            tab_ids,
+        } => {
             let notebook = gtk4::Notebook::new();
             notebook.set_show_tabs(true);
             notebook.set_scrollable(true);
@@ -775,12 +819,17 @@ pub fn build_layout_widget_inner(
                     label_text
                 );
                 let panel_type_id = get_panel_type_id(child, panels);
+                let tab_id = tab_ids
+                    .get(i)
+                    .cloned()
+                    .unwrap_or_else(pax_core::workspace::new_tab_id);
                 let label = build_tab_label(
                     &label_text,
                     panel_type_id,
                     action_cb,
                     &child_widget,
                     edit_state,
+                    &tab_id,
                     &child_path,
                 );
                 notebook.append_page(&child_widget, Some(&label));
