@@ -30,6 +30,14 @@ pub fn decode_tab_path(path: &str) -> Option<Vec<usize>> {
         .collect()
 }
 
+pub fn encode_tabs_widget_name(path: &[usize]) -> String {
+    format!("pax-tabs:{}", encode_tab_path(path))
+}
+
+pub fn decode_tabs_widget_name(widget_name: &str) -> Option<Vec<usize>> {
+    decode_tab_path(widget_name.strip_prefix("pax-tabs:")?)
+}
+
 // ── Widget helpers ───────────────────────────────────────────────────────────
 
 pub fn add_plus_buttons_recursive(widget: &gtk4::Widget, action_cb: &PanelActionCallback) {
@@ -813,6 +821,7 @@ pub fn build_layout_widget_inner(
             notebook.set_show_tabs(true);
             notebook.set_scrollable(true);
             notebook.add_css_class("workspace-tabs");
+            notebook.set_widget_name(&encode_tabs_widget_name(path));
 
             for (i, child) in children.iter().enumerate() {
                 let mut child_path = path.to_vec();

@@ -555,6 +555,12 @@ impl WorkspaceView {
         };
         self.select_workspace_tab_for_panel(panel_id);
         self.focus.set_focus_index(index, &self.hosts);
+        let root_widget = self.root_widget.clone();
+        let layout = self.workspace.layout.clone();
+        let panel_id = panel_id.to_string();
+        gtk4::glib::idle_add_local_once(move || {
+            let _ = select_workspace_tabs_for_panel(&root_widget, &layout, &panel_id);
+        });
         true
     }
 
@@ -1127,7 +1133,7 @@ impl WorkspaceView {
     }
 
     fn select_workspace_tab_for_panel(&self, panel_id: &str) -> bool {
-        select_workspace_tab_for_panel_recursive(&self.root_widget, panel_id)
+        select_workspace_tabs_for_panel(&self.root_widget, &self.workspace.layout, panel_id)
     }
 
     fn make_empty_config(&self, id: &str, name: &str) -> PanelConfig {
@@ -1382,34 +1388,96 @@ fn rename_tab_label_model_by_id(layout: &mut LayoutNode, tab_id: &str, new_name:
     crate::layout_ops::update_tab_label_in_layout_by_id(layout, tab_id, new_name)
 }
 
-fn select_workspace_tab_for_panel_recursive(widget: &gtk4::Widget, panel_id: &str) -> bool {
-    if let Ok(notebook) = widget.clone().downcast::<gtk4::Notebook>() {
-        if notebook.has_css_class("workspace-tabs") {
-            for index in 0..notebook.n_pages() {
-                if let Some(page) = notebook.nth_page(Some(index)) {
-                    if crate::widget_builder::find_first_panel_id(&page).as_deref()
-                        == Some(panel_id)
-                    {
-                        notebook.set_current_page(Some(index));
-                        return true;
-                    }
-                    if select_workspace_tab_for_panel_recursive(&page, panel_id) {
-                        notebook.set_current_page(Some(index));
-                        return true;
-                    }
+fn find_layout_path_to_panel(node: &LayoutNode, panel_id: &str) -> Option<Vec<usize>> {
+    match node {
+        LayoutNode::Panel { id } => (id == panel_id).then(Vec::new),
+        LayoutNode::Tabs { children, .. }
+        | LayoutNode::Hsplit { children, .. }
+        | LayoutNode::Vsplit { children, .. } => {
+            for (index, child) in children.iter().enumerate() {
+                if let Some(mut path) = find_layout_path_to_panel(child, panel_id) {
+                    path.insert(0, index);
+                    return Some(path);
                 }
             }
+            None
+        }
+    }
+}
+
+fn collect_tabs_along_path(
+    node: &LayoutNode,
+    panel_path: &[usize],
+    current_node_path: &mut Vec<usize>,
+    tabs_to_select: &mut Vec<(Vec<usize>, u32)>,
+) {
+    let Some((&index, rest)) = panel_path.split_first() else {
+        return;
+    };
+
+    match node {
+        LayoutNode::Tabs { children, .. } => {
+            tabs_to_select.push((current_node_path.clone(), index as u32));
+            if let Some(child) = children.get(index) {
+                current_node_path.push(index);
+                collect_tabs_along_path(child, rest, current_node_path, tabs_to_select);
+                current_node_path.pop();
+            }
+        }
+        LayoutNode::Hsplit { children, .. } | LayoutNode::Vsplit { children, .. } => {
+            if let Some(child) = children.get(index) {
+                current_node_path.push(index);
+                collect_tabs_along_path(child, rest, current_node_path, tabs_to_select);
+                current_node_path.pop();
+            }
+        }
+        LayoutNode::Panel { .. } => {}
+    }
+}
+
+fn find_workspace_notebook_by_path(widget: &gtk4::Widget, tabs_path: &[usize]) -> Option<gtk4::Notebook> {
+    if let Ok(notebook) = widget.clone().downcast::<gtk4::Notebook>() {
+        if notebook.has_css_class("workspace-tabs")
+            && crate::widget_builder::decode_tabs_widget_name(&notebook.widget_name()).as_deref()
+                == Some(tabs_path)
+        {
+            return Some(notebook);
         }
     }
 
     let mut child = widget.first_child();
     while let Some(current) = child {
-        if select_workspace_tab_for_panel_recursive(&current, panel_id) {
-            return true;
+        if let Some(notebook) = find_workspace_notebook_by_path(&current, tabs_path) {
+            return Some(notebook);
         }
         child = current.next_sibling();
     }
-    false
+    None
+}
+
+fn select_workspace_tabs_for_panel(
+    root_widget: &gtk4::Widget,
+    layout: &LayoutNode,
+    panel_id: &str,
+) -> bool {
+    let Some(panel_path) = find_layout_path_to_panel(layout, panel_id) else {
+        return false;
+    };
+
+    let mut tabs_to_select = Vec::new();
+    collect_tabs_along_path(layout, &panel_path, &mut Vec::new(), &mut tabs_to_select);
+    if tabs_to_select.is_empty() {
+        return true;
+    }
+
+    let mut selected_any = false;
+    for (tabs_path, page_index) in tabs_to_select {
+        if let Some(notebook) = find_workspace_notebook_by_path(root_widget, &tabs_path) {
+            notebook.set_current_page(Some(page_index));
+            selected_any = true;
+        }
+    }
+    selected_any
 }
 
 #[cfg(test)]
@@ -1624,13 +1692,35 @@ mod tests {
     }
 
     #[test]
-    fn select_workspace_tab_for_panel_recursive_reveals_ancestor_tabs() {
+    fn find_layout_path_to_panel_tracks_nested_tabs() {
+        let layout = tabs(
+            vec![
+                LayoutNode::Vsplit {
+                    children: vec![
+                        panel("a"),
+                        tabs(vec![panel("b"), panel("c")], &["inner-1", "inner-2"]),
+                    ],
+                    ratios: vec![1.0, 1.0],
+                },
+                panel("d"),
+            ],
+            &["outer-1", "outer-2"],
+        );
+
+        assert_eq!(find_layout_path_to_panel(&layout, "c"), Some(vec![0, 1, 1]));
+        assert_eq!(find_layout_path_to_panel(&layout, "d"), Some(vec![1]));
+        assert_eq!(find_layout_path_to_panel(&layout, "missing"), None);
+    }
+
+    #[test]
+    fn select_workspace_tabs_for_panel_reveals_ancestor_tabs() {
         if gtk4::init().is_err() {
             return;
         }
 
         let root = gtk4::Notebook::new();
         root.add_css_class("workspace-tabs");
+        root.set_widget_name(&crate::widget_builder::encode_tabs_widget_name(&[]));
         let root_page_0 = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
         let root_page_1 = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
         root.append_page(&root_page_0, Some(&gtk4::Label::new(Some("Root 0"))));
@@ -1638,6 +1728,7 @@ mod tests {
 
         let nested = gtk4::Notebook::new();
         nested.add_css_class("workspace-tabs");
+        nested.set_widget_name(&crate::widget_builder::encode_tabs_widget_name(&[1]));
         root_page_1.append(&nested);
 
         let nested_page_0 = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
@@ -1659,11 +1750,90 @@ mod tests {
         root.set_current_page(Some(0));
         nested.set_current_page(Some(0));
 
-        let selected = select_workspace_tab_for_panel_recursive(&root.clone().upcast(), "p2");
+        let layout = tabs(
+            vec![
+                panel("root-placeholder"),
+                tabs(vec![panel("p1"), panel("p2")], &["Inner 0", "Inner 1"]),
+            ],
+            &["Root 0", "Root 1"],
+        );
+
+        let selected = select_workspace_tabs_for_panel(&root.clone().upcast(), &layout, "p2");
 
         assert!(selected);
         assert_eq!(root.current_page(), Some(1));
         assert_eq!(nested.current_page(), Some(1));
+    }
+
+    #[test]
+    fn split_focused_in_nested_tabs_keeps_nested_selection() {
+        if gtk4::init().is_err() {
+            return;
+        }
+
+        let workspace = Workspace {
+            name: "demo".to_string(),
+            id: uuid::Uuid::new_v4(),
+            layout: tabs(
+                vec![
+                    LayoutNode::Vsplit {
+                        children: vec![
+                            tabs(vec![panel("a"), panel("b")], &["inner-a", "inner-b"]),
+                            panel("c"),
+                        ],
+                        ratios: vec![1.0, 1.0],
+                    },
+                    panel("d"),
+                ],
+                &["outer-left", "outer-right"],
+            ),
+            panels: vec![
+                PanelConfig {
+                    panel_type: PanelType::Empty,
+                    ..panel_config("a", "Panel A")
+                },
+                PanelConfig {
+                    panel_type: PanelType::Empty,
+                    ..panel_config("b", "Panel B")
+                },
+                PanelConfig {
+                    panel_type: PanelType::Empty,
+                    ..panel_config("c", "Panel C")
+                },
+                PanelConfig {
+                    panel_type: PanelType::Empty,
+                    ..panel_config("d", "Panel D")
+                },
+            ],
+            groups: Vec::new(),
+            alerts: Vec::new(),
+            startup_script: None,
+            notes_file: None,
+            settings: Default::default(),
+            ssh_configs: Vec::new(),
+        };
+
+        let mut view = WorkspaceView::build(&workspace, None);
+        let focused = view.focus_order_index("a").expect("panel a in focus order");
+        view.set_focus_index(focused);
+
+        let new_id = view
+            .split_focused_v()
+            .expect("split should create a new panel");
+
+        let context = gtk4::glib::MainContext::default();
+        while context.pending() {
+            context.iteration(false);
+        }
+
+        let root = find_workspace_notebook_by_path(&view.root_widget, &[])
+            .expect("root workspace notebook");
+        let nested = find_workspace_notebook_by_path(&view.root_widget, &[0, 0])
+            .expect("nested workspace notebook");
+
+        assert_eq!(view.focused_panel_id(), Some(new_id.as_str()));
+        assert_eq!(root.current_page(), Some(0));
+        assert_eq!(nested.current_page(), Some(0));
     }
 }
 
