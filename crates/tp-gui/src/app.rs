@@ -342,10 +342,20 @@ fn setup_workspace_ui(
                                     sb_for_cb.borrow().set_message("Tab removed");
                                 }
                             }
-                            PanelAction::BeginTabEdit { name, is_layout } => {
+                            PanelAction::BeginTabEdit {
+                                tab_path,
+                                panel_id,
+                                name,
+                                is_layout,
+                            } => {
+                                let tab_path = tab_path
+                                    .split('.')
+                                    .filter(|part| !part.is_empty())
+                                    .filter_map(|part| part.parse::<usize>().ok())
+                                    .collect::<Vec<_>>();
                                 ws_for_cb
                                     .borrow_mut()
-                                    .begin_tab_edit(real_id, name, is_layout);
+                                    .begin_tab_edit(&panel_id, tab_path, name, is_layout);
                             }
                             PanelAction::UpdateTabDraft(name) => {
                                 ws_for_cb.borrow_mut().update_tab_edit_draft(real_id, name);

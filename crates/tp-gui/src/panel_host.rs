@@ -52,6 +52,8 @@ pub enum PanelAction {
     RemoveTab,
     /// Begin editing a workspace tab label
     BeginTabEdit {
+        tab_path: String,
+        panel_id: String,
         name: String,
         is_layout: bool,
     },

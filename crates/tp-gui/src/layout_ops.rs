@@ -302,6 +302,57 @@ pub fn move_tab_in_layout(node: &mut LayoutNode, panel_id: &str, direction: i32)
     }
 }
 
+/// Move the tab at an exact layout path by one position within its owning Tabs node.
+/// Returns the updated path when a move happened.
+pub fn move_tab_in_layout_by_path(
+    node: &mut LayoutNode,
+    path: &[usize],
+    direction: i32,
+) -> Option<Vec<usize>> {
+    match node {
+        LayoutNode::Tabs { children, labels } => {
+            let (index, rest) = path.split_first()?;
+            if *index >= children.len() {
+                return None;
+            }
+            if rest.is_empty() {
+                let target = *index as i32 + direction;
+                if !(0..children.len() as i32).contains(&target) {
+                    return None;
+                }
+                let target = target as usize;
+                children.swap(*index, target);
+                if *index < labels.len() && target < labels.len() {
+                    labels.swap(*index, target);
+                }
+                return Some(vec![target]);
+            }
+
+            move_tab_in_layout_by_path(&mut children[*index], rest, direction).map(
+                |mut child_path| {
+                    let mut updated = vec![*index];
+                    updated.append(&mut child_path);
+                    updated
+                },
+            )
+        }
+        LayoutNode::Hsplit { children, .. } | LayoutNode::Vsplit { children, .. } => {
+            let (index, rest) = path.split_first()?;
+            if *index >= children.len() {
+                return None;
+            }
+            move_tab_in_layout_by_path(&mut children[*index], rest, direction).map(
+                |mut child_path| {
+                    let mut updated = vec![*index];
+                    updated.append(&mut child_path);
+                    updated
+                },
+            )
+        }
+        LayoutNode::Panel { .. } => None,
+    }
+}
+
 /// Move the INNERMOST tab containing `panel_id` by a signed offset.
 /// Applies the move one step at a time so the final order matches repeated
 /// left/right actions in the UI.

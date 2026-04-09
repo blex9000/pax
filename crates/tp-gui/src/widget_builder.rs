@@ -10,8 +10,15 @@ use crate::panel_host::{PanelAction, PanelActionCallback, PanelHost, COLLAPSE_SI
 
 #[derive(Debug, Clone)]
 pub struct TabLabelEditState {
-    pub panel_id: String,
+    pub tab_path: String,
     pub draft_name: String,
+}
+
+pub fn encode_tab_path(path: &[usize]) -> String {
+    path.iter()
+        .map(|index| index.to_string())
+        .collect::<Vec<_>>()
+        .join(".")
 }
 
 // ── Widget helpers ───────────────────────────────────────────────────────────
@@ -36,20 +43,15 @@ pub fn build_tab_label(
     action_cb: &Option<PanelActionCallback>,
     child_widget: &gtk4::Widget,
     edit_state: Option<&TabLabelEditState>,
+    tab_path: &[usize],
 ) -> gtk4::Widget {
     let hbox = gtk4::Box::new(gtk4::Orientation::Horizontal, 4);
     let tab_panel_id = find_first_panel_id(child_widget);
+    let tab_path_key = encode_tab_path(tab_path);
     let is_layout = panel_type_id == "__layout__";
-    let active_edit = tab_panel_id
-        .as_deref()
-        .zip(edit_state)
-        .and_then(|(panel_id, state)| {
-            if state.panel_id == panel_id {
-                Some(state.clone())
-            } else {
-                None
-            }
-        });
+    let active_edit = edit_state
+        .filter(|state| state.tab_path == tab_path_key)
+        .cloned();
 
     // Only show type icon for single-panel tabs, not for layout tabs
     if !is_layout {
@@ -120,6 +122,7 @@ pub fn build_tab_label(
         let cb = action_cb.clone();
         let panel_id = tab_panel_id.clone();
         let initial_name = name.to_string();
+        let tab_path_key = tab_path_key.clone();
         let gesture = gtk4::GestureClick::new();
         gesture.set_button(1);
         gesture.set_propagation_phase(gtk4::PropagationPhase::Bubble);
@@ -129,6 +132,8 @@ pub fn build_tab_label(
                     cb(
                         &format!("nb:{}", panel_id),
                         PanelAction::BeginTabEdit {
+                            tab_path: tab_path_key.clone(),
+                            panel_id: panel_id.clone(),
                             name: initial_name.clone(),
                             is_layout,
                         },
@@ -199,9 +204,11 @@ pub fn build_tab_label(
     {
         let cb = action_cb.clone();
         let panel_id = tab_panel_id.clone();
+        let child_widget = child_widget.clone();
         let update_move_buttons = update_move_buttons.clone();
         move_left_btn.connect_clicked(move |_| {
             if let (Some(ref cb), Some(panel_id)) = (&cb, panel_id.as_ref()) {
+                preview_move_workspace_tab(&child_widget, -1);
                 cb(&format!("nb:{}", panel_id), PanelAction::PreviewTabMove(-1));
                 update_move_buttons();
             }
@@ -211,9 +218,11 @@ pub fn build_tab_label(
     {
         let cb = action_cb.clone();
         let panel_id = tab_panel_id.clone();
+        let child_widget = child_widget.clone();
         let update_move_buttons = update_move_buttons.clone();
         move_right_btn.connect_clicked(move |_| {
             if let (Some(ref cb), Some(panel_id)) = (&cb, panel_id.as_ref()) {
+                preview_move_workspace_tab(&child_widget, 1);
                 cb(&format!("nb:{}", panel_id), PanelAction::PreviewTabMove(1));
                 update_move_buttons();
             }
@@ -259,6 +268,22 @@ pub fn build_tab_label(
     hbox.upcast::<gtk4::Widget>()
 }
 
+fn preview_move_workspace_tab(child_widget: &gtk4::Widget, step: i32) -> bool {
+    let Some(notebook) = find_notebook_ancestor(child_widget) else {
+        return false;
+    };
+    let Some(position) = notebook.page_num(child_widget) else {
+        return false;
+    };
+    let target = position as i32 + step;
+    if !(0..notebook.n_pages() as i32).contains(&target) {
+        return false;
+    }
+    notebook.reorder_child(child_widget, Some(target as u32));
+    notebook.set_current_page(Some(target as u32));
+    true
+}
+
 /// Rebuild tab labels on existing Notebooks from the layout model.
 /// Walks the widget tree and layout tree in parallel so each Notebook
 /// gets labels from its corresponding Tabs node — no ambiguous matching.
@@ -275,6 +300,7 @@ pub fn update_notebook_labels_recursive(
         &workspace.layout,
         &workspace.panels,
         edit_state,
+        &[],
     );
 }
 
@@ -284,11 +310,14 @@ fn update_labels_with_layout(
     layout_node: &LayoutNode,
     panels: &[PanelConfig],
     edit_state: Option<&TabLabelEditState>,
+    path: &[usize],
 ) {
     if let Ok(notebook) = widget.clone().downcast::<gtk4::Notebook>() {
         if let LayoutNode::Tabs { children, labels } = layout_node {
             for i in 0..notebook.n_pages() {
                 if let Some(page_widget) = notebook.nth_page(Some(i)) {
+                    let mut child_path = path.to_vec();
+                    child_path.push(i as usize);
                     // Label: always from the model
                     let label_text = labels
                         .get(i as usize)
@@ -318,6 +347,7 @@ fn update_labels_with_layout(
                         &Some(action_cb.clone()),
                         &page_widget,
                         edit_state,
+                        &child_path,
                     );
                     notebook.set_tab_label(&page_widget, Some(&label));
 
@@ -329,6 +359,7 @@ fn update_labels_with_layout(
                             child_node,
                             panels,
                             edit_state,
+                            &child_path,
                         );
                     }
                 }
@@ -346,7 +377,16 @@ fn update_labels_with_layout(
                 if let Some(w) = paned.start_child() {
                     let w = unwrap_collapse_wrapper(&w);
                     if let Some(c) = children.first() {
-                        update_labels_with_layout(&w, action_cb, c, panels, edit_state);
+                        let mut child_path = path.to_vec();
+                        child_path.push(0);
+                        update_labels_with_layout(
+                            &w,
+                            action_cb,
+                            c,
+                            panels,
+                            edit_state,
+                            &child_path,
+                        );
                     }
                 }
                 if let Some(w) = paned.end_child() {
@@ -354,7 +394,16 @@ fn update_labels_with_layout(
                     // For 2 children: second child. For 3+: rest is a nested Paned.
                     if children.len() == 2 {
                         if let Some(c) = children.get(1) {
-                            update_labels_with_layout(&w, action_cb, c, panels, edit_state);
+                            let mut child_path = path.to_vec();
+                            child_path.push(1);
+                            update_labels_with_layout(
+                                &w,
+                                action_cb,
+                                c,
+                                panels,
+                                edit_state,
+                                &child_path,
+                            );
                         }
                     }
                     // For 3+ children the rest_node is built recursively in build_paned,
@@ -485,7 +534,7 @@ pub fn build_layout_widget(
     panels: &[PanelConfig],
     edit_state: Option<&TabLabelEditState>,
 ) -> gtk4::Widget {
-    build_layout_widget_inner(node, hosts, panels, &None, edit_state)
+    build_layout_widget_inner(node, hosts, panels, &None, edit_state, &[])
 }
 
 pub fn build_layout_widget_inner(
@@ -494,6 +543,7 @@ pub fn build_layout_widget_inner(
     panels: &[PanelConfig],
     action_cb: &Option<PanelActionCallback>,
     edit_state: Option<&TabLabelEditState>,
+    path: &[usize],
 ) -> gtk4::Widget {
     match node {
         LayoutNode::Panel { id } => {
@@ -514,6 +564,7 @@ pub fn build_layout_widget_inner(
             panels,
             action_cb,
             edit_state,
+            path,
             gtk4::Orientation::Horizontal,
         ),
         LayoutNode::Vsplit { children, ratios } => build_paned(
@@ -523,6 +574,7 @@ pub fn build_layout_widget_inner(
             panels,
             action_cb,
             edit_state,
+            path,
             gtk4::Orientation::Vertical,
         ),
         LayoutNode::Tabs { children, labels } => {
@@ -532,8 +584,16 @@ pub fn build_layout_widget_inner(
             notebook.add_css_class("workspace-tabs");
 
             for (i, child) in children.iter().enumerate() {
-                let child_widget =
-                    build_layout_widget_inner(child, hosts, panels, action_cb, edit_state);
+                let mut child_path = path.to_vec();
+                child_path.push(i);
+                let child_widget = build_layout_widget_inner(
+                    child,
+                    hosts,
+                    panels,
+                    action_cb,
+                    edit_state,
+                    &child_path,
+                );
                 let label_text = labels
                     .get(i)
                     .cloned()
@@ -550,6 +610,7 @@ pub fn build_layout_widget_inner(
                     action_cb,
                     &child_widget,
                     edit_state,
+                    &child_path,
                 );
                 notebook.append_page(&child_widget, Some(&label));
 
@@ -622,13 +683,23 @@ fn build_paned(
     panels: &[PanelConfig],
     action_cb: &Option<PanelActionCallback>,
     edit_state: Option<&TabLabelEditState>,
+    path: &[usize],
     orientation: gtk4::Orientation,
 ) -> gtk4::Widget {
     if children.is_empty() {
         return gtk4::Box::new(orientation, 0).upcast::<gtk4::Widget>();
     }
     if children.len() == 1 {
-        return build_layout_widget_inner(&children[0], hosts, panels, action_cb, edit_state);
+        let mut child_path = path.to_vec();
+        child_path.push(0);
+        return build_layout_widget_inner(
+            &children[0],
+            hosts,
+            panels,
+            action_cb,
+            edit_state,
+            &child_path,
+        );
     }
 
     let sum: f64 = ratios.iter().take(children.len()).sum();
@@ -653,19 +724,25 @@ fn build_paned(
 
     if children.len() == 2 {
         let paned = gtk4::Paned::new(orientation);
+        let mut path1 = path.to_vec();
+        path1.push(0);
         let w1 = maybe_wrap(build_layout_widget_inner(
             &children[0],
             hosts,
             panels,
             action_cb,
             edit_state,
+            &path1,
         ));
+        let mut path2 = path.to_vec();
+        path2.push(1);
         let w2 = maybe_wrap(build_layout_widget_inner(
             &children[1],
             hosts,
             panels,
             action_cb,
             edit_state,
+            &path2,
         ));
         let c1_fixed = subtree_has_min_size(&children[0], panels);
         let c2_fixed = subtree_has_min_size(&children[1], panels);
@@ -681,14 +758,19 @@ fn build_paned(
     }
 
     let paned = gtk4::Paned::new(orientation);
+    let mut path1 = path.to_vec();
+    path1.push(0);
     let w1 = maybe_wrap(build_layout_widget_inner(
         &children[0],
         hosts,
         panels,
         action_cb,
         edit_state,
+        &path1,
     ));
     let rest_nodes = &children[1..];
+    let mut rest_path = path.to_vec();
+    rest_path.push(1);
     let rest = maybe_wrap(build_paned(
         rest_nodes,
         &ratios[1..],
@@ -696,6 +778,7 @@ fn build_paned(
         panels,
         action_cb,
         edit_state,
+        &rest_path,
         orientation,
     ));
     let c1_fixed = subtree_has_min_size(&children[0], panels);

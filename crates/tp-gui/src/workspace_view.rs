@@ -16,6 +16,7 @@ use crate::widget_builder::*;
 
 #[derive(Clone)]
 struct ActiveTabEdit {
+    tab_path: Vec<usize>,
     panel_id: String,
     draft_name: String,
     is_layout: bool,
@@ -401,8 +402,15 @@ impl WorkspaceView {
         changed
     }
 
-    pub fn begin_tab_edit(&mut self, panel_id: &str, draft_name: String, is_layout: bool) -> bool {
+    pub fn begin_tab_edit(
+        &mut self,
+        panel_id: &str,
+        tab_path: Vec<usize>,
+        draft_name: String,
+        is_layout: bool,
+    ) -> bool {
         self.tab_edit = Some(ActiveTabEdit {
+            tab_path,
             panel_id: panel_id.to_string(),
             draft_name: draft_name.clone(),
             is_layout,
@@ -412,8 +420,6 @@ impl WorkspaceView {
             pending_offset: 0,
             suppress_commit_once: false,
         });
-        self.rebuild_layout();
-        self.select_workspace_tab_for_panel(panel_id);
         true
     }
 
@@ -436,15 +442,18 @@ impl WorkspaceView {
             return false;
         }
 
-        let moved =
-            crate::layout_ops::move_tab_in_layout(&mut self.workspace.layout, panel_id, step);
-        if !moved {
+        let Some(new_path) = crate::layout_ops::move_tab_in_layout_by_path(
+            &mut self.workspace.layout,
+            &state.tab_path,
+            step,
+        ) else {
             return false;
-        }
+        };
 
+        state.tab_path = new_path;
         state.pending_offset += step;
         state.suppress_commit_once = true;
-        move_workspace_notebook_page_live(&self.hosts, panel_id, step)
+        true
     }
 
     pub fn clear_tab_edit_commit_suppression(&mut self, panel_id: &str) {
@@ -550,7 +559,7 @@ impl WorkspaceView {
 
     fn current_tab_label_edit_state(&self) -> Option<TabLabelEditState> {
         self.tab_edit.as_ref().map(|state| TabLabelEditState {
-            panel_id: state.panel_id.clone(),
+            tab_path: encode_tab_path(&state.tab_path),
             draft_name: state.draft_name.clone(),
         })
     }
@@ -654,6 +663,7 @@ impl WorkspaceView {
                     &self.action_cb,
                     &widget,
                     edit_state.as_ref(),
+                    &[],
                 );
                 notebook.set_tab_label(&widget, Some(&new_label));
             }
@@ -822,6 +832,7 @@ impl WorkspaceView {
             &self.workspace.panels,
             &self.action_cb,
             edit_state.as_ref(),
+            &[],
         );
         root_widget.set_vexpand(true);
         root_widget.set_hexpand(true);
@@ -1373,30 +1384,6 @@ fn select_workspace_tab_for_panel_recursive(widget: &gtk4::Widget, panel_id: &st
         child = current.next_sibling();
     }
     false
-}
-
-fn move_workspace_notebook_page_live(
-    hosts: &HashMap<String, PanelHost>,
-    panel_id: &str,
-    step: i32,
-) -> bool {
-    let Some(host) = hosts.get(panel_id) else {
-        return false;
-    };
-    let widget = host.widget().clone();
-    let Some(notebook) = find_notebook_ancestor(&widget) else {
-        return false;
-    };
-    let Some(position) = notebook.page_num(&widget) else {
-        return false;
-    };
-    let target = position as i32 + step;
-    if !(0..notebook.n_pages() as i32).contains(&target) {
-        return false;
-    }
-    notebook.reorder_child(&widget, Some(target as u32));
-    notebook.set_current_page(Some(target as u32));
-    true
 }
 
 #[cfg(test)]
