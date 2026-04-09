@@ -98,6 +98,7 @@ fn build_embedded_browser_panel(
 
     let toolbar = build_browser_toolbar();
     let back_btn = toolbar.back_btn.clone();
+    let devtools_btn = toolbar.devtools_btn.clone();
     let forward_btn = toolbar.forward_btn.clone();
     let reload_btn = toolbar.reload_btn.clone();
     let address_entry = toolbar.address_entry.clone();
@@ -132,6 +133,22 @@ fn build_embedded_browser_panel(
             status_label.set_text("");
             entry.set_text(&uri);
             load_linux_browser_uri(&web_view, &uri, &status_label);
+        });
+    }
+
+    {
+        let web_view = web_view.clone();
+        let status_label = status_label.clone();
+        devtools_btn.connect_clicked(move |_| {
+            if let Some(settings) = webkit6::prelude::WebViewExt::settings(&web_view) {
+                settings.set_enable_developer_extras(true);
+            }
+            if let Some(inspector) = web_view.inspector() {
+                inspector.show();
+                status_label.set_text("Developer Tools opened");
+            } else {
+                status_label.set_text("Developer Tools unavailable");
+            }
         });
     }
 
@@ -297,6 +314,7 @@ fn build_macos_embedded_browser_panel(
 
     let toolbar = build_browser_toolbar();
     let back_btn = toolbar.back_btn.clone();
+    let devtools_btn = toolbar.devtools_btn.clone();
     let forward_btn = toolbar.forward_btn.clone();
     let reload_btn = toolbar.reload_btn.clone();
     let address_entry = toolbar.address_entry.clone();
@@ -334,6 +352,11 @@ fn build_macos_embedded_browser_panel(
         web_view,
         attached_host_ptr: Cell::new(0),
     });
+
+    devtools_btn.set_sensitive(false);
+    devtools_btn.set_tooltip_text(Some(
+        "Developer Tools are not exposed by the embedded macOS browser backend yet",
+    ));
 
     let navigate_to = {
         let state = state.clone();
@@ -613,10 +636,16 @@ fn build_native_browser_launcher_panel(
 
     let toolbar = build_browser_toolbar();
     let back_btn = toolbar.back_btn.clone();
+    let devtools_btn = toolbar.devtools_btn.clone();
     let forward_btn = toolbar.forward_btn.clone();
     let reload_btn = toolbar.reload_btn.clone();
     let address_entry = toolbar.address_entry.clone();
     let status_label = toolbar.status_label.clone();
+
+    devtools_btn.set_sensitive(false);
+    devtools_btn.set_tooltip_text(Some(
+        "Developer Tools are only available on the embedded Linux browser backend",
+    ));
 
     let open_btn = gtk4::Button::new();
     open_btn.set_icon_name("document-open-symbolic");
@@ -819,6 +848,11 @@ fn build_browser_toolbar() -> BrowserToolbar {
     forward_btn.set_tooltip_text(Some("Forward"));
     forward_btn.set_sensitive(false);
 
+    let devtools_btn = gtk4::Button::new();
+    devtools_btn.set_icon_name("applications-development-symbolic");
+    devtools_btn.add_css_class("flat");
+    devtools_btn.set_tooltip_text(Some("Open Developer Tools"));
+
     let reload_btn = gtk4::Button::new();
     reload_btn.set_icon_name("view-refresh-symbolic");
     reload_btn.add_css_class("flat");
@@ -843,6 +877,7 @@ fn build_browser_toolbar() -> BrowserToolbar {
 
     toolbar.append(&back_btn);
     toolbar.append(&forward_btn);
+    toolbar.append(&devtools_btn);
     toolbar.append(&reload_btn);
     toolbar.append(&address_entry);
 
@@ -850,6 +885,7 @@ fn build_browser_toolbar() -> BrowserToolbar {
         toolbar,
         back_btn,
         forward_btn,
+        devtools_btn,
         reload_btn,
         address_entry,
         progress,
@@ -862,6 +898,7 @@ struct BrowserToolbar {
     toolbar: gtk4::Box,
     back_btn: gtk4::Button,
     forward_btn: gtk4::Button,
+    devtools_btn: gtk4::Button,
     reload_btn: gtk4::Button,
     address_entry: gtk4::Entry,
     progress: gtk4::ProgressBar,
