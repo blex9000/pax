@@ -164,6 +164,7 @@ impl CodeEditorPanel {
         // Activity bar: Files / Git toggle
         let activity_bar = gtk4::Box::new(gtk4::Orientation::Horizontal, 2);
         activity_bar.add_css_class("editor-sidebar-toolbar");
+        activity_bar.add_css_class("editor-file-tree-header");
         activity_bar.set_margin_start(4);
         activity_bar.set_margin_end(4);
         activity_bar.set_margin_top(2);
