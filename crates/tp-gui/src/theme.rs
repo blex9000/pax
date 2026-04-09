@@ -313,14 +313,6 @@ box.panel-title-bar, box.panel-footer-bar, .status-bar, .markdown-toolbar { back
   border-bottom: none;
   border-left: none;
 }
-.editor-file-preview-footer {
-  background-color: @view_bg_color;
-  color: @view_fg_color;
-  border-top: 1px solid alpha(@borders, 0.4);
-  border-right: none;
-  border-bottom: none;
-  border-left: none;
-}
 notebook.workspace-tabs,
 notebook.workspace-tabs > header,
 notebook.workspace-tabs > header > tabs,
@@ -422,6 +414,15 @@ box.panel-title-bar { padding: 2px 6px; margin: 0; min-height: 20px; border-bott
 .panel-type-btn { min-width: 120px; }
 .panel-footer-bar { padding: 1px 8px 1px 12px; min-height: 18px; border-top: 1px solid alpha(@borders, 0.4); }
 .panel-footer { font-size: 10px; }
+box.panel-footer-bar.editor-file-preview-footer,
+box.editor-file-preview-footer.panel-footer {
+  background-color: @view_bg_color;
+  color: @view_fg_color;
+  border-top: 1px solid alpha(@borders, 0.4);
+  border-right: none;
+  border-bottom: none;
+  border-left: none;
+}
 .status-bar { padding: 2px 8px; min-height: 22px; }
 .status-mode { font-weight: bold; padding: 0 6px; }
 .markdown-panel { font-family: sans-serif; font-size: 12px; }
@@ -676,7 +677,7 @@ mod tests {
         assert!(BASE_CSS.contains(".editor-file-tree-actions"));
         assert!(BASE_CSS.contains(".editor-file-tree-header"));
         assert!(BASE_CSS.contains(".editor-file-tree-header-wrap"));
-        assert!(BASE_CSS.contains(".editor-file-preview-footer"));
+        assert!(BASE_CSS.contains("box.panel-footer-bar.editor-file-preview-footer"));
         assert!(BASE_CSS.contains("background-color: @view_bg_color;"));
         assert!(BASE_CSS.contains("color: @view_fg_color;"));
         assert!(BASE_CSS.contains(".editor-file-tree-entry.editor-file-tree-ignored"));
