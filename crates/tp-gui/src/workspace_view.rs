@@ -745,6 +745,10 @@ impl WorkspaceView {
         &mut self.workspace
     }
 
+    pub fn set_workspace_theme_id_clean(&mut self, theme_id: &str) {
+        self.workspace.settings.theme = theme_id.to_string();
+    }
+
     // ── Focus management (delegated to FocusManager) ──────────────────────
 
     pub fn focus_next(&mut self) {

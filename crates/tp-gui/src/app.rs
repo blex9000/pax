@@ -147,11 +147,12 @@ fn setup_workspace_ui(
     workspace: Workspace,
     config_path: Option<&Path>,
 ) {
+    let mut workspace = workspace;
+    let workspace_theme = normalize_workspace_theme(&mut workspace, load_preferred_theme());
     let ws_name = workspace.name.clone();
-    let workspace_theme = Theme::from_id(&workspace.settings.theme);
     window.set_title(Some(&format!("Pax — {}", ws_name)));
 
-    // Apply saved theme
+    // Apply the app-wide preferred theme before building the workspace chrome.
     apply_theme(workspace_theme);
 
     // Header bar with hamburger menu
@@ -673,7 +674,7 @@ fn setup_workspace_ui(
             let sa2 = sa.clone();
             let on_continue: Rc<dyn Fn()> = Rc::new(move || {
                 let empty = new_workspace_with_preferred_theme("untitled");
-                let empty_theme = Theme::from_id(&empty.settings.theme);
+                let empty_theme = load_preferred_theme();
                 if let Err(e) = ws2.borrow_mut().load_workspace(empty, None) {
                     sb2.borrow().set_message(&format!("Error: {}", e));
                 }
@@ -748,7 +749,7 @@ fn setup_workspace_ui(
                 let view = ws.borrow();
                 crate::dialogs::settings::AppSettings {
                     workspace_name: view.workspace().name.clone(),
-                    theme: Theme::from_id(&view.workspace().settings.theme),
+                    theme: load_preferred_theme(),
                     default_shell: view.workspace().settings.default_shell.clone(),
                     scrollback_lines: view.workspace().settings.scrollback_lines,
                     output_retention_days: view.workspace().settings.output_retention_days,
@@ -1136,6 +1137,11 @@ fn new_workspace_with_preferred_theme(name: &str) -> Workspace {
     workspace_with_theme(name, load_preferred_theme())
 }
 
+fn normalize_workspace_theme(workspace: &mut Workspace, preferred_theme: Theme) -> Theme {
+    workspace.settings.theme = preferred_theme.to_id().to_string();
+    preferred_theme
+}
+
 fn workspace_with_theme(name: &str, theme: Theme) -> Workspace {
     let mut workspace = pax_core::template::empty_workspace(name);
     workspace.settings.theme = theme.to_id().to_string();
@@ -1163,6 +1169,12 @@ fn save_preferred_theme(theme: Theme) {
         return;
     };
     let _ = db.set_app_preference("theme", theme.to_id());
+}
+
+pub(crate) fn apply_preferred_theme() -> Theme {
+    let theme = load_preferred_theme();
+    apply_theme(theme);
+    theme
 }
 
 fn apply_theme(theme: Theme) {
@@ -1204,8 +1216,11 @@ fn apply_theme(theme: Theme) {
 
 #[cfg(test)]
 mod tests {
-    use super::{load_preferred_theme_from_db, workspace_with_theme, Theme};
+    use super::{
+        load_preferred_theme_from_db, normalize_workspace_theme, workspace_with_theme, Theme,
+    };
     use pax_db::Database;
+    use pax_core::template::empty_workspace;
 
     #[test]
     fn startup_theme_uses_default_theme() {
@@ -1225,6 +1240,17 @@ mod tests {
         let workspace = workspace_with_theme("untitled", Theme::Dracula);
 
         assert_eq!(workspace.settings.theme, "dracula");
+    }
+
+    #[test]
+    fn workspace_theme_is_normalized_to_saved_preference() {
+        let mut workspace = empty_workspace("test");
+        workspace.settings.theme = Theme::CatppuccinLatte.to_id().to_string();
+
+        let theme = normalize_workspace_theme(&mut workspace, Theme::Nord);
+
+        assert_eq!(theme, Theme::Nord);
+        assert_eq!(workspace.settings.theme, Theme::Nord.to_id());
     }
 }
 

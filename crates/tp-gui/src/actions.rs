@@ -241,6 +241,9 @@ pub fn do_open(
                     let on_continue: Rc<dyn Fn()> = Rc::new(move || {
                         match ws2.borrow_mut().load_from_file(&path) {
                             Ok(()) => {
+                                let theme = crate::app::apply_preferred_theme();
+                                ws2.borrow_mut()
+                                    .set_workspace_theme_id_clean(theme.to_id());
                                 sb2.borrow().set_message(&format!("Opened: {}", path.display()));
                             }
                             Err(e) => {
@@ -360,7 +363,12 @@ pub fn show_recent_dialog(
                     let path2 = path.clone();
                     let on_continue: Rc<dyn Fn()> = Rc::new(move || {
                         match ws2.borrow_mut().load_from_file(&path2) {
-                            Ok(()) => sb2.borrow().set_message(&format!("Opened: {}", path2.display())),
+                            Ok(()) => {
+                                let theme = crate::app::apply_preferred_theme();
+                                ws2.borrow_mut()
+                                    .set_workspace_theme_id_clean(theme.to_id());
+                                sb2.borrow().set_message(&format!("Opened: {}", path2.display()));
+                            }
                             Err(e) => {
                                 sb2.borrow().set_message(&format!("Error: {}", e));
                                 return;
