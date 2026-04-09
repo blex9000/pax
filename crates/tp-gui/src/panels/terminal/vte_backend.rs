@@ -148,7 +148,20 @@ impl TerminalInner {
     ) {
         let key_controller = gtk4::EventControllerKey::new();
         key_controller.set_propagation_phase(gtk4::PropagationPhase::Capture);
+        let vte_for_keys = vte.clone();
         key_controller.connect_key_pressed(move |_ctrl, key, _code, modifiers| {
+            if let Some(action) = super::input::terminal_clipboard_action(key, modifiers) {
+                match action {
+                    super::input::TerminalClipboardAction::Copy => {
+                        vte_for_keys.copy_clipboard_format(vte4::Format::Text);
+                    }
+                    super::input::TerminalClipboardAction::Paste => {
+                        vte_for_keys.paste_clipboard();
+                    }
+                }
+                return glib::Propagation::Stop;
+            }
+
             if let Some(bytes) = super::input::encode_key_input(key, modifiers) {
                 if let Ok(borrowed) = input_cb.try_borrow() {
                     if let Some(ref cb) = *borrowed {

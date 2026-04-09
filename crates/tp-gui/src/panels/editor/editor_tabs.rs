@@ -7,6 +7,57 @@ use std::sync::Arc;
 
 use super::EditorState;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TextClipboardAction {
+    Copy,
+    Cut,
+    Paste,
+}
+
+fn text_clipboard_action(
+    key: gtk4::gdk::Key,
+    modifiers: gtk4::gdk::ModifierType,
+) -> Option<TextClipboardAction> {
+    if !modifiers.contains(gtk4::gdk::ModifierType::CONTROL_MASK) {
+        return None;
+    }
+
+    match key {
+        gtk4::gdk::Key::c | gtk4::gdk::Key::C => Some(TextClipboardAction::Copy),
+        gtk4::gdk::Key::x | gtk4::gdk::Key::X => Some(TextClipboardAction::Cut),
+        gtk4::gdk::Key::v | gtk4::gdk::Key::V => Some(TextClipboardAction::Paste),
+        _ => None,
+    }
+}
+
+fn install_text_clipboard_shortcuts<W: IsA<gtk4::Widget>>(widget: &W) {
+    let widget = widget.as_ref().clone();
+    let widget_for_action = widget.clone();
+    let key_ctrl = gtk4::EventControllerKey::new();
+    key_ctrl.set_propagation_phase(gtk4::PropagationPhase::Capture);
+    key_ctrl.connect_key_pressed(move |_, key, _, modifiers| {
+        let Some(action) = text_clipboard_action(key, modifiers) else {
+            return gtk4::glib::Propagation::Proceed;
+        };
+
+        let action_name = match action {
+            TextClipboardAction::Copy => "clipboard.copy",
+            TextClipboardAction::Cut => "clipboard.cut",
+            TextClipboardAction::Paste => "clipboard.paste",
+        };
+
+        if widget_for_action
+            .activate_action(action_name, None::<&gtk4::glib::Variant>)
+            .is_ok()
+        {
+            gtk4::glib::Propagation::Stop
+        } else {
+            gtk4::glib::Propagation::Proceed
+        }
+    });
+    widget.add_controller(key_ctrl);
+}
+
 /// Manages the Notebook tabs and SourceView buffers.
 /// The notebook is used ONLY as a tab bar — its page content is always empty.
 /// Actual content (welcome message or source code) lives in `content_stack`.
@@ -53,6 +104,7 @@ impl EditorTabs {
         source_view.set_monospace(true);
         source_view.set_show_right_margin(true);
         source_view.set_right_margin_position(120);
+        install_text_clipboard_shortcuts(&source_view);
 
         // Apply and register for theme updates
         if let Some(buf) = source_view.buffer().downcast_ref::<sourceview5::Buffer>() {
@@ -845,6 +897,7 @@ impl EditorTabs {
             view.set_show_line_numbers(true);
             view.set_monospace(true);
             view.set_left_margin(4);
+            install_text_clipboard_shortcuts(&view);
             if editable {
                 view.set_auto_indent(true);
                 view.set_tab_width(4);
@@ -1494,6 +1547,7 @@ fn show_commit_file_diff(
         view.set_show_line_numbers(true);
         view.set_monospace(true);
         view.set_left_margin(4);
+        install_text_clipboard_shortcuts(&view);
         let scroll = gtk4::ScrolledWindow::new();
         scroll.set_child(Some(&view));
         scroll.set_vexpand(true);
@@ -1626,4 +1680,29 @@ fn get_mtime(path: &Path) -> u64 {
                 .as_secs()
         })
         .unwrap_or(0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn recognizes_text_clipboard_shortcuts() {
+        assert_eq!(
+            text_clipboard_action(gtk4::gdk::Key::c, gtk4::gdk::ModifierType::CONTROL_MASK,),
+            Some(TextClipboardAction::Copy)
+        );
+        assert_eq!(
+            text_clipboard_action(gtk4::gdk::Key::X, gtk4::gdk::ModifierType::CONTROL_MASK,),
+            Some(TextClipboardAction::Cut)
+        );
+        assert_eq!(
+            text_clipboard_action(gtk4::gdk::Key::v, gtk4::gdk::ModifierType::CONTROL_MASK,),
+            Some(TextClipboardAction::Paste)
+        );
+        assert_eq!(
+            text_clipboard_action(gtk4::gdk::Key::c, gtk4::gdk::ModifierType::SHIFT_MASK),
+            None
+        );
+    }
 }

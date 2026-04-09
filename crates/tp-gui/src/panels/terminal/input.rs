@@ -1,5 +1,28 @@
 use gtk4::gdk;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum TerminalClipboardAction {
+    Copy,
+    Paste,
+}
+
+pub(crate) fn terminal_clipboard_action(
+    key: gdk::Key,
+    modifiers: gdk::ModifierType,
+) -> Option<TerminalClipboardAction> {
+    if !modifiers.contains(gdk::ModifierType::CONTROL_MASK)
+        || !modifiers.contains(gdk::ModifierType::SHIFT_MASK)
+    {
+        return None;
+    }
+
+    match key {
+        gdk::Key::c | gdk::Key::C => Some(TerminalClipboardAction::Copy),
+        gdk::Key::v | gdk::Key::V => Some(TerminalClipboardAction::Paste),
+        _ => None,
+    }
+}
+
 pub(crate) fn encode_key_input(key: gdk::Key, modifiers: gdk::ModifierType) -> Option<Vec<u8>> {
     let alt = modifiers.contains(gdk::ModifierType::ALT_MASK);
     let control = modifiers.contains(gdk::ModifierType::CONTROL_MASK);
@@ -113,6 +136,24 @@ mod tests {
         assert_eq!(
             encode_key_input(gdk::Key::Left, gdk::ModifierType::ALT_MASK),
             Some(b"\x1b\x1b[D".to_vec())
+        );
+    }
+
+    #[test]
+    fn recognizes_terminal_clipboard_shortcuts() {
+        let modifiers = gdk::ModifierType::CONTROL_MASK | gdk::ModifierType::SHIFT_MASK;
+
+        assert_eq!(
+            terminal_clipboard_action(gdk::Key::c, modifiers),
+            Some(TerminalClipboardAction::Copy)
+        );
+        assert_eq!(
+            terminal_clipboard_action(gdk::Key::V, modifiers),
+            Some(TerminalClipboardAction::Paste)
+        );
+        assert_eq!(
+            terminal_clipboard_action(gdk::Key::c, gdk::ModifierType::CONTROL_MASK),
+            None
         );
     }
 }

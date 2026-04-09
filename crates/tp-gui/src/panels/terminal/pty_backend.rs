@@ -315,32 +315,35 @@ impl TerminalInner {
             let key_controller = gtk4::EventControllerKey::new();
             key_controller.connect_key_pressed(move |ctrl, key, _code, modifiers| {
                 let widget = ctrl.widget().and_downcast::<gtk4::DrawingArea>();
-                if modifiers.contains(gdk::ModifierType::CONTROL_MASK)
-                    && modifiers.contains(gdk::ModifierType::SHIFT_MASK)
-                {
-                    if matches!(key, gdk::Key::c | gdk::Key::C) {
-                        if let Some(widget) = widget {
-                            if let Some(text) = selection_text(&term_state) {
-                                widget.clipboard().set_text(&text);
+                if let Some(action) = super::input::terminal_clipboard_action(key, modifiers) {
+                    match action {
+                        super::input::TerminalClipboardAction::Copy => {
+                            if let Some(widget) = widget {
+                                if let Some(text) = selection_text(&term_state) {
+                                    widget.clipboard().set_text(&text);
+                                }
                             }
+                            return glib::Propagation::Stop;
                         }
-                        return glib::Propagation::Stop;
-                    }
-                    if matches!(key, gdk::Key::v | gdk::Key::V) {
-                        if let Some(widget) = widget {
-                            let writer = writer.clone();
-                            let input_cb = input_cb.clone();
-                            widget.clipboard().read_text_async(
-                                None::<&gtk4::gio::Cancellable>,
-                                move |result| {
-                                    if let Ok(Some(text)) = result {
-                                        let _ =
-                                            send_user_input(&writer, &input_cb, text.as_bytes());
-                                    }
-                                },
-                            );
+                        super::input::TerminalClipboardAction::Paste => {
+                            if let Some(widget) = widget {
+                                let writer = writer.clone();
+                                let input_cb = input_cb.clone();
+                                widget.clipboard().read_text_async(
+                                    None::<&gtk4::gio::Cancellable>,
+                                    move |result| {
+                                        if let Ok(Some(text)) = result {
+                                            let _ = send_user_input(
+                                                &writer,
+                                                &input_cb,
+                                                text.as_bytes(),
+                                            );
+                                        }
+                                    },
+                                );
+                            }
+                            return glib::Propagation::Stop;
                         }
-                        return glib::Propagation::Stop;
                     }
                 }
 
