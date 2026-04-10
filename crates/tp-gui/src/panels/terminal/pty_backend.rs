@@ -587,6 +587,16 @@ fn terminal_palette_for(theme: crate::theme::Theme, _system_dark: bool) -> Termi
                 0x4c566a, 0xbf616a, 0xa3be8c, 0xebcb8b, 0x81a1c1, 0xb48ead, 0x8fbcbb, 0xeceff4,
             ],
         ),
+        crate::theme::Theme::Graphite => make_terminal_palette(
+            0x0f141b,
+            0xe5ecf3,
+            0x253042,
+            0xe5ecf3,
+            [
+                0x1f2733, 0xff8b7f, 0x8ecf9f, 0xe7c86e, 0x7cb2ff, 0xb19cff, 0x71c6d4, 0xd4dbe3,
+                0x3a4556, 0xff9b92, 0x9fdbad, 0xf0d98a, 0x91beff, 0xc3b2ff, 0x83d5e1, 0xf2f5f8,
+            ],
+        ),
         crate::theme::Theme::CatppuccinMocha => make_terminal_palette(
             0x1e1e2e,
             0xcdd6f4,

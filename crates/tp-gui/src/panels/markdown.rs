@@ -90,10 +90,10 @@ impl MarkdownPanel {
         // ── Main toolbar ─────────────────────────────────────────────────
         let toolbar = gtk4::Box::new(gtk4::Orientation::Horizontal, 2);
         toolbar.add_css_class("markdown-toolbar");
-        toolbar.set_margin_start(4);
-        toolbar.set_margin_end(4);
-        toolbar.set_margin_top(2);
-        toolbar.set_margin_bottom(2);
+        toolbar.set_margin_start(2);
+        toolbar.set_margin_end(2);
+        toolbar.set_margin_top(1);
+        toolbar.set_margin_bottom(1);
 
         let render_btn = gtk4::ToggleButton::new();
         render_btn.set_icon_name("emblem-documents-symbolic");
@@ -149,8 +149,8 @@ impl MarkdownPanel {
         // ── Formatting toolbar (edit mode only) ──────────────────────────
         let fmt_bar = gtk4::Box::new(gtk4::Orientation::Horizontal, 1);
         fmt_bar.add_css_class("markdown-toolbar");
-        fmt_bar.set_margin_start(4);
-        fmt_bar.set_margin_end(4);
+        fmt_bar.set_margin_start(2);
+        fmt_bar.set_margin_end(2);
         fmt_bar.set_visible(false);
 
         let edit_buf_ref: Rc<RefCell<Option<gtk4::TextBuffer>>> = Rc::new(RefCell::new(None));
@@ -215,10 +215,10 @@ impl MarkdownPanel {
         render_view.set_editable(false);
         render_view.set_cursor_visible(false);
         render_view.set_wrap_mode(gtk4::WrapMode::Word);
-        render_view.set_left_margin(12);
-        render_view.set_right_margin(12);
-        render_view.set_top_margin(8);
-        render_view.set_bottom_margin(8);
+        render_view.set_left_margin(10);
+        render_view.set_right_margin(10);
+        render_view.set_top_margin(6);
+        render_view.set_bottom_margin(6);
         render_view.add_css_class("markdown-panel");
 
         let render_scroll = gtk4::ScrolledWindow::new();
@@ -237,13 +237,14 @@ impl MarkdownPanel {
             buf.set_highlight_syntax(true);
             crate::theme::register_sourceview_buffer(&buf);
             let sv = sourceview5::View::with_buffer(&buf);
+            sv.add_css_class("editor-code-view");
             sv.set_show_line_numbers(true);
             sv.set_highlight_current_line(true);
             sv.set_auto_indent(true);
             sv.set_tab_width(4);
             sv.set_wrap_mode(gtk4::WrapMode::Word);
-            sv.set_left_margin(8);
-            sv.set_top_margin(4);
+            sv.set_left_margin(6);
+            sv.set_top_margin(3);
             sv.set_monospace(true);
             (sv, buf.upcast::<gtk4::TextBuffer>())
         };
@@ -251,9 +252,10 @@ impl MarkdownPanel {
         #[cfg(not(feature = "sourceview"))]
         let (source_view, source_buffer) = {
             let tv = gtk4::TextView::new();
+            tv.add_css_class("editor-code-view");
             tv.set_wrap_mode(gtk4::WrapMode::Word);
-            tv.set_left_margin(8);
-            tv.set_top_margin(4);
+            tv.set_left_margin(6);
+            tv.set_top_margin(3);
             tv.set_monospace(true);
             let buf = tv.buffer();
             buf.set_enable_undo(true);

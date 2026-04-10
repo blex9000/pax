@@ -146,13 +146,14 @@ impl EditorTabs {
 
         // Single SourceView that switches buffers
         let source_view = sourceview5::View::new();
+        source_view.add_css_class("editor-code-view");
         source_view.set_show_line_numbers(true);
         source_view.set_highlight_current_line(true);
         source_view.set_auto_indent(true);
         source_view.set_tab_width(4);
         source_view.set_wrap_mode(gtk4::WrapMode::None);
-        source_view.set_left_margin(8);
-        source_view.set_top_margin(4);
+        source_view.set_left_margin(6);
+        source_view.set_top_margin(3);
         source_view.set_monospace(true);
         source_view.set_show_right_margin(true);
         source_view.set_right_margin_position(120);
@@ -948,10 +949,11 @@ impl EditorTabs {
 
         let make_sv = |buf: &sourceview5::Buffer, editable: bool| -> gtk4::ScrolledWindow {
             let view = sourceview5::View::with_buffer(buf);
+            view.add_css_class("editor-code-view");
             view.set_editable(editable);
             view.set_show_line_numbers(true);
             view.set_monospace(true);
-            view.set_left_margin(4);
+            view.set_left_margin(3);
             install_text_clipboard_shortcuts(&view);
             install_text_history_shortcuts(&view, buf);
             if editable {
@@ -1599,10 +1601,11 @@ fn show_commit_file_diff(
 
     let make_sv = |buf: &sourceview5::Buffer| -> gtk4::ScrolledWindow {
         let view = sourceview5::View::with_buffer(buf);
+        view.add_css_class("editor-code-view");
         view.set_editable(false);
         view.set_show_line_numbers(true);
         view.set_monospace(true);
-        view.set_left_margin(4);
+        view.set_left_margin(3);
         install_text_clipboard_shortcuts(&view);
         install_text_history_shortcuts(&view, buf);
         let scroll = gtk4::ScrolledWindow::new();

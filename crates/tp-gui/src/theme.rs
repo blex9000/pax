@@ -143,6 +143,7 @@ fn apply_theme_to_all_buffers(theme: Theme) {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Theme {
     System,
+    Graphite,
     CatppuccinMocha,
     CatppuccinLatte,
     Dracula,
@@ -165,6 +166,7 @@ impl Theme {
 
     pub fn label(&self) -> &str {
         match self.resolved() {
+            Theme::Graphite => "Graphite",
             Theme::CatppuccinMocha => "Catppuccin Mocha",
             Theme::CatppuccinLatte => "Catppuccin Latte",
             Theme::Dracula => "Dracula",
@@ -176,6 +178,7 @@ impl Theme {
     pub fn all() -> &'static [Theme] {
         &[
             Theme::Nord,
+            Theme::Graphite,
             Theme::CatppuccinMocha,
             Theme::CatppuccinLatte,
             Theme::Dracula,
@@ -185,7 +188,7 @@ impl Theme {
     pub fn color_scheme(&self) -> libadwaita::ColorScheme {
         match self.resolved() {
             Theme::CatppuccinLatte => libadwaita::ColorScheme::ForceLight,
-            Theme::CatppuccinMocha | Theme::Dracula | Theme::Nord => {
+            Theme::Graphite | Theme::CatppuccinMocha | Theme::Dracula | Theme::Nord => {
                 libadwaita::ColorScheme::ForceDark
             }
             Theme::System => unreachable!(),
@@ -194,6 +197,7 @@ impl Theme {
 
     pub fn to_id(&self) -> &str {
         match self.resolved() {
+            Theme::Graphite => "graphite",
             Theme::CatppuccinMocha => "catppuccin-mocha",
             Theme::CatppuccinLatte => "catppuccin-latte",
             Theme::Dracula => "dracula",
@@ -205,6 +209,7 @@ impl Theme {
     pub fn from_id(id: &str) -> Theme {
         match id {
             "system" | "" => Theme::Nord,
+            "graphite" => Theme::Graphite,
             "catppuccin-mocha" => Theme::CatppuccinMocha,
             "catppuccin-latte" => Theme::CatppuccinLatte,
             "dracula" => Theme::Dracula,
@@ -216,6 +221,10 @@ impl Theme {
     /// Returns (background, foreground) RGBA for VTE terminal.
     pub fn terminal_colors(&self) -> Option<(gtk4::gdk::RGBA, gtk4::gdk::RGBA)> {
         match self.resolved() {
+            Theme::Graphite => Some((
+                gtk4::gdk::RGBA::new(0.059, 0.078, 0.106, 1.0), // #0f141b
+                gtk4::gdk::RGBA::new(0.898, 0.925, 0.953, 1.0), // #e5ecf3
+            )),
             Theme::CatppuccinMocha => Some((
                 gtk4::gdk::RGBA::new(0.118, 0.118, 0.180, 1.0), // #1e1e2e
                 gtk4::gdk::RGBA::new(0.804, 0.839, 0.957, 1.0), // #cdd6f4
@@ -240,6 +249,7 @@ impl Theme {
     #[cfg(feature = "sourceview")]
     pub fn sourceview_scheme(&self) -> &str {
         match self.resolved() {
+            Theme::Graphite => "pax-graphite",
             Theme::CatppuccinMocha => "pax-catppuccin-mocha",
             Theme::CatppuccinLatte => "pax-catppuccin-latte",
             Theme::Dracula => "pax-dracula",
@@ -252,6 +262,7 @@ impl Theme {
     #[cfg(feature = "sourceview")]
     pub fn sourceview_scheme_fallback(&self) -> &str {
         match self.resolved() {
+            Theme::Graphite => "Adwaita-dark",
             Theme::CatppuccinLatte => "Adwaita",
             Theme::CatppuccinMocha | Theme::Dracula | Theme::Nord => "Adwaita-dark",
             Theme::System => unreachable!(),
@@ -261,6 +272,7 @@ impl Theme {
     /// Returns CSS @define-color overrides for libadwaita named colors.
     pub fn css_overrides(&self) -> &str {
         match self.resolved() {
+            Theme::Graphite => GRAPHITE_CSS,
             Theme::CatppuccinMocha => CATPPUCCIN_MOCHA_CSS,
             Theme::CatppuccinLatte => CATPPUCCIN_LATTE_CSS,
             Theme::Dracula => DRACULA_CSS,
@@ -272,7 +284,12 @@ impl Theme {
 
 /// Minimal CSS — only layout, no colors.
 pub const BASE_CSS: &str = "
-window, .background { background-color: @window_bg_color; color: @window_fg_color; }
+window, .background {
+  background-color: @window_bg_color;
+  color: @window_fg_color;
+  font-family: \"Inter\", \"SF Pro Text\", \"Segoe UI Variable\", \"Segoe UI\", \"Noto Sans\", \"Cantarell\", sans-serif;
+  font-size: 11px;
+}
 window.app-dialog,
 window.app-dialog > * {
   background-color: @headerbar_bg_color;
@@ -333,8 +350,8 @@ notebook.workspace-tabs > header > tabs {
 notebook.workspace-tabs > header > tabs > tab {
   border-radius: 0;
   margin: 0;
-  padding-top: 4px;
-  padding-bottom: 4px;
+  padding-top: 3px;
+  padding-bottom: 3px;
   box-shadow: inset 0 -1px 0 0 @headerbar_border_color;
 }
 notebook.workspace-tabs > header > tabs > tab:hover {
@@ -385,7 +402,7 @@ popover.app-popover > contents {
   border: 1px solid alpha(@borders, 0.9);
   border-radius: 12px;
   box-shadow: none;
-  padding: 4px;
+  padding: 3px;
 }
 popover.app-popover > arrow {
   background-color: @popover_bg_color;
@@ -401,18 +418,18 @@ popover.app-popover image {
 }
 box.panel-frame { border: none; border-radius: 0; margin: 0; padding: 0; }
 box.panel-frame > box { margin: 0; padding: 0; }
-box.panel-title-bar { padding: 2px 6px; margin: 0; min-height: 20px; border-bottom: 1px solid alpha(@borders, 0.4); }
-.panel-title { font-size: 11px; font-weight: bold; }
-.panel-type-icon { min-height: 14px; min-width: 14px; opacity: 0.6; margin-right: 2px; }
-.panel-menu-btn { min-height: 16px; min-width: 16px; padding: 2px; }
-.panel-action-btn { min-height: 16px; min-width: 16px; padding: 2px; opacity: 0.5; }
+box.panel-title-bar { padding: 1px 6px; margin: 0; min-height: 18px; border-bottom: 1px solid alpha(@borders, 0.4); }
+.panel-title { font-size: 10px; font-weight: bold; }
+.panel-type-icon { min-height: 13px; min-width: 13px; opacity: 0.6; margin-right: 1px; }
+.panel-menu-btn { min-height: 15px; min-width: 15px; padding: 1px; }
+.panel-action-btn { min-height: 15px; min-width: 15px; padding: 1px; opacity: 0.5; }
 .panel-action-btn:hover { opacity: 1.0; }
 .sync-active { opacity: 1.0; color: #e5a50a; }
 .zoom-active { opacity: 1.0; color: #5588ff; }
 .panel-focused { border: none; }
 .panel-unfocused { border: none; }
 .panel-type-btn { min-width: 120px; }
-.panel-footer-bar { padding: 1px 8px 1px 12px; min-height: 18px; border-top: 1px solid alpha(@borders, 0.4); }
+.panel-footer-bar { padding: 1px 6px 1px 10px; min-height: 16px; border-top: 1px solid alpha(@borders, 0.4); }
 .panel-footer { font-size: 10px; }
 box.panel-footer-bar.editor-file-preview-footer,
 box.editor-file-preview-footer.panel-footer {
@@ -423,9 +440,17 @@ box.editor-file-preview-footer.panel-footer {
   border-bottom: none;
   border-left: none;
 }
-.status-bar { padding: 2px 8px; min-height: 22px; }
+.status-bar { padding: 1px 6px; min-height: 20px; }
 .status-mode { font-weight: bold; padding: 0 6px; }
-.markdown-panel { font-family: sans-serif; font-size: 12px; }
+.markdown-panel {
+  font-family: \"Inter\", \"SF Pro Text\", \"Segoe UI Variable\", \"Segoe UI\", \"Noto Sans\", \"Cantarell\", sans-serif;
+  font-size: 11px;
+}
+.editor-code-view,
+.editor-code-view text {
+  font-family: \"JetBrains Mono\", \"SF Mono\", \"Cascadia Code\", \"IBM Plex Mono\", \"Fira Code\", monospace;
+  font-size: 11px;
+}
 .markdown-toolbar { border-bottom: 1px solid alpha(@borders, 0.3); }
 .tab-close-btn { min-height: 14px; min-width: 14px; padding: 1px; }
 .panel-collapsed-overlay { background-color: @headerbar_bg_color; border-top: 1px solid alpha(@borders, 0.4); border-bottom: 1px solid alpha(@borders, 0.4); padding: 4px; min-width: 32px; min-height: 32px; }
@@ -486,6 +511,8 @@ combobox > box > button {
   border-color: alpha(@borders, 0.8);
   background-image: none;
   box-shadow: none;
+  min-height: 28px;
+  padding: 2px 6px;
 }
 entry text,
 spinbutton text,
@@ -527,7 +554,7 @@ popover.app-popover button.app-popover-button {
   border: none;
   border-radius: 8px;
   box-shadow: none;
-  min-height: 30px;
+  min-height: 26px;
 }
 popover.app-popover modelbutton:hover,
 popover.app-popover button.app-popover-button:hover {
@@ -603,6 +630,33 @@ const CATPPUCCIN_MOCHA_CSS: &str = "\
 @define-color accent_color #89b4fa;
 @define-color borders alpha(white, 0.15);
 @define-color headerbar_border_color alpha(white, 0.15);
+@define-color headerbar_backdrop_color @headerbar_bg_color;
+";
+
+const GRAPHITE_CSS: &str = "\
+@define-color window_bg_color #141a22;
+@define-color window_fg_color #e5ecf3;
+@define-color headerbar_bg_color #1a212c;
+@define-color headerbar_fg_color #e5ecf3;
+@define-color card_bg_color #202938;
+@define-color card_fg_color #e5ecf3;
+@define-color dialog_bg_color #202938;
+@define-color dialog_fg_color #e5ecf3;
+@define-color popover_bg_color #202938;
+@define-color popover_fg_color #e5ecf3;
+@define-color popover_shade_color alpha(black, 0.28);
+@define-color sidebar_bg_color #1d2531;
+@define-color sidebar_fg_color #d8e0ea;
+@define-color secondary_sidebar_bg_color #151b24;
+@define-color secondary_sidebar_fg_color #d8e0ea;
+@define-color thumbnail_bg_color #202938;
+@define-color view_bg_color #0f141b;
+@define-color view_fg_color #e5ecf3;
+@define-color accent_bg_color #6ea7ff;
+@define-color accent_fg_color #0f141b;
+@define-color accent_color #6ea7ff;
+@define-color borders alpha(white, 0.10);
+@define-color headerbar_border_color alpha(white, 0.10);
 @define-color headerbar_backdrop_color @headerbar_bg_color;
 ";
 
@@ -690,7 +744,8 @@ const NORD_CSS: &str = "\
 #[cfg(test)]
 mod tests {
     use super::{
-        Theme, BASE_CSS, CATPPUCCIN_LATTE_CSS, CATPPUCCIN_MOCHA_CSS, DRACULA_CSS, NORD_CSS,
+        Theme, BASE_CSS, CATPPUCCIN_LATTE_CSS, CATPPUCCIN_MOCHA_CSS, DRACULA_CSS, GRAPHITE_CSS,
+        NORD_CSS,
     };
 
     #[test]
@@ -716,6 +771,7 @@ mod tests {
     #[test]
     fn custom_themes_define_dialog_sidebar_and_thumbnail_tokens() {
         for css in [
+            GRAPHITE_CSS,
             CATPPUCCIN_MOCHA_CSS,
             CATPPUCCIN_LATTE_CSS,
             DRACULA_CSS,
@@ -741,6 +797,18 @@ mod tests {
         assert!(
             CATPPUCCIN_LATTE_CSS.contains("@define-color popover_bg_color @headerbar_bg_color;")
         );
+    }
+
+    #[test]
+    fn graphite_theme_is_available_as_dark_theme() {
+        assert!(Theme::all().contains(&Theme::Graphite));
+        assert_eq!(Theme::from_id("graphite"), Theme::Graphite);
+        assert_eq!(Theme::Graphite.to_id(), "graphite");
+        assert_eq!(
+            Theme::Graphite.color_scheme(),
+            libadwaita::ColorScheme::ForceDark
+        );
+        assert!(GRAPHITE_CSS.contains("@define-color view_bg_color #0f141b;"));
     }
 
     #[test]
@@ -778,6 +846,14 @@ mod tests {
         assert!(BASE_CSS.contains("background-color: transparent;"));
         assert!(BASE_CSS.contains("border: none;"));
         assert!(!BASE_CSS.contains("text,\ndropdown > button"));
+    }
+
+    #[test]
+    fn base_css_sets_compact_professional_font_stacks() {
+        assert!(BASE_CSS.contains("font-family: \"Inter\""));
+        assert!(BASE_CSS.contains(".editor-code-view"));
+        assert!(BASE_CSS.contains("\"JetBrains Mono\""));
+        assert!(BASE_CSS.contains("min-height: 28px;"));
     }
 
     #[test]
