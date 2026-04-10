@@ -11,6 +11,9 @@ use crate::panel_host::{
     COLLAPSED_PANEL_SIZE, COLLAPSE_SIZE,
 };
 
+const PANED_OVERLAY_CLASS: &str = "paned-overlay-shell";
+const COLLAPSED_DRAG_STRIP_SIZE: i32 = 4;
+
 #[derive(Debug, Clone)]
 pub struct TabLabelEditState {
     pub tab_id: String,
@@ -316,6 +319,8 @@ fn update_labels_with_layout(
     edit_state: Option<&TabLabelEditState>,
     path: &[usize],
 ) {
+    let widget = unwrap_layout_shell(widget);
+
     if let Ok(notebook) = widget.clone().downcast::<gtk4::Notebook>() {
         if let LayoutNode::Tabs {
             children,
@@ -389,7 +394,7 @@ fn update_labels_with_layout(
             // Paned has start_child and end_child
             if let Ok(paned) = widget.clone().downcast::<gtk4::Paned>() {
                 if let Some(w) = paned.start_child() {
-                    let w = unwrap_collapse_wrapper(&w);
+                    let w = unwrap_layout_shell(&w);
                     if let Some(c) = children.first() {
                         let mut child_path = path.to_vec();
                         child_path.push(0);
@@ -404,7 +409,7 @@ fn update_labels_with_layout(
                     }
                 }
                 if let Some(w) = paned.end_child() {
-                    let w = unwrap_collapse_wrapper(&w);
+                    let w = unwrap_layout_shell(&w);
                     // For 2 children: second child. For 3+: rest is a nested Paned.
                     if children.len() == 2 {
                         if let Some(c) = children.get(1) {
@@ -998,8 +1003,7 @@ fn build_paned(
         paned.set_resize_start_child(true);
         paned.set_resize_end_child(true);
         setup_paned_ratio(&paned, normalized[0], orientation);
-        setup_paned_drag_collapse(&paned, hosts);
-        return paned.upcast::<gtk4::Widget>();
+        return wrap_paned_with_collapse_overlay(&paned, hosts);
     }
 
     let paned = gtk4::Paned::new(orientation);
@@ -1035,11 +1039,9 @@ fn build_paned(
     paned.set_resize_start_child(true);
     paned.set_resize_end_child(true);
     setup_paned_ratio(&paned, normalized[0], orientation);
-    setup_paned_drag_collapse(&paned, hosts);
-    paned.upcast::<gtk4::Widget>()
+    wrap_paned_with_collapse_overlay(&paned, hosts)
 }
 
-/// Recursively find the first PanelHost inside a widget subtree.
 /// CSS class used to identify collapse wrapper boxes around nested layouts.
 const COLLAPSE_WRAPPER_CLASS: &str = "paned-collapse-wrapper";
 
@@ -1169,15 +1171,27 @@ fn reset_collapsed_children(widget: &gtk4::Widget) {
 }
 
 /// If the widget is a collapse wrapper, return its content child. Otherwise return the widget.
-fn unwrap_collapse_wrapper(widget: &gtk4::Widget) -> gtk4::Widget {
-    if let Ok(bx) = widget.clone().downcast::<gtk4::Box>() {
-        if bx.has_css_class(COLLAPSE_WRAPPER_CLASS) {
-            if let Some(content) = bx.first_child() {
-                return content;
+fn unwrap_layout_shell(widget: &gtk4::Widget) -> gtk4::Widget {
+    let mut current = widget.clone();
+    loop {
+        if let Ok(bx) = current.clone().downcast::<gtk4::Box>() {
+            if bx.has_css_class(COLLAPSE_WRAPPER_CLASS) {
+                if let Some(content) = bx.first_child() {
+                    current = content;
+                    continue;
+                }
             }
         }
+        if let Ok(overlay) = current.clone().downcast::<gtk4::Overlay>() {
+            if overlay.has_css_class(PANED_OVERLAY_CLASS) {
+                if let Some(child) = overlay.child() {
+                    current = child;
+                    continue;
+                }
+            }
+        }
+        return current;
     }
-    widget.clone()
 }
 
 /// Uniform collapse target for drag-collapse: works for both direct PanelHosts
@@ -1251,6 +1265,188 @@ fn collapsed_view_icon(collapsed_view: &gtk4::Widget) -> Option<gtk4::Image> {
     find_image_descendant(collapsed_view)
 }
 
+#[derive(Clone)]
+struct CollapsedOverlayControl {
+    root: gtk4::Box,
+    icon: gtk4::Image,
+}
+
+fn collapsed_icon_name(orient: gtk4::Orientation, is_start: bool) -> &'static str {
+    match (orient, is_start) {
+        (gtk4::Orientation::Horizontal, true) => "go-next-symbolic",
+        (gtk4::Orientation::Horizontal, false) => "go-previous-symbolic",
+        (_, true) => "go-down-symbolic",
+        (_, false) => "go-up-symbolic",
+    }
+}
+
+fn build_collapsed_overlay_control(
+    paned: &gtk4::Paned,
+    orient: gtk4::Orientation,
+    is_start: bool,
+) -> CollapsedOverlayControl {
+    let root = gtk4::Box::new(orient, 0);
+    root.add_css_class("panel-collapsed-overlay");
+    root.set_visible(false);
+    root.set_can_focus(false);
+
+    match (orient, is_start) {
+        (gtk4::Orientation::Horizontal, true) => {
+            root.set_halign(gtk4::Align::Start);
+            root.set_valign(gtk4::Align::Fill);
+            root.set_vexpand(true);
+            root.set_size_request(COLLAPSED_PANEL_SIZE, -1);
+        }
+        (gtk4::Orientation::Horizontal, false) => {
+            root.set_halign(gtk4::Align::End);
+            root.set_valign(gtk4::Align::Fill);
+            root.set_vexpand(true);
+            root.set_size_request(COLLAPSED_PANEL_SIZE, -1);
+        }
+        (gtk4::Orientation::Vertical, true) => {
+            root.set_halign(gtk4::Align::Fill);
+            root.set_valign(gtk4::Align::Start);
+            root.set_hexpand(true);
+            root.set_size_request(-1, COLLAPSED_PANEL_SIZE);
+        }
+        (gtk4::Orientation::Vertical, false) => {
+            root.set_halign(gtk4::Align::Fill);
+            root.set_valign(gtk4::Align::End);
+            root.set_hexpand(true);
+            root.set_size_request(-1, COLLAPSED_PANEL_SIZE);
+        }
+        _ => {}
+    }
+
+    let expand_area = gtk4::CenterBox::new();
+    expand_area.add_css_class("panel-collapsed-chip");
+    expand_area.set_halign(gtk4::Align::Fill);
+    expand_area.set_valign(gtk4::Align::Fill);
+    expand_area.set_hexpand(true);
+    expand_area.set_vexpand(true);
+    let icon = gtk4::Image::from_icon_name(collapsed_icon_name(orient, is_start));
+    icon.set_pixel_size(COLLAPSED_ICON_SIZE);
+    icon.set_halign(gtk4::Align::Center);
+    icon.set_valign(gtk4::Align::Center);
+    icon.set_can_target(false);
+    expand_area.set_center_widget(Some(&icon));
+
+    {
+        let paned = paned.clone();
+        let gesture = gtk4::GestureClick::new();
+        gesture.set_button(1);
+        gesture.connect_released(move |g, _, _, _| {
+            let total = if orient == gtk4::Orientation::Horizontal {
+                paned.allocation().width()
+            } else {
+                paned.allocation().height()
+            };
+            if total > 0 {
+                paned.set_position(total / 2);
+            }
+            g.set_state(gtk4::EventSequenceState::Claimed);
+        });
+        expand_area.add_controller(gesture);
+    }
+
+    let drag_strip = gtk4::Box::new(orient, 0);
+    drag_strip.add_css_class("panel-collapsed-drag-strip");
+    drag_strip.set_can_focus(false);
+    if orient == gtk4::Orientation::Horizontal {
+        drag_strip.set_size_request(COLLAPSED_DRAG_STRIP_SIZE, -1);
+        drag_strip.set_vexpand(true);
+        drag_strip.set_cursor_from_name(Some("col-resize"));
+    } else {
+        drag_strip.set_size_request(-1, COLLAPSED_DRAG_STRIP_SIZE);
+        drag_strip.set_hexpand(true);
+        drag_strip.set_cursor_from_name(Some("row-resize"));
+    }
+    {
+        let drag_origin = Rc::new(Cell::new(0));
+        let begin_origin = drag_origin.clone();
+        let paned_begin = paned.clone();
+        let paned_update = paned.clone();
+        let drag = gtk4::GestureDrag::new();
+        drag.set_button(1);
+        drag.connect_drag_begin(move |g, _, _| {
+            begin_origin.set(paned_begin.position());
+            g.set_state(gtk4::EventSequenceState::Claimed);
+        });
+        drag.connect_drag_update(move |_, offset_x, offset_y| {
+            let total = if orient == gtk4::Orientation::Horizontal {
+                paned_update.allocation().width()
+            } else {
+                paned_update.allocation().height()
+            };
+            if total <= 0 {
+                return;
+            }
+            let delta = if orient == gtk4::Orientation::Horizontal {
+                offset_x.round() as i32
+            } else {
+                offset_y.round() as i32
+            };
+            paned_update.set_position((drag_origin.get() + delta).clamp(0, total));
+        });
+        drag_strip.add_controller(drag);
+    }
+
+    match (orient, is_start) {
+        (gtk4::Orientation::Horizontal, true) | (gtk4::Orientation::Vertical, true) => {
+            root.append(&expand_area);
+            root.append(&drag_strip);
+        }
+        _ => {
+            root.append(&drag_strip);
+            root.append(&expand_area);
+        }
+    }
+
+    CollapsedOverlayControl { root, icon }
+}
+
+fn wrap_paned_with_collapse_overlay(
+    paned: &gtk4::Paned,
+    hosts: &HashMap<String, PanelHost>,
+) -> gtk4::Widget {
+    let start = find_collapse_target(&paned.start_child(), hosts);
+    let end = find_collapse_target(&paned.end_child(), hosts);
+    let orient = paned.orientation();
+    tracing::debug!(
+        "setup_paned_drag_collapse: orient={:?}, start={}, end={}",
+        orient,
+        start.is_some(),
+        end.is_some()
+    );
+
+    if start.is_none() && end.is_none() {
+        return paned.clone().upcast();
+    }
+
+    let overlay = gtk4::Overlay::new();
+    overlay.add_css_class(PANED_OVERLAY_CLASS);
+    overlay.set_child(Some(paned));
+
+    let start_control = start
+        .as_ref()
+        .map(|_| build_collapsed_overlay_control(paned, orient, true));
+    let end_control = end
+        .as_ref()
+        .map(|_| build_collapsed_overlay_control(paned, orient, false));
+
+    if let Some(control) = start_control.as_ref() {
+        overlay.add_overlay(&control.root);
+        overlay.set_measure_overlay(&control.root, false);
+    }
+    if let Some(control) = end_control.as_ref() {
+        overlay.add_overlay(&control.root);
+        overlay.set_measure_overlay(&control.root, false);
+    }
+
+    setup_paned_drag_collapse(paned, start, end, start_control, end_control);
+    overlay.upcast()
+}
+
 fn find_image_descendant(widget: &gtk4::Widget) -> Option<gtk4::Image> {
     if let Ok(image) = widget.clone().downcast::<gtk4::Image>() {
         return Some(image);
@@ -1269,23 +1465,18 @@ fn find_image_descendant(widget: &gtk4::Widget) -> Option<gtk4::Image> {
 
 /// Monitor Paned drag to auto-collapse/expand at threshold.
 ///
-/// IMPORTANT: This handler must NEVER call set_position() or toggle set_shrink_*_child().
-/// See panel_host.rs header comment for full explanation of constraints.
-///
-/// The handler only toggles visibility (set_visible) and size requests (set_size_request).
-/// These do not trigger position notify loops or block future resize.
-fn setup_paned_drag_collapse(paned: &gtk4::Paned, hosts: &HashMap<String, PanelHost>) {
+/// IMPORTANT: This handler must NEVER call set_position() or toggle set_shrink_*_child()
+/// while reacting to notify. See panel_host.rs header comment for full explanation of
+/// constraints. Visibility and size requests are safe here.
+fn setup_paned_drag_collapse(
+    paned: &gtk4::Paned,
+    start: Option<DragCollapseTarget>,
+    end: Option<DragCollapseTarget>,
+    start_control: Option<CollapsedOverlayControl>,
+    end_control: Option<CollapsedOverlayControl>,
+) {
     let threshold = COLLAPSE_SIZE + 8; // slightly above collapse size for drag detection
-
-    let start = find_collapse_target(&paned.start_child(), hosts);
-    let end = find_collapse_target(&paned.end_child(), hosts);
     let orient = paned.orientation();
-    tracing::debug!(
-        "setup_paned_drag_collapse: orient={:?}, start={}, end={}",
-        orient,
-        start.is_some(),
-        end.is_some()
-    );
 
     if start.is_none() && end.is_none() {
         return;
@@ -1315,7 +1506,9 @@ fn setup_paned_drag_collapse(paned: &gtk4::Paned, hosts: &HashMap<String, PanelH
         let end_size = total - pos;
 
         // Helper: collapse a target
-        let do_collapse = |target: &DragCollapseTarget, is_start: bool| {
+        let do_collapse = |target: &DragCollapseTarget,
+                           overlay: Option<&CollapsedOverlayControl>,
+                           is_start: bool| {
             tracing::debug!(
                 "drag_collapse orient={:?} side={} pos={} total={} target='{}'",
                 orient,
@@ -1332,19 +1525,18 @@ fn setup_paned_drag_collapse(paned: &gtk4::Paned, hosts: &HashMap<String, PanelH
             target
                 .outer
                 .set_size_request(COLLAPSED_PANEL_SIZE, COLLAPSED_PANEL_SIZE);
-            let icon = match (orient, is_start) {
-                (gtk4::Orientation::Horizontal, true) => "go-next-symbolic",
-                (gtk4::Orientation::Horizontal, false) => "go-previous-symbolic",
-                (_, true) => "go-down-symbolic",
-                (_, false) => "go-up-symbolic",
-            };
+            let icon = collapsed_icon_name(orient, is_start);
             if let Some(img) = collapsed_view_icon(&target.collapsed_view) {
                 img.set_icon_name(Some(icon));
+            }
+            if let Some(control) = overlay {
+                control.icon.set_icon_name(Some(icon));
+                control.root.set_visible(true);
             }
         };
 
         // Helper: expand a target
-        let do_expand = |target: &DragCollapseTarget| {
+        let do_expand = |target: &DragCollapseTarget, overlay: Option<&CollapsedOverlayControl>| {
             tracing::debug!(
                 "drag_expand orient={:?} pos={} total={} target='{}'",
                 orient,
@@ -1358,23 +1550,26 @@ fn setup_paned_drag_collapse(paned: &gtk4::Paned, hosts: &HashMap<String, PanelH
             if let (Some(ref f), Some(ref lbl)) = (&target.footer, &target.footer_label) {
                 f.set_visible(!lbl.text().is_empty());
             }
+            if let Some(control) = overlay {
+                control.root.set_visible(false);
+            }
         };
 
         // Auto-collapse/expand start child
         if let Some(ref t) = start {
             if start_size <= threshold && !t.is_collapsed() {
-                do_collapse(t, true);
+                do_collapse(t, start_control.as_ref(), true);
             } else if start_size > threshold && t.is_collapsed() {
-                do_expand(t);
+                do_expand(t, start_control.as_ref());
             }
         }
 
         // Auto-collapse/expand end child
         if let Some(ref t) = end {
             if end_size <= threshold && !t.is_collapsed() {
-                do_collapse(t, false);
+                do_collapse(t, end_control.as_ref(), false);
             } else if end_size > threshold && t.is_collapsed() {
-                do_expand(t);
+                do_expand(t, end_control.as_ref());
             }
         }
 
@@ -1409,6 +1604,11 @@ fn setup_paned_drag_collapse(paned: &gtk4::Paned, hosts: &HashMap<String, PanelH
 
         guard.set(false);
     });
+
+    let paned = paned.clone();
+    gtk4::glib::idle_add_local_once(move || {
+        paned.notify("position");
+    });
 }
 
 pub fn apply_min_size(host: &PanelHost, cfg: &PanelConfig) {
@@ -1441,8 +1641,8 @@ fn subtree_has_min_size(node: &LayoutNode, panels: &[PanelConfig]) -> bool {
 }
 
 pub fn sync_ratios_recursive(widget: &gtk4::Widget, node: &mut LayoutNode) {
-    // See through collapse wrappers
-    let widget = unwrap_collapse_wrapper(widget);
+    // See through collapse wrappers and paned overlay shells.
+    let widget = unwrap_layout_shell(widget);
     let is_hsplit = matches!(node, LayoutNode::Hsplit { .. });
     match node {
         LayoutNode::Panel { .. } => {}
