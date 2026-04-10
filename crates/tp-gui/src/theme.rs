@@ -482,6 +482,14 @@ headerbar.app-headerbar menubutton > button image {
 .panel-type-btn { min-width: 120px; }
 .panel-footer-bar { padding: 0 5px 0 8px; min-height: 13px; border-top: 1px solid alpha(@borders, 0.4); }
 .panel-footer { font-size: 10px; }
+box.panel-footer-bar.terminal-panel-footer {
+  background-color: @terminal_bg_color;
+  color: @terminal_fg_color;
+  border-top: 1px solid alpha(@terminal_fg_color, 0.14);
+  border-right: none;
+  border-bottom: none;
+  border-left: none;
+}
 box.panel-footer-bar.editor-file-preview-footer,
 box.editor-file-preview-footer.panel-footer {
   background-color: @view_bg_color;
@@ -507,7 +515,19 @@ box.editor-file-preview-footer.panel-footer {
 .tab-close-btn image {
   -gtk-icon-size: 10px;
 }
-.panel-collapsed-overlay { background-color: @headerbar_bg_color; border-top: 1px solid alpha(@borders, 0.4); border-bottom: 1px solid alpha(@borders, 0.4); padding: 4px; min-width: 32px; min-height: 32px; }
+.panel-collapsed-overlay { background-color: transparent; border: none; padding: 0; min-width: 0; min-height: 0; }
+.panel-collapsed-chip {
+  background-color: @headerbar_bg_color;
+  color: @headerbar_fg_color;
+  border: 1px solid alpha(@borders, 0.45);
+  border-radius: 5px;
+  padding: 1px;
+  min-width: 18px;
+  min-height: 18px;
+}
+.panel-collapsed-chip image {
+  -gtk-icon-size: 12px;
+}
 paned > separator { min-width: 1px; min-height: 1px; }
 .dirty-indicator { color: #ff8c00; }
 .editor-tabs { border-bottom: 1px solid alpha(@borders, 0.3); }
@@ -717,6 +737,8 @@ const CATPPUCCIN_MOCHA_CSS: &str = "\
 @define-color thumbnail_bg_color #313244;
 @define-color view_bg_color #1e1e2e;
 @define-color view_fg_color #cdd6f4;
+@define-color terminal_bg_color #1e1e2e;
+@define-color terminal_fg_color #cdd6f4;
 @define-color accent_bg_color #89b4fa;
 @define-color accent_fg_color #1e1e2e;
 @define-color accent_color #89b4fa;
@@ -744,6 +766,8 @@ const GRAPHITE_CSS: &str = "\
 @define-color thumbnail_bg_color #202938;
 @define-color view_bg_color #0f141b;
 @define-color view_fg_color #e5ecf3;
+@define-color terminal_bg_color #0f141b;
+@define-color terminal_fg_color #e5ecf3;
 @define-color accent_bg_color #6ea7ff;
 @define-color accent_fg_color #0f141b;
 @define-color accent_color #6ea7ff;
@@ -771,6 +795,8 @@ const CATPPUCCIN_LATTE_CSS: &str = "\
 @define-color thumbnail_bg_color #ccd0da;
 @define-color view_bg_color #eff1f5;
 @define-color view_fg_color #4c4f69;
+@define-color terminal_bg_color #eff1f5;
+@define-color terminal_fg_color #4c4f69;
 @define-color accent_bg_color #1e66f5;
 @define-color accent_fg_color #eff1f5;
 @define-color accent_color #1e66f5;
@@ -798,6 +824,8 @@ const DRACULA_CSS: &str = "\
 @define-color thumbnail_bg_color #44475a;
 @define-color view_bg_color #282a36;
 @define-color view_fg_color #f8f8f2;
+@define-color terminal_bg_color #282a36;
+@define-color terminal_fg_color #f8f8f2;
 @define-color accent_bg_color #bd93f9;
 @define-color accent_fg_color #282a36;
 @define-color accent_color #bd93f9;
@@ -825,6 +853,8 @@ const NORD_CSS: &str = "\
 @define-color thumbnail_bg_color #3b4252;
 @define-color view_bg_color #2e3440;
 @define-color view_fg_color #eceff4;
+@define-color terminal_bg_color #2e3440;
+@define-color terminal_fg_color #eceff4;
 @define-color accent_bg_color #88c0d0;
 @define-color accent_fg_color #2e3440;
 @define-color accent_color #88c0d0;
@@ -877,6 +907,8 @@ mod tests {
                 "@define-color secondary_sidebar_bg_color",
                 "@define-color secondary_sidebar_fg_color",
                 "@define-color thumbnail_bg_color",
+                "@define-color terminal_bg_color",
+                "@define-color terminal_fg_color",
             ] {
                 assert!(css.contains(token), "missing token {token} in theme css");
             }
@@ -915,6 +947,8 @@ mod tests {
         assert!(BASE_CSS.contains(".editor-sidebar-pane-footer"));
         assert!(BASE_CSS.contains("background-color: @view_bg_color;"));
         assert!(BASE_CSS.contains("color: @view_fg_color;"));
+        assert!(BASE_CSS.contains("box.panel-footer-bar.terminal-panel-footer"));
+        assert!(BASE_CSS.contains("background-color: @terminal_bg_color;"));
         assert!(BASE_CSS.contains(".editor-file-tree-entry.editor-file-tree-ignored"));
         assert!(BASE_CSS.contains(".editor-file-tree-list > row:selected"));
         assert!(BASE_CSS.contains(".editor-file-tree-entry {\n  min-height: 18px;"));
@@ -957,6 +991,8 @@ mod tests {
         assert!(BASE_CSS.contains("-gtk-icon-size: 12px;"));
         assert!(BASE_CSS.contains(".panel-action-btn { min-height: 12px;"));
         assert!(BASE_CSS.contains(".tab-close-btn { min-height: 11px;"));
+        assert!(BASE_CSS.contains(".panel-collapsed-overlay { background-color: transparent;"));
+        assert!(BASE_CSS.contains(".panel-collapsed-chip"));
     }
 
     #[test]

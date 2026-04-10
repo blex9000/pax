@@ -6,7 +6,10 @@ use std::rc::Rc;
 use pax_core::workspace::{LayoutNode, PanelConfig, Workspace};
 
 use crate::backend_factory::panel_type_to_id;
-use crate::panel_host::{PanelAction, PanelActionCallback, PanelHost, COLLAPSE_SIZE};
+use crate::panel_host::{
+    PanelAction, PanelActionCallback, PanelHost, COLLAPSED_CHROME_SIZE, COLLAPSED_ICON_SIZE,
+    COLLAPSE_SIZE,
+};
 
 #[derive(Debug, Clone)]
 pub struct TabLabelEditState {
@@ -1078,12 +1081,16 @@ fn wrap_layout_for_collapse(child: gtk4::Widget) -> gtk4::Widget {
     collapsed_view.add_css_class("panel-collapsed-overlay");
     {
         let icon = gtk4::Image::from_icon_name("go-next-symbolic");
-        icon.set_pixel_size(24);
+        icon.set_pixel_size(COLLAPSED_ICON_SIZE);
         icon.set_halign(gtk4::Align::Center);
         icon.set_valign(gtk4::Align::Center);
-        icon.set_vexpand(true);
-        icon.set_hexpand(true);
-        collapsed_view.append(&icon);
+        let chip = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
+        chip.add_css_class("panel-collapsed-chip");
+        chip.set_size_request(COLLAPSED_CHROME_SIZE, COLLAPSED_CHROME_SIZE);
+        chip.set_halign(gtk4::Align::Center);
+        chip.set_valign(gtk4::Align::Center);
+        chip.append(&icon);
+        collapsed_view.append(&chip);
     }
     collapsed_view.set_tooltip_text(Some("Click to expand"));
     wrapper.append(&collapsed_view);
@@ -1232,6 +1239,16 @@ fn find_collapse_target(
     })
 }
 
+fn collapsed_view_icon(collapsed_view: &gtk4::Box) -> Option<gtk4::Image> {
+    let child = collapsed_view.first_child()?;
+    if let Ok(image) = child.clone().downcast::<gtk4::Image>() {
+        return Some(image);
+    }
+    child
+        .first_child()
+        .and_then(|nested| nested.downcast::<gtk4::Image>().ok())
+}
+
 /// Monitor Paned drag to auto-collapse/expand at threshold.
 ///
 /// IMPORTANT: This handler must NEVER call set_position() or toggle set_shrink_*_child().
@@ -1295,11 +1312,7 @@ fn setup_paned_drag_collapse(paned: &gtk4::Paned, hosts: &HashMap<String, PanelH
                 (_, true) => "go-down-symbolic",
                 (_, false) => "go-up-symbolic",
             };
-            if let Some(img) = target
-                .collapsed_view
-                .first_child()
-                .and_then(|c| c.downcast::<gtk4::Image>().ok())
-            {
+            if let Some(img) = collapsed_view_icon(&target.collapsed_view) {
                 img.set_icon_name(Some(icon));
             }
         };

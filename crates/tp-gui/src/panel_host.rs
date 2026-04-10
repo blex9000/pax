@@ -5,6 +5,9 @@ use std::rc::Rc;
 
 /// Minimum size in pixels for a collapsed panel overlay.
 pub const COLLAPSE_SIZE: i32 = 44;
+/// Visual collapsed chrome size. Does not affect drag-collapse threshold.
+pub(crate) const COLLAPSED_CHROME_SIZE: i32 = 18;
+pub(crate) const COLLAPSED_ICON_SIZE: i32 = 12;
 
 // ── KNOWN LIMITATIONS: Drag Collapse/Expand ──────────────────────────────
 //
@@ -106,6 +109,7 @@ pub struct PanelHost {
     zoom_button: gtk4::Button,
     menu_button: gtk4::MenuButton,
     pub(crate) collapsed_view: gtk4::Box,
+    collapsed_icon: gtk4::Image,
     ssh_indicator: gtk4::Box,
     pub(crate) footer_bar: gtk4::Box,
     pub(crate) footer_label: gtk4::Label,
@@ -328,16 +332,18 @@ impl PanelHost {
         collapsed_view.set_hexpand(true);
         collapsed_view.set_visible(false);
         collapsed_view.add_css_class("panel-collapsed-overlay");
-        {
-            // Default arrow — updated by toggle_collapsed based on orientation
-            let collapsed_icon = gtk4::Image::from_icon_name("go-next-symbolic");
-            collapsed_icon.set_pixel_size(24);
-            collapsed_icon.set_halign(gtk4::Align::Center);
-            collapsed_icon.set_valign(gtk4::Align::Center);
-            collapsed_icon.set_vexpand(true);
-            collapsed_icon.set_hexpand(true);
-            collapsed_view.append(&collapsed_icon);
-        }
+        // Default arrow — updated by drag-collapse based on orientation.
+        let collapsed_icon = gtk4::Image::from_icon_name("go-next-symbolic");
+        collapsed_icon.set_pixel_size(COLLAPSED_ICON_SIZE);
+        collapsed_icon.set_halign(gtk4::Align::Center);
+        collapsed_icon.set_valign(gtk4::Align::Center);
+        let collapsed_chip = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
+        collapsed_chip.add_css_class("panel-collapsed-chip");
+        collapsed_chip.set_size_request(COLLAPSED_CHROME_SIZE, COLLAPSED_CHROME_SIZE);
+        collapsed_chip.set_halign(gtk4::Align::Center);
+        collapsed_chip.set_valign(gtk4::Align::Center);
+        collapsed_chip.append(&collapsed_icon);
+        collapsed_view.append(&collapsed_chip);
         collapsed_view.set_tooltip_text(Some(&format!("Click to expand: {}", name)));
 
         let outer = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
@@ -399,6 +405,7 @@ impl PanelHost {
             zoom_button,
             menu_button,
             collapsed_view,
+            collapsed_icon,
             ssh_indicator,
             footer_bar,
             footer_label,
@@ -527,11 +534,11 @@ impl PanelHost {
             _ => "radio-symbolic", // Empty/chooser — dot
         };
         self.type_icon.set_icon_name(Some(icon_name));
-        // Update collapsed view icon too
-        if let Some(child) = self.collapsed_view.first_child() {
-            if let Some(img) = child.downcast_ref::<gtk4::Image>() {
-                img.set_icon_name(Some(icon_name));
-            }
+        self.collapsed_icon.set_icon_name(Some(icon_name));
+        if panel_type == "terminal" {
+            self.footer_bar.add_css_class("terminal-panel-footer");
+        } else {
+            self.footer_bar.remove_css_class("terminal-panel-footer");
         }
     }
 
@@ -865,5 +872,14 @@ mod tests {
         let (panel_id, data) = payload.as_ref().expect("callback payload");
         assert_eq!(panel_id, "p42");
         assert_eq!(data, b"ls -la");
+    }
+
+    #[test]
+    fn collapsed_visual_chrome_is_smaller_than_drag_threshold() {
+        assert_eq!(COLLAPSE_SIZE, 44);
+        assert_eq!(COLLAPSED_CHROME_SIZE, 18);
+        assert_eq!(COLLAPSED_ICON_SIZE, 12);
+        assert!(COLLAPSED_CHROME_SIZE < COLLAPSE_SIZE);
+        assert!(COLLAPSED_ICON_SIZE < COLLAPSED_CHROME_SIZE);
     }
 }
