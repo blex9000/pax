@@ -1089,27 +1089,6 @@ fn wrap_layout_for_collapse(child: gtk4::Widget) -> gtk4::Widget {
         icon.set_valign(gtk4::Align::Center);
         icon.set_can_target(false);
         collapsed_view.set_child(Some(&icon));
-        {
-            let content_ref = child.clone();
-            let cv_ref: gtk4::Widget = collapsed_view.clone().upcast();
-            let wrapper_ref = wrapper.clone();
-            let gesture = gtk4::GestureClick::new();
-            gesture.set_button(1);
-            gesture.set_propagation_phase(gtk4::PropagationPhase::Capture);
-            gesture.connect_pressed(move |g, _, _, _| {
-                if content_ref.is_visible() {
-                    return;
-                }
-                g.set_state(gtk4::EventSequenceState::Claimed);
-                let content_ref = content_ref.clone();
-                let cv_ref = cv_ref.clone();
-                let wrapper_ref = wrapper_ref.clone();
-                gtk4::glib::idle_add_local_once(move || {
-                    expand_wrapped_collapsed_layout(&content_ref, &cv_ref, &wrapper_ref);
-                });
-            });
-            collapsed_view.add_controller(gesture);
-        }
     }
     collapsed_view.set_tooltip_text(Some("Click to expand"));
     wrapper.append(&collapsed_view);
@@ -1117,35 +1096,11 @@ fn wrap_layout_for_collapse(child: gtk4::Widget) -> gtk4::Widget {
     wrapper.upcast()
 }
 
-fn expand_wrapped_collapsed_layout(
-    content: &gtk4::Widget,
-    collapsed_view: &gtk4::Widget,
-    wrapper: &gtk4::Box,
-) {
-    content.set_visible(true);
-    collapsed_view.set_visible(false);
-    wrapper.set_size_request(-1, -1);
-    reset_collapsed_children(content);
-
-    if let Some(parent) = wrapper.parent() {
-        if let Some(paned) = parent.downcast_ref::<gtk4::Paned>() {
-            let total = if paned.orientation() == gtk4::Orientation::Horizontal {
-                paned.allocation().width()
-            } else {
-                paned.allocation().height()
-            };
-            if total > 0 {
-                paned.set_position(total / 2);
-            }
-        }
-    }
-}
-
 /// Reset any collapsed PanelHosts inside a widget subtree.
 /// Called when a wrapper is expanded to clear inner collapsed states.
 fn reset_collapsed_children(widget: &gtk4::Widget) {
     // PanelHost outer boxes have CSS class "panel-frame" and children:
-    // container (Box) + collapsed_view (Box) + footer_bar (Box)
+    // container (Box) + collapsed_view (Widget) + footer_bar (Box)
     if let Ok(bx) = widget.clone().downcast::<gtk4::Box>() {
         if bx.has_css_class("panel-frame") {
             // This looks like a PanelHost outer box — check if collapsed
@@ -1252,6 +1207,25 @@ fn collapsed_view_icon(collapsed_view: &gtk4::Widget) -> Option<gtk4::Image> {
     find_image_descendant(collapsed_view)
 }
 
+fn expand_drag_collapse_target(target: &DragCollapseTarget, paned: &gtk4::Paned) {
+    let total = if paned.orientation() == gtk4::Orientation::Horizontal {
+        paned.allocation().width()
+    } else {
+        paned.allocation().height()
+    };
+    if total > 0 {
+        paned.set_position(total / 2);
+    }
+
+    target.collapsed_view.set_visible(false);
+    target.content.set_visible(true);
+    target.outer.set_size_request(-1, -1);
+    reset_collapsed_children(&target.content);
+    if let (Some(ref f), Some(ref lbl)) = (&target.footer, &target.footer_label) {
+        f.set_visible(!lbl.text().is_empty());
+    }
+}
+
 fn find_image_descendant(widget: &gtk4::Widget) -> Option<gtk4::Image> {
     if let Ok(image) = widget.clone().downcast::<gtk4::Image>() {
         return Some(image);
@@ -1281,6 +1255,8 @@ fn setup_paned_drag_collapse(paned: &gtk4::Paned, hosts: &HashMap<String, PanelH
     let start = find_collapse_target(&paned.start_child(), hosts);
     let end = find_collapse_target(&paned.end_child(), hosts);
     let orient = paned.orientation();
+    let click_start = start.clone();
+    let click_end = end.clone();
 
     tracing::debug!(
         "setup_paned_drag_collapse: orient={:?}, start={}, end={}",
@@ -1291,6 +1267,68 @@ fn setup_paned_drag_collapse(paned: &gtk4::Paned, hosts: &HashMap<String, PanelH
 
     if start.is_none() && end.is_none() {
         return;
+    }
+
+    {
+        let press_x = Rc::new(Cell::new(0.0));
+        let press_y = Rc::new(Cell::new(0.0));
+        let press_position = Rc::new(Cell::new(0));
+        let click = gtk4::GestureClick::new();
+        click.set_button(1);
+        click.set_propagation_phase(gtk4::PropagationPhase::Capture);
+        {
+            let press_x = press_x.clone();
+            let press_y = press_y.clone();
+            let press_position = press_position.clone();
+            let paned_ref = paned.clone();
+            click.connect_pressed(move |_, _, x, y| {
+                press_x.set(x);
+                press_y.set(y);
+                press_position.set(paned_ref.position());
+            });
+        }
+        {
+            let paned_ref = paned.clone();
+            click.connect_released(move |g, _, x, y| {
+                let moved_pointer =
+                    (x - press_x.get()).abs() > 3.0 || (y - press_y.get()).abs() > 3.0;
+                let moved_split = (paned_ref.position() - press_position.get()).abs() > 2;
+                if moved_pointer || moved_split {
+                    return;
+                }
+
+                let total = if orient == gtk4::Orientation::Horizontal {
+                    paned_ref.allocation().width()
+                } else {
+                    paned_ref.allocation().height()
+                };
+                if total <= 0 {
+                    return;
+                }
+
+                let axis = if orient == gtk4::Orientation::Horizontal {
+                    x as i32
+                } else {
+                    y as i32
+                };
+
+                if let Some(ref target) = click_start {
+                    if target.is_collapsed() && axis <= COLLAPSED_PANEL_SIZE {
+                        expand_drag_collapse_target(target, &paned_ref);
+                        g.set_state(gtk4::EventSequenceState::Claimed);
+                        return;
+                    }
+                }
+
+                if let Some(ref target) = click_end {
+                    if target.is_collapsed() && axis >= total - COLLAPSED_PANEL_SIZE {
+                        expand_drag_collapse_target(target, &paned_ref);
+                        g.set_state(gtk4::EventSequenceState::Claimed);
+                    }
+                }
+            });
+        }
+        paned.add_controller(click);
     }
 
     let guard = std::rc::Rc::new(std::cell::Cell::new(false));

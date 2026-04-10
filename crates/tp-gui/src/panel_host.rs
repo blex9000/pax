@@ -344,30 +344,6 @@ impl PanelHost {
         collapsed_icon.set_valign(gtk4::Align::Center);
         collapsed_icon.set_can_target(false);
         collapsed_view.set_child(Some(&collapsed_icon));
-        {
-            let cb_ref = action_cb_ref.clone();
-            let pid = panel_id.to_string();
-            let container_ref = container.clone();
-            let gesture = gtk4::GestureClick::new();
-            gesture.set_button(1);
-            gesture.set_propagation_phase(gtk4::PropagationPhase::Capture);
-            gesture.connect_pressed(move |g, _, _, _| {
-                if container_ref.is_visible() {
-                    return;
-                }
-                g.set_state(gtk4::EventSequenceState::Claimed);
-                let cb_ref = cb_ref.clone();
-                let pid = pid.clone();
-                glib::idle_add_local_once(move || {
-                    if let Ok(borrowed) = cb_ref.try_borrow() {
-                        if let Some(ref cb) = *borrowed {
-                            cb(&pid, PanelAction::Collapse);
-                        }
-                    }
-                });
-            });
-            collapsed_view.add_controller(gesture);
-        }
         collapsed_view.set_tooltip_text(Some(&format!("Click to expand: {}", name)));
 
         let outer = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
