@@ -321,6 +321,22 @@ menubutton.flat > button {
   min-width: 16px;
   padding: 0 1px;
 }
+button:hover,
+togglebutton:hover,
+menubutton > button:hover,
+button.flat:hover,
+togglebutton.flat:hover,
+menubutton.flat > button:hover {
+  background-color: transparent;
+  background-image: none;
+  border-color: transparent;
+  box-shadow: none;
+}
+button:hover image,
+togglebutton:hover image,
+menubutton > button:hover image {
+  color: @accent_color;
+}
 button.flat image,
 togglebutton.flat image,
 menubutton.flat > button image {
@@ -381,16 +397,25 @@ notebook.workspace-tabs > header > tabs > tab {
 notebook.workspace-tabs > header {
   border-bottom: none;
   box-shadow: none;
+  min-height: 16px;
 }
 notebook.workspace-tabs > header > tabs {
   box-shadow: inset 0 -1px 0 0 @headerbar_border_color;
+  min-height: 16px;
 }
 notebook.workspace-tabs > header > tabs > tab {
   border-radius: 0;
   margin: 0;
-  padding-top: 3px;
-  padding-bottom: 3px;
+  min-height: 16px;
+  padding-top: 1px;
+  padding-bottom: 1px;
   box-shadow: inset 0 -1px 0 0 @headerbar_border_color;
+}
+notebook.workspace-tabs > header > tabs > tab label {
+  font-size: 9px;
+}
+notebook.workspace-tabs > header > tabs > tab image {
+  -gtk-icon-size: 10px;
 }
 notebook.workspace-tabs > header > tabs > tab:hover {
   background-color: alpha(@headerbar_fg_color, 0.08);
@@ -417,7 +442,13 @@ box.workspace-tab-add-wrap > button.workspace-tab-add-btn image {
   -gtk-icon-size: 12px;
 }
 box.workspace-tab-add-wrap > button.workspace-tab-add-btn:hover {
-  background-color: alpha(@headerbar_fg_color, 0.10);
+  background-color: transparent;
+  background-image: none;
+  border-color: transparent;
+  box-shadow: none;
+}
+box.workspace-tab-add-wrap > button.workspace-tab-add-btn:hover image {
+  color: @accent_color;
 }
 button.panel-action-btn, menubutton.panel-menu-btn > button, menubutton.app-menu-btn > button, headerbar.app-headerbar button, headerbar.app-headerbar menubutton > button {
   background-image: none;
@@ -426,9 +457,17 @@ button.panel-action-btn, menubutton.panel-menu-btn > button, menubutton.app-menu
   box-shadow: none;
 }
 button.panel-action-btn:hover, menubutton.panel-menu-btn > button:hover, menubutton.app-menu-btn > button:hover, headerbar.app-headerbar button:hover, headerbar.app-headerbar menubutton > button:hover {
-  background-color: alpha(@headerbar_fg_color, 0.10);
+  background-color: transparent;
+  background-image: none;
   border-color: transparent;
   box-shadow: none;
+}
+button.panel-action-btn:hover image,
+menubutton.panel-menu-btn > button:hover image,
+menubutton.app-menu-btn > button:hover image,
+headerbar.app-headerbar button:hover image,
+headerbar.app-headerbar menubutton > button:hover image {
+  color: @accent_color;
 }
 button.panel-action-btn:checked, menubutton.panel-menu-btn > button:checked, menubutton.app-menu-btn > button:checked, headerbar.app-headerbar button:checked, headerbar.app-headerbar menubutton > button:checked {
   background-color: alpha(@headerbar_fg_color, 0.16);
@@ -677,7 +716,17 @@ popover.app-popover button.app-popover-button image {
 }
 popover.app-popover modelbutton:hover,
 popover.app-popover button.app-popover-button:hover {
-  background-color: alpha(@accent_bg_color, 0.18);
+  background-color: transparent;
+  background-image: none;
+  border-color: transparent;
+  box-shadow: none;
+}
+popover.app-popover modelbutton:hover image,
+popover.app-popover button.app-popover-button:hover image {
+  color: @accent_color;
+}
+popover.app-popover modelbutton:hover label,
+popover.app-popover button.app-popover-button:hover label {
   color: @popover_fg_color;
 }
 window.app-dialog dropdown.settings-theme-dropdown > popover.menu,
@@ -1002,6 +1051,28 @@ mod tests {
         assert!(BASE_CSS.contains(".tab-close-btn { min-height: 11px;"));
         assert!(BASE_CSS.contains(".panel-collapsed-overlay { background-color: transparent;"));
         assert!(BASE_CSS.contains(".panel-collapsed-chip"));
+    }
+
+    #[test]
+    fn button_hover_changes_icon_color_without_filling_background() {
+        assert!(BASE_CSS.contains("button:hover,\ntogglebutton:hover,\nmenubutton > button:hover"));
+        assert!(BASE_CSS.contains("button:hover image,\ntogglebutton:hover image"));
+        assert!(BASE_CSS.contains("color: @accent_color;"));
+        assert!(!BASE_CSS.contains("button.panel-action-btn:hover, menubutton.panel-menu-btn > button:hover, menubutton.app-menu-btn > button:hover, headerbar.app-headerbar button:hover, headerbar.app-headerbar menubutton > button:hover {\n  background-color: alpha"));
+        assert!(!BASE_CSS.contains("box.workspace-tab-add-wrap > button.workspace-tab-add-btn:hover {\n  background-color: alpha"));
+        assert!(!BASE_CSS.contains(
+            "popover.app-popover button.app-popover-button:hover {\n  background-color: alpha"
+        ));
+    }
+
+    #[test]
+    fn split_tab_bar_uses_compact_height() {
+        assert!(BASE_CSS.contains("notebook.workspace-tabs > header"));
+        assert!(BASE_CSS.contains("min-height: 16px;"));
+        assert!(BASE_CSS.contains("padding-top: 1px;"));
+        assert!(BASE_CSS.contains("notebook.workspace-tabs > header > tabs > tab label"));
+        assert!(BASE_CSS.contains("notebook.workspace-tabs > header > tabs > tab image"));
+        assert!(BASE_CSS.contains("-gtk-icon-size: 10px;"));
     }
 
     #[test]
