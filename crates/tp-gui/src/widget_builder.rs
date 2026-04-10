@@ -1084,6 +1084,7 @@ fn wrap_layout_for_collapse(child: gtk4::Widget) -> gtk4::Widget {
         icon.set_pixel_size(COLLAPSED_ICON_SIZE);
         icon.set_halign(gtk4::Align::Center);
         icon.set_valign(gtk4::Align::Center);
+        icon.set_can_target(false);
         let chip = gtk4::CenterBox::new();
         chip.add_css_class("panel-collapsed-chip");
         chip.set_size_request(COLLAPSED_CHROME_SIZE, COLLAPSED_CHROME_SIZE);
@@ -1093,45 +1094,77 @@ fn wrap_layout_for_collapse(child: gtk4::Widget) -> gtk4::Widget {
         chip.set_vexpand(true);
         chip.set_center_widget(Some(&icon));
         collapsed_view.append(&chip);
+        install_wrapped_collapsed_expand_click(
+            &chip.clone().upcast(),
+            &child,
+            &collapsed_view,
+            &wrapper,
+        );
     }
     collapsed_view.set_tooltip_text(Some("Click to expand"));
     wrapper.append(&collapsed_view);
+    install_wrapped_collapsed_expand_click(
+        &collapsed_view.clone().upcast(),
+        &child,
+        &collapsed_view,
+        &wrapper,
+    );
 
-    // Click on wrapper when collapsed → expand
-    {
-        let content_ref = child.clone();
-        let cv_ref = collapsed_view.clone();
-        let wrapper_ref = wrapper.clone();
-        let gesture = gtk4::GestureClick::new();
-        gesture.set_button(1);
-        gesture.connect_released(move |g, _, _, _| {
-            // Only act when collapsed (content hidden)
-            if !content_ref.is_visible() {
-                content_ref.set_visible(true);
-                cv_ref.set_visible(false);
-                wrapper_ref.set_size_request(-1, -1);
-                // Reset any collapsed PanelHosts inside the nested layout
-                reset_collapsed_children(&content_ref);
-                // Find parent Paned and set position to 50%
-                if let Some(parent) = wrapper_ref.parent() {
-                    if let Some(paned) = parent.downcast_ref::<gtk4::Paned>() {
-                        let total = if paned.orientation() == gtk4::Orientation::Horizontal {
-                            paned.allocation().width()
-                        } else {
-                            paned.allocation().height()
-                        };
-                        if total > 0 {
-                            paned.set_position(total / 2);
-                        }
-                    }
-                }
-                g.set_state(gtk4::EventSequenceState::Claimed);
-            }
-        });
-        wrapper.add_controller(gesture);
-    }
+    install_wrapped_collapsed_expand_click(
+        &wrapper.clone().upcast(),
+        &child,
+        &collapsed_view,
+        &wrapper,
+    );
 
     wrapper.upcast()
+}
+
+fn install_wrapped_collapsed_expand_click(
+    widget: &gtk4::Widget,
+    content: &gtk4::Widget,
+    collapsed_view: &gtk4::Box,
+    wrapper: &gtk4::Box,
+) {
+    let content_ref = content.clone();
+    let cv_ref = collapsed_view.clone();
+    let wrapper_ref = wrapper.clone();
+    let gesture = gtk4::GestureClick::new();
+    gesture.set_button(1);
+    gesture.set_propagation_phase(gtk4::PropagationPhase::Capture);
+    gesture.connect_pressed(move |g, _, _, _| {
+        if content_ref.is_visible() {
+            return;
+        }
+
+        expand_wrapped_collapsed_layout(&content_ref, &cv_ref, &wrapper_ref);
+        g.set_state(gtk4::EventSequenceState::Claimed);
+    });
+    widget.add_controller(gesture);
+}
+
+fn expand_wrapped_collapsed_layout(
+    content: &gtk4::Widget,
+    collapsed_view: &gtk4::Box,
+    wrapper: &gtk4::Box,
+) {
+    content.set_visible(true);
+    collapsed_view.set_visible(false);
+    wrapper.set_size_request(-1, -1);
+    reset_collapsed_children(content);
+
+    if let Some(parent) = wrapper.parent() {
+        if let Some(paned) = parent.downcast_ref::<gtk4::Paned>() {
+            let total = if paned.orientation() == gtk4::Orientation::Horizontal {
+                paned.allocation().width()
+            } else {
+                paned.allocation().height()
+            };
+            if total > 0 {
+                paned.set_position(total / 2);
+            }
+        }
+    }
 }
 
 /// Reset any collapsed PanelHosts inside a widget subtree.
