@@ -606,13 +606,13 @@ box.editor-file-preview-footer.panel-footer {
 }
 .panel-collapsed-overlay { background-color: transparent; border: none; padding: 0; min-width: 0; min-height: 0; }
 .panel-collapsed-chip {
-  background-color: @headerbar_bg_color;
+  background-color: transparent;
   color: @headerbar_fg_color;
-  border: 1px solid alpha(@borders, 0.45);
-  border-radius: 5px;
-  padding: 1px;
-  min-width: 18px;
-  min-height: 18px;
+  border: none;
+  border-radius: 0;
+  padding: 0;
+  min-width: 14px;
+  min-height: 14px;
 }
 .panel-collapsed-chip image {
   -gtk-icon-size: 12px;
@@ -1096,6 +1096,7 @@ mod tests {
         assert!(BASE_CSS.contains(".tab-close-btn { min-height: 11px;"));
         assert!(BASE_CSS.contains(".panel-collapsed-overlay { background-color: transparent;"));
         assert!(BASE_CSS.contains(".panel-collapsed-chip"));
+        assert!(BASE_CSS.contains("min-height: 14px;"));
     }
 
     #[test]

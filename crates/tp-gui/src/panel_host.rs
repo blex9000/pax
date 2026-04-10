@@ -6,7 +6,7 @@ use std::rc::Rc;
 /// Minimum size in pixels for a collapsed panel overlay.
 pub const COLLAPSE_SIZE: i32 = 44;
 /// Visual collapsed chrome size. Does not affect drag-collapse threshold.
-pub(crate) const COLLAPSED_CHROME_SIZE: i32 = 18;
+pub(crate) const COLLAPSED_CHROME_SIZE: i32 = 14;
 pub(crate) const COLLAPSED_ICON_SIZE: i32 = 12;
 
 // ── KNOWN LIMITATIONS: Drag Collapse/Expand ──────────────────────────────
@@ -878,7 +878,7 @@ mod tests {
     #[test]
     fn collapsed_visual_chrome_is_smaller_than_drag_threshold() {
         assert_eq!(COLLAPSE_SIZE, 44);
-        assert_eq!(COLLAPSED_CHROME_SIZE, 18);
+        assert_eq!(COLLAPSED_CHROME_SIZE, 14);
         assert_eq!(COLLAPSED_ICON_SIZE, 12);
         assert!(COLLAPSED_CHROME_SIZE < COLLAPSE_SIZE);
         assert!(COLLAPSED_ICON_SIZE < COLLAPSED_CHROME_SIZE);
