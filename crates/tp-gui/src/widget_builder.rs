@@ -1099,12 +1099,22 @@ fn wrap_layout_for_collapse(child: gtk4::Widget) -> gtk4::Widget {
             let content_ref = child.clone();
             let cv_ref = collapsed_view.clone();
             let wrapper_ref = wrapper.clone();
-            chip.connect_clicked(move |_| {
+            let gesture = gtk4::GestureClick::new();
+            gesture.set_button(1);
+            gesture.set_propagation_phase(gtk4::PropagationPhase::Capture);
+            gesture.connect_pressed(move |g, _, _, _| {
                 if content_ref.is_visible() {
                     return;
                 }
-                expand_wrapped_collapsed_layout(&content_ref, &cv_ref, &wrapper_ref);
+                g.set_state(gtk4::EventSequenceState::Claimed);
+                let content_ref = content_ref.clone();
+                let cv_ref = cv_ref.clone();
+                let wrapper_ref = wrapper_ref.clone();
+                gtk4::glib::idle_add_local_once(move || {
+                    expand_wrapped_collapsed_layout(&content_ref, &cv_ref, &wrapper_ref);
+                });
             });
+            chip.add_controller(gesture);
         }
         collapsed_view.append(&chip);
     }

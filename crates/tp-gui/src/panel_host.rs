@@ -354,16 +354,25 @@ impl PanelHost {
             let cb_ref = action_cb_ref.clone();
             let pid = panel_id.to_string();
             let container_ref = container.clone();
-            collapsed_chip.connect_clicked(move |_| {
+            let gesture = gtk4::GestureClick::new();
+            gesture.set_button(1);
+            gesture.set_propagation_phase(gtk4::PropagationPhase::Capture);
+            gesture.connect_pressed(move |g, _, _, _| {
                 if container_ref.is_visible() {
                     return;
                 }
-                if let Ok(borrowed) = cb_ref.try_borrow() {
-                    if let Some(ref cb) = *borrowed {
-                        cb(&pid, PanelAction::Collapse);
+                g.set_state(gtk4::EventSequenceState::Claimed);
+                let cb_ref = cb_ref.clone();
+                let pid = pid.clone();
+                glib::idle_add_local_once(move || {
+                    if let Ok(borrowed) = cb_ref.try_borrow() {
+                        if let Some(ref cb) = *borrowed {
+                            cb(&pid, PanelAction::Collapse);
+                        }
                     }
-                }
+                });
             });
+            collapsed_chip.add_controller(gesture);
         }
         collapsed_view.append(&collapsed_chip);
         collapsed_view.set_tooltip_text(Some(&format!("Click to expand: {}", name)));
@@ -372,27 +381,6 @@ impl PanelHost {
         outer.append(&container);
         outer.append(&collapsed_view);
         outer.append(&footer_bar);
-
-        // Click anywhere on the outer box when collapsed → expand
-        {
-            let cb_ref = action_cb_ref.clone();
-            let pid = panel_id.to_string();
-            let container_ref = container.clone();
-            let gesture = gtk4::GestureClick::new();
-            gesture.set_button(1);
-            gesture.connect_released(move |g, _, _, _| {
-                // Only handle when collapsed (container hidden)
-                if !container_ref.is_visible() {
-                    if let Ok(borrowed) = cb_ref.try_borrow() {
-                        if let Some(ref cb) = *borrowed {
-                            cb(&pid, PanelAction::Collapse);
-                        }
-                    }
-                    g.set_state(gtk4::EventSequenceState::Claimed);
-                }
-            });
-            outer.add_controller(gesture);
-        }
         outer.add_css_class("panel-frame");
         outer.set_widget_name(panel_id);
         outer.set_size_request(COLLAPSE_SIZE, COLLAPSE_SIZE);
@@ -401,10 +389,14 @@ impl PanelHost {
         {
             let cb_ref = action_cb_ref.clone();
             let pid = panel_id.to_string();
+            let container_ref = container.clone();
             let gesture = gtk4::GestureClick::new();
             gesture.set_button(1);
             gesture.set_propagation_phase(gtk4::PropagationPhase::Capture);
             gesture.connect_pressed(move |_, _, _, _| {
+                if !container_ref.is_visible() {
+                    return;
+                }
                 if let Ok(borrowed) = cb_ref.try_borrow() {
                     if let Some(ref cb) = *borrowed {
                         cb(&pid, PanelAction::Focus);
