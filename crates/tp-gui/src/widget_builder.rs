@@ -1245,6 +1245,34 @@ fn collapsed_view_icon(collapsed_view: &gtk4::Box) -> Option<gtk4::Image> {
     find_image_descendant(&collapsed_view.clone().upcast())
 }
 
+fn collapsed_view_chrome(collapsed_view: &gtk4::Box) -> Option<gtk4::Widget> {
+    collapsed_view.first_child()
+}
+
+fn configure_collapsed_chrome(collapsed_view: &gtk4::Box, orient: gtk4::Orientation) {
+    let Some(chrome) = collapsed_view_chrome(collapsed_view) else {
+        return;
+    };
+
+    match orient {
+        gtk4::Orientation::Horizontal => {
+            chrome.set_size_request(COLLAPSED_CHROME_SIZE, -1);
+            chrome.set_halign(gtk4::Align::Center);
+            chrome.set_valign(gtk4::Align::Fill);
+            chrome.set_hexpand(false);
+            chrome.set_vexpand(true);
+        }
+        gtk4::Orientation::Vertical => {
+            chrome.set_size_request(-1, COLLAPSED_CHROME_SIZE);
+            chrome.set_halign(gtk4::Align::Fill);
+            chrome.set_valign(gtk4::Align::Center);
+            chrome.set_hexpand(true);
+            chrome.set_vexpand(false);
+        }
+        _ => {}
+    }
+}
+
 fn find_image_descendant(widget: &gtk4::Widget) -> Option<gtk4::Image> {
     if let Ok(image) = widget.clone().downcast::<gtk4::Image>() {
         return Some(image);
@@ -1318,6 +1346,7 @@ fn setup_paned_drag_collapse(paned: &gtk4::Paned, hosts: &HashMap<String, PanelH
             }
             target.collapsed_view.set_visible(true);
             target.outer.set_size_request(COLLAPSE_SIZE, COLLAPSE_SIZE);
+            configure_collapsed_chrome(&target.collapsed_view, orient);
             let icon = match (orient, is_start) {
                 (gtk4::Orientation::Horizontal, true) => "go-next-symbolic",
                 (gtk4::Orientation::Horizontal, false) => "go-previous-symbolic",
