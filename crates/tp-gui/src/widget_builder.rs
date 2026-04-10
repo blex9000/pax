@@ -1085,62 +1085,33 @@ fn wrap_layout_for_collapse(child: gtk4::Widget) -> gtk4::Widget {
         icon.set_halign(gtk4::Align::Center);
         icon.set_valign(gtk4::Align::Center);
         icon.set_can_target(false);
-        let chip = gtk4::CenterBox::new();
+        let chip = gtk4::Button::new();
+        chip.add_css_class("flat");
         chip.add_css_class("panel-collapsed-chip");
         chip.set_size_request(COLLAPSED_CHROME_SIZE, COLLAPSED_CHROME_SIZE);
         chip.set_halign(gtk4::Align::Fill);
         chip.set_valign(gtk4::Align::Fill);
         chip.set_hexpand(true);
         chip.set_vexpand(true);
-        chip.set_center_widget(Some(&icon));
+        chip.set_can_focus(false);
+        chip.set_child(Some(&icon));
+        {
+            let content_ref = child.clone();
+            let cv_ref = collapsed_view.clone();
+            let wrapper_ref = wrapper.clone();
+            chip.connect_clicked(move |_| {
+                if content_ref.is_visible() {
+                    return;
+                }
+                expand_wrapped_collapsed_layout(&content_ref, &cv_ref, &wrapper_ref);
+            });
+        }
         collapsed_view.append(&chip);
-        install_wrapped_collapsed_expand_click(
-            &chip.clone().upcast(),
-            &child,
-            &collapsed_view,
-            &wrapper,
-        );
     }
     collapsed_view.set_tooltip_text(Some("Click to expand"));
     wrapper.append(&collapsed_view);
-    install_wrapped_collapsed_expand_click(
-        &collapsed_view.clone().upcast(),
-        &child,
-        &collapsed_view,
-        &wrapper,
-    );
-
-    install_wrapped_collapsed_expand_click(
-        &wrapper.clone().upcast(),
-        &child,
-        &collapsed_view,
-        &wrapper,
-    );
 
     wrapper.upcast()
-}
-
-fn install_wrapped_collapsed_expand_click(
-    widget: &gtk4::Widget,
-    content: &gtk4::Widget,
-    collapsed_view: &gtk4::Box,
-    wrapper: &gtk4::Box,
-) {
-    let content_ref = content.clone();
-    let cv_ref = collapsed_view.clone();
-    let wrapper_ref = wrapper.clone();
-    let gesture = gtk4::GestureClick::new();
-    gesture.set_button(1);
-    gesture.set_propagation_phase(gtk4::PropagationPhase::Capture);
-    gesture.connect_pressed(move |g, _, _, _| {
-        if content_ref.is_visible() {
-            return;
-        }
-
-        expand_wrapped_collapsed_layout(&content_ref, &cv_ref, &wrapper_ref);
-        g.set_state(gtk4::EventSequenceState::Claimed);
-    });
-    widget.add_controller(gesture);
 }
 
 fn expand_wrapped_collapsed_layout(

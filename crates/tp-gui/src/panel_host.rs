@@ -340,28 +340,33 @@ impl PanelHost {
         collapsed_icon.set_halign(gtk4::Align::Center);
         collapsed_icon.set_valign(gtk4::Align::Center);
         collapsed_icon.set_can_target(false);
-        let collapsed_chip = gtk4::CenterBox::new();
+        let collapsed_chip = gtk4::Button::new();
+        collapsed_chip.add_css_class("flat");
         collapsed_chip.add_css_class("panel-collapsed-chip");
         collapsed_chip.set_size_request(COLLAPSED_CHROME_SIZE, COLLAPSED_CHROME_SIZE);
         collapsed_chip.set_halign(gtk4::Align::Fill);
         collapsed_chip.set_valign(gtk4::Align::Fill);
         collapsed_chip.set_hexpand(true);
         collapsed_chip.set_vexpand(true);
-        collapsed_chip.set_center_widget(Some(&collapsed_icon));
+        collapsed_chip.set_can_focus(false);
+        collapsed_chip.set_child(Some(&collapsed_icon));
+        {
+            let cb_ref = action_cb_ref.clone();
+            let pid = panel_id.to_string();
+            let container_ref = container.clone();
+            collapsed_chip.connect_clicked(move |_| {
+                if container_ref.is_visible() {
+                    return;
+                }
+                if let Ok(borrowed) = cb_ref.try_borrow() {
+                    if let Some(ref cb) = *borrowed {
+                        cb(&pid, PanelAction::Collapse);
+                    }
+                }
+            });
+        }
         collapsed_view.append(&collapsed_chip);
         collapsed_view.set_tooltip_text(Some(&format!("Click to expand: {}", name)));
-        install_collapsed_expand_click(
-            &collapsed_view.clone().upcast(),
-            panel_id,
-            &action_cb_ref,
-            &container,
-        );
-        install_collapsed_expand_click(
-            &collapsed_chip.clone().upcast(),
-            panel_id,
-            &action_cb_ref,
-            &container,
-        );
 
         let outer = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
         outer.append(&container);
@@ -722,33 +727,6 @@ impl PanelHost {
             false
         }
     }
-}
-
-fn install_collapsed_expand_click(
-    widget: &gtk4::Widget,
-    panel_id: &str,
-    action_cb_ref: &Rc<RefCell<Option<PanelActionCallback>>>,
-    container: &gtk4::Box,
-) {
-    let cb_ref = action_cb_ref.clone();
-    let pid = panel_id.to_string();
-    let container_ref = container.clone();
-    let gesture = gtk4::GestureClick::new();
-    gesture.set_button(1);
-    gesture.set_propagation_phase(gtk4::PropagationPhase::Capture);
-    gesture.connect_pressed(move |g, _, _, _| {
-        if container_ref.is_visible() {
-            return;
-        }
-
-        if let Ok(borrowed) = cb_ref.try_borrow() {
-            if let Some(ref cb) = *borrowed {
-                cb(&pid, PanelAction::Collapse);
-            }
-        }
-        g.set_state(gtk4::EventSequenceState::Claimed);
-    });
-    widget.add_controller(gesture);
 }
 
 /// Build the ⋮ popover menu with panel actions.
