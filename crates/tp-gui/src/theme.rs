@@ -305,16 +305,16 @@ box.panel-title-bar, box.panel-footer-bar, .status-bar, .markdown-toolbar { back
 button,
 menubutton > button,
 togglebutton {
-  min-height: 22px;
-  min-width: 22px;
-  padding: 1px 5px;
+  min-height: 20px;
+  min-width: 20px;
+  padding: 0 4px;
 }
 button.flat,
 togglebutton.flat,
 menubutton.flat > button {
-  min-height: 20px;
-  min-width: 20px;
-  padding: 1px 4px;
+  min-height: 18px;
+  min-width: 18px;
+  padding: 0 3px;
 }
 .editor-sidebar-toolbar-surface,
 .editor-sidebar-toolbar {
@@ -326,9 +326,9 @@ menubutton.flat > button {
 }
 .editor-sidebar-toolbar button,
 .editor-sidebar-toolbar togglebutton {
-  min-height: 18px;
-  min-width: 18px;
-  padding: 1px 3px;
+  min-height: 17px;
+  min-width: 17px;
+  padding: 0 2px;
 }
 .editor-file-tree-actions {
   background-color: @view_bg_color;
@@ -395,6 +395,9 @@ box.workspace-tab-add-wrap > button.workspace-tab-add-btn {
   background-color: transparent;
   border: none;
   box-shadow: none;
+  min-height: 18px;
+  min-width: 18px;
+  padding: 0 3px;
 }
 box.workspace-tab-add-wrap > button.workspace-tab-add-btn:hover {
   background-color: alpha(@headerbar_fg_color, 0.10);
@@ -442,18 +445,18 @@ popover.app-popover image {
 }
 box.panel-frame { border: none; border-radius: 0; margin: 0; padding: 0; }
 box.panel-frame > box { margin: 0; padding: 0; }
-box.panel-title-bar { padding: 0 5px; margin: 0; min-height: 17px; border-bottom: 1px solid alpha(@borders, 0.4); }
+box.panel-title-bar { padding: 0 5px; margin: 0; min-height: 16px; border-bottom: 1px solid alpha(@borders, 0.4); }
 .panel-title { font-size: 10px; font-weight: bold; }
-.panel-type-icon { min-height: 12px; min-width: 12px; opacity: 0.6; margin-right: 1px; }
-.panel-menu-btn { min-height: 14px; min-width: 14px; padding: 0; }
-.panel-action-btn { min-height: 14px; min-width: 14px; padding: 0; opacity: 0.5; }
+.panel-type-icon { min-height: 11px; min-width: 11px; opacity: 0.6; margin-right: 1px; }
+.panel-menu-btn { min-height: 13px; min-width: 13px; padding: 0; }
+.panel-action-btn { min-height: 13px; min-width: 13px; padding: 0; opacity: 0.5; }
 .panel-action-btn:hover { opacity: 1.0; }
 .sync-active { opacity: 1.0; color: #e5a50a; }
 .zoom-active { opacity: 1.0; color: #5588ff; }
 .panel-focused { border: none; }
 .panel-unfocused { border: none; }
 .panel-type-btn { min-width: 120px; }
-.panel-footer-bar { padding: 0 6px 0 10px; min-height: 15px; border-top: 1px solid alpha(@borders, 0.4); }
+.panel-footer-bar { padding: 0 6px 0 10px; min-height: 14px; border-top: 1px solid alpha(@borders, 0.4); }
 .panel-footer { font-size: 10px; }
 box.panel-footer-bar.editor-file-preview-footer,
 box.editor-file-preview-footer.panel-footer {
@@ -464,7 +467,7 @@ box.editor-file-preview-footer.panel-footer {
   border-bottom: none;
   border-left: none;
 }
-.status-bar { padding: 0 6px; min-height: 18px; }
+.status-bar { padding: 0 6px; min-height: 17px; }
 .status-mode { font-weight: bold; padding: 0 6px; }
 .markdown-panel {
   font-family: \"Inter\", \"SF Pro Text\", \"Segoe UI Variable\", \"Segoe UI\", \"Noto Sans\", \"Cantarell\", sans-serif;
@@ -476,7 +479,7 @@ box.editor-file-preview-footer.panel-footer {
   font-size: 11px;
 }
 .markdown-toolbar { border-bottom: 1px solid alpha(@borders, 0.3); }
-.tab-close-btn { min-height: 14px; min-width: 14px; padding: 1px; }
+.tab-close-btn { min-height: 12px; min-width: 12px; padding: 0; }
 .panel-collapsed-overlay { background-color: @headerbar_bg_color; border-top: 1px solid alpha(@borders, 0.4); border-bottom: 1px solid alpha(@borders, 0.4); padding: 4px; min-width: 32px; min-height: 32px; }
 paned > separator { min-width: 1px; min-height: 1px; }
 .dirty-indicator { color: #ff8c00; }
@@ -611,7 +614,7 @@ popover.app-popover button.app-popover-button {
   border: none;
   border-radius: 8px;
   box-shadow: none;
-  min-height: 26px;
+  min-height: 22px;
 }
 popover.app-popover modelbutton:hover,
 popover.app-popover button.app-popover-button:hover {
@@ -916,7 +919,10 @@ mod tests {
         assert!(BASE_CSS.contains("headerbar.app-headerbar"));
         assert!(BASE_CSS.contains("min-height: 30px;"));
         assert!(BASE_CSS.contains("button.flat,\ntogglebutton.flat"));
-        assert!(BASE_CSS.contains(".panel-action-btn { min-height: 14px;"));
+        assert!(BASE_CSS.contains("min-height: 20px;\n  min-width: 20px;"));
+        assert!(BASE_CSS.contains("min-height: 18px;\n  min-width: 18px;"));
+        assert!(BASE_CSS.contains(".panel-action-btn { min-height: 13px;"));
+        assert!(BASE_CSS.contains(".tab-close-btn { min-height: 12px;"));
     }
 
     #[test]
