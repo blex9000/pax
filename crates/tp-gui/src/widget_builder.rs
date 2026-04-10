@@ -1084,12 +1084,14 @@ fn wrap_layout_for_collapse(child: gtk4::Widget) -> gtk4::Widget {
         icon.set_pixel_size(COLLAPSED_ICON_SIZE);
         icon.set_halign(gtk4::Align::Center);
         icon.set_valign(gtk4::Align::Center);
-        let chip = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
+        let chip = gtk4::CenterBox::new();
         chip.add_css_class("panel-collapsed-chip");
         chip.set_size_request(COLLAPSED_CHROME_SIZE, COLLAPSED_CHROME_SIZE);
-        chip.set_halign(gtk4::Align::Center);
-        chip.set_valign(gtk4::Align::Center);
-        chip.append(&icon);
+        chip.set_halign(gtk4::Align::Fill);
+        chip.set_valign(gtk4::Align::Fill);
+        chip.set_hexpand(true);
+        chip.set_vexpand(true);
+        chip.set_center_widget(Some(&icon));
         collapsed_view.append(&chip);
     }
     collapsed_view.set_tooltip_text(Some("Click to expand"));
@@ -1240,13 +1242,23 @@ fn find_collapse_target(
 }
 
 fn collapsed_view_icon(collapsed_view: &gtk4::Box) -> Option<gtk4::Image> {
-    let child = collapsed_view.first_child()?;
-    if let Ok(image) = child.clone().downcast::<gtk4::Image>() {
+    find_image_descendant(&collapsed_view.clone().upcast())
+}
+
+fn find_image_descendant(widget: &gtk4::Widget) -> Option<gtk4::Image> {
+    if let Ok(image) = widget.clone().downcast::<gtk4::Image>() {
         return Some(image);
     }
-    child
-        .first_child()
-        .and_then(|nested| nested.downcast::<gtk4::Image>().ok())
+
+    let mut child = widget.first_child();
+    while let Some(current) = child {
+        if let Some(image) = find_image_descendant(&current) {
+            return Some(image);
+        }
+        child = current.next_sibling();
+    }
+
+    None
 }
 
 /// Monitor Paned drag to auto-collapse/expand at threshold.

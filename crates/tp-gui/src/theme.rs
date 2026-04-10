@@ -604,7 +604,7 @@ box.editor-file-preview-footer.panel-footer {
 .tab-close-btn image {
   -gtk-icon-size: 10px;
 }
-.panel-collapsed-overlay { background-color: transparent; border: none; padding: 0; min-width: 0; min-height: 0; }
+.panel-collapsed-overlay { background-color: @headerbar_bg_color; border: none; padding: 0; min-width: 0; min-height: 0; }
 .panel-collapsed-chip {
   background-color: transparent;
   color: @headerbar_fg_color;
@@ -1094,8 +1094,11 @@ mod tests {
         assert!(BASE_CSS.contains("margin-left: 14px;"));
         assert!(BASE_CSS.contains(".panel-action-btn { min-height: 10px;"));
         assert!(BASE_CSS.contains(".tab-close-btn { min-height: 11px;"));
-        assert!(BASE_CSS.contains(".panel-collapsed-overlay { background-color: transparent;"));
+        assert!(
+            BASE_CSS.contains(".panel-collapsed-overlay { background-color: @headerbar_bg_color;")
+        );
         assert!(BASE_CSS.contains(".panel-collapsed-chip"));
+        assert!(BASE_CSS.contains("background-color: transparent;"));
         assert!(BASE_CSS.contains("min-height: 14px;"));
     }
 

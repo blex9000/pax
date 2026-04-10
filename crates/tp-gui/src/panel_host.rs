@@ -338,12 +338,14 @@ impl PanelHost {
         collapsed_icon.set_pixel_size(COLLAPSED_ICON_SIZE);
         collapsed_icon.set_halign(gtk4::Align::Center);
         collapsed_icon.set_valign(gtk4::Align::Center);
-        let collapsed_chip = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
+        let collapsed_chip = gtk4::CenterBox::new();
         collapsed_chip.add_css_class("panel-collapsed-chip");
         collapsed_chip.set_size_request(COLLAPSED_CHROME_SIZE, COLLAPSED_CHROME_SIZE);
-        collapsed_chip.set_halign(gtk4::Align::Center);
-        collapsed_chip.set_valign(gtk4::Align::Center);
-        collapsed_chip.append(&collapsed_icon);
+        collapsed_chip.set_halign(gtk4::Align::Fill);
+        collapsed_chip.set_valign(gtk4::Align::Fill);
+        collapsed_chip.set_hexpand(true);
+        collapsed_chip.set_vexpand(true);
+        collapsed_chip.set_center_widget(Some(&collapsed_icon));
         collapsed_view.append(&collapsed_chip);
         collapsed_view.set_tooltip_text(Some(&format!("Click to expand: {}", name)));
 
