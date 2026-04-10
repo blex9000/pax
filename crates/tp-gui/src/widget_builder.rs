@@ -1072,14 +1072,13 @@ fn wrap_layout_for_collapse(child: gtk4::Widget) -> gtk4::Widget {
     wrapper.set_size_request(COLLAPSE_SIZE, COLLAPSE_SIZE);
     wrapper.append(&child);
 
-    let collapsed_view = gtk4::Button::new();
-    collapsed_view.add_css_class("flat");
+    let collapsed_view = gtk4::CenterBox::new();
     collapsed_view.add_css_class("panel-collapsed-chip");
     collapsed_view.set_halign(gtk4::Align::Fill);
     collapsed_view.set_valign(gtk4::Align::Fill);
     collapsed_view.set_vexpand(true);
     collapsed_view.set_hexpand(true);
-    collapsed_view.set_can_focus(false);
+    collapsed_view.set_can_target(false);
     collapsed_view.set_size_request(COLLAPSED_CHROME_SIZE, COLLAPSED_CHROME_SIZE);
     collapsed_view.set_visible(false);
     {
@@ -1088,7 +1087,7 @@ fn wrap_layout_for_collapse(child: gtk4::Widget) -> gtk4::Widget {
         icon.set_halign(gtk4::Align::Center);
         icon.set_valign(gtk4::Align::Center);
         icon.set_can_target(false);
-        collapsed_view.set_child(Some(&icon));
+        collapsed_view.set_center_widget(Some(&icon));
     }
     collapsed_view.set_tooltip_text(Some("Click to expand"));
     wrapper.append(&collapsed_view);
