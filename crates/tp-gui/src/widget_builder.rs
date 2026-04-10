@@ -1107,6 +1107,19 @@ fn wrap_layout_for_collapse(child: gtk4::Widget) -> gtk4::Widget {
     }
     {
         let content_ref = child.clone();
+        let drag = gtk4::GestureDrag::new();
+        drag.set_button(1);
+        drag.set_propagation_phase(gtk4::PropagationPhase::Capture);
+        drag.connect_drag_begin(move |g, _, _| {
+            if content_ref.is_visible() {
+                return;
+            }
+            g.set_state(gtk4::EventSequenceState::Claimed);
+        });
+        collapsed_view.add_controller(drag);
+    }
+    {
+        let content_ref = child.clone();
         let cv_ref: gtk4::Widget = collapsed_view.clone().upcast();
         let wrapper_ref = wrapper.clone();
         let gesture = gtk4::GestureClick::new();

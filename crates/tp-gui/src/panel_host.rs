@@ -359,6 +359,19 @@ impl PanelHost {
             collapsed_view.add_controller(gesture);
         }
         {
+            let container_ref = container.clone();
+            let drag = gtk4::GestureDrag::new();
+            drag.set_button(1);
+            drag.set_propagation_phase(gtk4::PropagationPhase::Capture);
+            drag.connect_drag_begin(move |g, _, _| {
+                if container_ref.is_visible() {
+                    return;
+                }
+                g.set_state(gtk4::EventSequenceState::Claimed);
+            });
+            collapsed_view.add_controller(drag);
+        }
+        {
             let cb_ref = action_cb_ref.clone();
             let pid = panel_id.to_string();
             let container_ref = container.clone();
