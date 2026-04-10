@@ -1285,6 +1285,7 @@ fn setup_paned_drag_collapse(paned: &gtk4::Paned, hosts: &HashMap<String, PanelH
         let press_x = Rc::new(Cell::new(0.0));
         let press_y = Rc::new(Cell::new(0.0));
         let press_position = Rc::new(Cell::new(0));
+        let click_seq = Rc::new(Cell::new(0u64));
         let click = gtk4::GestureClick::new();
         click.set_button(1);
         click.set_propagation_phase(gtk4::PropagationPhase::Capture);
@@ -1292,7 +1293,10 @@ fn setup_paned_drag_collapse(paned: &gtk4::Paned, hosts: &HashMap<String, PanelH
             let press_x = press_x.clone();
             let press_y = press_y.clone();
             let press_position = press_position.clone();
+            let click_seq = click_seq.clone();
             let paned_ref = paned.clone();
+            let click_start = click_start.clone();
+            let click_end = click_end.clone();
             click.connect_pressed(move |_, _, x, y| {
                 press_x.set(x);
                 press_y.set(y);
@@ -1306,11 +1310,89 @@ fn setup_paned_drag_collapse(paned: &gtk4::Paned, hosts: &HashMap<String, PanelH
                     paned_ref.allocation().width(),
                     paned_ref.allocation().height()
                 );
+
+                let total = if orient == gtk4::Orientation::Horizontal {
+                    paned_ref.allocation().width()
+                } else {
+                    paned_ref.allocation().height()
+                };
+                if total <= 0 {
+                    return;
+                }
+
+                let axis = if orient == gtk4::Orientation::Horizontal {
+                    x as i32
+                } else {
+                    y as i32
+                };
+                let hit_start = click_start
+                    .as_ref()
+                    .map_or(false, |target| target.is_collapsed() && axis <= COLLAPSED_PANEL_SIZE);
+                let hit_end = click_end.as_ref().map_or(false, |target| {
+                    target.is_collapsed() && axis >= total - COLLAPSED_PANEL_SIZE
+                });
+
+                if !(hit_start || hit_end) {
+                    return;
+                }
+
+                let seq = click_seq.get().wrapping_add(1);
+                click_seq.set(seq);
+                let paned_ref = paned_ref.clone();
+                let press_position_ref = press_position.clone();
+                let click_seq_ref = click_seq.clone();
+                let click_start_ref = click_start.clone();
+                let click_end_ref = click_end.clone();
+                tracing::debug!(
+                    "collapse_click_pressed_candidate orient={:?} side={} axis={} total={} seq={}",
+                    orient,
+                    if hit_start { "start" } else { "end" },
+                    axis,
+                    total,
+                    seq
+                );
+                gtk4::glib::timeout_add_local_once(std::time::Duration::from_millis(140), move || {
+                    if click_seq_ref.get() != seq {
+                        tracing::debug!("collapse_click_timeout_cancel seq={} reason=stale", seq);
+                        return;
+                    }
+
+                    let moved_split = (paned_ref.position() - press_position_ref.get()).abs() > 2;
+                    if moved_split {
+                        tracing::debug!(
+                            "collapse_click_timeout_cancel seq={} reason=drag start_pos={} end_pos={}",
+                            seq,
+                            press_position_ref.get(),
+                            paned_ref.position()
+                        );
+                        return;
+                    }
+
+                    tracing::debug!("collapse_click_timeout_fire seq={}", seq);
+                    if hit_start {
+                        if let Some(ref target) = click_start_ref {
+                            if target.is_collapsed() {
+                                expand_drag_collapse_target(target, &paned_ref);
+                            }
+                        }
+                        return;
+                    }
+
+                    if hit_end {
+                        if let Some(ref target) = click_end_ref {
+                            if target.is_collapsed() {
+                                expand_drag_collapse_target(target, &paned_ref);
+                            }
+                        }
+                    }
+                });
             });
         }
         {
+            let click_seq = click_seq.clone();
             let paned_ref = paned.clone();
             click.connect_released(move |g, _, x, y| {
+                click_seq.set(click_seq.get().wrapping_add(1));
                 let moved_pointer =
                     (x - press_x.get()).abs() > 3.0 || (y - press_y.get()).abs() > 3.0;
                 let moved_split = (paned_ref.position() - press_position.get()).abs() > 2;
