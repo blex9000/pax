@@ -296,15 +296,39 @@ window.app-dialog > * {
   color: @headerbar_fg_color;
 }
 toolbarview.app-toolbar-view { background-color: @window_bg_color; color: @window_fg_color; }
-toolbarview.app-toolbar-view .top-bar { background-color: @headerbar_bg_color; color: @headerbar_fg_color; border-bottom: 1px solid @headerbar_border_color; }
+toolbarview.app-toolbar-view .top-bar { background-color: @headerbar_bg_color; color: @headerbar_fg_color; border-bottom: 1px solid @headerbar_border_color; min-height: 30px; padding-top: 0; padding-bottom: 0; }
 toolbarview.app-toolbar-view .top-bar > * { background-color: @headerbar_bg_color; color: @headerbar_fg_color; }
-headerbar.app-headerbar { background-color: @headerbar_bg_color; color: @headerbar_fg_color; border: none; }
+headerbar.app-headerbar { background-color: @headerbar_bg_color; color: @headerbar_fg_color; border: none; min-height: 30px; padding-top: 0; padding-bottom: 0; }
+headerbar.app-headerbar windowhandle { min-height: 30px; }
 headerbar.app-headerbar box, headerbar.app-headerbar label, headerbar.app-headerbar image, headerbar.app-headerbar button, headerbar.app-headerbar menubutton > button { color: @headerbar_fg_color; }
 box.panel-title-bar, box.panel-footer-bar, .status-bar, .markdown-toolbar { background-color: @headerbar_bg_color; color: @headerbar_fg_color; }
+button,
+menubutton > button,
+togglebutton {
+  min-height: 22px;
+  min-width: 22px;
+  padding: 1px 5px;
+}
+button.flat,
+togglebutton.flat,
+menubutton.flat > button {
+  min-height: 20px;
+  min-width: 20px;
+  padding: 1px 4px;
+}
 .editor-sidebar-toolbar-surface,
 .editor-sidebar-toolbar {
   background-color: @headerbar_bg_color;
   color: @headerbar_fg_color;
+}
+.editor-sidebar-toolbar {
+  min-height: 20px;
+}
+.editor-sidebar-toolbar button,
+.editor-sidebar-toolbar togglebutton {
+  min-height: 18px;
+  min-width: 18px;
+  padding: 1px 3px;
 }
 .editor-file-tree-actions {
   background-color: @view_bg_color;
@@ -418,18 +442,18 @@ popover.app-popover image {
 }
 box.panel-frame { border: none; border-radius: 0; margin: 0; padding: 0; }
 box.panel-frame > box { margin: 0; padding: 0; }
-box.panel-title-bar { padding: 1px 6px; margin: 0; min-height: 18px; border-bottom: 1px solid alpha(@borders, 0.4); }
+box.panel-title-bar { padding: 0 5px; margin: 0; min-height: 17px; border-bottom: 1px solid alpha(@borders, 0.4); }
 .panel-title { font-size: 10px; font-weight: bold; }
-.panel-type-icon { min-height: 13px; min-width: 13px; opacity: 0.6; margin-right: 1px; }
-.panel-menu-btn { min-height: 15px; min-width: 15px; padding: 1px; }
-.panel-action-btn { min-height: 15px; min-width: 15px; padding: 1px; opacity: 0.5; }
+.panel-type-icon { min-height: 12px; min-width: 12px; opacity: 0.6; margin-right: 1px; }
+.panel-menu-btn { min-height: 14px; min-width: 14px; padding: 0; }
+.panel-action-btn { min-height: 14px; min-width: 14px; padding: 0; opacity: 0.5; }
 .panel-action-btn:hover { opacity: 1.0; }
 .sync-active { opacity: 1.0; color: #e5a50a; }
 .zoom-active { opacity: 1.0; color: #5588ff; }
 .panel-focused { border: none; }
 .panel-unfocused { border: none; }
 .panel-type-btn { min-width: 120px; }
-.panel-footer-bar { padding: 1px 6px 1px 10px; min-height: 16px; border-top: 1px solid alpha(@borders, 0.4); }
+.panel-footer-bar { padding: 0 6px 0 10px; min-height: 15px; border-top: 1px solid alpha(@borders, 0.4); }
 .panel-footer { font-size: 10px; }
 box.panel-footer-bar.editor-file-preview-footer,
 box.editor-file-preview-footer.panel-footer {
@@ -440,7 +464,7 @@ box.editor-file-preview-footer.panel-footer {
   border-bottom: none;
   border-left: none;
 }
-.status-bar { padding: 1px 6px; min-height: 20px; }
+.status-bar { padding: 0 6px; min-height: 18px; }
 .status-mode { font-weight: bold; padding: 0 6px; }
 .markdown-panel {
   font-family: \"Inter\", \"SF Pro Text\", \"Segoe UI Variable\", \"Segoe UI\", \"Noto Sans\", \"Cantarell\", sans-serif;
@@ -467,9 +491,26 @@ paned > separator { min-width: 1px; min-height: 1px; }
   background-color: @view_bg_color;
   color: @view_fg_color;
 }
+.editor-file-tree-list > row,
+.editor-file-tree-row {
+  min-height: 18px;
+  padding-top: 0;
+  padding-bottom: 0;
+  margin-top: 0;
+  margin-bottom: 0;
+  border-radius: 3px;
+}
+.editor-file-tree-entry {
+  min-height: 18px;
+  padding-top: 0;
+  padding-bottom: 0;
+}
 .editor-file-tree-list > row > box,
 .editor-file-tree-list > row > box > * {
   background-color: transparent;
+}
+.editor-file-tree-list > row:hover {
+  background-color: alpha(@view_fg_color, 0.06);
 }
 .editor-file-tree-entry.editor-file-tree-ignored,
 .editor-file-tree-entry.editor-file-tree-ignored > label,
@@ -477,6 +518,22 @@ paned > separator { min-width: 1px; min-height: 1px; }
 .editor-file-tree-entry.editor-file-tree-ignored > drawingarea {
   color: alpha(@view_fg_color, 0.58);
   opacity: 0.72;
+}
+.editor-file-tree-list > row:selected,
+.editor-file-tree-list > row:selected:hover,
+.editor-file-tree-list > row:selected:focus {
+  background-color: @accent_bg_color;
+  color: @accent_fg_color;
+}
+.editor-file-tree-list > row:selected > box,
+.editor-file-tree-list > row:selected > box > label,
+.editor-file-tree-list > row:selected > box > image {
+  color: @accent_fg_color;
+}
+.editor-file-tree-list > row:selected > box.editor-file-tree-ignored,
+.editor-file-tree-list > row:selected > box.editor-file-tree-ignored > label,
+.editor-file-tree-list > row:selected > box.editor-file-tree-ignored > image {
+  opacity: 1.0;
 }
 .editor-sidebar-pane,
 .editor-sidebar-pane-scroll,
@@ -824,6 +881,8 @@ mod tests {
         assert!(BASE_CSS.contains("background-color: @view_bg_color;"));
         assert!(BASE_CSS.contains("color: @view_fg_color;"));
         assert!(BASE_CSS.contains(".editor-file-tree-entry.editor-file-tree-ignored"));
+        assert!(BASE_CSS.contains(".editor-file-tree-list > row:selected"));
+        assert!(BASE_CSS.contains(".editor-file-tree-entry {\n  min-height: 18px;"));
     }
 
     #[test]
@@ -854,6 +913,10 @@ mod tests {
         assert!(BASE_CSS.contains(".editor-code-view"));
         assert!(BASE_CSS.contains("\"JetBrains Mono\""));
         assert!(BASE_CSS.contains("min-height: 28px;"));
+        assert!(BASE_CSS.contains("headerbar.app-headerbar"));
+        assert!(BASE_CSS.contains("min-height: 30px;"));
+        assert!(BASE_CSS.contains("button.flat,\ntogglebutton.flat"));
+        assert!(BASE_CSS.contains(".panel-action-btn { min-height: 14px;"));
     }
 
     #[test]

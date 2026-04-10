@@ -67,7 +67,7 @@ impl FileTree {
         actions_bar.add_css_class("editor-file-tree-actions");
         actions_bar.set_margin_start(2);
         actions_bar.set_margin_end(2);
-        actions_bar.set_margin_bottom(1);
+        actions_bar.set_margin_bottom(0);
 
         let collapse_btn = gtk4::Button::from_icon_name("go-up-symbolic");
         collapse_btn.add_css_class("flat");
@@ -566,17 +566,7 @@ impl FileTree {
 
     /// Expand all parent directories of the given file and scroll to it.
     pub fn reveal_file(&self, file_path: &Path) {
-        // Build list of ancestor directories that need expanding
-        let mut ancestors: Vec<PathBuf> = Vec::new();
-        let mut parent = file_path.parent();
-        while let Some(p) = parent {
-            if p == self.root_dir {
-                break;
-            }
-            ancestors.push(p.to_path_buf());
-            parent = p.parent();
-        }
-        ancestors.reverse(); // root-first order
+        let ancestors = reveal_ancestor_dirs(&self.root_dir, file_path);
 
         // Expand each ancestor if not already expanded
         let mut changed = false;
@@ -613,17 +603,17 @@ impl FileTree {
             populate_list_box(&self.list_box, &self.entries.borrow(), &self.root_dir);
         }
 
-        // Find the file row and scroll to it
-        let file_idx = {
-            let ents = self.entries.borrow();
-            ents.iter().position(|e| e.path == file_path)
-        };
+        // Find the file row and scroll to it. Repeat on idle because reveal is
+        // often triggered immediately after switching the sidebar stack to Files.
+        let file_idx = find_entry_index_by_path(&self.entries.borrow(), file_path);
         if let Some(idx) = file_idx {
-            if let Some(row) = self.list_box.row_at_index(idx as i32) {
-                self.list_box.select_row(Some(&row));
-                // Scroll to make the row visible
-                row.grab_focus();
-            }
+            select_and_scroll_to_row(&self.list_box, idx);
+            let list_box = self.list_box.clone();
+            glib::idle_add_local_once(move || {
+                select_and_scroll_to_row(&list_box, idx);
+            });
+        } else {
+            tracing::debug!("reveal_file: row not found for {}", file_path.display());
         }
     }
 }
@@ -632,15 +622,22 @@ impl FileTree {
 const INDENT_PX: i32 = 16;
 /// Width of each guide column.
 const GUIDE_W: f64 = 16.0;
+/// Compact file tree row height.
+const ROW_HEIGHT_PX: i32 = 18;
+/// Compact symbolic icon size.
+const ROW_ICON_PX: i32 = 14;
+/// Width reserved for the directory expander/spacer.
+const EXPANDER_WIDTH_PX: i32 = 12;
 /// Height assumed for drawing (actual is allocated at render time).
-const ROW_H: f64 = 24.0;
+const ROW_H: f64 = 18.0;
 
 /// Build a single row widget for a file entry.
 /// `guides` is a bool per depth level (0..depth): true = draw a vertical continuation line.
 /// `is_last` is true if this entry is the last sibling at its depth.
 fn build_row_widget(entry: &FileEntry, root: &Path, guides: &[bool], is_last: bool) -> gtk4::Box {
-    let row = gtk4::Box::new(gtk4::Orientation::Horizontal, 2);
-    row.set_margin_start(4);
+    let row = gtk4::Box::new(gtk4::Orientation::Horizontal, 1);
+    row.set_size_request(-1, ROW_HEIGHT_PX);
+    row.set_margin_start(3);
     row.set_margin_top(0);
     row.set_margin_bottom(0);
     row.add_css_class("editor-file-tree-entry");
@@ -704,30 +701,34 @@ fn build_row_widget(entry: &FileEntry, root: &Path, guides: &[bool], is_last: bo
         // +/- expander
         let expander_label = if entry.expanded { "\u{2212}" } else { "+" };
         let expander = gtk4::Label::new(Some(expander_label));
-        expander.set_width_request(14);
+        expander.set_width_request(EXPANDER_WIDTH_PX);
+        expander.set_valign(gtk4::Align::Center);
         expander.add_css_class("dim-label");
         row.append(&expander);
 
         // Folder icon (symbolic, matches app theme)
         let icon_name = entry_icon_name(entry);
         let icon = gtk4::Image::from_icon_name(icon_name);
-        icon.set_pixel_size(16);
+        icon.set_pixel_size(ROW_ICON_PX);
+        icon.set_valign(gtk4::Align::Center);
         row.append(&icon);
     } else {
         // Spacer to align with dirs (expander width)
         let spacer = gtk4::Label::new(None);
-        spacer.set_width_request(14);
+        spacer.set_width_request(EXPANDER_WIDTH_PX);
         row.append(&spacer);
 
         let icon = gtk4::Image::from_icon_name(entry_icon_name(entry));
-        icon.set_pixel_size(16);
+        icon.set_pixel_size(ROW_ICON_PX);
+        icon.set_valign(gtk4::Align::Center);
         row.append(&icon);
     }
 
     let label = gtk4::Label::new(Some(&entry.name));
     label.set_halign(gtk4::Align::Start);
+    label.set_valign(gtk4::Align::Center);
     label.set_hexpand(true);
-    label.set_margin_start(4);
+    label.set_margin_start(3);
     label.set_ellipsize(gtk4::pango::EllipsizeMode::End);
     if !entry.is_ignored {
         let rel = entry.path.strip_prefix(root).unwrap_or(&entry.path);
@@ -815,7 +816,12 @@ fn populate_list_box(list_box: &gtk4::ListBox, entries: &[FileEntry], root: &Pat
         };
 
         let row_widget = build_row_widget(entry, root, &guides, is_last);
-        list_box.append(&row_widget);
+        let list_row = gtk4::ListBoxRow::new();
+        list_row.add_css_class("editor-file-tree-row");
+        list_row.set_selectable(true);
+        list_row.set_activatable(true);
+        list_row.set_child(Some(&row_widget));
+        list_box.append(&list_row);
 
         // Update active_guides: if this entry has a next sibling at its depth,
         // mark its depth level as active (for children to draw │).
@@ -838,6 +844,33 @@ fn populate_message(list_box: &gtk4::ListBox, message: &str) {
     label.add_css_class("dim-label");
     label.set_margin_top(16);
     list_box.append(&label);
+}
+
+fn reveal_ancestor_dirs(root_dir: &Path, file_path: &Path) -> Vec<PathBuf> {
+    let mut ancestors = Vec::new();
+    let mut parent = file_path.parent();
+    while let Some(path) = parent {
+        if path == root_dir {
+            break;
+        }
+        ancestors.push(path.to_path_buf());
+        parent = path.parent();
+    }
+    ancestors.reverse();
+    ancestors
+}
+
+fn find_entry_index_by_path(entries: &[FileEntry], file_path: &Path) -> Option<usize> {
+    entries.iter().position(|entry| entry.path == file_path)
+}
+
+fn select_and_scroll_to_row(list_box: &gtk4::ListBox, idx: usize) -> bool {
+    let Some(row) = list_box.row_at_index(idx as i32) else {
+        return false;
+    };
+    list_box.select_row(Some(&row));
+    row.grab_focus();
+    true
 }
 
 fn collect_expanded_dirs(entries: &[FileEntry]) -> Vec<PathBuf> {
@@ -1463,6 +1496,25 @@ mod tests {
             creation_destination_for_dir(dir, "new.rs"),
             Some(PathBuf::from("/tmp/demo/src/new.rs"))
         );
+    }
+
+    #[test]
+    fn reveal_ancestor_dirs_are_root_first_and_exclude_root() {
+        let root = PathBuf::from("/tmp/demo");
+        let file = root.join("src/ui/main.rs");
+
+        assert_eq!(
+            reveal_ancestor_dirs(&root, &file),
+            vec![root.join("src"), root.join("src/ui")]
+        );
+    }
+
+    #[test]
+    fn file_tree_row_metrics_are_compact() {
+        assert_eq!(ROW_HEIGHT_PX, 18);
+        assert_eq!(ROW_H, 18.0);
+        assert_eq!(ROW_ICON_PX, 14);
+        assert_eq!(EXPANDER_WIDTH_PX, 12);
     }
 
     #[test]

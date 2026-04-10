@@ -167,8 +167,8 @@ impl CodeEditorPanel {
         activity_bar.add_css_class("editor-file-tree-header");
         activity_bar.set_margin_start(2);
         activity_bar.set_margin_end(2);
-        activity_bar.set_margin_top(1);
-        activity_bar.set_margin_bottom(1);
+        activity_bar.set_margin_top(0);
+        activity_bar.set_margin_bottom(0);
 
         let files_btn = gtk4::ToggleButton::new();
         files_btn.set_icon_name("folder-symbolic");
@@ -217,8 +217,8 @@ impl CodeEditorPanel {
         let nav_sep = gtk4::Separator::new(gtk4::Orientation::Vertical);
         nav_sep.set_margin_start(3);
         nav_sep.set_margin_end(2);
-        nav_sep.set_margin_top(4);
-        nav_sep.set_margin_bottom(4);
+        nav_sep.set_margin_top(3);
+        nav_sep.set_margin_bottom(3);
         activity_bar.append(&nav_sep);
         activity_bar.append(&nav_back_btn);
         activity_bar.append(&nav_fwd_btn);
