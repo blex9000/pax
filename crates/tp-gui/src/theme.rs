@@ -780,6 +780,7 @@ popover.app-popover button.app-popover-button:hover {
   background-image: none;
   border-color: transparent;
   box-shadow: none;
+  color: @accent_color;
 }
 popover.app-popover modelbutton:hover image,
 popover.app-popover button.app-popover-button:hover image {
@@ -787,7 +788,7 @@ popover.app-popover button.app-popover-button:hover image {
 }
 popover.app-popover modelbutton:hover label,
 popover.app-popover button.app-popover-button:hover label {
-  color: @popover_fg_color;
+  color: @accent_color;
 }
 window.app-dialog dropdown.settings-theme-dropdown > popover.menu,
 .editor-sidebar-pane dropdown > popover.menu {
@@ -1127,6 +1128,19 @@ mod tests {
         assert!(!BASE_CSS.contains("box.workspace-tab-add-wrap > button.workspace-tab-add-btn:hover {\n  background-color: alpha"));
         assert!(!BASE_CSS.contains(
             "popover.app-popover button.app-popover-button:hover {\n  background-color: alpha"
+        ));
+    }
+
+    #[test]
+    fn popover_menu_hover_changes_label_color_with_icon() {
+        assert!(BASE_CSS.contains(
+            "popover.app-popover modelbutton:hover,\npopover.app-popover button.app-popover-button:hover {\n  background-color: transparent;"
+        ));
+        assert!(BASE_CSS.contains(
+            "popover.app-popover modelbutton:hover image,\npopover.app-popover button.app-popover-button:hover image {\n  color: @accent_color;"
+        ));
+        assert!(BASE_CSS.contains(
+            "popover.app-popover modelbutton:hover label,\npopover.app-popover button.app-popover-button:hover label {\n  color: @accent_color;"
         ));
     }
 
