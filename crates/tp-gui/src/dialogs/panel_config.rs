@@ -49,7 +49,6 @@ pub fn show_panel_config_dialog(
         PanelType::Markdown { file } => {
             show_markdown_config(parent, panel_name, file, min_width, min_height, on_done)
         }
-        PanelType::Browser { .. } => {}
         PanelType::CodeEditor {
             root_dir,
             ssh: editor_ssh,

@@ -31,10 +31,7 @@ fn validate_workspace(ws: &Workspace) -> Result<()> {
     // Every panel ID in layout must have a matching PanelConfig
     for id in &layout_ids {
         if ws.panel(id).is_none() {
-            anyhow::bail!(
-                "Layout references panel '{}' but no PanelConfig found",
-                id
-            );
+            anyhow::bail!("Layout references panel '{}' but no PanelConfig found", id);
         }
     }
 
@@ -101,8 +98,10 @@ mod tests {
     fn test_load_default_workspace() {
         let manifest_dir = env!("CARGO_MANIFEST_DIR");
         let path = std::path::Path::new(manifest_dir)
-            .parent().unwrap()
-            .parent().unwrap()
+            .parent()
+            .unwrap()
+            .parent()
+            .unwrap()
             .join("config/default_workspace.json");
         if path.exists() {
             let ws = load_workspace(&path).unwrap();
@@ -118,8 +117,10 @@ mod tests {
     fn test_load_saved_workspace() {
         let manifest_dir = env!("CARGO_MANIFEST_DIR");
         let path = std::path::Path::new(manifest_dir)
-            .parent().unwrap()
-            .parent().unwrap()
+            .parent()
+            .unwrap()
+            .parent()
+            .unwrap()
             .join("config/workspace_save_test.json");
         if path.exists() {
             let ws = load_workspace(&path).unwrap();
@@ -166,12 +167,47 @@ mod tests {
             ]
         }"#;
         let ws: crate::workspace::Workspace = serde_json::from_str(json).unwrap();
-        assert_eq!(ws.panels[0].effective_type(), crate::workspace::PanelType::CodeEditor { root_dir: "/tmp/project".to_string(), ssh: None, remote_path: None, poll_interval: None });
+        assert_eq!(
+            ws.panels[0].effective_type(),
+            crate::workspace::PanelType::CodeEditor {
+                root_dir: "/tmp/project".to_string(),
+                ssh: None,
+                remote_path: None,
+                poll_interval: None
+            }
+        );
 
         // Roundtrip
         let serialized = serde_json::to_string_pretty(&ws).unwrap();
         let ws2: crate::workspace::Workspace = serde_json::from_str(&serialized).unwrap();
-        assert_eq!(ws2.panels[0].effective_type(), ws.panels[0].effective_type());
+        assert_eq!(
+            ws2.panels[0].effective_type(),
+            ws.panels[0].effective_type()
+        );
+    }
+
+    #[test]
+    fn unknown_panel_type_loads_as_empty_panel() {
+        let json = r#"{
+            "name": "unknown-panel-test",
+            "layout": { "type": "panel", "id": "legacy" },
+            "panels": [
+                {
+                    "id": "legacy",
+                    "name": "Legacy Browser",
+                    "panel_type": { "type": "browser", "url": "https://example.com" }
+                }
+            ]
+        }"#;
+
+        let mut f = NamedTempFile::new().unwrap();
+        f.write_all(json.as_bytes()).unwrap();
+        let ws = load_workspace(f.path()).unwrap();
+
+        assert_eq!(
+            ws.panels[0].effective_type(),
+            crate::workspace::PanelType::Empty
+        );
     }
 
     #[test]

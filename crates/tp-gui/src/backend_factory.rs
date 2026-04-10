@@ -10,7 +10,6 @@ pub fn panel_type_to_id(pt: &PanelType) -> &'static str {
         PanelType::Empty => "__empty__",
         PanelType::Terminal | PanelType::Ssh { .. } | PanelType::RemoteTmux { .. } => "terminal",
         PanelType::Markdown { .. } => "markdown",
-        PanelType::Browser { .. } => "__empty__",
         PanelType::CodeEditor { .. } => "code_editor",
     }
 }
@@ -92,7 +91,6 @@ pub fn create_backend_from_registry(
             extra.insert("file".to_string(), file.clone());
             ("markdown", extra)
         }
-        PanelType::Browser { .. } => ("__empty__", HashMap::new()),
         PanelType::CodeEditor {
             root_dir,
             ssh,

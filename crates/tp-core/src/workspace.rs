@@ -1,4 +1,4 @@
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use std::collections::HashMap;
 use uuid::Uuid;
 
@@ -107,7 +107,7 @@ pub struct PanelConfig {
 }
 
 /// What kind of panel to create — determines the widget type.
-#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
+#[derive(Debug, Clone, Serialize, Default, PartialEq)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum PanelType {
     /// Empty panel — shows type chooser
@@ -136,9 +136,6 @@ pub enum PanelType {
     },
     /// Markdown viewer
     Markdown { file: String },
-    /// Legacy browser panel. Kept only so old workspace files deserialize; Pax no longer creates
-    /// or renders browser panels.
-    Browser { url: String },
     /// Embedded code editor (local or remote via SSHFS)
     CodeEditor {
         root_dir: String,
@@ -152,6 +149,116 @@ pub enum PanelType {
         #[serde(default)]
         poll_interval: Option<u64>,
     },
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+enum KnownPanelType {
+    Empty,
+    Terminal,
+    Ssh {
+        host: String,
+        #[serde(default = "default_ssh_port")]
+        port: u16,
+        #[serde(default)]
+        user: Option<String>,
+        #[serde(default)]
+        password: Option<String>,
+        #[serde(default)]
+        identity_file: Option<String>,
+    },
+    RemoteTmux {
+        host: String,
+        session: String,
+        #[serde(default)]
+        user: Option<String>,
+    },
+    Markdown {
+        file: String,
+    },
+    CodeEditor {
+        root_dir: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        ssh: Option<SshConfig>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        remote_path: Option<String>,
+        #[serde(default)]
+        poll_interval: Option<u64>,
+    },
+}
+
+impl From<KnownPanelType> for PanelType {
+    fn from(value: KnownPanelType) -> Self {
+        match value {
+            KnownPanelType::Empty => PanelType::Empty,
+            KnownPanelType::Terminal => PanelType::Terminal,
+            KnownPanelType::Ssh {
+                host,
+                port,
+                user,
+                password,
+                identity_file,
+            } => PanelType::Ssh {
+                host,
+                port,
+                user,
+                password,
+                identity_file,
+            },
+            KnownPanelType::RemoteTmux {
+                host,
+                session,
+                user,
+            } => PanelType::RemoteTmux {
+                host,
+                session,
+                user,
+            },
+            KnownPanelType::Markdown { file } => PanelType::Markdown { file },
+            KnownPanelType::CodeEditor {
+                root_dir,
+                ssh,
+                remote_path,
+                poll_interval,
+            } => PanelType::CodeEditor {
+                root_dir,
+                ssh,
+                remote_path,
+                poll_interval,
+            },
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for PanelType {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let value = serde_json::Value::deserialize(deserializer)?;
+        let Some(type_name) = value.get("type").and_then(|field| field.as_str()) else {
+            tracing::error!(
+                panel_type = ?value,
+                "Invalid workspace panel type; using empty panel"
+            );
+            return Ok(PanelType::Empty);
+        };
+
+        match type_name {
+            "empty" | "terminal" | "ssh" | "remote_tmux" | "markdown" | "code_editor" => {
+                serde_json::from_value::<KnownPanelType>(value)
+                    .map(PanelType::from)
+                    .map_err(serde::de::Error::custom)
+            }
+            unknown => {
+                tracing::error!(
+                    panel_type = unknown,
+                    "Unknown workspace panel type; using empty panel"
+                );
+                Ok(PanelType::Empty)
+            }
+        }
+    }
 }
 
 /// SSH connection settings (stored in PanelConfig, not PanelType).
@@ -203,7 +310,7 @@ impl PanelConfig {
     /// Legacy Ssh/RemoteTmux types are treated as Terminal (ssh config is in self.ssh).
     pub fn effective_type(&self) -> PanelType {
         match &self.panel_type {
-            PanelType::Empty | PanelType::Browser { .. } => PanelType::Empty,
+            PanelType::Empty => PanelType::Empty,
             PanelType::Ssh { .. } | PanelType::RemoteTmux { .. } | PanelType::Terminal => {
                 PanelType::Terminal
             }
@@ -432,9 +539,7 @@ impl Workspace {
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        new_tab_id, LayoutNode, PanelConfig, PanelTarget, PanelType, Workspace, WorkspaceSettings,
-    };
+    use super::{new_tab_id, LayoutNode, PanelType, Workspace, WorkspaceSettings};
 
     #[test]
     fn workspace_settings_default_to_nord_theme() {
@@ -447,28 +552,11 @@ mod tests {
     }
 
     #[test]
-    fn legacy_browser_panel_effectively_becomes_empty() {
-        let panel = PanelConfig {
-            id: "p1".to_string(),
-            name: "Old Browser".to_string(),
-            panel_type: PanelType::Browser {
-                url: "https://example.com".to_string(),
-            },
-            target: PanelTarget::Local,
-            startup_commands: Vec::new(),
-            groups: Vec::new(),
-            record_output: false,
-            cwd: None,
-            env: std::collections::HashMap::new(),
-            pre_script: None,
-            post_script: None,
-            before_close: None,
-            min_width: 0,
-            min_height: 0,
-            ssh: None,
-        };
+    fn unknown_panel_type_deserializes_to_empty() {
+        let panel_type: PanelType =
+            serde_json::from_str(r#"{ "type": "browser", "url": "https://example.com" }"#).unwrap();
 
-        assert_eq!(panel.effective_type(), PanelType::Empty);
+        assert_eq!(panel_type, PanelType::Empty);
     }
 
     #[test]
