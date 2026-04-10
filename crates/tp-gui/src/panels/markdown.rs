@@ -88,7 +88,7 @@ impl MarkdownPanel {
         let modified = Rc::new(Cell::new(false));
 
         // ── Main toolbar ─────────────────────────────────────────────────
-        let toolbar = gtk4::Box::new(gtk4::Orientation::Horizontal, 2);
+        let toolbar = gtk4::Box::new(gtk4::Orientation::Horizontal, 3);
         toolbar.add_css_class("markdown-toolbar");
         toolbar.set_margin_start(2);
         toolbar.set_margin_end(2);
@@ -147,7 +147,7 @@ impl MarkdownPanel {
         container.append(&toolbar);
 
         // ── Formatting toolbar (edit mode only) ──────────────────────────
-        let fmt_bar = gtk4::Box::new(gtk4::Orientation::Horizontal, 1);
+        let fmt_bar = gtk4::Box::new(gtk4::Orientation::Horizontal, 2);
         fmt_bar.add_css_class("markdown-toolbar");
         fmt_bar.set_margin_start(2);
         fmt_bar.set_margin_end(2);

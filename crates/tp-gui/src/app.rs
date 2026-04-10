@@ -702,6 +702,21 @@ fn setup_workspace_ui(
         window.add_controller(outside_click);
     }
 
+    {
+        let ws_for_layout = ws_view.clone();
+        let win_for_layout = window_rc.clone();
+        let sa_for_layout = save_action.clone();
+        let cb: Rc<dyn Fn()> = Rc::new(move || {
+            if ws_for_layout
+                .borrow_mut()
+                .sync_ratios_from_widgets_if_changed()
+            {
+                actions::update_dirty_ui(&ws_for_layout, &win_for_layout, &sa_for_layout);
+            }
+        });
+        ws_view.borrow_mut().set_layout_change_callback(cb);
+    }
+
     // Setup sync input propagation: when a synced terminal gets local input,
     // forward it to all other synced terminals.
     {

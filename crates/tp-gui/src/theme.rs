@@ -366,12 +366,15 @@ menubutton.flat > button image {
 }
 .editor-sidebar-toolbar {
   min-height: 18px;
+  padding: 0 2px;
 }
 .editor-sidebar-toolbar button,
 .editor-sidebar-toolbar togglebutton {
   min-height: 15px;
   min-width: 15px;
   padding: 0;
+  margin-left: 1px;
+  margin-right: 1px;
 }
 .editor-sidebar-toolbar button image,
 .editor-sidebar-toolbar togglebutton image {
@@ -440,7 +443,8 @@ notebook.workspace-tabs > header > tabs > tab {
   box-shadow: inset 0 -1px 0 0 @headerbar_border_color;
 }
 notebook.workspace-tabs > header > tabs > tab label {
-  font-size: 9px;
+  font-size: 10px;
+  font-weight: 600;
 }
 notebook.workspace-tabs > header > tabs > tab image {
   -gtk-icon-size: 10px;
@@ -483,6 +487,8 @@ button.panel-action-btn, menubutton.panel-menu-btn > button, menubutton.app-menu
   background-color: transparent;
   border-color: transparent;
   box-shadow: none;
+  margin-left: 1px;
+  margin-right: 1px;
 }
 button.panel-action-btn:hover, menubutton.panel-menu-btn > button:hover, menubutton.app-menu-btn > button:hover, headerbar.app-headerbar button:hover, headerbar.app-headerbar menubutton > button:hover {
   background-color: transparent;
@@ -538,7 +544,7 @@ popover.app-popover image {
 }
 box.panel-frame { border: none; border-radius: 0; margin: 0; padding: 0; }
 box.panel-frame > box { margin: 0; padding: 0; }
-box.panel-title-bar { padding: 0 3px; margin: 0; min-height: 13px; border-bottom: 1px solid alpha(@borders, 0.4); }
+box.panel-title-bar { padding: 0 4px; margin: 0; min-height: 13px; border-bottom: 1px solid alpha(@borders, 0.4); }
 .panel-title { font-size: 9px; font-weight: bold; }
 .panel-type-icon { min-height: 9px; min-width: 9px; opacity: 0.6; margin-right: 1px; }
 .panel-title-type-icon {
@@ -546,6 +552,7 @@ box.panel-title-bar { padding: 0 3px; margin: 0; min-height: 13px; border-bottom
   min-height: 10px;
   min-width: 10px;
   margin-left: 14px;
+  margin-right: 3px;
 }
 .panel-menu-btn { min-height: 10px; min-width: 10px; padding: 0; }
 .panel-action-btn { min-height: 10px; min-width: 10px; padding: 0; opacity: 0.5; }
@@ -599,7 +606,12 @@ box.editor-file-preview-footer.panel-footer {
   font-family: \"JetBrains Mono\", \"SF Mono\", \"Cascadia Code\", \"IBM Plex Mono\", \"Fira Code\", monospace;
   font-size: 11px;
 }
-.markdown-toolbar { border-bottom: 1px solid alpha(@borders, 0.3); }
+.markdown-toolbar { border-bottom: 1px solid alpha(@borders, 0.3); padding: 0 2px; }
+.markdown-toolbar button,
+.markdown-toolbar togglebutton {
+  margin-left: 1px;
+  margin-right: 1px;
+}
 .tab-close-btn { min-height: 11px; min-width: 11px; padding: 0; }
 .tab-close-btn image {
   -gtk-icon-size: 10px;
@@ -1093,7 +1105,7 @@ mod tests {
         assert!(BASE_CSS.contains("min-height: 16px;\n  min-width: 16px;"));
         assert!(BASE_CSS.contains("-gtk-icon-size: 14px;"));
         assert!(BASE_CSS.contains("-gtk-icon-size: 12px;"));
-        assert!(BASE_CSS.contains("box.panel-title-bar { padding: 0 3px;"));
+        assert!(BASE_CSS.contains("box.panel-title-bar { padding: 0 4px;"));
         assert!(BASE_CSS.contains(".panel-title { font-size: 9px;"));
         assert!(BASE_CSS.contains(".panel-title-type-icon"));
         assert!(BASE_CSS.contains("margin-left: 14px;"));
@@ -1134,6 +1146,7 @@ mod tests {
         assert!(BASE_CSS.contains("min-height: 16px;"));
         assert!(BASE_CSS.contains("padding-top: 1px;"));
         assert!(BASE_CSS.contains("notebook.workspace-tabs > header > tabs > tab label"));
+        assert!(BASE_CSS.contains("font-size: 10px;"));
         assert!(BASE_CSS.contains("notebook.workspace-tabs > header > tabs > tab image"));
         assert!(BASE_CSS.contains("-gtk-icon-size: 10px;"));
     }

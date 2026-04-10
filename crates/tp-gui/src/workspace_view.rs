@@ -1,6 +1,7 @@
 use gtk4::prelude::*;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::rc::Rc;
 
 use pax_core::workspace::{new_tab_id, LayoutNode, PanelConfig, PanelType, Workspace};
 
@@ -41,6 +42,7 @@ pub struct WorkspaceView {
     action_cb: Option<PanelActionCallback>,
     registry: PanelRegistry,
     on_type_chosen: Option<OnTypeChosen>,
+    layout_change_cb: Option<Rc<dyn Fn()>>,
     dirty: bool,
     /// When a panel is zoomed (fullscreen), store which panel and hidden siblings.
     zoomed_panel: Option<String>,
@@ -122,6 +124,7 @@ impl WorkspaceView {
             action_cb: None,
             registry,
             on_type_chosen: None,
+            layout_change_cb: None,
             dirty: false,
             zoomed_panel: None,
             sync_panels: std::collections::HashSet::new(),
@@ -210,6 +213,7 @@ impl WorkspaceView {
         self.registry = registry;
         self.dirty = false;
         self.tab_edit = None;
+        self.connect_layout_change_watchers();
 
         self.next_panel_id = self
             .workspace
@@ -762,6 +766,11 @@ impl WorkspaceView {
         }
     }
 
+    pub fn set_layout_change_callback(&mut self, cb: Rc<dyn Fn()>) {
+        self.layout_change_cb = Some(cb);
+        self.connect_layout_change_watchers();
+    }
+
     pub fn widget(&self) -> &gtk4::ScrolledWindow {
         &self.scrolled
     }
@@ -891,6 +900,7 @@ impl WorkspaceView {
         root_widget.set_hexpand(true);
         self.root_box.prepend(&root_widget);
         self.root_widget = root_widget;
+        self.connect_layout_change_watchers();
 
         // Reconnect all callbacks on all hosts + notebooks
         if let Some(ref cb) = self.action_cb {
@@ -1229,6 +1239,12 @@ impl WorkspaceView {
         sync_ratios_recursive(&self.root_widget, &mut self.workspace.layout);
     }
 
+    pub fn sync_ratios_from_widgets_if_changed(&mut self) -> bool {
+        let mut synced_layout = self.workspace.layout.clone();
+        sync_ratios_recursive(&self.root_widget, &mut synced_layout);
+        self.apply_synced_layout_if_changed(synced_layout)
+    }
+
     /// Save the current workspace to the original config file.
     pub fn save(&mut self) -> Result<PathBuf, String> {
         self.sync_ratios_from_widgets();
@@ -1304,6 +1320,22 @@ impl WorkspaceView {
             .map(|s| s.to_string())
             .collect();
         self.focus.rebuild(ids);
+    }
+
+    fn connect_layout_change_watchers(&self) {
+        let Some(callback) = self.layout_change_cb.as_ref() else {
+            return;
+        };
+        connect_paned_position_watchers(&self.root_widget, callback);
+    }
+
+    fn apply_synced_layout_if_changed(&mut self, synced_layout: LayoutNode) -> bool {
+        if self.workspace.layout == synced_layout {
+            return false;
+        }
+        self.workspace.layout = synced_layout;
+        self.dirty = true;
+        true
     }
 
     fn update_layout_split(
@@ -1478,6 +1510,29 @@ fn select_workspace_tabs_for_panel(
         }
     }
     selected_any
+}
+
+fn connect_paned_position_watchers(widget: &gtk4::Widget, callback: &Rc<dyn Fn()>) {
+    if let Ok(paned) = widget.clone().downcast::<gtk4::Paned>() {
+        let cb = callback.clone();
+        let last_position = std::rc::Rc::new(std::cell::Cell::new(paned.position()));
+        let last_position_ref = last_position.clone();
+        let watched_paned = paned.clone();
+        paned.connect_notify_local(Some("position"), move |_, _| {
+            let current_position = watched_paned.position();
+            if current_position == last_position_ref.get() {
+                return;
+            }
+            last_position_ref.set(current_position);
+            cb();
+        });
+    }
+
+    let mut child = widget.first_child();
+    while let Some(current) = child {
+        connect_paned_position_watchers(&current, callback);
+        child = current.next_sibling();
+    }
 }
 
 #[cfg(test)]
@@ -1842,6 +1897,46 @@ mod tests {
         assert_eq!(view.focused_panel_id(), Some(new_id.as_str()));
         assert_eq!(root.current_page(), Some(0));
         assert_eq!(nested.current_page(), Some(0));
+    }
+
+    #[test]
+    fn apply_synced_layout_if_changed_marks_workspace_dirty() {
+        if gtk4::init().is_err() {
+            return;
+        }
+        let mut workspace = sample_workspace();
+        workspace.layout = LayoutNode::Hsplit {
+            children: vec![panel("a"), panel("b")],
+            ratios: vec![0.5, 0.5],
+        };
+        workspace.panels = vec![panel_config("a", "Panel A"), panel_config("b", "Panel B")];
+
+        let mut view = WorkspaceView::build(&workspace, None);
+        assert!(!view.is_dirty());
+
+        let changed = view.apply_synced_layout_if_changed(LayoutNode::Hsplit {
+            children: vec![panel("a"), panel("b")],
+            ratios: vec![0.7, 0.3],
+        });
+
+        assert!(changed);
+        assert!(view.is_dirty());
+        match view.workspace().layout {
+            LayoutNode::Hsplit { ref ratios, .. } => assert_eq!(ratios, &vec![0.7, 0.3]),
+            _ => panic!("expected hsplit layout"),
+        }
+    }
+
+    #[test]
+    fn apply_synced_layout_if_changed_ignores_identical_layout() {
+        if gtk4::init().is_err() {
+            return;
+        }
+        let workspace = sample_workspace();
+        let mut view = WorkspaceView::build(&workspace, None);
+        let changed = view.apply_synced_layout_if_changed(view.workspace().layout.clone());
+        assert!(!changed);
+        assert!(!view.is_dirty());
     }
 }
 

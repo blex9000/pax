@@ -162,7 +162,7 @@ impl CodeEditorPanel {
         sidebar.set_width_request(150);
 
         // Activity bar: Files / Git toggle
-        let activity_bar = gtk4::Box::new(gtk4::Orientation::Horizontal, 2);
+        let activity_bar = gtk4::Box::new(gtk4::Orientation::Horizontal, 3);
         activity_bar.add_css_class("editor-sidebar-toolbar");
         activity_bar.add_css_class("editor-file-tree-header");
         activity_bar.set_margin_start(2);
