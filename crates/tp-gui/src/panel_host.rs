@@ -6,8 +6,8 @@ use std::rc::Rc;
 /// Minimum size in pixels for a collapsed panel overlay.
 pub const COLLAPSE_SIZE: i32 = 44;
 /// Visual collapsed chrome size. Does not affect drag-collapse threshold.
-pub(crate) const COLLAPSED_CHROME_SIZE: i32 = 28;
-pub(crate) const COLLAPSED_ICON_SIZE: i32 = 24;
+pub(crate) const COLLAPSED_CHROME_SIZE: i32 = 18;
+pub(crate) const COLLAPSED_ICON_SIZE: i32 = 12;
 
 // ── KNOWN LIMITATIONS: Drag Collapse/Expand ──────────────────────────────
 //
@@ -340,10 +340,9 @@ impl PanelHost {
         collapsed_icon.set_valign(gtk4::Align::Center);
         let collapsed_chip = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
         collapsed_chip.add_css_class("panel-collapsed-chip");
-        collapsed_chip.set_size_request(-1, COLLAPSED_CHROME_SIZE);
-        collapsed_chip.set_halign(gtk4::Align::Fill);
+        collapsed_chip.set_size_request(COLLAPSED_CHROME_SIZE, COLLAPSED_CHROME_SIZE);
+        collapsed_chip.set_halign(gtk4::Align::Center);
         collapsed_chip.set_valign(gtk4::Align::Center);
-        collapsed_chip.set_hexpand(true);
         collapsed_chip.append(&collapsed_icon);
         collapsed_view.append(&collapsed_chip);
         collapsed_view.set_tooltip_text(Some(&format!("Click to expand: {}", name)));
@@ -879,8 +878,8 @@ mod tests {
     #[test]
     fn collapsed_visual_chrome_is_smaller_than_drag_threshold() {
         assert_eq!(COLLAPSE_SIZE, 44);
-        assert_eq!(COLLAPSED_CHROME_SIZE, 28);
-        assert_eq!(COLLAPSED_ICON_SIZE, 24);
+        assert_eq!(COLLAPSED_CHROME_SIZE, 18);
+        assert_eq!(COLLAPSED_ICON_SIZE, 12);
         assert!(COLLAPSED_CHROME_SIZE < COLLAPSE_SIZE);
         assert!(COLLAPSED_ICON_SIZE < COLLAPSED_CHROME_SIZE);
     }
