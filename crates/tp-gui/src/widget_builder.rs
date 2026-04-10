@@ -1072,32 +1072,26 @@ fn wrap_layout_for_collapse(child: gtk4::Widget) -> gtk4::Widget {
     wrapper.set_size_request(COLLAPSE_SIZE, COLLAPSE_SIZE);
     wrapper.append(&child);
 
-    let collapsed_view = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
+    let collapsed_view = gtk4::Button::new();
+    collapsed_view.add_css_class("flat");
+    collapsed_view.add_css_class("panel-collapsed-chip");
     collapsed_view.set_halign(gtk4::Align::Fill);
     collapsed_view.set_valign(gtk4::Align::Fill);
     collapsed_view.set_vexpand(true);
     collapsed_view.set_hexpand(true);
+    collapsed_view.set_can_focus(false);
+    collapsed_view.set_size_request(COLLAPSED_CHROME_SIZE, COLLAPSED_CHROME_SIZE);
     collapsed_view.set_visible(false);
-    collapsed_view.add_css_class("panel-collapsed-overlay");
     {
         let icon = gtk4::Image::from_icon_name("go-next-symbolic");
         icon.set_pixel_size(COLLAPSED_ICON_SIZE);
         icon.set_halign(gtk4::Align::Center);
         icon.set_valign(gtk4::Align::Center);
         icon.set_can_target(false);
-        let chip = gtk4::Button::new();
-        chip.add_css_class("flat");
-        chip.add_css_class("panel-collapsed-chip");
-        chip.set_size_request(COLLAPSED_CHROME_SIZE, COLLAPSED_CHROME_SIZE);
-        chip.set_halign(gtk4::Align::Fill);
-        chip.set_valign(gtk4::Align::Fill);
-        chip.set_hexpand(true);
-        chip.set_vexpand(true);
-        chip.set_can_focus(false);
-        chip.set_child(Some(&icon));
+        collapsed_view.set_child(Some(&icon));
         {
             let content_ref = child.clone();
-            let cv_ref = collapsed_view.clone();
+            let cv_ref: gtk4::Widget = collapsed_view.clone().upcast();
             let wrapper_ref = wrapper.clone();
             let gesture = gtk4::GestureClick::new();
             gesture.set_button(1);
@@ -1114,9 +1108,8 @@ fn wrap_layout_for_collapse(child: gtk4::Widget) -> gtk4::Widget {
                     expand_wrapped_collapsed_layout(&content_ref, &cv_ref, &wrapper_ref);
                 });
             });
-            chip.add_controller(gesture);
+            collapsed_view.add_controller(gesture);
         }
-        collapsed_view.append(&chip);
     }
     collapsed_view.set_tooltip_text(Some("Click to expand"));
     wrapper.append(&collapsed_view);
@@ -1126,7 +1119,7 @@ fn wrap_layout_for_collapse(child: gtk4::Widget) -> gtk4::Widget {
 
 fn expand_wrapped_collapsed_layout(
     content: &gtk4::Widget,
-    collapsed_view: &gtk4::Box,
+    collapsed_view: &gtk4::Widget,
     wrapper: &gtk4::Box,
 ) {
     content.set_visible(true);
@@ -1199,7 +1192,7 @@ struct DragCollapseTarget {
     /// Optional secondary to hide (PanelHost footer_bar)
     footer: Option<gtk4::Box>,
     /// Overlay to show when collapsed
-    collapsed_view: gtk4::Box,
+    collapsed_view: gtk4::Widget,
     /// Footer label (for restoring footer visibility on expand)
     footer_label: Option<gtk4::Label>,
 }
@@ -1233,7 +1226,7 @@ fn find_collapse_target(
     if let Ok(wrapper) = c.clone().downcast::<gtk4::Box>() {
         if wrapper.has_css_class(COLLAPSE_WRAPPER_CLASS) {
             let content = wrapper.first_child()?;
-            let collapsed_view = content.next_sibling()?.downcast::<gtk4::Box>().ok()?;
+            let collapsed_view = content.next_sibling()?;
             return Some(DragCollapseTarget {
                 outer: wrapper,
                 content,
@@ -1255,8 +1248,8 @@ fn find_collapse_target(
     })
 }
 
-fn collapsed_view_icon(collapsed_view: &gtk4::Box) -> Option<gtk4::Image> {
-    find_image_descendant(&collapsed_view.clone().upcast())
+fn collapsed_view_icon(collapsed_view: &gtk4::Widget) -> Option<gtk4::Image> {
+    find_image_descendant(collapsed_view)
 }
 
 fn find_image_descendant(widget: &gtk4::Widget) -> Option<gtk4::Image> {

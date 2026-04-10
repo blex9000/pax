@@ -109,7 +109,7 @@ pub struct PanelHost {
     sync_button: gtk4::Button,
     zoom_button: gtk4::Button,
     menu_button: gtk4::MenuButton,
-    pub(crate) collapsed_view: gtk4::Box,
+    pub(crate) collapsed_view: gtk4::Widget,
     collapsed_icon: gtk4::Image,
     ssh_indicator: gtk4::Box,
     pub(crate) footer_bar: gtk4::Box,
@@ -327,29 +327,23 @@ impl PanelHost {
         footer_bar.set_visible(false); // Hidden until content is set
 
         // Collapsed view: shown when panel is minimized — expand arrow, name in tooltip
-        let collapsed_view = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
+        let collapsed_view = gtk4::Button::new();
+        collapsed_view.add_css_class("flat");
+        collapsed_view.add_css_class("panel-collapsed-chip");
         collapsed_view.set_halign(gtk4::Align::Fill);
         collapsed_view.set_valign(gtk4::Align::Fill);
         collapsed_view.set_vexpand(true);
         collapsed_view.set_hexpand(true);
+        collapsed_view.set_can_focus(false);
+        collapsed_view.set_size_request(COLLAPSED_CHROME_SIZE, COLLAPSED_CHROME_SIZE);
         collapsed_view.set_visible(false);
-        collapsed_view.add_css_class("panel-collapsed-overlay");
         // Default arrow — updated by drag-collapse based on orientation.
         let collapsed_icon = gtk4::Image::from_icon_name("go-next-symbolic");
         collapsed_icon.set_pixel_size(COLLAPSED_ICON_SIZE);
         collapsed_icon.set_halign(gtk4::Align::Center);
         collapsed_icon.set_valign(gtk4::Align::Center);
         collapsed_icon.set_can_target(false);
-        let collapsed_chip = gtk4::Button::new();
-        collapsed_chip.add_css_class("flat");
-        collapsed_chip.add_css_class("panel-collapsed-chip");
-        collapsed_chip.set_size_request(COLLAPSED_CHROME_SIZE, COLLAPSED_CHROME_SIZE);
-        collapsed_chip.set_halign(gtk4::Align::Fill);
-        collapsed_chip.set_valign(gtk4::Align::Fill);
-        collapsed_chip.set_hexpand(true);
-        collapsed_chip.set_vexpand(true);
-        collapsed_chip.set_can_focus(false);
-        collapsed_chip.set_child(Some(&collapsed_icon));
+        collapsed_view.set_child(Some(&collapsed_icon));
         {
             let cb_ref = action_cb_ref.clone();
             let pid = panel_id.to_string();
@@ -372,9 +366,8 @@ impl PanelHost {
                     }
                 });
             });
-            collapsed_chip.add_controller(gesture);
+            collapsed_view.add_controller(gesture);
         }
-        collapsed_view.append(&collapsed_chip);
         collapsed_view.set_tooltip_text(Some(&format!("Click to expand: {}", name)));
 
         let outer = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
@@ -418,7 +411,7 @@ impl PanelHost {
             sync_button,
             zoom_button,
             menu_button,
-            collapsed_view,
+            collapsed_view: collapsed_view.upcast(),
             collapsed_icon,
             ssh_indicator,
             footer_bar,
