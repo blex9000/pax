@@ -3,8 +3,10 @@ use gtk4::prelude::*;
 use std::cell::RefCell;
 use std::rc::Rc;
 
-/// Minimum size in pixels for a collapsed panel overlay.
+/// Drag threshold baseline for collapsed panels.
 pub const COLLAPSE_SIZE: i32 = 44;
+/// Actual allocated size for a collapsed panel.
+pub(crate) const COLLAPSED_PANEL_SIZE: i32 = 22;
 /// Visual collapsed chrome size. Does not affect drag-collapse threshold.
 pub(crate) const COLLAPSED_CHROME_SIZE: i32 = 22;
 pub(crate) const COLLAPSED_ICON_SIZE: i32 = 12;
@@ -20,7 +22,7 @@ pub(crate) const COLLAPSED_ICON_SIZE: i32 = 12;
 //   Attempted and reverted: clamp logic, snap_target, saved_pos restore.
 //
 // CONSTRAINT: No set_shrink toggling between collapse/expand.
-//   Setting shrink=false after collapse prevents resize below COLLAPSE_SIZE
+//   Setting shrink=false after collapse prevents resize below the collapsed size
 //   (good), but if expand happens via click instead of drag, the shrink=false
 //   persists and blocks ALL future resize on that side.
 //   Attempted and reverted: shrink=false on collapse, shrink=true on expand.
@@ -28,8 +30,7 @@ pub(crate) const COLLAPSED_ICON_SIZE: i32 = 12;
 // CURRENT BEHAVIOR:
 //   - Panels collapse when dragged to threshold (COLLAPSE_SIZE + 8 = 52px)
 //   - Panels expand when dragged above threshold from collapsed state
-//   - User CAN drag below COLLAPSE_SIZE after collapse (cosmetic only —
-//     overlay may get squished but no functional issue)
+//   - Collapsed panels snap to COLLAPSED_PANEL_SIZE on idle to avoid notify loops
 //   - Click on collapsed overlay expands to 50% via expand_collapsed()
 //
 // POTENTIAL IMPROVEMENT:
@@ -880,9 +881,11 @@ mod tests {
     #[test]
     fn collapsed_visual_chrome_is_smaller_than_drag_threshold() {
         assert_eq!(COLLAPSE_SIZE, 44);
+        assert_eq!(COLLAPSED_PANEL_SIZE, 22);
         assert_eq!(COLLAPSED_CHROME_SIZE, 22);
         assert_eq!(COLLAPSED_ICON_SIZE, 12);
-        assert!(COLLAPSED_CHROME_SIZE < COLLAPSE_SIZE);
+        assert_eq!(COLLAPSED_CHROME_SIZE, COLLAPSED_PANEL_SIZE);
+        assert!(COLLAPSED_PANEL_SIZE < COLLAPSE_SIZE);
         assert!(COLLAPSED_ICON_SIZE < COLLAPSED_CHROME_SIZE);
     }
 }

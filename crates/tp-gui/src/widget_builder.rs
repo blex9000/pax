@@ -8,7 +8,7 @@ use pax_core::workspace::{LayoutNode, PanelConfig, Workspace};
 use crate::backend_factory::panel_type_to_id;
 use crate::panel_host::{
     PanelAction, PanelActionCallback, PanelHost, COLLAPSED_CHROME_SIZE, COLLAPSED_ICON_SIZE,
-    COLLAPSE_SIZE,
+    COLLAPSED_PANEL_SIZE, COLLAPSE_SIZE,
 };
 
 #[derive(Debug, Clone)]
@@ -1245,34 +1245,6 @@ fn collapsed_view_icon(collapsed_view: &gtk4::Box) -> Option<gtk4::Image> {
     find_image_descendant(&collapsed_view.clone().upcast())
 }
 
-fn collapsed_view_chrome(collapsed_view: &gtk4::Box) -> Option<gtk4::Widget> {
-    collapsed_view.first_child()
-}
-
-fn configure_collapsed_chrome(collapsed_view: &gtk4::Box, orient: gtk4::Orientation) {
-    let Some(chrome) = collapsed_view_chrome(collapsed_view) else {
-        return;
-    };
-
-    match orient {
-        gtk4::Orientation::Horizontal => {
-            chrome.set_size_request(COLLAPSED_CHROME_SIZE, -1);
-            chrome.set_halign(gtk4::Align::Center);
-            chrome.set_valign(gtk4::Align::Fill);
-            chrome.set_hexpand(false);
-            chrome.set_vexpand(true);
-        }
-        gtk4::Orientation::Vertical => {
-            chrome.set_size_request(-1, COLLAPSED_CHROME_SIZE);
-            chrome.set_halign(gtk4::Align::Fill);
-            chrome.set_valign(gtk4::Align::Center);
-            chrome.set_hexpand(true);
-            chrome.set_vexpand(false);
-        }
-        _ => {}
-    }
-}
-
 fn find_image_descendant(widget: &gtk4::Widget) -> Option<gtk4::Image> {
     if let Ok(image) = widget.clone().downcast::<gtk4::Image>() {
         return Some(image);
@@ -1345,8 +1317,9 @@ fn setup_paned_drag_collapse(paned: &gtk4::Paned, hosts: &HashMap<String, PanelH
                 f.set_visible(false);
             }
             target.collapsed_view.set_visible(true);
-            target.outer.set_size_request(COLLAPSE_SIZE, COLLAPSE_SIZE);
-            configure_collapsed_chrome(&target.collapsed_view, orient);
+            target
+                .outer
+                .set_size_request(COLLAPSED_PANEL_SIZE, COLLAPSED_PANEL_SIZE);
             let icon = match (orient, is_start) {
                 (gtk4::Orientation::Horizontal, true) => "go-next-symbolic",
                 (gtk4::Orientation::Horizontal, false) => "go-previous-symbolic",
@@ -1386,12 +1359,13 @@ fn setup_paned_drag_collapse(paned: &gtk4::Paned, hosts: &HashMap<String, PanelH
             }
         }
 
-        // Snap correction: if collapsed panel is below COLLAPSE_SIZE,
+        // Snap correction: collapsed panels should allocate the compact visual size,
+        // not the larger drag threshold size.
         // schedule idle set_position with guard held to prevent cascading.
         let sc = start.as_ref().map_or(false, |t| t.is_collapsed());
         let ec = end.as_ref().map_or(false, |t| t.is_collapsed());
-        let need_snap_start = sc && start_size < COLLAPSE_SIZE;
-        let need_snap_end = ec && end_size < COLLAPSE_SIZE;
+        let need_snap_start = sc && start_size != COLLAPSED_PANEL_SIZE;
+        let need_snap_end = ec && end_size != COLLAPSED_PANEL_SIZE;
         if need_snap_start || need_snap_end {
             let p = paned.clone();
             let g = snap_guard.clone();
@@ -1404,10 +1378,10 @@ fn setup_paned_drag_collapse(paned: &gtk4::Paned, hosts: &HashMap<String, PanelH
                 };
                 if t > 0 {
                     if need_snap_start {
-                        p.set_position(COLLAPSE_SIZE);
+                        p.set_position(COLLAPSED_PANEL_SIZE);
                     }
                     if need_snap_end {
-                        p.set_position(t - COLLAPSE_SIZE);
+                        p.set_position(t - COLLAPSED_PANEL_SIZE);
                     }
                 }
                 g.set(false);
