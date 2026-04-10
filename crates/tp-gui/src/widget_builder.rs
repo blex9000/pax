@@ -1208,11 +1208,19 @@ fn collapsed_view_icon(collapsed_view: &gtk4::Widget) -> Option<gtk4::Image> {
 }
 
 fn expand_drag_collapse_target(target: &DragCollapseTarget, paned: &gtk4::Paned) {
+    let target_name = target.outer.widget_name();
     let total = if paned.orientation() == gtk4::Orientation::Horizontal {
         paned.allocation().width()
     } else {
         paned.allocation().height()
     };
+    tracing::debug!(
+        "collapse_click_expand target='{}' orient={:?} total={} before_pos={}",
+        target_name,
+        paned.orientation(),
+        total,
+        paned.position()
+    );
     if total > 0 {
         paned.set_position(total / 2);
     }
@@ -1224,6 +1232,11 @@ fn expand_drag_collapse_target(target: &DragCollapseTarget, paned: &gtk4::Paned)
     if let (Some(ref f), Some(ref lbl)) = (&target.footer, &target.footer_label) {
         f.set_visible(!lbl.text().is_empty());
     }
+    tracing::debug!(
+        "collapse_click_expand_done target='{}' after_pos={}",
+        target_name,
+        paned.position()
+    );
 }
 
 fn find_image_descendant(widget: &gtk4::Widget) -> Option<gtk4::Image> {
@@ -1285,6 +1298,15 @@ fn setup_paned_drag_collapse(paned: &gtk4::Paned, hosts: &HashMap<String, PanelH
                 press_x.set(x);
                 press_y.set(y);
                 press_position.set(paned_ref.position());
+                tracing::debug!(
+                    "collapse_click_pressed orient={:?} x={:.1} y={:.1} pos={} size=({}, {})",
+                    orient,
+                    x,
+                    y,
+                    paned_ref.position(),
+                    paned_ref.allocation().width(),
+                    paned_ref.allocation().height()
+                );
             });
         }
         {
@@ -1293,6 +1315,16 @@ fn setup_paned_drag_collapse(paned: &gtk4::Paned, hosts: &HashMap<String, PanelH
                 let moved_pointer =
                     (x - press_x.get()).abs() > 3.0 || (y - press_y.get()).abs() > 3.0;
                 let moved_split = (paned_ref.position() - press_position.get()).abs() > 2;
+                tracing::debug!(
+                    "collapse_click_released orient={:?} x={:.1} y={:.1} start_pos={} end_pos={} moved_pointer={} moved_split={}",
+                    orient,
+                    x,
+                    y,
+                    press_position.get(),
+                    paned_ref.position(),
+                    moved_pointer,
+                    moved_split
+                );
                 if moved_pointer || moved_split {
                     return;
                 }
@@ -1311,9 +1343,22 @@ fn setup_paned_drag_collapse(paned: &gtk4::Paned, hosts: &HashMap<String, PanelH
                 } else {
                     y as i32
                 };
+                tracing::debug!(
+                    "collapse_click_axis orient={:?} axis={} total={} threshold={}",
+                    orient,
+                    axis,
+                    total,
+                    COLLAPSED_PANEL_SIZE
+                );
 
                 if let Some(ref target) = click_start {
+                    tracing::debug!(
+                        "collapse_click_check_start collapsed={} axis={}",
+                        target.is_collapsed(),
+                        axis
+                    );
                     if target.is_collapsed() && axis <= COLLAPSED_PANEL_SIZE {
+                        tracing::debug!("collapse_click_hit side=start");
                         expand_drag_collapse_target(target, &paned_ref);
                         g.set_state(gtk4::EventSequenceState::Claimed);
                         return;
@@ -1321,11 +1366,21 @@ fn setup_paned_drag_collapse(paned: &gtk4::Paned, hosts: &HashMap<String, PanelH
                 }
 
                 if let Some(ref target) = click_end {
+                    tracing::debug!(
+                        "collapse_click_check_end collapsed={} axis={} limit={}",
+                        target.is_collapsed(),
+                        axis,
+                        total - COLLAPSED_PANEL_SIZE
+                    );
                     if target.is_collapsed() && axis >= total - COLLAPSED_PANEL_SIZE {
+                        tracing::debug!("collapse_click_hit side=end");
                         expand_drag_collapse_target(target, &paned_ref);
                         g.set_state(gtk4::EventSequenceState::Claimed);
+                        return;
                     }
                 }
+
+                tracing::debug!("collapse_click_miss");
             });
         }
         paned.add_controller(click);
@@ -1357,6 +1412,14 @@ fn setup_paned_drag_collapse(paned: &gtk4::Paned, hosts: &HashMap<String, PanelH
 
         // Helper: collapse a target
         let do_collapse = |target: &DragCollapseTarget, is_start: bool| {
+            tracing::debug!(
+                "drag_collapse orient={:?} side={} pos={} total={} target='{}'",
+                orient,
+                if is_start { "start" } else { "end" },
+                pos,
+                total,
+                target.outer.widget_name()
+            );
             target.content.set_visible(false);
             if let Some(ref f) = target.footer {
                 f.set_visible(false);
@@ -1378,6 +1441,13 @@ fn setup_paned_drag_collapse(paned: &gtk4::Paned, hosts: &HashMap<String, PanelH
 
         // Helper: expand a target
         let do_expand = |target: &DragCollapseTarget| {
+            tracing::debug!(
+                "drag_expand orient={:?} pos={} total={} target='{}'",
+                orient,
+                pos,
+                total,
+                target.outer.widget_name()
+            );
             target.collapsed_view.set_visible(false);
             target.content.set_visible(true);
             target.outer.set_size_request(-1, -1);
