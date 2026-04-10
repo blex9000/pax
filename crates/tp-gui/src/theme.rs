@@ -337,6 +337,23 @@ togglebutton:hover image,
 menubutton > button:hover image {
   color: @accent_color;
 }
+button.flat:checked,
+togglebutton.flat:checked,
+menubutton.flat > button:checked {
+  background-color: transparent;
+  background-image: none;
+  border-color: transparent;
+  box-shadow: none;
+  color: @accent_color;
+}
+button.flat:checked image,
+button.flat:checked label,
+togglebutton.flat:checked image,
+togglebutton.flat:checked label,
+menubutton.flat > button:checked image,
+menubutton.flat > button:checked label {
+  color: @accent_color;
+}
 button.flat image,
 togglebutton.flat image,
 menubutton.flat > button image {
@@ -359,6 +376,17 @@ menubutton.flat > button image {
 .editor-sidebar-toolbar button image,
 .editor-sidebar-toolbar togglebutton image {
   -gtk-icon-size: 12px;
+}
+.editor-sidebar-toolbar togglebutton:checked {
+  background-color: transparent;
+  background-image: none;
+  border-color: transparent;
+  box-shadow: none;
+  color: @accent_color;
+}
+.editor-sidebar-toolbar togglebutton:checked image,
+.editor-sidebar-toolbar togglebutton:checked label {
+  color: @accent_color;
 }
 .editor-file-tree-actions {
   background-color: @view_bg_color;
@@ -470,9 +498,18 @@ headerbar.app-headerbar menubutton > button:hover image {
   color: @accent_color;
 }
 button.panel-action-btn:checked, menubutton.panel-menu-btn > button:checked, menubutton.app-menu-btn > button:checked, headerbar.app-headerbar button:checked, headerbar.app-headerbar menubutton > button:checked {
-  background-color: alpha(@headerbar_fg_color, 0.16);
+  background-color: transparent;
+  background-image: none;
   border-color: transparent;
   box-shadow: none;
+  color: @accent_color;
+}
+button.panel-action-btn:checked image,
+menubutton.panel-menu-btn > button:checked image,
+menubutton.app-menu-btn > button:checked image,
+headerbar.app-headerbar button:checked image,
+headerbar.app-headerbar menubutton > button:checked image {
+  color: @accent_color;
 }
 popover.app-popover {
   background-color: transparent;
@@ -1063,6 +1100,16 @@ mod tests {
         assert!(!BASE_CSS.contains(
             "popover.app-popover button.app-popover-button:hover {\n  background-color: alpha"
         ));
+    }
+
+    #[test]
+    fn checked_icon_buttons_use_accent_without_filling_background() {
+        assert!(BASE_CSS.contains("button.flat:checked,\ntogglebutton.flat:checked"));
+        assert!(BASE_CSS.contains("togglebutton.flat:checked image"));
+        assert!(BASE_CSS.contains(".editor-sidebar-toolbar togglebutton:checked"));
+        assert!(BASE_CSS.contains(".editor-sidebar-toolbar togglebutton:checked image"));
+        assert!(BASE_CSS.contains("button.panel-action-btn:checked image"));
+        assert!(!BASE_CSS.contains("button.panel-action-btn:checked, menubutton.panel-menu-btn > button:checked, menubutton.app-menu-btn > button:checked, headerbar.app-headerbar button:checked, headerbar.app-headerbar menubutton > button:checked {\n  background-color: alpha"));
     }
 
     #[test]
