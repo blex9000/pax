@@ -1326,7 +1326,11 @@ impl WorkspaceView {
         let Some(callback) = self.layout_change_cb.as_ref() else {
             return;
         };
-        connect_paned_position_watchers(&self.root_widget, callback);
+        let root_widget = self.root_widget.clone();
+        let callback = callback.clone();
+        gtk4::glib::idle_add_local_once(move || {
+            connect_paned_position_watchers(&root_widget, &callback);
+        });
     }
 
     fn apply_synced_layout_if_changed(&mut self, synced_layout: LayoutNode) -> bool {
