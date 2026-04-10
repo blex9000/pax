@@ -545,7 +545,7 @@ box.panel-title-bar { padding: 0 3px; margin: 0; min-height: 13px; border-bottom
   -gtk-icon-size: 10px;
   min-height: 10px;
   min-width: 10px;
-  margin-left: 4px;
+  margin-left: 14px;
 }
 .panel-menu-btn { min-height: 10px; min-width: 10px; padding: 0; }
 .panel-action-btn { min-height: 10px; min-width: 10px; padding: 0; opacity: 0.5; }
@@ -608,14 +608,17 @@ box.editor-file-preview-footer.panel-footer {
 .panel-collapsed-chip {
   background-color: @headerbar_bg_color;
   color: @headerbar_fg_color;
-  border: 1px solid alpha(@borders, 0.45);
-  border-radius: 5px;
-  padding: 1px;
-  min-width: 18px;
-  min-height: 18px;
+  border-top: 1px solid alpha(@borders, 0.4);
+  border-right: none;
+  border-bottom: 1px solid alpha(@borders, 0.4);
+  border-left: none;
+  border-radius: 0;
+  padding: 2px;
+  min-width: 28px;
+  min-height: 28px;
 }
 .panel-collapsed-chip image {
-  -gtk-icon-size: 12px;
+  -gtk-icon-size: 24px;
 }
 paned > separator { min-width: 1px; min-height: 1px; }
 .dirty-indicator { color: #ff8c00; }
@@ -1091,11 +1094,13 @@ mod tests {
         assert!(BASE_CSS.contains("box.panel-title-bar { padding: 0 3px;"));
         assert!(BASE_CSS.contains(".panel-title { font-size: 9px;"));
         assert!(BASE_CSS.contains(".panel-title-type-icon"));
-        assert!(BASE_CSS.contains("margin-left: 4px;"));
+        assert!(BASE_CSS.contains("margin-left: 14px;"));
         assert!(BASE_CSS.contains(".panel-action-btn { min-height: 10px;"));
         assert!(BASE_CSS.contains(".tab-close-btn { min-height: 11px;"));
-        assert!(BASE_CSS.contains(".panel-collapsed-overlay { background-color: transparent;"));
         assert!(BASE_CSS.contains(".panel-collapsed-chip"));
+        assert!(BASE_CSS.contains("background-color: @headerbar_bg_color;"));
+        assert!(BASE_CSS.contains("min-height: 28px;"));
+        assert!(BASE_CSS.contains("-gtk-icon-size: 24px;"));
     }
 
     #[test]

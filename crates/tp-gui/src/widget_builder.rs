@@ -1086,9 +1086,10 @@ fn wrap_layout_for_collapse(child: gtk4::Widget) -> gtk4::Widget {
         icon.set_valign(gtk4::Align::Center);
         let chip = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
         chip.add_css_class("panel-collapsed-chip");
-        chip.set_size_request(COLLAPSED_CHROME_SIZE, COLLAPSED_CHROME_SIZE);
-        chip.set_halign(gtk4::Align::Center);
+        chip.set_size_request(-1, COLLAPSED_CHROME_SIZE);
+        chip.set_halign(gtk4::Align::Fill);
         chip.set_valign(gtk4::Align::Center);
+        chip.set_hexpand(true);
         chip.append(&icon);
         collapsed_view.append(&chip);
     }
