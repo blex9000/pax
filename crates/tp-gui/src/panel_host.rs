@@ -144,6 +144,7 @@ impl PanelHost {
         // Panel type icon
         let type_icon = gtk4::Image::from_icon_name("radio-symbolic"); // default: empty/chooser dot
         type_icon.add_css_class("panel-type-icon");
+        type_icon.add_css_class("panel-title-type-icon");
 
         // Title: stack with label (view) and entry (edit), double-click to rename
         let title_stack = gtk4::Stack::new();

@@ -541,6 +541,12 @@ box.panel-frame > box { margin: 0; padding: 0; }
 box.panel-title-bar { padding: 0 3px; margin: 0; min-height: 13px; border-bottom: 1px solid alpha(@borders, 0.4); }
 .panel-title { font-size: 9px; font-weight: bold; }
 .panel-type-icon { min-height: 9px; min-width: 9px; opacity: 0.6; margin-right: 1px; }
+.panel-title-type-icon {
+  -gtk-icon-size: 10px;
+  min-height: 10px;
+  min-width: 10px;
+  margin-left: 4px;
+}
 .panel-menu-btn { min-height: 10px; min-width: 10px; padding: 0; }
 .panel-action-btn { min-height: 10px; min-width: 10px; padding: 0; opacity: 0.5; }
 .panel-action-btn image,
@@ -1084,6 +1090,8 @@ mod tests {
         assert!(BASE_CSS.contains("-gtk-icon-size: 12px;"));
         assert!(BASE_CSS.contains("box.panel-title-bar { padding: 0 3px;"));
         assert!(BASE_CSS.contains(".panel-title { font-size: 9px;"));
+        assert!(BASE_CSS.contains(".panel-title-type-icon"));
+        assert!(BASE_CSS.contains("margin-left: 4px;"));
         assert!(BASE_CSS.contains(".panel-action-btn { min-height: 10px;"));
         assert!(BASE_CSS.contains(".tab-close-btn { min-height: 11px;"));
         assert!(BASE_CSS.contains(".panel-collapsed-overlay { background-color: transparent;"));
