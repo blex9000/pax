@@ -11,6 +11,10 @@ pub enum WelcomeChoice {
 
 pub type WelcomeCallback = Rc<dyn Fn(WelcomeChoice)>;
 
+fn welcome_version_text() -> String {
+    format!("Version {}", pax_core::build_info::VERSION_STRING)
+}
+
 /// Welcome screen shown on startup — like VS Code / IntelliJ start page.
 pub fn build_welcome(on_choice: WelcomeCallback) -> gtk4::Widget {
     let container = gtk4::Box::new(gtk4::Orientation::Vertical, 24);
@@ -36,6 +40,13 @@ pub fn build_welcome(on_choice: WelcomeCallback) -> gtk4::Widget {
     let subtitle = gtk4::Label::new(Some("Workspace Manager"));
     subtitle.add_css_class("dim-label");
     container.append(&subtitle);
+
+    let version_text = welcome_version_text();
+    let version = gtk4::Label::new(Some(&version_text));
+    version.add_css_class("dim-label");
+    version.add_css_class("caption");
+    version.set_tooltip_text(Some(&version_text));
+    container.append(&version);
 
     // Action buttons row
     let actions = gtk4::Box::new(gtk4::Orientation::Horizontal, 16);
@@ -202,4 +213,19 @@ pub fn build_welcome(on_choice: WelcomeCallback) -> gtk4::Widget {
     }
 
     container.upcast::<gtk4::Widget>()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::welcome_version_text;
+
+    #[test]
+    fn welcome_version_text_uses_build_metadata() {
+        let text = welcome_version_text();
+
+        assert!(text.starts_with("Version "));
+        assert!(text.contains(pax_core::build_info::PACKAGE_VERSION));
+        assert!(text.contains(pax_core::build_info::GIT_COMMIT));
+        assert!(text.contains(pax_core::build_info::GIT_DATE));
+    }
 }
