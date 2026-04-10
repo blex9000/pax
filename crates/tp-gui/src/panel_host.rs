@@ -327,13 +327,14 @@ impl PanelHost {
         footer_bar.set_visible(false); // Hidden until content is set
 
         // Collapsed view: shown when panel is minimized — expand arrow, name in tooltip
-        let collapsed_view = gtk4::CenterBox::new();
+        let collapsed_view = gtk4::Button::new();
+        collapsed_view.add_css_class("flat");
         collapsed_view.add_css_class("panel-collapsed-chip");
         collapsed_view.set_halign(gtk4::Align::Fill);
         collapsed_view.set_valign(gtk4::Align::Fill);
         collapsed_view.set_vexpand(true);
         collapsed_view.set_hexpand(true);
-        collapsed_view.set_can_target(false);
+        collapsed_view.set_can_focus(false);
         collapsed_view.set_size_request(COLLAPSED_CHROME_SIZE, COLLAPSED_CHROME_SIZE);
         collapsed_view.set_visible(false);
         // Default arrow — updated by drag-collapse based on orientation.
@@ -342,8 +343,40 @@ impl PanelHost {
         collapsed_icon.set_halign(gtk4::Align::Center);
         collapsed_icon.set_valign(gtk4::Align::Center);
         collapsed_icon.set_can_target(false);
-        collapsed_view.set_center_widget(Some(&collapsed_icon));
+        collapsed_view.set_child(Some(&collapsed_icon));
         collapsed_view.set_tooltip_text(Some(&format!("Click to expand: {}", name)));
+        {
+            let container_ref = container.clone();
+            let gesture = gtk4::GestureClick::new();
+            gesture.set_button(1);
+            gesture.set_propagation_phase(gtk4::PropagationPhase::Capture);
+            gesture.connect_pressed(move |g, _, _, _| {
+                if container_ref.is_visible() {
+                    return;
+                }
+                g.set_state(gtk4::EventSequenceState::Claimed);
+            });
+            collapsed_view.add_controller(gesture);
+        }
+        {
+            let cb_ref = action_cb_ref.clone();
+            let pid = panel_id.to_string();
+            let container_ref = container.clone();
+            let gesture = gtk4::GestureClick::new();
+            gesture.set_button(1);
+            gesture.connect_released(move |g, _, _, _| {
+                if container_ref.is_visible() {
+                    return;
+                }
+                if let Ok(borrowed) = cb_ref.try_borrow() {
+                    if let Some(ref cb) = *borrowed {
+                        cb(&pid, PanelAction::Collapse);
+                    }
+                }
+                g.set_state(gtk4::EventSequenceState::Claimed);
+            });
+            collapsed_view.add_controller(gesture);
+        }
 
         let outer = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
         outer.append(&container);
