@@ -327,50 +327,34 @@ impl PanelHost {
         footer_bar.set_visible(false); // Hidden until content is set
 
         // Collapsed view: shown when panel is minimized — expand arrow, name in tooltip
-        let collapsed_view = gtk4::Button::new();
-        collapsed_view.add_css_class("flat");
-        collapsed_view.add_css_class("panel-collapsed-chip");
+        let collapsed_view = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
         collapsed_view.set_halign(gtk4::Align::Fill);
         collapsed_view.set_valign(gtk4::Align::Fill);
         collapsed_view.set_vexpand(true);
         collapsed_view.set_hexpand(true);
-        collapsed_view.set_can_focus(false);
-        collapsed_view.set_size_request(COLLAPSED_CHROME_SIZE, COLLAPSED_CHROME_SIZE);
         collapsed_view.set_visible(false);
+        collapsed_view.add_css_class("panel-collapsed-overlay");
         // Default arrow — updated by drag-collapse based on orientation.
         let collapsed_icon = gtk4::Image::from_icon_name("go-next-symbolic");
         collapsed_icon.set_pixel_size(COLLAPSED_ICON_SIZE);
         collapsed_icon.set_halign(gtk4::Align::Center);
         collapsed_icon.set_valign(gtk4::Align::Center);
         collapsed_icon.set_can_target(false);
-        collapsed_view.set_child(Some(&collapsed_icon));
+        let collapsed_chip = gtk4::CenterBox::new();
+        collapsed_chip.add_css_class("panel-collapsed-chip");
+        collapsed_chip.set_size_request(COLLAPSED_CHROME_SIZE, COLLAPSED_CHROME_SIZE);
+        collapsed_chip.set_halign(gtk4::Align::Fill);
+        collapsed_chip.set_valign(gtk4::Align::Fill);
+        collapsed_chip.set_hexpand(true);
+        collapsed_chip.set_vexpand(true);
+        collapsed_chip.set_center_widget(Some(&collapsed_icon));
+        collapsed_view.append(&collapsed_chip);
         collapsed_view.set_tooltip_text(Some(&format!("Click to expand: {}", name)));
-        {
-            let container_ref = container.clone();
-            let gesture = gtk4::GestureClick::new();
-            gesture.set_button(1);
-            gesture.set_propagation_phase(gtk4::PropagationPhase::Capture);
-            gesture.connect_pressed(move |g, _, _, _| {
-                if container_ref.is_visible() {
-                    return;
-                }
-                g.set_state(gtk4::EventSequenceState::Claimed);
-            });
-            collapsed_view.add_controller(gesture);
-        }
-        {
-            let container_ref = container.clone();
-            let drag = gtk4::GestureDrag::new();
-            drag.set_button(1);
-            drag.set_propagation_phase(gtk4::PropagationPhase::Capture);
-            drag.connect_drag_begin(move |g, _, _| {
-                if container_ref.is_visible() {
-                    return;
-                }
-                g.set_state(gtk4::EventSequenceState::Claimed);
-            });
-            collapsed_view.add_controller(drag);
-        }
+
+        let outer = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
+        outer.append(&container);
+        outer.append(&collapsed_view);
+        outer.append(&footer_bar);
         {
             let cb_ref = action_cb_ref.clone();
             let pid = panel_id.to_string();
@@ -388,13 +372,8 @@ impl PanelHost {
                 }
                 g.set_state(gtk4::EventSequenceState::Claimed);
             });
-            collapsed_view.add_controller(gesture);
+            outer.add_controller(gesture);
         }
-
-        let outer = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
-        outer.append(&container);
-        outer.append(&collapsed_view);
-        outer.append(&footer_bar);
         outer.add_css_class("panel-frame");
         outer.set_widget_name(panel_id);
         outer.set_size_request(COLLAPSE_SIZE, COLLAPSE_SIZE);

@@ -11,8 +11,6 @@ use crate::panel_host::{
     COLLAPSED_PANEL_SIZE, COLLAPSE_SIZE,
 };
 
-const COLLAPSED_SEPARATOR_DRAG_STRIP: i32 = 4;
-
 #[derive(Debug, Clone)]
 pub struct TabLabelEditState {
     pub tab_id: String,
@@ -1074,50 +1072,31 @@ fn wrap_layout_for_collapse(child: gtk4::Widget) -> gtk4::Widget {
     wrapper.set_size_request(COLLAPSE_SIZE, COLLAPSE_SIZE);
     wrapper.append(&child);
 
-    let collapsed_view = gtk4::Button::new();
-    collapsed_view.add_css_class("flat");
-    collapsed_view.add_css_class("panel-collapsed-chip");
+    let collapsed_view = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
     collapsed_view.set_halign(gtk4::Align::Fill);
     collapsed_view.set_valign(gtk4::Align::Fill);
     collapsed_view.set_vexpand(true);
     collapsed_view.set_hexpand(true);
-    collapsed_view.set_can_focus(false);
-    collapsed_view.set_size_request(COLLAPSED_CHROME_SIZE, COLLAPSED_CHROME_SIZE);
     collapsed_view.set_visible(false);
+    collapsed_view.add_css_class("panel-collapsed-overlay");
     {
         let icon = gtk4::Image::from_icon_name("go-next-symbolic");
         icon.set_pixel_size(COLLAPSED_ICON_SIZE);
         icon.set_halign(gtk4::Align::Center);
         icon.set_valign(gtk4::Align::Center);
         icon.set_can_target(false);
-        collapsed_view.set_child(Some(&icon));
+        let chip = gtk4::CenterBox::new();
+        chip.add_css_class("panel-collapsed-chip");
+        chip.set_size_request(COLLAPSED_CHROME_SIZE, COLLAPSED_CHROME_SIZE);
+        chip.set_halign(gtk4::Align::Fill);
+        chip.set_valign(gtk4::Align::Fill);
+        chip.set_hexpand(true);
+        chip.set_vexpand(true);
+        chip.set_center_widget(Some(&icon));
+        collapsed_view.append(&chip);
     }
-    {
-        let content_ref = child.clone();
-        let gesture = gtk4::GestureClick::new();
-        gesture.set_button(1);
-        gesture.set_propagation_phase(gtk4::PropagationPhase::Capture);
-        gesture.connect_pressed(move |g, _, _, _| {
-            if content_ref.is_visible() {
-                return;
-            }
-            g.set_state(gtk4::EventSequenceState::Claimed);
-        });
-        collapsed_view.add_controller(gesture);
-    }
-    {
-        let content_ref = child.clone();
-        let drag = gtk4::GestureDrag::new();
-        drag.set_button(1);
-        drag.set_propagation_phase(gtk4::PropagationPhase::Capture);
-        drag.connect_drag_begin(move |g, _, _| {
-            if content_ref.is_visible() {
-                return;
-            }
-            g.set_state(gtk4::EventSequenceState::Claimed);
-        });
-        collapsed_view.add_controller(drag);
-    }
+    collapsed_view.set_tooltip_text(Some("Click to expand"));
+    wrapper.append(&collapsed_view);
     {
         let content_ref = child.clone();
         let cv_ref: gtk4::Widget = collapsed_view.clone().upcast();
@@ -1131,10 +1110,8 @@ fn wrap_layout_for_collapse(child: gtk4::Widget) -> gtk4::Widget {
             expand_wrapped_collapsed_layout(&content_ref, &cv_ref, &wrapper_ref);
             g.set_state(gtk4::EventSequenceState::Claimed);
         });
-        collapsed_view.add_controller(gesture);
+        wrapper.add_controller(gesture);
     }
-    collapsed_view.set_tooltip_text(Some("Click to expand"));
-    wrapper.append(&collapsed_view);
 
     wrapper.upcast()
 }
@@ -1144,10 +1121,6 @@ fn expand_wrapped_collapsed_layout(
     collapsed_view: &gtk4::Widget,
     wrapper: &gtk4::Box,
 ) {
-    collapsed_view.set_margin_start(0);
-    collapsed_view.set_margin_end(0);
-    collapsed_view.set_margin_top(0);
-    collapsed_view.set_margin_bottom(0);
     content.set_visible(true);
     collapsed_view.set_visible(false);
     wrapper.set_size_request(-1, -1);
@@ -1356,33 +1329,6 @@ fn setup_paned_drag_collapse(paned: &gtk4::Paned, hosts: &HashMap<String, PanelH
                 f.set_visible(false);
             }
             target.collapsed_view.set_visible(true);
-            target.collapsed_view.set_margin_start(0);
-            target.collapsed_view.set_margin_end(0);
-            target.collapsed_view.set_margin_top(0);
-            target.collapsed_view.set_margin_bottom(0);
-            match (orient, is_start) {
-                (gtk4::Orientation::Horizontal, true) => {
-                    target
-                        .collapsed_view
-                        .set_margin_end(COLLAPSED_SEPARATOR_DRAG_STRIP);
-                }
-                (gtk4::Orientation::Horizontal, false) => {
-                    target
-                        .collapsed_view
-                        .set_margin_start(COLLAPSED_SEPARATOR_DRAG_STRIP);
-                }
-                (gtk4::Orientation::Vertical, true) => {
-                    target
-                        .collapsed_view
-                        .set_margin_bottom(COLLAPSED_SEPARATOR_DRAG_STRIP);
-                }
-                (gtk4::Orientation::Vertical, false) => {
-                    target
-                        .collapsed_view
-                        .set_margin_top(COLLAPSED_SEPARATOR_DRAG_STRIP);
-                }
-                _ => {}
-            }
             target
                 .outer
                 .set_size_request(COLLAPSED_PANEL_SIZE, COLLAPSED_PANEL_SIZE);
@@ -1406,10 +1352,6 @@ fn setup_paned_drag_collapse(paned: &gtk4::Paned, hosts: &HashMap<String, PanelH
                 total,
                 target.outer.widget_name()
             );
-            target.collapsed_view.set_margin_start(0);
-            target.collapsed_view.set_margin_end(0);
-            target.collapsed_view.set_margin_top(0);
-            target.collapsed_view.set_margin_bottom(0);
             target.collapsed_view.set_visible(false);
             target.content.set_visible(true);
             target.outer.set_size_request(-1, -1);
