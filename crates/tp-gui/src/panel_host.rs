@@ -375,6 +375,7 @@ impl PanelHost {
             outer.add_controller(gesture);
         }
         outer.add_css_class("panel-frame");
+        outer.add_css_class("panel-unfocused");
         outer.set_widget_name(panel_id);
         outer.set_size_request(COLLAPSE_SIZE, COLLAPSE_SIZE);
 
@@ -489,6 +490,7 @@ impl PanelHost {
 
     pub fn set_focused(&self, focused: bool) {
         *self.focused.borrow_mut() = focused;
+        update_ancestor_workspace_tabs_focus_path(&self.outer.clone().upcast(), focused);
         if focused {
             self.outer.add_css_class("panel-focused");
             self.outer.remove_css_class("panel-unfocused");
@@ -858,6 +860,22 @@ fn wrap_panel_input_callback(
 ) -> crate::panels::PanelInputCallback {
     let panel_id = panel_id.to_string();
     Rc::new(move |data| cb(&panel_id, data))
+}
+
+fn update_ancestor_workspace_tabs_focus_path(widget: &gtk4::Widget, focused: bool) {
+    let mut current = widget.parent();
+    while let Some(parent) = current {
+        if let Some(notebook) = parent.downcast_ref::<gtk4::Notebook>() {
+            if notebook.has_css_class("workspace-tabs") {
+                if focused {
+                    notebook.add_css_class("workspace-tabs-focus-path");
+                } else {
+                    notebook.remove_css_class("workspace-tabs-focus-path");
+                }
+            }
+        }
+        current = parent.parent();
+    }
 }
 
 #[cfg(test)]

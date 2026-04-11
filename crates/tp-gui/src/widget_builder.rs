@@ -14,6 +14,14 @@ use crate::panel_host::{
 const PANED_OVERLAY_CLASS: &str = "paned-overlay-shell";
 const COLLAPSED_DRAG_STRIP_SIZE: i32 = 4;
 
+fn workspace_tabs_are_root(path: &[usize]) -> bool {
+    path.is_empty()
+}
+
+fn tab_label_is_root(tab_path: &[usize]) -> bool {
+    tab_path.len() <= 1
+}
+
 #[derive(Debug, Clone)]
 pub struct TabLabelEditState {
     pub tab_id: String,
@@ -69,9 +77,24 @@ pub fn build_tab_label(
     tab_id: &str,
     tab_path: &[usize],
 ) -> gtk4::Widget {
-    let hbox = gtk4::Box::new(gtk4::Orientation::Horizontal, 4);
-    let tab_path_key = encode_tab_path(tab_path);
+    let is_root_label = tab_label_is_root(tab_path);
     let is_layout = panel_type_id == "__layout__";
+    let hbox = gtk4::Box::new(
+        gtk4::Orientation::Horizontal,
+        if is_root_label { 4 } else { 3 },
+    );
+    hbox.add_css_class("workspace-tab-label");
+    hbox.add_css_class(if is_root_label {
+        "workspace-tab-label-root"
+    } else {
+        "workspace-tab-label-nested"
+    });
+    hbox.add_css_class(if is_layout {
+        "workspace-tab-label-layout"
+    } else {
+        "workspace-tab-label-panel"
+    });
+    let tab_path_key = encode_tab_path(tab_path);
     hbox.set_widget_name(&encode_tab_label_metadata(tab_id, &tab_path_key, is_layout));
     let active_edit = edit_state.filter(|state| state.tab_id == tab_id).cloned();
     let tab_id_owned = tab_id.to_string();
@@ -86,11 +109,13 @@ pub fn build_tab_label(
         };
         let type_icon = gtk4::Image::from_icon_name(icon_name);
         type_icon.add_css_class("panel-type-icon");
+        type_icon.add_css_class("workspace-tab-type-icon");
         hbox.append(&type_icon);
     }
 
     let stack = gtk4::Stack::new();
     let label = gtk4::Label::new(Some(name));
+    label.add_css_class("workspace-tab-text");
     stack.add_named(&label, Some("label"));
 
     let edit_box = gtk4::Box::new(gtk4::Orientation::Horizontal, 4);
@@ -258,6 +283,7 @@ pub fn build_tab_label(
     close_btn.add_css_class("flat");
     close_btn.add_css_class("circular");
     close_btn.add_css_class("tab-close-btn");
+    close_btn.add_css_class("workspace-tab-close-btn");
     close_btn.set_tooltip_text(Some("Close tab"));
 
     let cb = action_cb.clone();
@@ -826,6 +852,11 @@ pub fn build_layout_widget_inner(
             notebook.set_show_tabs(true);
             notebook.set_scrollable(true);
             notebook.add_css_class("workspace-tabs");
+            notebook.add_css_class(if workspace_tabs_are_root(path) {
+                "workspace-tabs-root"
+            } else {
+                "workspace-tabs-nested"
+            });
             notebook.set_widget_name(&encode_tabs_widget_name(path));
 
             for (i, child) in children.iter().enumerate() {

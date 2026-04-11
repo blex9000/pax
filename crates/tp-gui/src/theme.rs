@@ -456,10 +456,71 @@ notebook.workspace-tabs > header > tabs > tab:checked {
   background-color: @headerbar_bg_color;
   box-shadow: inset 0 -2px 0 0 @accent_color;
 }
+notebook.workspace-tabs-root > header > tabs > tab {
+  margin-right: 2px;
+}
+notebook.workspace-tabs-nested,
+notebook.workspace-tabs-nested > header,
+notebook.workspace-tabs-nested > header > tabs {
+  background-color: transparent;
+}
+notebook.workspace-tabs-nested > header {
+  min-height: 14px;
+}
+notebook.workspace-tabs-nested > header > tabs {
+  min-height: 14px;
+  box-shadow: inset 0 -1px 0 0 alpha(@headerbar_border_color, 0.38);
+}
+notebook.workspace-tabs-nested > header > tabs > tab {
+  min-height: 14px;
+  margin-right: 1px;
+  padding-top: 0;
+  padding-bottom: 0;
+  box-shadow: none;
+  border-radius: 9px;
+}
+notebook.workspace-tabs-nested > header > tabs > tab label {
+  font-size: 9px;
+  color: alpha(@headerbar_fg_color, 0.62);
+}
+notebook.workspace-tabs-nested > header > tabs > tab image {
+  -gtk-icon-size: 9px;
+  color: alpha(@headerbar_fg_color, 0.58);
+}
+notebook.workspace-tabs-nested.workspace-tabs-focus-path > header > tabs > tab label,
+notebook.workspace-tabs-nested.workspace-tabs-focus-path > header > tabs > tab image {
+  color: alpha(@headerbar_fg_color, 0.82);
+}
+notebook.workspace-tabs-nested:not(.workspace-tabs-focus-path) > header > tabs > tab:hover {
+  background-color: alpha(@headerbar_fg_color, 0.03);
+}
+notebook.workspace-tabs-nested.workspace-tabs-focus-path > header > tabs > tab:hover {
+  background-color: alpha(@headerbar_fg_color, 0.06);
+}
+notebook.workspace-tabs-nested > header > tabs > tab:checked {
+  background-color: alpha(@accent_color, 0.12);
+  box-shadow: none;
+}
+notebook.workspace-tabs-nested:not(.workspace-tabs-focus-path) > header > tabs > tab:checked {
+  background-color: alpha(@headerbar_fg_color, 0.04);
+}
+notebook.workspace-tabs > header > tabs > tab button.workspace-tab-close-btn {
+  opacity: 0;
+}
+notebook.workspace-tabs > header > tabs > tab:hover button.workspace-tab-close-btn,
+notebook.workspace-tabs > header > tabs > tab:checked button.workspace-tab-close-btn {
+  opacity: 0.56;
+}
+notebook.workspace-tabs > header > tabs > tab button.workspace-tab-close-btn:hover {
+  opacity: 1.0;
+}
 box.workspace-tab-add-wrap {
   background-color: @headerbar_bg_color;
   border: none;
   box-shadow: none;
+}
+notebook.workspace-tabs-nested box.workspace-tab-add-wrap {
+  background-color: transparent;
 }
 box.workspace-tab-add-wrap > button.workspace-tab-add-btn {
   background-image: none;
@@ -469,6 +530,11 @@ box.workspace-tab-add-wrap > button.workspace-tab-add-btn {
   min-height: 15px;
   min-width: 15px;
   padding: 0;
+}
+notebook.workspace-tabs-nested box.workspace-tab-add-wrap > button.workspace-tab-add-btn {
+  min-height: 13px;
+  min-width: 13px;
+  opacity: 0.55;
 }
 box.workspace-tab-add-wrap > button.workspace-tab-add-btn image {
   -gtk-icon-size: 12px;
@@ -546,6 +612,35 @@ box.panel-frame { border: none; border-radius: 0; margin: 0; padding: 0; }
 box.panel-frame > box { margin: 0; padding: 0; }
 box.panel-title-bar { padding: 0 4px; margin: 0; min-height: 13px; border-bottom: 1px solid alpha(@borders, 0.4); }
 .panel-title { font-size: 9px; font-weight: bold; }
+box.panel-frame box.panel-title-bar {
+  background-color: transparent;
+  border-bottom: 1px solid alpha(@borders, 0.12);
+}
+box.panel-frame.panel-focused box.panel-title-bar {
+  background-color: alpha(@headerbar_bg_color, 0.32);
+  border-bottom: 1px solid alpha(@accent_color, 0.34);
+}
+box.panel-frame.panel-unfocused box.panel-title-bar {
+  background-color: transparent;
+}
+box.panel-frame.panel-focused > box.panel-footer-bar {
+  border-top: 1px solid alpha(@accent_color, 0.18);
+}
+box.panel-frame.panel-unfocused > box.panel-footer-bar {
+  border-top: 1px solid alpha(@borders, 0.12);
+}
+box.panel-frame.panel-unfocused .panel-title,
+box.panel-frame.panel-unfocused .panel-title-type-icon,
+box.panel-frame.panel-unfocused .panel-footer {
+  color: alpha(@headerbar_fg_color, 0.74);
+  opacity: 0.68;
+}
+box.panel-frame.panel-focused .panel-title,
+box.panel-frame.panel-focused .panel-title-type-icon,
+box.panel-frame.panel-focused .panel-footer {
+  color: @headerbar_fg_color;
+  opacity: 1.0;
+}
 .panel-type-icon { min-height: 9px; min-width: 9px; opacity: 0.6; margin-right: 1px; }
 .panel-title-type-icon {
   -gtk-icon-size: 10px;
@@ -556,6 +651,14 @@ box.panel-title-bar { padding: 0 4px; margin: 0; min-height: 13px; border-bottom
 }
 .panel-menu-btn { min-height: 10px; min-width: 10px; padding: 0; }
 .panel-action-btn { min-height: 10px; min-width: 10px; padding: 0; opacity: 0.5; }
+box.panel-frame.panel-unfocused .panel-action-btn,
+box.panel-frame.panel-unfocused menubutton.panel-menu-btn > button {
+  opacity: 0.28;
+}
+box.panel-frame.panel-focused .panel-action-btn,
+box.panel-frame.panel-focused menubutton.panel-menu-btn > button {
+  opacity: 0.74;
+}
 .panel-action-btn image,
 menubutton.panel-menu-btn > button image {
   -gtk-icon-size: 10px;
@@ -1163,6 +1266,16 @@ mod tests {
         assert!(BASE_CSS.contains("font-size: 10px;"));
         assert!(BASE_CSS.contains("notebook.workspace-tabs > header > tabs > tab image"));
         assert!(BASE_CSS.contains("-gtk-icon-size: 10px;"));
+    }
+
+    #[test]
+    fn progressive_chrome_css_distinguishes_root_nested_and_focus_path() {
+        assert!(BASE_CSS.contains("notebook.workspace-tabs-root > header > tabs > tab"));
+        assert!(BASE_CSS.contains("notebook.workspace-tabs-nested > header > tabs > tab label"));
+        assert!(BASE_CSS.contains("workspace-tabs-focus-path"));
+        assert!(BASE_CSS.contains("button.workspace-tab-close-btn"));
+        assert!(BASE_CSS.contains("box.panel-frame.panel-focused box.panel-title-bar"));
+        assert!(BASE_CSS.contains("box.panel-frame.panel-unfocused .panel-title"));
     }
 
     #[test]
