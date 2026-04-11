@@ -463,37 +463,7 @@ notebook.workspace-tabs > header > tabs > tab:checked {
   box-shadow: none;
 }
 notebook.workspace-tabs-nested {
-  background-color: transparent;
   margin-top: 6px;
-}
-notebook.workspace-tabs-nested > header,
-notebook.workspace-tabs-nested > header > tabs {
-  background-color: transparent;
-}
-notebook.workspace-tabs-nested > header > tabs > tab label {
-  font-size: 9px;
-  color: alpha(@headerbar_fg_color, 0.62);
-}
-notebook.workspace-tabs-nested > header > tabs > tab image {
-  -gtk-icon-size: 9px;
-  color: alpha(@headerbar_fg_color, 0.58);
-}
-notebook.workspace-tabs-nested.workspace-tabs-focus-path > header > tabs > tab label,
-notebook.workspace-tabs-nested.workspace-tabs-focus-path > header > tabs > tab image {
-  color: alpha(@headerbar_fg_color, 0.82);
-}
-notebook.workspace-tabs-nested:not(.workspace-tabs-focus-path) > header > tabs > tab:hover {
-  background-color: alpha(@headerbar_fg_color, 0.03);
-}
-notebook.workspace-tabs-nested.workspace-tabs-focus-path > header > tabs > tab:hover {
-  background-color: alpha(@headerbar_fg_color, 0.06);
-}
-notebook.workspace-tabs-nested > header > tabs > tab:checked {
-  background-color: alpha(@accent_color, 0.12);
-  box-shadow: none;
-}
-notebook.workspace-tabs-nested:not(.workspace-tabs-focus-path) > header > tabs > tab:checked {
-  background-color: alpha(@headerbar_fg_color, 0.04);
 }
 notebook.workspace-tabs > header > tabs > tab button.workspace-tab-close-btn {
   opacity: 0;
@@ -1254,9 +1224,7 @@ mod tests {
 
     #[test]
     fn progressive_chrome_css_distinguishes_root_nested_and_focus_path() {
-        assert!(BASE_CSS.contains("notebook.workspace-tabs-nested {\n  background-color: transparent;\n  margin-top: 6px;"));
-        assert!(BASE_CSS.contains("notebook.workspace-tabs-nested > header > tabs > tab label"));
-        assert!(BASE_CSS.contains("workspace-tabs-focus-path"));
+        assert!(BASE_CSS.contains("notebook.workspace-tabs-nested {\n  margin-top: 6px;"));
         assert!(BASE_CSS.contains("button.workspace-tab-close-btn"));
         assert!(BASE_CSS.contains("box.panel-frame.panel-focused box.panel-title-bar"));
         assert!(BASE_CSS.contains("box.panel-frame.panel-unfocused .panel-title"));
