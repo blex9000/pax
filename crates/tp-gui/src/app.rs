@@ -43,6 +43,223 @@ fn focused_panel_is_code_editor(view: &WorkspaceView) -> bool {
         .unwrap_or(false)
 }
 
+#[derive(Clone, Copy)]
+struct AppMenuItemSpec {
+    label: &'static str,
+    action: &'static str,
+    icon: &'static str,
+    tooltip: &'static str,
+}
+
+const APP_MENU_FILE_ITEMS: &[AppMenuItemSpec] = &[
+    AppMenuItemSpec {
+        label: "New Workspace",
+        action: "app.new",
+        icon: "document-new-symbolic",
+        tooltip: "Create a new workspace",
+    },
+    AppMenuItemSpec {
+        label: "Open Workspace…",
+        action: "app.open",
+        icon: "document-open-symbolic",
+        tooltip: "Open a workspace file",
+    },
+    AppMenuItemSpec {
+        label: "Open Recent…",
+        action: "app.recent",
+        icon: "document-open-recent-symbolic",
+        tooltip: "Open a recent workspace",
+    },
+];
+
+const APP_MENU_SAVE_ITEM: AppMenuItemSpec = AppMenuItemSpec {
+    label: "Save",
+    action: "app.save",
+    icon: "media-floppy-symbolic",
+    tooltip: "Save the current workspace",
+};
+
+const APP_MENU_SAVE_SECONDARY_ITEMS: &[AppMenuItemSpec] = &[AppMenuItemSpec {
+    label: "Save As…",
+    action: "app.save-as",
+    icon: "document-save-as-symbolic",
+    tooltip: "Save the workspace under a new name",
+}];
+
+const APP_MENU_AUTOSAVE_ITEM: AppMenuItemSpec = AppMenuItemSpec {
+    label: "Auto-save",
+    action: "app.autosave",
+    icon: "document-save-symbolic",
+    tooltip: "Toggle workspace auto-save",
+};
+
+const APP_MENU_SETTINGS_ITEMS: &[AppMenuItemSpec] = &[
+    AppMenuItemSpec {
+        label: "Settings…",
+        action: "app.settings",
+        icon: "preferences-system-symbolic",
+        tooltip: "Open application settings",
+    },
+    AppMenuItemSpec {
+        label: "Keyboard Shortcuts",
+        action: "app.shortcuts",
+        icon: "input-keyboard-symbolic",
+        tooltip: "Show keyboard shortcuts",
+    },
+    AppMenuItemSpec {
+        label: "About Pax",
+        action: "app.about",
+        icon: "help-about-symbolic",
+        tooltip: "Show application information",
+    },
+];
+
+const APP_MENU_QUIT_ITEM: AppMenuItemSpec = AppMenuItemSpec {
+    label: "Quit",
+    action: "app.quit",
+    icon: "application-exit-symbolic",
+    tooltip: "Close Pax",
+};
+
+fn build_app_menu_button(item: AppMenuItemSpec, suffix: Option<gtk4::Widget>) -> gtk4::Button {
+    let btn = gtk4::Button::new();
+    btn.add_css_class("flat");
+    btn.add_css_class("app-popover-button");
+    btn.set_tooltip_text(Some(item.tooltip));
+
+    let content = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
+    content.set_margin_start(4);
+    content.set_margin_end(8);
+
+    let icon = gtk4::Image::from_icon_name(item.icon);
+    icon.set_pixel_size(16);
+    content.append(&icon);
+
+    let label = gtk4::Label::new(Some(item.label));
+    label.set_hexpand(true);
+    label.set_halign(gtk4::Align::Start);
+    content.append(&label);
+
+    if let Some(suffix) = suffix {
+        content.append(&suffix);
+    }
+
+    btn.set_child(Some(&content));
+    btn
+}
+
+fn append_app_menu_item(
+    container: &gtk4::Box,
+    popover: &gtk4::Popover,
+    window: &Rc<adw::ApplicationWindow>,
+    item: AppMenuItemSpec,
+    suffix: Option<gtk4::Widget>,
+) -> gtk4::Button {
+    let btn = build_app_menu_button(item, suffix);
+    let pop = popover.clone();
+    let win = window.clone();
+    btn.connect_clicked(move |_| {
+        pop.popdown();
+        let _ = gtk4::prelude::WidgetExt::activate_action(
+            win.as_ref(),
+            item.action,
+            None::<&gtk4::glib::Variant>,
+        );
+    });
+    container.append(&btn);
+    btn
+}
+
+fn append_app_menu_section(
+    container: &gtk4::Box,
+    popover: &gtk4::Popover,
+    window: &Rc<adw::ApplicationWindow>,
+    items: &[AppMenuItemSpec],
+) {
+    for item in items {
+        append_app_menu_item(container, popover, window, *item, None);
+    }
+}
+
+fn build_app_menu_popover(
+    window: &Rc<adw::ApplicationWindow>,
+    save_action: &gtk4::gio::SimpleAction,
+    autosave_enabled: &Rc<std::cell::Cell<bool>>,
+) -> gtk4::Popover {
+    let popover = gtk4::Popover::new();
+    crate::theme::configure_popover(&popover);
+
+    let vbox = gtk4::Box::new(gtk4::Orientation::Vertical, 2);
+    vbox.set_margin_top(4);
+    vbox.set_margin_bottom(4);
+    vbox.set_margin_start(4);
+    vbox.set_margin_end(4);
+
+    append_app_menu_section(&vbox, &popover, window, APP_MENU_FILE_ITEMS);
+
+    let save_btn = build_app_menu_button(APP_MENU_SAVE_ITEM, None);
+    save_btn.set_sensitive(save_action.is_enabled());
+    {
+        let pop = popover.clone();
+        let win = window.clone();
+        save_btn.connect_clicked(move |_| {
+            pop.popdown();
+            let _ = gtk4::prelude::WidgetExt::activate_action(
+                win.as_ref(),
+                "app.save",
+                None::<&gtk4::glib::Variant>,
+            );
+        });
+    }
+    {
+        let save_btn = save_btn.clone();
+        save_action.connect_notify_local(Some("enabled"), move |action, _| {
+            save_btn.set_sensitive(action.is_enabled());
+        });
+    }
+    vbox.append(&save_btn);
+
+    append_app_menu_section(&vbox, &popover, window, APP_MENU_SAVE_SECONDARY_ITEMS);
+
+    let autosave_indicator = gtk4::Image::from_icon_name("object-select-symbolic");
+    autosave_indicator.add_css_class("dim-label");
+    autosave_indicator.set_pixel_size(14);
+    autosave_indicator.set_visible(autosave_enabled.get());
+    let autosave_btn = append_app_menu_item(
+        &vbox,
+        &popover,
+        window,
+        APP_MENU_AUTOSAVE_ITEM,
+        Some(autosave_indicator.clone().upcast()),
+    );
+
+    {
+        let indicator = autosave_indicator.clone();
+        let enabled = autosave_enabled.clone();
+        autosave_btn.connect_clicked(move |_| {
+            indicator.set_visible(enabled.get());
+        });
+    }
+
+    let sep = gtk4::Separator::new(gtk4::Orientation::Horizontal);
+    sep.set_margin_top(4);
+    sep.set_margin_bottom(4);
+    vbox.append(&sep);
+
+    append_app_menu_section(&vbox, &popover, window, APP_MENU_SETTINGS_ITEMS);
+
+    let sep = gtk4::Separator::new(gtk4::Orientation::Horizontal);
+    sep.set_margin_top(4);
+    sep.set_margin_bottom(4);
+    vbox.append(&sep);
+
+    append_app_menu_item(&vbox, &popover, window, APP_MENU_QUIT_ITEM, None);
+
+    popover.set_child(Some(&vbox));
+
+    popover
+}
+
 /// Single entry point — shows welcome if no workspace, or workspace directly.
 pub fn run_app(workspace: Option<Workspace>, config_path: Option<&Path>) -> Result<()> {
     let app = adw::Application::builder()
@@ -213,25 +430,6 @@ fn setup_workspace_ui(
     menu_btn.set_tooltip_text(Some("Menu"));
     menu_btn.add_css_class("flat");
     menu_btn.add_css_class("app-menu-btn");
-
-    let menu = gtk4::gio::Menu::new();
-    let file_section = gtk4::gio::Menu::new();
-    file_section.append(Some("New Workspace"), Some("app.new"));
-    file_section.append(Some("Open Workspace…"), Some("app.open"));
-    file_section.append(Some("Open Recent…"), Some("app.recent"));
-    file_section.append(Some("Save"), Some("app.save"));
-    file_section.append(Some("Save As…"), Some("app.save-as"));
-    file_section.append(Some("Auto-save"), Some("app.autosave"));
-    menu.append_section(None, &file_section);
-    let settings_section = gtk4::gio::Menu::new();
-    settings_section.append(Some("Settings…"), Some("app.settings"));
-    settings_section.append(Some("Keyboard Shortcuts"), Some("app.shortcuts"));
-    settings_section.append(Some("About Pax"), Some("app.about"));
-    menu.append_section(None, &settings_section);
-    menu.append(Some("Quit"), Some("app.quit"));
-    let menu_popover = gtk4::PopoverMenu::from_model(Some(&menu));
-    crate::theme::configure_popover(&menu_popover);
-    menu_btn.set_popover(Some(&menu_popover));
     header.pack_start(&menu_btn);
 
     // Dirty indicator (orange floppy) — packed at end (right side, near window buttons)
@@ -911,6 +1109,9 @@ fn setup_workspace_ui(
 
     window.insert_action_group("app", Some(&action_group));
 
+    let menu_popover = build_app_menu_popover(&window_rc, &save_action, &autosave_enabled);
+    menu_btn.set_popover(Some(&menu_popover));
+
     // Window close request
     {
         let ws = ws_view.clone();
@@ -1268,6 +1469,8 @@ mod tests {
     use super::{
         load_preferred_theme_from_db, normalize_workspace_theme,
         panel_type_uses_text_editing_shortcuts, workspace_with_theme, Theme,
+        APP_MENU_AUTOSAVE_ITEM, APP_MENU_FILE_ITEMS, APP_MENU_QUIT_ITEM, APP_MENU_SAVE_ITEM,
+        APP_MENU_SAVE_SECONDARY_ITEMS, APP_MENU_SETTINGS_ITEMS,
     };
     use pax_core::template::empty_workspace;
     use pax_core::workspace::PanelType;
@@ -1322,6 +1525,49 @@ mod tests {
         assert!(!panel_type_uses_text_editing_shortcuts(
             &PanelType::Terminal
         ));
+    }
+
+    #[test]
+    fn main_menu_specs_define_icons_for_every_entry() {
+        let sections = [
+            APP_MENU_FILE_ITEMS,
+            APP_MENU_SAVE_SECONDARY_ITEMS,
+            APP_MENU_SETTINGS_ITEMS,
+        ];
+
+        for section in sections {
+            for item in section {
+                assert!(
+                    !item.icon.is_empty(),
+                    "menu item '{}' is missing an icon",
+                    item.label
+                );
+                assert!(
+                    item.action.starts_with("app."),
+                    "menu item '{}' has invalid action '{}'",
+                    item.label,
+                    item.action
+                );
+            }
+        }
+
+        for item in [
+            APP_MENU_SAVE_ITEM,
+            APP_MENU_AUTOSAVE_ITEM,
+            APP_MENU_QUIT_ITEM,
+        ] {
+            assert!(
+                !item.icon.is_empty(),
+                "menu item '{}' is missing an icon",
+                item.label
+            );
+            assert!(
+                item.action.starts_with("app."),
+                "menu item '{}' has invalid action '{}'",
+                item.label,
+                item.action
+            );
+        }
     }
 }
 
