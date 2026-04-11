@@ -431,16 +431,20 @@ notebook.workspace-tabs > header {
   min-height: 16px;
 }
 notebook.workspace-tabs > header > tabs {
-  box-shadow: inset 0 -1px 0 0 @headerbar_border_color;
+  box-shadow: inset 0 -1px 0 0 alpha(@headerbar_border_color, 0.52);
   min-height: 16px;
+  padding-left: 3px;
+  padding-right: 3px;
 }
 notebook.workspace-tabs > header > tabs > tab {
-  border-radius: 0;
-  margin: 0;
+  border-radius: 11px 11px 0 0;
+  margin: 0 6px 0 0;
   min-height: 16px;
   padding-top: 1px;
   padding-bottom: 1px;
-  box-shadow: inset 0 -1px 0 0 @headerbar_border_color;
+  padding-left: 4px;
+  padding-right: 4px;
+  box-shadow: none;
 }
 notebook.workspace-tabs > header > tabs > tab label {
   font-size: 10px;
@@ -450,14 +454,23 @@ notebook.workspace-tabs > header > tabs > tab image {
   -gtk-icon-size: 10px;
 }
 notebook.workspace-tabs > header > tabs > tab:hover {
-  background-color: alpha(@headerbar_fg_color, 0.08);
+  background-color: alpha(@headerbar_fg_color, 0.06);
 }
 notebook.workspace-tabs > header > tabs > tab:checked {
-  background-color: @headerbar_bg_color;
+  background-color: alpha(@accent_color, 0.14);
   box-shadow: inset 0 -2px 0 0 @accent_color;
 }
 notebook.workspace-tabs-root > header > tabs > tab {
-  margin-right: 2px;
+  margin-right: 10px;
+  min-height: 18px;
+  padding-left: 8px;
+  padding-right: 8px;
+}
+notebook.workspace-tabs-root > header > tabs > tab label {
+  font-size: 10px;
+}
+notebook.workspace-tabs-root > header > tabs > tab:checked {
+  background-color: alpha(@accent_color, 0.18);
 }
 notebook.workspace-tabs-nested,
 notebook.workspace-tabs-nested > header,
@@ -473,9 +486,11 @@ notebook.workspace-tabs-nested > header > tabs {
 }
 notebook.workspace-tabs-nested > header > tabs > tab {
   min-height: 14px;
-  margin-right: 1px;
+  margin-right: 6px;
   padding-top: 0;
   padding-bottom: 0;
+  padding-left: 3px;
+  padding-right: 3px;
   box-shadow: none;
   border-radius: 9px;
 }
