@@ -481,7 +481,7 @@ notebook.workspace-tabs > header > tabs > tab:hover {
 }
 notebook.workspace-tabs > header > tabs > tab:checked {
   background-color: @panel_header_bg_color;
-  border-color: @accent_color;
+  border-color: alpha(@accent_color, 0.34);
   box-shadow: none;
 }
 notebook.workspace-tabs-root {
@@ -619,6 +619,9 @@ box.panel-title-bar { padding: 0 4px; margin: 0; min-height: 13px; border-bottom
 box.panel-frame box.panel-title-bar {
   background-color: transparent;
   border-bottom: 1px solid alpha(@borders, 0.12);
+}
+box.panel-frame.panel-focused {
+  border-color: alpha(@accent_color, 0.34);
 }
 box.panel-frame.panel-focused box.panel-title-bar {
   background-color: @panel_header_bg_color;
