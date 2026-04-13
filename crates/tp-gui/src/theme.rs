@@ -486,10 +486,14 @@ notebook.workspace-tabs > header > tabs > tab:checked {
 }
 notebook.workspace-tabs-root {
   margin-top: 6px;
-  background-color: alpha(@headerbar_bg_color, 0.18);
+  background-color: @panel_header_bg_color;
 }
 notebook.workspace-tabs-nested {
   margin-top: 6px;
+  background-color: transparent;
+}
+notebook.workspace-tabs stack,
+notebook.workspace-tabs stackpage {
   background-color: transparent;
 }
 box.workspace-tab-page-shell {
