@@ -144,25 +144,21 @@ fn apply_theme_to_all_buffers(theme: Theme) {
 pub enum Theme {
     System,
     Graphite,
-    CatppuccinMocha,
-    CatppuccinLatte,
     Dracula,
-    Nord,
     Aurora,
     Quantum,
-    Hologram,
 }
 
 impl Default for Theme {
     fn default() -> Self {
-        Self::Nord
+        Self::Graphite
     }
 }
 
 impl Theme {
     fn resolved(self) -> Self {
         match self {
-            Theme::System => Theme::Nord,
+            Theme::System => Theme::Graphite,
             other => other,
         }
     }
@@ -170,38 +166,26 @@ impl Theme {
     pub fn label(&self) -> &str {
         match self.resolved() {
             Theme::Graphite => "Graphite",
-            Theme::CatppuccinMocha => "Catppuccin Mocha",
-            Theme::CatppuccinLatte => "Catppuccin Latte",
             Theme::Dracula => "Dracula",
-            Theme::Nord => "Nord",
             Theme::Aurora => "Aurora",
             Theme::Quantum => "Quantum",
-            Theme::Hologram => "Hologram",
             Theme::System => unreachable!(),
         }
     }
 
     pub fn all() -> &'static [Theme] {
         &[
-            Theme::Nord,
             Theme::Graphite,
-            Theme::CatppuccinMocha,
-            Theme::CatppuccinLatte,
             Theme::Dracula,
             Theme::Aurora,
             Theme::Quantum,
-            Theme::Hologram,
         ]
     }
 
     pub fn color_scheme(&self) -> libadwaita::ColorScheme {
         match self.resolved() {
-            Theme::CatppuccinLatte | Theme::Aurora | Theme::Quantum | Theme::Hologram => {
-                libadwaita::ColorScheme::ForceLight
-            }
-            Theme::Graphite | Theme::CatppuccinMocha | Theme::Dracula | Theme::Nord => {
-                libadwaita::ColorScheme::ForceDark
-            }
+            Theme::Aurora | Theme::Quantum => libadwaita::ColorScheme::ForceLight,
+            Theme::Graphite | Theme::Dracula => libadwaita::ColorScheme::ForceDark,
             Theme::System => unreachable!(),
         }
     }
@@ -209,29 +193,22 @@ impl Theme {
     pub fn to_id(&self) -> &str {
         match self.resolved() {
             Theme::Graphite => "graphite",
-            Theme::CatppuccinMocha => "catppuccin-mocha",
-            Theme::CatppuccinLatte => "catppuccin-latte",
             Theme::Dracula => "dracula",
-            Theme::Nord => "nord",
             Theme::Aurora => "aurora",
             Theme::Quantum => "quantum",
-            Theme::Hologram => "hologram",
             Theme::System => unreachable!(),
         }
     }
 
     pub fn from_id(id: &str) -> Theme {
         match id {
-            "system" | "" => Theme::Nord,
             "graphite" => Theme::Graphite,
-            "catppuccin-mocha" => Theme::CatppuccinMocha,
-            "catppuccin-latte" => Theme::CatppuccinLatte,
             "dracula" => Theme::Dracula,
-            "nord" => Theme::Nord,
             "aurora" => Theme::Aurora,
             "quantum" => Theme::Quantum,
-            "hologram" => Theme::Hologram,
-            _ => Theme::Nord,
+            // "system", "", and any legacy/unknown id (e.g. "nord",
+            // "catppuccin-*", "hologram") fall back to the default theme.
+            _ => Theme::default(),
         }
     }
 
@@ -242,21 +219,9 @@ impl Theme {
                 gtk4::gdk::RGBA::new(0.059, 0.078, 0.106, 1.0), // #0f141b
                 gtk4::gdk::RGBA::new(0.898, 0.925, 0.953, 1.0), // #e5ecf3
             )),
-            Theme::CatppuccinMocha => Some((
-                gtk4::gdk::RGBA::new(0.118, 0.118, 0.180, 1.0), // #1e1e2e
-                gtk4::gdk::RGBA::new(0.804, 0.839, 0.957, 1.0), // #cdd6f4
-            )),
-            Theme::CatppuccinLatte => Some((
-                gtk4::gdk::RGBA::new(0.937, 0.945, 0.961, 1.0), // #eff1f5
-                gtk4::gdk::RGBA::new(0.298, 0.310, 0.412, 1.0), // #4c4f69
-            )),
             Theme::Dracula => Some((
                 gtk4::gdk::RGBA::new(0.157, 0.165, 0.212, 1.0), // #282a36
                 gtk4::gdk::RGBA::new(0.973, 0.973, 0.949, 1.0), // #f8f8f2
-            )),
-            Theme::Nord => Some((
-                gtk4::gdk::RGBA::new(0.180, 0.204, 0.251, 1.0), // #2e3440
-                gtk4::gdk::RGBA::new(0.925, 0.937, 0.957, 1.0), // #eceff4
             )),
             Theme::Aurora => Some((
                 gtk4::gdk::RGBA::new(0.965, 0.976, 0.992, 1.0), // #f6f9fd
@@ -265,10 +230,6 @@ impl Theme {
             Theme::Quantum => Some((
                 gtk4::gdk::RGBA::new(0.980, 0.988, 0.996, 1.0), // #fafcfe
                 gtk4::gdk::RGBA::new(0.039, 0.102, 0.200, 1.0), // #0a1a33
-            )),
-            Theme::Hologram => Some((
-                gtk4::gdk::RGBA::new(0.984, 0.988, 1.000, 1.0), // #fbfcff
-                gtk4::gdk::RGBA::new(0.039, 0.055, 0.122, 1.0), // #0a0e1f
             )),
             Theme::System => unreachable!(),
         }
@@ -279,13 +240,9 @@ impl Theme {
     pub fn sourceview_scheme(&self) -> &str {
         match self.resolved() {
             Theme::Graphite => "pax-graphite",
-            Theme::CatppuccinMocha => "pax-catppuccin-mocha",
-            Theme::CatppuccinLatte => "pax-catppuccin-latte",
             Theme::Dracula => "pax-dracula",
-            Theme::Nord => "pax-nord",
             Theme::Aurora => "pax-aurora",
             Theme::Quantum => "pax-quantum",
-            Theme::Hologram => "pax-hologram",
             Theme::System => unreachable!(),
         }
     }
@@ -294,9 +251,8 @@ impl Theme {
     #[cfg(feature = "sourceview")]
     pub fn sourceview_scheme_fallback(&self) -> &str {
         match self.resolved() {
-            Theme::Graphite => "Adwaita-dark",
-            Theme::CatppuccinLatte | Theme::Aurora | Theme::Quantum | Theme::Hologram => "Adwaita",
-            Theme::CatppuccinMocha | Theme::Dracula | Theme::Nord => "Adwaita-dark",
+            Theme::Graphite | Theme::Dracula => "Adwaita-dark",
+            Theme::Aurora | Theme::Quantum => "Adwaita",
             Theme::System => unreachable!(),
         }
     }
@@ -305,25 +261,18 @@ impl Theme {
     pub fn css_overrides(&self) -> &str {
         match self.resolved() {
             Theme::Graphite => GRAPHITE_CSS,
-            Theme::CatppuccinMocha => CATPPUCCIN_MOCHA_CSS,
-            Theme::CatppuccinLatte => CATPPUCCIN_LATTE_CSS,
             Theme::Dracula => DRACULA_CSS,
-            Theme::Nord => NORD_CSS,
             Theme::Aurora => AURORA_CSS,
             Theme::Quantum => QUANTUM_CSS,
-            Theme::Hologram => HOLOGRAM_CSS,
             Theme::System => unreachable!(),
         }
     }
 
     /// Optional theme-specific CSS rules (selectors + declarations) appended
-    /// AFTER BASE_CSS so they override base styling. Returns an empty string
-    /// for themes that only customize the color palette.
+    /// AFTER BASE_CSS so they override base styling. Currently no theme
+    /// opts in; the hook is preserved for future structural themes.
     pub fn css_extra(&self) -> &str {
-        match self.resolved() {
-            Theme::Hologram => HOLOGRAM_EXTRA_CSS,
-            _ => "",
-        }
+        ""
     }
 }
 
@@ -1009,49 +958,6 @@ window.app-dialog dropdown.settings-theme-dropdown > popover.menu row:selected,
 }
 ";
 
-const CATPPUCCIN_MOCHA_CSS: &str = "\
-@define-color bg_primary #1e1e2e;
-@define-color bg_secondary #181825;
-@define-color bg_tertiary @bg_secondary;
-@define-color bg_card #313244;
-@define-color bg_dialog #313244;
-@define-color bg_popover #313244;
-@define-color bg_sidebar #313244;
-@define-color bg_sidebar_secondary #181825;
-@define-color bg_thumbnail #313244;
-@define-color bg_view #1e1e2e;
-@define-color bg_panel_header #1c1c2b;
-@define-color bg_terminal #1e1e2e;
-@define-color window_bg_color @bg_primary;
-@define-color window_fg_color #cdd6f4;
-@define-color headerbar_bg_color @bg_secondary;
-@define-color workspace_tabs_bar_bg_color @bg_tertiary;
-@define-color headerbar_fg_color #cdd6f4;
-@define-color card_bg_color @bg_card;
-@define-color card_fg_color #cdd6f4;
-@define-color dialog_bg_color @bg_dialog;
-@define-color dialog_fg_color #cdd6f4;
-@define-color popover_bg_color @bg_popover;
-@define-color popover_fg_color #cdd6f4;
-@define-color popover_shade_color alpha(black, 0.25);
-@define-color sidebar_bg_color @bg_sidebar;
-@define-color sidebar_fg_color #cdd6f4;
-@define-color secondary_sidebar_bg_color @bg_sidebar_secondary;
-@define-color secondary_sidebar_fg_color #cdd6f4;
-@define-color thumbnail_bg_color @bg_thumbnail;
-@define-color view_bg_color @bg_view;
-@define-color panel_header_bg_color @bg_panel_header;
-@define-color view_fg_color #cdd6f4;
-@define-color terminal_bg_color @bg_terminal;
-@define-color terminal_fg_color #cdd6f4;
-@define-color accent_bg_color #89b4fa;
-@define-color accent_fg_color #1e1e2e;
-@define-color accent_color #89b4fa;
-@define-color borders alpha(white, 0.15);
-@define-color headerbar_border_color alpha(white, 0.15);
-@define-color headerbar_backdrop_color @headerbar_bg_color;
-";
-
 const GRAPHITE_CSS: &str = "\
 @define-color bg_primary #141a22;
 @define-color bg_secondary #1a212c;
@@ -1095,49 +1001,6 @@ const GRAPHITE_CSS: &str = "\
 @define-color headerbar_backdrop_color @headerbar_bg_color;
 ";
 
-const CATPPUCCIN_LATTE_CSS: &str = "\
-@define-color bg_primary #eff1f5;
-@define-color bg_secondary #e6e9ef;
-@define-color bg_tertiary @bg_secondary;
-@define-color bg_card #ccd0da;
-@define-color bg_dialog #ccd0da;
-@define-color bg_popover @bg_secondary;
-@define-color bg_sidebar #ccd0da;
-@define-color bg_sidebar_secondary #e6e9ef;
-@define-color bg_thumbnail #ccd0da;
-@define-color bg_view #eff1f5;
-@define-color bg_panel_header #eceef3;
-@define-color bg_terminal #eff1f5;
-@define-color window_bg_color @bg_primary;
-@define-color window_fg_color #4c4f69;
-@define-color headerbar_bg_color @bg_secondary;
-@define-color workspace_tabs_bar_bg_color @bg_tertiary;
-@define-color headerbar_fg_color #4c4f69;
-@define-color card_bg_color @bg_card;
-@define-color card_fg_color #4c4f69;
-@define-color dialog_bg_color @bg_dialog;
-@define-color dialog_fg_color #4c4f69;
-@define-color popover_bg_color @bg_popover;
-@define-color popover_fg_color #4c4f69;
-@define-color popover_shade_color alpha(black, 0.12);
-@define-color sidebar_bg_color @bg_sidebar;
-@define-color sidebar_fg_color #4c4f69;
-@define-color secondary_sidebar_bg_color @bg_sidebar_secondary;
-@define-color secondary_sidebar_fg_color #4c4f69;
-@define-color thumbnail_bg_color @bg_thumbnail;
-@define-color view_bg_color @bg_view;
-@define-color panel_header_bg_color @bg_panel_header;
-@define-color view_fg_color #4c4f69;
-@define-color terminal_bg_color @bg_terminal;
-@define-color terminal_fg_color #4c4f69;
-@define-color accent_bg_color #1e66f5;
-@define-color accent_fg_color #eff1f5;
-@define-color accent_color #1e66f5;
-@define-color borders alpha(black, 0.15);
-@define-color headerbar_border_color alpha(black, 0.15);
-@define-color headerbar_backdrop_color @headerbar_bg_color;
-";
-
 const DRACULA_CSS: &str = "\
 @define-color bg_primary #282a36;
 @define-color bg_secondary #21222c;
@@ -1178,49 +1041,6 @@ const DRACULA_CSS: &str = "\
 @define-color accent_color #bd93f9;
 @define-color borders alpha(white, 0.15);
 @define-color headerbar_border_color alpha(white, 0.15);
-@define-color headerbar_backdrop_color @headerbar_bg_color;
-";
-
-const NORD_CSS: &str = "\
-@define-color bg_primary #2e3440;
-@define-color bg_secondary #3b4252;
-@define-color bg_tertiary @bg_secondary;
-@define-color bg_card #3b4252;
-@define-color bg_dialog #3b4252;
-@define-color bg_popover #3b4252;
-@define-color bg_sidebar #3b4252;
-@define-color bg_sidebar_secondary #2e3440;
-@define-color bg_thumbnail #3b4252;
-@define-color bg_view #2e3440;
-@define-color bg_panel_header #323846;
-@define-color bg_terminal #2e3440;
-@define-color window_bg_color @bg_primary;
-@define-color window_fg_color #eceff4;
-@define-color headerbar_bg_color @bg_secondary;
-@define-color workspace_tabs_bar_bg_color @bg_tertiary;
-@define-color headerbar_fg_color #eceff4;
-@define-color card_bg_color @bg_card;
-@define-color card_fg_color #eceff4;
-@define-color dialog_bg_color @bg_dialog;
-@define-color dialog_fg_color #eceff4;
-@define-color popover_bg_color @bg_popover;
-@define-color popover_fg_color #eceff4;
-@define-color popover_shade_color alpha(black, 0.25);
-@define-color sidebar_bg_color @bg_sidebar;
-@define-color sidebar_fg_color #eceff4;
-@define-color secondary_sidebar_bg_color @bg_sidebar_secondary;
-@define-color secondary_sidebar_fg_color #eceff4;
-@define-color thumbnail_bg_color @bg_thumbnail;
-@define-color view_bg_color @bg_view;
-@define-color panel_header_bg_color @bg_panel_header;
-@define-color view_fg_color #eceff4;
-@define-color terminal_bg_color @bg_terminal;
-@define-color terminal_fg_color #eceff4;
-@define-color accent_bg_color #88c0d0;
-@define-color accent_fg_color #2e3440;
-@define-color accent_color #88c0d0;
-@define-color borders alpha(white, 0.12);
-@define-color headerbar_border_color alpha(white, 0.12);
 @define-color headerbar_backdrop_color @headerbar_bg_color;
 ";
 
@@ -1317,144 +1137,9 @@ const QUANTUM_CSS: &str = "\
 @define-color headerbar_backdrop_color @headerbar_bg_color;
 ";
 
-// Hologram — sci-fi light theme that breaks the rectangle paradigm.
-// Iridescent ice surfaces with a mint-electric / laser-magenta duality.
-// Color tokens; structural rules live in HOLOGRAM_EXTRA_CSS so they can
-// override BASE_CSS (tabs gain a single bottom-edge glow line, panels
-// get an asymmetric left scanline, focus states gain neon glow shadows).
-const HOLOGRAM_CSS: &str = "\
-@define-color bg_primary #f3f5fc;
-@define-color bg_secondary #e8ecf7;
-@define-color bg_tertiary @bg_secondary;
-@define-color bg_card #dde2f0;
-@define-color bg_dialog #dde2f0;
-@define-color bg_popover #e8ecf7;
-@define-color bg_sidebar #e2e6f3;
-@define-color bg_sidebar_secondary #f3f5fc;
-@define-color bg_thumbnail #dde2f0;
-@define-color bg_view #fbfcff;
-@define-color bg_panel_header #e8ecf7;
-@define-color bg_terminal #fbfcff;
-@define-color window_bg_color @bg_primary;
-@define-color window_fg_color #0a0e1f;
-@define-color headerbar_bg_color @bg_secondary;
-@define-color workspace_tabs_bar_bg_color @bg_tertiary;
-@define-color headerbar_fg_color #0a0e1f;
-@define-color card_bg_color @bg_card;
-@define-color card_fg_color #0a0e1f;
-@define-color dialog_bg_color @bg_dialog;
-@define-color dialog_fg_color #0a0e1f;
-@define-color popover_bg_color @bg_popover;
-@define-color popover_fg_color #0a0e1f;
-@define-color popover_shade_color alpha(#0a0e1f, 0.18);
-@define-color sidebar_bg_color @bg_sidebar;
-@define-color sidebar_fg_color #0a0e1f;
-@define-color secondary_sidebar_bg_color @bg_sidebar_secondary;
-@define-color secondary_sidebar_fg_color #0a0e1f;
-@define-color thumbnail_bg_color @bg_thumbnail;
-@define-color view_bg_color @bg_view;
-@define-color panel_header_bg_color @bg_panel_header;
-@define-color view_fg_color #0a0e1f;
-@define-color terminal_bg_color @bg_terminal;
-@define-color terminal_fg_color #0a0e1f;
-@define-color accent_bg_color #00c4a3;
-@define-color accent_fg_color #ffffff;
-@define-color accent_color #00c4a3;
-@define-color borders alpha(#00c4a3, 0.32);
-@define-color headerbar_border_color alpha(#ff3c92, 0.40);
-@define-color headerbar_backdrop_color @headerbar_bg_color;
-@define-color hologram_mint #00c4a3;
-@define-color hologram_magenta #ff3c92;
-@define-color hologram_glow_mint alpha(#00ffd0, 0.55);
-@define-color hologram_glow_magenta alpha(#ff3c92, 0.55);
-";
-
-// Hologram structural CSS — appended after BASE_CSS so it wins.
-// Tabs lose lateral borders entirely and gain a bottom-edge "scanline"
-// (mint at rest → magenta with glow when active). Panel frames get an
-// asymmetric mint left-edge "scanner". Buttons glow on hover.
-const HOLOGRAM_EXTRA_CSS: &str = "\
-notebook.workspace-tabs > header > tabs > tab,
-notebook.workspace-tabs > header > tabs > tab:checked {
-  border-top: none;
-  border-left: none;
-  border-right: none;
-  border-bottom: 1px solid alpha(@hologram_mint, 0.35);
-  border-radius: 0;
-  background-color: transparent;
-  background-image: none;
-  box-shadow: none;
-  margin-right: 8px;
-  margin-bottom: 0;
-  padding-bottom: 2px;
-}
-notebook.workspace-tabs > header > tabs > tab:hover {
-  border-bottom: 2px solid @hologram_mint;
-  background-color: transparent;
-  padding-bottom: 1px;
-}
-notebook.workspace-tabs > header > tabs > tab:checked {
-  border-bottom: 2px solid @hologram_magenta;
-  box-shadow: 0 4px 10px -2px @hologram_glow_magenta;
-  padding-bottom: 1px;
-}
-notebook.workspace-tabs > header > tabs > tab:checked label {
-  color: @hologram_magenta;
-}
-notebook.workspace-tabs > header > tabs > tab:checked image,
-notebook.workspace-tabs > header > tabs > tab:checked image.workspace-tab-type-icon {
-  color: @hologram_magenta;
-}
-box.panel-frame {
-  border-left: 1px solid alpha(@hologram_mint, 0.55);
-  border-top: none;
-  border-right: none;
-  border-bottom: none;
-}
-box.panel-frame:focus-within {
-  border-left: 2px solid @hologram_magenta;
-  box-shadow: -3px 0 10px -2px @hologram_glow_magenta;
-}
-button:hover image,
-togglebutton:hover image,
-menubutton > button:hover image {
-  color: @hologram_mint;
-  text-shadow: 0 0 6px @hologram_glow_mint;
-}
-button.suggested-action {
-  background-color: transparent;
-  background-image: none;
-  border: 1px solid @hologram_mint;
-  color: @hologram_mint;
-  box-shadow: 0 0 8px -1px @hologram_glow_mint;
-}
-button.suggested-action:hover {
-  background-color: alpha(@hologram_mint, 0.10);
-  box-shadow: 0 0 12px @hologram_glow_mint;
-}
-entry, spinbutton {
-  border: none;
-  border-bottom: 1px solid alpha(@hologram_mint, 0.40);
-  border-radius: 0;
-  background-color: transparent;
-  box-shadow: none;
-}
-entry:focus, spinbutton:focus {
-  border-bottom: 1px solid @hologram_magenta;
-  box-shadow: 0 2px 8px -2px @hologram_glow_magenta;
-}
-popover.app-popover > contents {
-  border: 1px solid alpha(@hologram_mint, 0.45);
-  box-shadow: 0 0 16px -2px @hologram_glow_mint;
-}
-";
-
 #[cfg(test)]
 mod tests {
-    use super::{
-        Theme, AURORA_CSS, BASE_CSS, CATPPUCCIN_LATTE_CSS, CATPPUCCIN_MOCHA_CSS, DRACULA_CSS,
-        GRAPHITE_CSS, HOLOGRAM_CSS, HOLOGRAM_EXTRA_CSS, NORD_CSS, QUANTUM_CSS,
-    };
+    use super::{Theme, AURORA_CSS, BASE_CSS, DRACULA_CSS, GRAPHITE_CSS, QUANTUM_CSS};
 
     #[test]
     fn base_css_uses_opaque_app_surfaces() {
@@ -1468,26 +1153,26 @@ mod tests {
     }
 
     #[test]
-    fn system_theme_is_disabled_and_aliases_to_nord() {
-        assert_eq!(Theme::default(), Theme::Nord);
-        assert_eq!(Theme::from_id("system"), Theme::Nord);
-        assert_eq!(Theme::System.to_id(), "nord");
-        assert_eq!(Theme::System.css_overrides(), NORD_CSS);
+    fn system_theme_is_disabled_and_aliases_to_default() {
+        assert_eq!(Theme::default(), Theme::Graphite);
+        assert_eq!(Theme::from_id("system"), Theme::Graphite);
+        assert_eq!(Theme::System.to_id(), "graphite");
+        assert_eq!(Theme::System.css_overrides(), GRAPHITE_CSS);
         assert!(Theme::all().iter().all(|theme| *theme != Theme::System));
     }
 
     #[test]
+    fn legacy_theme_ids_fall_back_to_default() {
+        // IDs of removed themes (Nord, Catppuccin variants, Hologram) should
+        // gracefully resolve to the current default rather than error.
+        for legacy in ["nord", "catppuccin-mocha", "catppuccin-latte", "hologram"] {
+            assert_eq!(Theme::from_id(legacy), Theme::default());
+        }
+    }
+
+    #[test]
     fn custom_themes_define_dialog_sidebar_and_thumbnail_tokens() {
-        for css in [
-            GRAPHITE_CSS,
-            CATPPUCCIN_MOCHA_CSS,
-            CATPPUCCIN_LATTE_CSS,
-            DRACULA_CSS,
-            NORD_CSS,
-            AURORA_CSS,
-            QUANTUM_CSS,
-            HOLOGRAM_CSS,
-        ] {
+        for css in [GRAPHITE_CSS, DRACULA_CSS, AURORA_CSS, QUANTUM_CSS] {
             for token in [
                 "@define-color dialog_bg_color",
                 "@define-color dialog_fg_color",
@@ -1506,16 +1191,7 @@ mod tests {
 
     #[test]
     fn custom_themes_define_semantic_background_palette() {
-        for css in [
-            GRAPHITE_CSS,
-            CATPPUCCIN_MOCHA_CSS,
-            CATPPUCCIN_LATTE_CSS,
-            DRACULA_CSS,
-            NORD_CSS,
-            AURORA_CSS,
-            QUANTUM_CSS,
-            HOLOGRAM_CSS,
-        ] {
+        for css in [GRAPHITE_CSS, DRACULA_CSS, AURORA_CSS, QUANTUM_CSS] {
             for token in [
                 "@define-color bg_primary",
                 "@define-color bg_secondary",
@@ -1533,14 +1209,6 @@ mod tests {
                 assert!(css.contains(token), "missing token {token} in theme css");
             }
         }
-    }
-
-    #[test]
-    fn catppuccin_latte_uses_headerbar_surface_for_popovers() {
-        assert!(CATPPUCCIN_LATTE_CSS.contains("@define-color headerbar_bg_color #e6e9ef;"));
-        assert!(
-            CATPPUCCIN_LATTE_CSS.contains("@define-color popover_bg_color @headerbar_bg_color;")
-        );
     }
 
     #[test]
@@ -1583,58 +1251,16 @@ mod tests {
     }
 
     #[test]
-    fn hologram_theme_is_available_as_light_theme() {
-        assert!(Theme::all().contains(&Theme::Hologram));
-        assert_eq!(Theme::from_id("hologram"), Theme::Hologram);
-        assert_eq!(Theme::Hologram.to_id(), "hologram");
-        assert_eq!(
-            Theme::Hologram.color_scheme(),
-            libadwaita::ColorScheme::ForceLight
-        );
-        // Mint accent + magenta separator define the Hologram duality.
-        assert!(HOLOGRAM_CSS.contains("@define-color accent_color #00c4a3;"));
-        assert!(
-            HOLOGRAM_CSS.contains("@define-color headerbar_border_color alpha(#ff3c92, 0.40);")
-        );
-        // Iridescent ice surface.
-        assert!(HOLOGRAM_CSS.contains("@define-color bg_primary #f3f5fc;"));
-        // Custom glow tokens for the structural rules.
-        assert!(HOLOGRAM_CSS.contains("@define-color hologram_mint #00c4a3;"));
-        assert!(HOLOGRAM_CSS.contains("@define-color hologram_magenta #ff3c92;"));
-    }
-
-    #[test]
-    fn hologram_extra_css_breaks_tab_borders_and_adds_glow() {
-        // Tabs lose lateral borders and gain only a bottom edge.
-        assert!(HOLOGRAM_EXTRA_CSS
-            .contains("border-bottom: 1px solid alpha(@hologram_mint, 0.35);"));
-        // Active tab gains magenta scanline + glow shadow.
-        assert!(HOLOGRAM_EXTRA_CSS.contains("border-bottom: 2px solid @hologram_magenta;"));
-        assert!(HOLOGRAM_EXTRA_CSS.contains("box-shadow: 0 4px 10px -2px @hologram_glow_magenta;"));
-        // Panel frames get an asymmetric mint scanline on the left edge.
-        assert!(
-            HOLOGRAM_EXTRA_CSS.contains("border-left: 1px solid alpha(@hologram_mint, 0.55);")
-        );
-    }
-
-    #[test]
-    fn other_themes_have_no_extra_css() {
-        for theme in [
-            Theme::Nord,
-            Theme::Graphite,
-            Theme::CatppuccinMocha,
-            Theme::CatppuccinLatte,
-            Theme::Dracula,
-            Theme::Aurora,
-            Theme::Quantum,
-        ] {
+    fn no_theme_defines_extra_css_today() {
+        // The css_extra hook exists for future structural themes; currently
+        // every theme returns an empty string.
+        for theme in Theme::all() {
             assert!(
                 theme.css_extra().is_empty(),
                 "theme {:?} unexpectedly defines css_extra",
                 theme
             );
         }
-        assert!(!Theme::Hologram.css_extra().is_empty());
     }
 
     #[test]

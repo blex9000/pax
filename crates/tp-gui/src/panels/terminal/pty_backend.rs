@@ -577,17 +577,7 @@ fn resolve_terminal_font_spec(override_font: Option<&str>, is_macos: bool) -> St
 
 fn terminal_palette_for(theme: crate::theme::Theme, _system_dark: bool) -> TerminalPalette {
     match theme {
-        crate::theme::Theme::System | crate::theme::Theme::Nord => make_terminal_palette(
-            0x2e3440,
-            0xeceff4,
-            0x434c5e,
-            0xeceff4,
-            [
-                0x3b4252, 0xbf616a, 0xa3be8c, 0xebcb8b, 0x81a1c1, 0xb48ead, 0x88c0d0, 0xe5e9f0,
-                0x4c566a, 0xbf616a, 0xa3be8c, 0xebcb8b, 0x81a1c1, 0xb48ead, 0x8fbcbb, 0xeceff4,
-            ],
-        ),
-        crate::theme::Theme::Graphite => make_terminal_palette(
+        crate::theme::Theme::System | crate::theme::Theme::Graphite => make_terminal_palette(
             0x0f141b,
             0xe5ecf3,
             0x253042,
@@ -595,26 +585,6 @@ fn terminal_palette_for(theme: crate::theme::Theme, _system_dark: bool) -> Termi
             [
                 0x1f2733, 0xff8b7f, 0x8ecf9f, 0xe7c86e, 0x7cb2ff, 0xb19cff, 0x71c6d4, 0xd4dbe3,
                 0x3a4556, 0xff9b92, 0x9fdbad, 0xf0d98a, 0x91beff, 0xc3b2ff, 0x83d5e1, 0xf2f5f8,
-            ],
-        ),
-        crate::theme::Theme::CatppuccinMocha => make_terminal_palette(
-            0x1e1e2e,
-            0xcdd6f4,
-            0x45475a,
-            0xf5e0dc,
-            [
-                0x45475a, 0xf38ba8, 0xa6e3a1, 0xf9e2af, 0x89b4fa, 0xf5c2e7, 0x94e2d5, 0xbac2de,
-                0x585b70, 0xf38ba8, 0xa6e3a1, 0xf9e2af, 0x89b4fa, 0xf5c2e7, 0x94e2d5, 0xa6adc8,
-            ],
-        ),
-        crate::theme::Theme::CatppuccinLatte => make_terminal_palette(
-            0xeff1f5,
-            0x4c4f69,
-            0xbcc0cc,
-            0x4c4f69,
-            [
-                0x5c5f77, 0xd20f39, 0x40a02b, 0xdf8e1d, 0x1e66f5, 0xea76cb, 0x179299, 0xacb0be,
-                0x6c6f85, 0xd20f39, 0x40a02b, 0xdf8e1d, 0x1e66f5, 0xea76cb, 0x179299, 0xdc8a78,
             ],
         ),
         crate::theme::Theme::Dracula => make_terminal_palette(
@@ -645,16 +615,6 @@ fn terminal_palette_for(theme: crate::theme::Theme, _system_dark: bool) -> Termi
             [
                 0x0a1a33, 0xd12d3a, 0x1f8a5c, 0xb87a00, 0x0044cc, 0x5b3aff, 0x0091c8, 0x9aa6b8,
                 0x4a5670, 0xe04550, 0x2ba36e, 0xd09000, 0x1a5fdb, 0x7a5dff, 0x10a8d8, 0x0a1a33,
-            ],
-        ),
-        crate::theme::Theme::Hologram => make_terminal_palette(
-            0xfbfcff,
-            0x0a0e1f,
-            0xcce8e0,
-            0x0a0e1f,
-            [
-                0x0a0e1f, 0xff3c92, 0x00c4a3, 0xd68900, 0x00b4d8, 0xc77dff, 0x00ffd0, 0xa0a8b8,
-                0x4a5266, 0xff66aa, 0x14d8b8, 0xeaa20a, 0x33c5e8, 0xd99cff, 0x66ffea, 0x0a0e1f,
             ],
         ),
     }

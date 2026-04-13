@@ -16,7 +16,7 @@ Funzionalità principali:
   • **Sync ratios**: le posizioni dei separatori vengono salvate nel JSON
   • **Terminal migliorato**: prompt minimale (`$:` verde), footer con `user@host:directory` colorato, directory tracking via OSC 7, colori `ls` personalizzati
   • **Panel config**: working directory, startup script (con toggle), before_close script (con toggle), min width/height
-  • **Temi**: System, Catppuccin Mocha/Latte, Solarized Dark/Light, Nord, Dracula, Gruvbox, Tokyo Night — tema persistito tra sessioni
+  • **Temi**: Graphite, Dracula, Aurora, Quantum — tema persistito tra sessioni
   • **Welcome page**: carica il tema dall'ultimo workspace usato
   • **Recent workspaces**: dialog con lista workspace recenti da DB SQLite
 

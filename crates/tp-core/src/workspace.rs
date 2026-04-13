@@ -471,7 +471,7 @@ fn default_scrollback() -> usize {
 }
 
 fn default_theme() -> String {
-    "nord".to_string()
+    "graphite".to_string()
 }
 
 pub fn new_tab_id() -> String {
@@ -542,8 +542,8 @@ mod tests {
     use super::{new_tab_id, LayoutNode, PanelType, Workspace, WorkspaceSettings};
 
     #[test]
-    fn workspace_settings_default_to_nord_theme() {
-        assert_eq!(WorkspaceSettings::default().theme, "nord");
+    fn workspace_settings_default_to_graphite_theme() {
+        assert_eq!(WorkspaceSettings::default().theme, "graphite");
     }
 
     #[test]

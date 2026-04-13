@@ -1379,7 +1379,7 @@ thread_local! {
 
 fn load_css() {
     // Startup chrome should be deterministic. The welcome page always starts
-    // from the preferred app theme if present, otherwise Nord.
+    // from the preferred app theme if present, otherwise the default theme.
     apply_theme(load_preferred_theme());
 }
 
@@ -1484,7 +1484,7 @@ mod tests {
 
     #[test]
     fn startup_theme_uses_default_theme() {
-        assert_eq!(Theme::default(), Theme::Nord);
+        assert_eq!(Theme::default(), Theme::Graphite);
     }
 
     #[test]
@@ -1505,12 +1505,12 @@ mod tests {
     #[test]
     fn workspace_theme_is_normalized_to_saved_preference() {
         let mut workspace = empty_workspace("test");
-        workspace.settings.theme = Theme::CatppuccinLatte.to_id().to_string();
+        workspace.settings.theme = Theme::Aurora.to_id().to_string();
 
-        let theme = normalize_workspace_theme(&mut workspace, Theme::Nord);
+        let theme = normalize_workspace_theme(&mut workspace, Theme::Graphite);
 
-        assert_eq!(theme, Theme::Nord);
-        assert_eq!(workspace.settings.theme, Theme::Nord.to_id());
+        assert_eq!(theme, Theme::Graphite);
+        assert_eq!(workspace.settings.theme, Theme::Graphite.to_id());
     }
 
     #[test]

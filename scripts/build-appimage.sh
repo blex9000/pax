@@ -40,7 +40,7 @@ if [ -d "/usr/share/gtksourceview-5" ]; then
     cp -r /usr/share/gtksourceview-5 "$APPDIR/usr/share/gtksourceview-5"
 fi
 
-# Custom SourceView styles (catppuccin etc.)
+# Custom SourceView styles (Pax themes)
 if [ -d "$ROOT_DIR/resources/sourceview-styles" ]; then
     mkdir -p "$APPDIR/usr/share/gtksourceview-5/styles"
     cp "$ROOT_DIR"/resources/sourceview-styles/*.xml "$APPDIR/usr/share/gtksourceview-5/styles/" 2>/dev/null || true
