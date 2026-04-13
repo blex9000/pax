@@ -419,7 +419,7 @@ notebook.workspace-tabs,
 notebook.workspace-tabs > header,
 notebook.workspace-tabs > header > tabs,
 notebook.workspace-tabs > header > tabs > tab {
-  background-color: @headerbar_bg_color;
+  background-color: @workspace_tabs_bar_bg_color;
   color: @headerbar_fg_color;
   border-color: transparent;
   background-image: none;
@@ -440,6 +440,7 @@ notebook.workspace-tabs > header > tabs > tab {
   border-radius: 9px 9px 0 0;
   margin-right: 6px;
   min-height: 14px;
+  background-color: alpha(@headerbar_fg_color, 0.03);
   padding-top: 0;
   padding-bottom: 0;
   padding-left: 3px;
@@ -449,28 +450,51 @@ notebook.workspace-tabs > header > tabs > tab {
 notebook.workspace-tabs > header > tabs > tab label {
   font-size: 9px;
   font-weight: 600;
-  color: alpha(@headerbar_fg_color, 0.62);
+  color: alpha(@headerbar_fg_color, 0.46);
 }
 notebook.workspace-tabs > header > tabs > tab image {
   -gtk-icon-size: 9px;
-  color: alpha(@headerbar_fg_color, 0.58);
+  color: alpha(@headerbar_fg_color, 0.44);
+}
+image.workspace-tab-type-icon {
+  -gtk-icon-size: 10px;
+  min-height: 10px;
+  min-width: 10px;
+  color: alpha(@headerbar_fg_color, 0.56);
+}
+notebook.workspace-tabs > header > tabs > tab:checked label {
+  color: alpha(@headerbar_fg_color, 0.96);
+}
+notebook.workspace-tabs > header > tabs > tab:checked image,
+notebook.workspace-tabs > header > tabs > tab:checked image.workspace-tab-type-icon {
+  color: alpha(@headerbar_fg_color, 0.88);
 }
 notebook.workspace-tabs > header > tabs > tab:hover {
-  background-color: alpha(@headerbar_fg_color, 0.03);
+  background-color: alpha(@accent_color, 0.12);
 }
 notebook.workspace-tabs > header > tabs > tab:checked {
-  background-color: alpha(@accent_color, 0.12);
+  background-color: @headerbar_bg_color;
   box-shadow: none;
+}
+notebook.workspace-tabs-root {
+  margin-top: 6px;
 }
 notebook.workspace-tabs-nested {
   margin-top: 6px;
 }
 notebook.workspace-tabs > header > tabs > tab button.workspace-tab-close-btn {
+  min-height: 15px;
+  min-width: 15px;
+  margin-right: 2px;
   opacity: 0;
 }
-notebook.workspace-tabs > header > tabs > tab:hover button.workspace-tab-close-btn,
-notebook.workspace-tabs > header > tabs > tab:checked button.workspace-tab-close-btn {
-  opacity: 0.56;
+notebook.workspace-tabs > header > tabs > tab button.workspace-tab-close-btn image {
+  -gtk-icon-size: 14px;
+  min-height: 14px;
+  min-width: 14px;
+}
+notebook.workspace-tabs > header > tabs > tab:hover button.workspace-tab-close-btn {
+  opacity: 0.9;
 }
 notebook.workspace-tabs > header > tabs > tab button.workspace-tab-close-btn:hover {
   opacity: 1.0;
@@ -479,27 +503,18 @@ box.workspace-tab-add-wrap {
   background-color: transparent;
   border: none;
   box-shadow: none;
+  min-width: 16px;
+  min-height: 16px;
 }
-box.workspace-tab-add-wrap > button.workspace-tab-add-btn {
-  background-image: none;
-  background-color: transparent;
-  border: none;
-  box-shadow: none;
-  min-height: 13px;
-  min-width: 13px;
-  padding: 0;
-  opacity: 0.55;
+box.workspace-tab-add-wrap > label.workspace-tab-add-label {
+  min-height: 16px;
+  min-width: 16px;
+  font-size: 15px;
+  font-weight: 800;
+  opacity: 0.65;
+  color: alpha(@headerbar_fg_color, 0.74);
 }
-box.workspace-tab-add-wrap > button.workspace-tab-add-btn image {
-  -gtk-icon-size: 12px;
-}
-box.workspace-tab-add-wrap > button.workspace-tab-add-btn:hover {
-  background-color: transparent;
-  background-image: none;
-  border-color: transparent;
-  box-shadow: none;
-}
-box.workspace-tab-add-wrap > button.workspace-tab-add-btn:hover image {
+notebook.workspace-tabs > header > tabs > tab:hover box.workspace-tab-add-wrap > label.workspace-tab-add-label {
   color: @accent_color;
 }
 button.panel-action-btn, menubutton.panel-menu-btn > button, menubutton.app-menu-btn > button, headerbar.app-headerbar button, headerbar.app-headerbar menubutton > button {
@@ -571,7 +586,7 @@ box.panel-frame box.panel-title-bar {
   border-bottom: 1px solid alpha(@borders, 0.12);
 }
 box.panel-frame.panel-focused box.panel-title-bar {
-  background-color: alpha(@headerbar_bg_color, 0.32);
+  background-color: @panel_header_bg_color;
   border-bottom: 1px solid alpha(@accent_color, 0.34);
 }
 box.panel-frame.panel-unfocused box.panel-title-bar {
@@ -669,9 +684,9 @@ box.editor-file-preview-footer.panel-footer {
   margin-left: 1px;
   margin-right: 1px;
 }
-.tab-close-btn { min-height: 11px; min-width: 11px; padding: 0; }
+.tab-close-btn { min-height: 15px; min-width: 15px; padding: 0; }
 .tab-close-btn image {
-  -gtk-icon-size: 10px;
+  -gtk-icon-size: 14px;
 }
 .panel-collapsed-overlay { background-color: transparent; border: none; padding: 0; min-width: 0; min-height: 0; }
 .panel-collapsed-chip {
@@ -896,6 +911,7 @@ const CATPPUCCIN_MOCHA_CSS: &str = "\
 @define-color window_bg_color #1e1e2e;
 @define-color window_fg_color #cdd6f4;
 @define-color headerbar_bg_color #181825;
+@define-color workspace_tabs_bar_bg_color @headerbar_bg_color;
 @define-color headerbar_fg_color #cdd6f4;
 @define-color card_bg_color #313244;
 @define-color card_fg_color #cdd6f4;
@@ -910,6 +926,7 @@ const CATPPUCCIN_MOCHA_CSS: &str = "\
 @define-color secondary_sidebar_fg_color #cdd6f4;
 @define-color thumbnail_bg_color #313244;
 @define-color view_bg_color #1e1e2e;
+@define-color panel_header_bg_color #1c1c2b;
 @define-color view_fg_color #cdd6f4;
 @define-color terminal_bg_color #1e1e2e;
 @define-color terminal_fg_color #cdd6f4;
@@ -925,6 +942,7 @@ const GRAPHITE_CSS: &str = "\
 @define-color window_bg_color #141a22;
 @define-color window_fg_color #e5ecf3;
 @define-color headerbar_bg_color #1a212c;
+@define-color workspace_tabs_bar_bg_color #161d27;
 @define-color headerbar_fg_color #e5ecf3;
 @define-color card_bg_color #202938;
 @define-color card_fg_color #e5ecf3;
@@ -939,6 +957,7 @@ const GRAPHITE_CSS: &str = "\
 @define-color secondary_sidebar_fg_color #d8e0ea;
 @define-color thumbnail_bg_color #202938;
 @define-color view_bg_color #0f141b;
+@define-color panel_header_bg_color #131820;
 @define-color view_fg_color #e5ecf3;
 @define-color terminal_bg_color #0f141b;
 @define-color terminal_fg_color #e5ecf3;
@@ -954,6 +973,7 @@ const CATPPUCCIN_LATTE_CSS: &str = "\
 @define-color window_bg_color #eff1f5;
 @define-color window_fg_color #4c4f69;
 @define-color headerbar_bg_color #e6e9ef;
+@define-color workspace_tabs_bar_bg_color @headerbar_bg_color;
 @define-color headerbar_fg_color #4c4f69;
 @define-color card_bg_color #ccd0da;
 @define-color card_fg_color #4c4f69;
@@ -968,6 +988,7 @@ const CATPPUCCIN_LATTE_CSS: &str = "\
 @define-color secondary_sidebar_fg_color #4c4f69;
 @define-color thumbnail_bg_color #ccd0da;
 @define-color view_bg_color #eff1f5;
+@define-color panel_header_bg_color #eceef3;
 @define-color view_fg_color #4c4f69;
 @define-color terminal_bg_color #eff1f5;
 @define-color terminal_fg_color #4c4f69;
@@ -983,6 +1004,7 @@ const DRACULA_CSS: &str = "\
 @define-color window_bg_color #282a36;
 @define-color window_fg_color #f8f8f2;
 @define-color headerbar_bg_color #21222c;
+@define-color workspace_tabs_bar_bg_color @headerbar_bg_color;
 @define-color headerbar_fg_color #f8f8f2;
 @define-color card_bg_color #44475a;
 @define-color card_fg_color #f8f8f2;
@@ -997,6 +1019,7 @@ const DRACULA_CSS: &str = "\
 @define-color secondary_sidebar_fg_color #f8f8f2;
 @define-color thumbnail_bg_color #44475a;
 @define-color view_bg_color #282a36;
+@define-color panel_header_bg_color #262733;
 @define-color view_fg_color #f8f8f2;
 @define-color terminal_bg_color #282a36;
 @define-color terminal_fg_color #f8f8f2;
@@ -1012,6 +1035,7 @@ const NORD_CSS: &str = "\
 @define-color window_bg_color #2e3440;
 @define-color window_fg_color #eceff4;
 @define-color headerbar_bg_color #3b4252;
+@define-color workspace_tabs_bar_bg_color @headerbar_bg_color;
 @define-color headerbar_fg_color #eceff4;
 @define-color card_bg_color #3b4252;
 @define-color card_fg_color #eceff4;
@@ -1026,6 +1050,7 @@ const NORD_CSS: &str = "\
 @define-color secondary_sidebar_fg_color #eceff4;
 @define-color thumbnail_bg_color #3b4252;
 @define-color view_bg_color #2e3440;
+@define-color panel_header_bg_color #323846;
 @define-color view_fg_color #eceff4;
 @define-color terminal_bg_color #2e3440;
 @define-color terminal_fg_color #eceff4;
@@ -1168,7 +1193,7 @@ mod tests {
         assert!(BASE_CSS.contains(".panel-title-type-icon"));
         assert!(BASE_CSS.contains("margin-left: 14px;"));
         assert!(BASE_CSS.contains(".panel-action-btn { min-height: 10px;"));
-        assert!(BASE_CSS.contains(".tab-close-btn { min-height: 11px;"));
+        assert!(BASE_CSS.contains(".tab-close-btn { min-height: 15px;"));
         assert!(BASE_CSS.contains(".panel-collapsed-overlay { background-color: transparent;"));
         assert!(BASE_CSS.contains(".panel-collapsed-chip"));
         assert!(BASE_CSS.contains(".panel-collapsed-drag-strip"));
@@ -1224,7 +1249,11 @@ mod tests {
 
     #[test]
     fn progressive_chrome_css_distinguishes_root_nested_and_focus_path() {
+        assert!(BASE_CSS.contains("notebook.workspace-tabs > header {\n  border-bottom: none;\n  box-shadow: none;\n  min-height: 16px;"));
+        assert!(BASE_CSS.contains("notebook.workspace-tabs-root {\n  margin-top: 6px;"));
         assert!(BASE_CSS.contains("notebook.workspace-tabs-nested {\n  margin-top: 6px;"));
+        assert!(BASE_CSS.contains("background-color: @panel_header_bg_color;"));
+        assert!(BASE_CSS.contains("notebook.workspace-tabs > header > tabs > tab:checked label {\n  color: alpha(@headerbar_fg_color, 0.96);"));
         assert!(BASE_CSS.contains("button.workspace-tab-close-btn"));
         assert!(BASE_CSS.contains("box.panel-frame.panel-focused box.panel-title-bar"));
         assert!(BASE_CSS.contains("box.panel-frame.panel-unfocused .panel-title"));

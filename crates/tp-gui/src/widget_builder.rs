@@ -83,6 +83,7 @@ pub fn build_tab_label(
         gtk4::Orientation::Horizontal,
         if is_root_label { 4 } else { 3 },
     );
+    hbox.set_halign(gtk4::Align::Start);
     hbox.add_css_class("workspace-tab-label");
     hbox.add_css_class(if is_root_label {
         "workspace-tab-label-root"
@@ -99,23 +100,28 @@ pub fn build_tab_label(
     let active_edit = edit_state.filter(|state| state.tab_id == tab_id).cloned();
     let tab_id_owned = tab_id.to_string();
 
-    // Only show type icon for single-panel tabs, not for layout tabs
-    if !is_layout {
-        let icon_name = match panel_type_id {
+    let icon_name = if is_layout {
+        "radio-symbolic"
+    } else {
+        match panel_type_id {
             "terminal" => "utilities-terminal-symbolic",
             "markdown" => "text-x-generic-symbolic",
             "code_editor" => "accessories-text-editor-symbolic",
             _ => "radio-symbolic",
-        };
-        let type_icon = gtk4::Image::from_icon_name(icon_name);
-        type_icon.add_css_class("panel-type-icon");
-        type_icon.add_css_class("workspace-tab-type-icon");
-        hbox.append(&type_icon);
-    }
+        }
+    };
+    let type_icon = gtk4::Image::from_icon_name(icon_name);
+    type_icon.add_css_class("panel-type-icon");
+    type_icon.add_css_class("workspace-tab-type-icon");
+    type_icon.set_margin_start(8);
+    hbox.append(&type_icon);
 
     let stack = gtk4::Stack::new();
+    stack.set_halign(gtk4::Align::Start);
     let label = gtk4::Label::new(Some(name));
     label.add_css_class("workspace-tab-text");
+    label.set_halign(gtk4::Align::Start);
+    label.set_xalign(0.0);
     stack.add_named(&label, Some("label"));
 
     let edit_box = gtk4::Box::new(gtk4::Orientation::Horizontal, 4);
@@ -161,7 +167,7 @@ pub fn build_tab_label(
                 return;
             };
             move_left_btn.set_sensitive(position > 0);
-            move_right_btn.set_sensitive(position + 1 < notebook.n_pages());
+            move_right_btn.set_sensitive(position + 1 < workspace_tab_real_page_count(&notebook));
         }
     });
 
@@ -301,6 +307,99 @@ pub fn build_tab_label(
     hbox.upcast::<gtk4::Widget>()
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn find_first_image(widget: &gtk4::Widget) -> Option<gtk4::Image> {
+        if let Ok(image) = widget.clone().downcast::<gtk4::Image>() {
+            return Some(image);
+        }
+        let mut child = widget.first_child();
+        while let Some(current) = child {
+            if let Some(image) = find_first_image(&current) {
+                return Some(image);
+            }
+            child = current.next_sibling();
+        }
+        None
+    }
+
+    fn find_first_label(widget: &gtk4::Widget) -> Option<gtk4::Label> {
+        if let Ok(label) = widget.clone().downcast::<gtk4::Label>() {
+            return Some(label);
+        }
+        let mut child = widget.first_child();
+        while let Some(current) = child {
+            if let Some(label) = find_first_label(&current) {
+                return Some(label);
+            }
+            child = current.next_sibling();
+        }
+        None
+    }
+
+    #[test]
+    fn layout_tabs_use_radio_fallback_icon() {
+        if gtk4::init().is_err() {
+            return;
+        }
+
+        let child = gtk4::Box::new(gtk4::Orientation::Vertical, 0).upcast::<gtk4::Widget>();
+        let label = build_tab_label("layout", "__layout__", &None, &child, None, "tab-1", &[0]);
+        let image = find_first_image(&label).expect("layout tab should include fallback icon");
+        let text = find_first_label(&label).expect("layout tab should include text label");
+
+        assert_eq!(image.icon_name().as_deref(), Some("radio-symbolic"));
+        assert_eq!(image.margin_start(), 8);
+        assert_eq!(text.xalign(), 0.0);
+    }
+
+    #[test]
+    fn notebook_add_button_uses_plus_label() {
+        if gtk4::init().is_err() {
+            return;
+        }
+
+        let notebook = gtk4::Notebook::new();
+        notebook.add_css_class("workspace-tabs");
+        let child = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
+        notebook.append_page(&child, Some(&gtk4::Label::new(Some("Tab"))));
+
+        setup_notebook_menu_widget(&notebook, None);
+
+        let add_page = notebook
+            .nth_page(Some(notebook.n_pages() - 1))
+            .expect("workspace notebook should contain add page");
+        assert!(is_workspace_tab_add_page(&add_page));
+        let add_wrap = notebook
+            .tab_label(&add_page)
+            .expect("workspace add page should have tab label");
+        assert_eq!(add_wrap.halign(), gtk4::Align::Center);
+
+        let add_label =
+            find_first_label(add_wrap.upcast_ref()).expect("workspace add widget should contain label");
+        assert_eq!(add_label.text().as_str(), "+");
+    }
+
+    #[test]
+    fn workspace_tab_real_page_count_ignores_add_page() {
+        if gtk4::init().is_err() {
+            return;
+        }
+
+        let notebook = gtk4::Notebook::new();
+        notebook.add_css_class("workspace-tabs");
+        let child = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
+        notebook.append_page(&child, Some(&gtk4::Label::new(Some("Tab"))));
+
+        setup_notebook_menu_widget(&notebook, None);
+
+        assert_eq!(notebook.n_pages(), 2);
+        assert_eq!(workspace_tab_real_page_count(&notebook), 1);
+    }
+}
+
 fn preview_move_workspace_tab(child_widget: &gtk4::Widget, step: i32) -> bool {
     let Some(notebook) = find_notebook_ancestor(child_widget) else {
         return false;
@@ -309,7 +408,7 @@ fn preview_move_workspace_tab(child_widget: &gtk4::Widget, step: i32) -> bool {
         return false;
     };
     let target = position as i32 + step;
-    if !(0..notebook.n_pages() as i32).contains(&target) {
+    if !(0..workspace_tab_real_page_count(&notebook) as i32).contains(&target) {
         return false;
     }
     notebook.reorder_child(child_widget, Some(target as u32));
@@ -354,7 +453,7 @@ fn update_labels_with_layout(
             tab_ids,
         } = layout_node
         {
-            for i in 0..notebook.n_pages() {
+            for i in 0..children.len() as u32 {
                 if let Some(page_widget) = notebook.nth_page(Some(i)) {
                     let mut child_path = path.to_vec();
                     child_path.push(i as usize);
@@ -463,37 +562,13 @@ fn update_labels_with_layout(
 
 fn setup_notebook_menu_widget(notebook: &gtk4::Notebook, action_cb: Option<PanelActionCallback>) {
     // Add tab button only — collapse is handled by drag resize
-    let add_btn = gtk4::Button::new();
-    add_btn.set_icon_name("tab-new-symbolic");
-    add_btn.add_css_class("flat");
-    add_btn.add_css_class("workspace-tab-add-btn");
-    add_btn.set_margin_end(4);
-    add_btn.set_tooltip_text(Some("Add tab"));
-    {
-        let nb = notebook.clone();
-        let cb = action_cb.clone();
-        add_btn.connect_clicked(move |_| {
-            if let Some(ref cb) = cb {
-                if let Some(page) = nb.nth_page(nb.current_page()) {
-                    if let Some(tab_label) = nb.tab_label(&page) {
-                        if let Some((_, mut tab_path, _)) =
-                            decode_tab_label_metadata(&tab_label.widget_name())
-                        {
-                            tab_path.pop();
-                            cb(
-                                &format!("nb-tabs:{}", encode_tab_path(&tab_path)),
-                                PanelAction::AddTabToNotebook,
-                            );
-                        }
-                    }
-                }
-            }
-        });
-    }
-    let add_wrap = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
-    add_wrap.add_css_class("workspace-tab-add-wrap");
-    add_wrap.append(&add_btn);
-    notebook.set_action_widget(&add_wrap, gtk4::PackType::End);
+    remove_existing_workspace_tab_add_page(notebook);
+    let add_page = build_workspace_tab_add_page(notebook, action_cb.clone());
+    let add_page_widget = add_page.upcast::<gtk4::Widget>();
+    let add_label = build_workspace_tab_add_label(notebook, action_cb.clone());
+    notebook.append_page(&add_page_widget, Some(&add_label));
+    notebook.set_tab_reorderable(&add_page_widget, false);
+    notebook.set_tab_detachable(&add_page_widget, false);
 
     if notebook.has_css_class("pax-tab-edit-gesture") {
         return;
@@ -512,7 +587,7 @@ fn setup_notebook_menu_widget(notebook: &gtk4::Notebook, action_cb: Option<Panel
         let Some(picked) = nb.pick(x, y, gtk4::PickFlags::DEFAULT) else {
             return;
         };
-        for i in 0..nb.n_pages() {
+        for i in 0..workspace_tab_real_page_count(&nb) {
             let Some(page_widget) = nb.nth_page(Some(i)) else {
                 continue;
             };
@@ -548,6 +623,85 @@ fn setup_notebook_menu_widget(notebook: &gtk4::Notebook, action_cb: Option<Panel
         }
     });
     notebook.add_controller(gesture);
+}
+
+fn build_workspace_tab_add_label(
+    notebook: &gtk4::Notebook,
+    action_cb: Option<PanelActionCallback>,
+) -> gtk4::Box {
+    let add_label = gtk4::Label::new(Some("+"));
+    add_label.add_css_class("workspace-tab-add-label");
+    add_label.set_halign(gtk4::Align::Center);
+    add_label.set_valign(gtk4::Align::Center);
+    let add_wrap = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
+    add_wrap.add_css_class("workspace-tab-add-wrap");
+    add_wrap.set_halign(gtk4::Align::Center);
+    add_wrap.set_valign(gtk4::Align::Center);
+    add_wrap.append(&add_label);
+    let nb = notebook.clone();
+    let cb = action_cb.clone();
+    let gesture = gtk4::GestureClick::new();
+    gesture.set_button(1);
+    gesture.set_propagation_phase(gtk4::PropagationPhase::Capture);
+    gesture.connect_pressed(move |g, n_press, _, _| {
+        if n_press != 1 {
+            return;
+        }
+        g.set_state(gtk4::EventSequenceState::Claimed);
+        let tab_path = decode_tabs_widget_name(&nb.widget_name());
+        let cb = cb.clone();
+        gtk4::glib::idle_add_local_once(move || {
+            if let (Some(cb), Some(tab_path)) = (cb.as_ref(), tab_path.as_ref()) {
+                cb(
+                    &format!("nb-tabs:{}", encode_tab_path(tab_path)),
+                    PanelAction::AddTabToNotebook,
+                );
+            }
+        });
+    });
+    add_wrap.add_controller(gesture);
+    add_wrap
+}
+
+fn build_workspace_tab_add_page(
+    _notebook: &gtk4::Notebook,
+    _action_cb: Option<PanelActionCallback>,
+) -> gtk4::Box {
+    let page = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
+    page.add_css_class("workspace-tab-add-page");
+    page.set_can_focus(false);
+    page.set_focusable(false);
+    page.set_sensitive(false);
+    page
+}
+
+fn is_workspace_tab_add_page(widget: &gtk4::Widget) -> bool {
+    widget.has_css_class("workspace-tab-add-page")
+}
+
+fn workspace_tab_real_page_count(notebook: &gtk4::Notebook) -> u32 {
+    let count = notebook.n_pages();
+    if count == 0 {
+        return 0;
+    }
+    if let Some(last_page) = notebook.nth_page(Some(count - 1)) {
+        if is_workspace_tab_add_page(&last_page) {
+            return count - 1;
+        }
+    }
+    count
+}
+
+fn remove_existing_workspace_tab_add_page(notebook: &gtk4::Notebook) {
+    let count = notebook.n_pages();
+    if count == 0 {
+        return;
+    }
+    if let Some(last_page) = notebook.nth_page(Some(count - 1)) {
+        if is_workspace_tab_add_page(&last_page) {
+            notebook.remove_page(Some(count - 1));
+        }
+    }
 }
 
 fn encode_tab_label_metadata(tab_id: &str, tab_path: &str, is_layout: bool) -> String {
@@ -628,7 +782,7 @@ fn update_tab_move_buttons(tab_label: &gtk4::Widget, page_widget: &gtk4::Widget)
         button.set_sensitive(position > 0);
     }
     if let Some(button) = buttons.get(1) {
-        button.set_sensitive(position + 1 < notebook.n_pages());
+        button.set_sensitive(position + 1 < workspace_tab_real_page_count(&notebook));
     }
 }
 
