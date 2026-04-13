@@ -430,7 +430,7 @@ notebook.workspace-tabs {
   box-shadow: none;
 }
 notebook.workspace-tabs > header {
-  background-color: transparent;
+  background-color: alpha(@headerbar_bg_color, 0.18);
   border-bottom: none;
   box-shadow: none;
   min-height: 16px;
