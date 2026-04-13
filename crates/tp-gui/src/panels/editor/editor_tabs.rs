@@ -940,10 +940,13 @@ impl EditorTabs {
     /// Re-populate the shadow buffer with the keyword list for the active
     /// language so completion proposals reflect the current file's syntax.
     fn refresh_keyword_shadow(&self, lang_id: Option<&str>) {
-        let words = lang_id.map(keywords_for).unwrap_or(&[]);
-        // CompletionWords scans buffers for word boundaries; whitespace
-        // separation is enough.
-        self.keyword_shadow_buffer.set_text(&words.join(" "));
+        let text = match lang_id {
+            // CompletionWords scans buffers for word boundaries; whitespace
+            // separation is enough.
+            Some(id) => keywords_for(id).join(" "),
+            None => String::new(),
+        };
+        self.keyword_shadow_buffer.set_text(&text);
     }
 
     /// Show a side-by-side diff view for the given file.
@@ -1823,79 +1826,83 @@ fn show_commit_file_diff(
     }
 }
 
-/// Language keyword lists fed into the completion shadow buffer so that
-/// language-defining tokens (e.g. `def`, `class`, `import` for Python)
-/// surface in the popup before the user has typed them once.
+/// Resolve the keyword list for a GtkSourceView language by parsing the
+/// shipped {id}.lang XML file. Result is cached after first lookup. Returns
+/// an empty list when no .lang file is found or it has no <keyword> tags.
 ///
-/// Keys are GtkSourceView language IDs (see `Language::id()`). Unknown
-/// languages return an empty slice — completion still works on
-/// already-typed words via the per-buffer scan.
-fn keywords_for(lang_id: &str) -> &'static [&'static str] {
+/// We pull every `<keyword>` token, not only the ones in style-ref="keyword"
+/// contexts, because builtin/type/exception identifiers (e.g. `print`,
+/// `Vec`, `Exception`) are exactly what users want to autocomplete too.
+fn keywords_for(lang_id: &str) -> std::sync::Arc<Vec<String>> {
+    use std::collections::HashMap;
+    use std::sync::{Arc, Mutex, OnceLock};
+
+    static CACHE: OnceLock<Mutex<HashMap<String, Arc<Vec<String>>>>> = OnceLock::new();
+    let cache = CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+    if let Some(cached) = cache.lock().unwrap().get(lang_id).cloned() {
+        return cached;
+    }
+
+    let mut words = load_keywords_from_lang(lang_id);
+    // Some IDs are thin extensions of a base language (python3 inherits
+    // python via <context ref="python:...">). Walking those refs would
+    // require a real parser; an alias merge covers the common cases.
+    for parent in parent_language_aliases(lang_id) {
+        let extra = load_keywords_from_lang(parent);
+        words.extend(extra);
+    }
+    words.sort();
+    words.dedup();
+
+    let arc = Arc::new(words);
+    cache
+        .lock()
+        .unwrap()
+        .insert(lang_id.to_string(), arc.clone());
+    arc
+}
+
+/// Map a language ID to base language(s) whose keywords should also be
+/// loaded. Returns an empty slice for self-contained languages.
+fn parent_language_aliases(lang_id: &str) -> &'static [&'static str] {
     match lang_id {
-        "python" | "python3" => &[
-            "False", "None", "True", "and", "as", "assert", "async", "await", "break",
-            "class", "continue", "def", "del", "elif", "else", "except", "finally", "for",
-            "from", "global", "if", "import", "in", "is", "lambda", "nonlocal", "not", "or",
-            "pass", "raise", "return", "try", "while", "with", "yield", "match", "case",
-            "self", "cls", "print", "len", "range", "str", "int", "float", "bool", "list",
-            "dict", "tuple", "set",
-        ],
-        "rust" => &[
-            "as", "async", "await", "break", "const", "continue", "crate", "dyn", "else",
-            "enum", "extern", "false", "fn", "for", "if", "impl", "in", "let", "loop",
-            "match", "mod", "move", "mut", "pub", "ref", "return", "Self", "self", "static",
-            "struct", "super", "trait", "true", "type", "unsafe", "use", "where", "while",
-            "Box", "Vec", "String", "Option", "Result", "Some", "None", "Ok", "Err",
-        ],
-        "js" | "javascript" => &[
-            "async", "await", "break", "case", "catch", "class", "const", "continue",
-            "debugger", "default", "delete", "do", "else", "export", "extends", "false",
-            "finally", "for", "from", "function", "if", "import", "in", "instanceof", "let",
-            "new", "null", "of", "return", "static", "super", "switch", "this", "throw",
-            "true", "try", "typeof", "undefined", "var", "void", "while", "with", "yield",
-        ],
-        "typescript" | "ts" => &[
-            "any", "as", "async", "await", "boolean", "break", "case", "catch", "class",
-            "const", "continue", "debugger", "declare", "default", "delete", "do", "else",
-            "enum", "export", "extends", "false", "finally", "for", "from", "function",
-            "if", "implements", "import", "in", "instanceof", "interface", "is", "keyof",
-            "let", "namespace", "never", "new", "null", "number", "of", "private",
-            "protected", "public", "readonly", "return", "static", "string", "super",
-            "switch", "this", "throw", "true", "try", "type", "typeof", "undefined",
-            "unknown", "var", "void", "while", "with", "yield",
-        ],
-        "go" => &[
-            "break", "case", "chan", "const", "continue", "default", "defer", "else",
-            "fallthrough", "for", "func", "go", "goto", "if", "import", "interface", "map",
-            "package", "range", "return", "select", "struct", "switch", "type", "var",
-            "true", "false", "nil", "iota", "make", "new", "len", "cap", "append", "copy",
-            "delete", "panic", "recover", "error", "string", "int", "bool",
-        ],
-        "sh" | "bash" | "zsh" => &[
-            "if", "then", "else", "elif", "fi", "for", "do", "done", "while", "until",
-            "case", "esac", "in", "function", "return", "break", "continue", "true",
-            "false", "export", "source", "local", "readonly", "declare", "unset", "alias",
-            "echo", "printf", "read", "test",
-        ],
-        "json" => &["true", "false", "null"],
-        "yaml" => &["true", "false", "null", "yes", "no", "on", "off"],
-        "toml" => &["true", "false"],
-        "html" | "xml" => &[
-            "html", "head", "body", "div", "span", "script", "style", "link", "meta",
-            "title", "class", "id", "href", "src",
-        ],
-        "css" | "scss" => &[
-            "important", "inherit", "initial", "unset", "auto", "none", "block", "inline",
-            "flex", "grid", "absolute", "relative", "fixed", "static", "hidden", "visible",
-        ],
-        "sql" => &[
-            "SELECT", "FROM", "WHERE", "INSERT", "INTO", "VALUES", "UPDATE", "SET",
-            "DELETE", "CREATE", "TABLE", "DROP", "ALTER", "ADD", "INDEX", "JOIN", "INNER",
-            "OUTER", "LEFT", "RIGHT", "ON", "AS", "AND", "OR", "NOT", "NULL", "PRIMARY",
-            "KEY", "FOREIGN", "REFERENCES", "GROUP", "BY", "ORDER", "HAVING", "LIMIT",
-        ],
+        "python3" => &["python"],
+        "bash" | "zsh" => &["sh"],
         _ => &[],
     }
+}
+
+fn load_keywords_from_lang(lang_id: &str) -> Vec<String> {
+    let manager = sourceview5::LanguageManager::default();
+    for path in manager.search_path() {
+        let candidate = std::path::Path::new(path.as_str()).join(format!("{}.lang", lang_id));
+        if let Ok(xml) = std::fs::read_to_string(&candidate) {
+            return parse_keyword_tags(&xml);
+        }
+    }
+    Vec::new()
+}
+
+/// Extract every `<keyword>TOKEN</keyword>` payload from a .lang XML.
+/// Whitespace inside the tag is trimmed; duplicates are *not* removed here
+/// (the caller dedups after merging multiple files).
+fn parse_keyword_tags(xml: &str) -> Vec<String> {
+    use std::sync::OnceLock;
+
+    static KEYWORD_RE: OnceLock<regex::Regex> = OnceLock::new();
+    let re = KEYWORD_RE
+        .get_or_init(|| regex::Regex::new(r"<keyword>([^<]+)</keyword>").unwrap());
+
+    re.captures_iter(xml)
+        .filter_map(|c| {
+            let raw = c.get(1)?.as_str().trim();
+            if raw.is_empty() {
+                None
+            } else {
+                Some(raw.to_string())
+            }
+        })
+        .collect()
 }
 
 /// Install bracket and quote auto-pairing on the SourceView.
@@ -2008,6 +2015,34 @@ fn get_mtime(path: &Path) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn parse_keyword_tags_extracts_payloads_and_skips_empty() {
+        let xml = r#"
+            <context id="keywords" style-ref="keyword">
+              <keyword>def</keyword>
+              <keyword>class</keyword>
+              <keyword>  </keyword>
+              <keyword>if</keyword>
+            </context>
+            <context id="builtins" style-ref="builtin-function">
+              <keyword>print</keyword>
+              <keyword>len</keyword>
+            </context>
+        "#;
+        let mut got = parse_keyword_tags(xml);
+        got.sort();
+        assert_eq!(got, vec!["class", "def", "if", "len", "print"]);
+    }
+
+    #[test]
+    fn parent_language_aliases_covers_python3_and_shell_dialects() {
+        assert_eq!(parent_language_aliases("python3"), &["python"]);
+        assert_eq!(parent_language_aliases("bash"), &["sh"]);
+        assert_eq!(parent_language_aliases("zsh"), &["sh"]);
+        assert!(parent_language_aliases("rust").is_empty());
+        assert!(parent_language_aliases("totally-unknown").is_empty());
+    }
 
     #[test]
     fn recognizes_text_clipboard_shortcuts() {
