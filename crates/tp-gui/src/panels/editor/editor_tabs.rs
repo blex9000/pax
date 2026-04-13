@@ -55,13 +55,62 @@ fn text_history_action(
     }
 }
 
-fn install_text_context_menu<W: IsA<gtk4::Widget>>(widget: &W, editable: bool) {
-    let widget = widget.as_ref().clone();
+const CONTEXT_MENU_BUTTON: u32 = 3;
+
+fn make_popover_menu_item(icon: &str, label_text: &str, hint: &str) -> gtk4::Button {
+    let btn = gtk4::Button::new();
+    btn.add_css_class("flat");
+    btn.add_css_class("app-popover-button");
+    let hbox = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
+    hbox.append(&gtk4::Image::from_icon_name(icon));
+    let lbl = gtk4::Label::new(Some(label_text));
+    lbl.set_hexpand(true);
+    lbl.set_halign(gtk4::Align::Start);
+    hbox.append(&lbl);
+    if !hint.is_empty() {
+        let hint_lbl = gtk4::Label::new(Some(hint));
+        hint_lbl.add_css_class("dim-label");
+        hbox.append(&hint_lbl);
+    }
+    btn.set_child(Some(&hbox));
+    btn
+}
+
+fn remove_builtin_context_gesture<W: IsA<gtk4::Widget>>(widget: &W) {
+    let widget = widget.as_ref();
+    let controllers = widget.observe_controllers();
+    let n = controllers.n_items();
+    for i in (0..n).rev() {
+        let Some(obj) = controllers.item(i) else {
+            continue;
+        };
+        if let Ok(gc) = obj.downcast::<gtk4::GestureClick>() {
+            if gc.button() == CONTEXT_MENU_BUTTON {
+                widget.remove_controller(&gc);
+            }
+        }
+    }
+}
+
+fn install_text_context_menu(
+    view: &sourceview5::View,
+    buffer: &sourceview5::Buffer,
+    editable: bool,
+) {
+    // SourceView/TextView registers its own right-click gesture that shows
+    // GTK's default context menu with the unstyled bg wrapper. Remove it so
+    // only our app-popover styled menu shows.
+    remove_builtin_context_gesture(view);
+
     let gesture = gtk4::GestureClick::new();
-    gesture.set_button(gtk4::gdk::ffi::GDK_BUTTON_SECONDARY as u32);
-    let widget_for_menu = widget.clone();
+    gesture.set_button(CONTEXT_MENU_BUTTON);
+    let view_for_menu = view.clone();
+    let buffer_for_menu = buffer.clone();
     gesture.connect_pressed(move |g, _n, x, y| {
-        let w = &widget_for_menu;
+        g.set_state(gtk4::EventSequenceState::Claimed);
+        let v = &view_for_menu;
+        let b = &buffer_for_menu;
+
         let popover = gtk4::PopoverMenu::from_model(None::<&gtk4::gio::MenuModel>);
         crate::theme::configure_popover(&popover);
 
@@ -71,58 +120,145 @@ fn install_text_context_menu<W: IsA<gtk4::Widget>>(widget: &W, editable: bool) {
         menu_box.set_margin_start(4);
         menu_box.set_margin_end(4);
 
-        let make_item = |icon: &str, label_text: &str, hint: &str, action: &str| -> gtk4::Button {
-            let btn = gtk4::Button::new();
-            btn.add_css_class("flat");
-            btn.add_css_class("app-popover-button");
-            let hbox = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
-            hbox.append(&gtk4::Image::from_icon_name(icon));
-            let lbl = gtk4::Label::new(Some(label_text));
-            lbl.set_hexpand(true);
-            lbl.set_halign(gtk4::Align::Start);
-            hbox.append(&lbl);
-            let hint_lbl = gtk4::Label::new(Some(hint));
-            hint_lbl.add_css_class("dim-label");
-            hbox.append(&hint_lbl);
-            btn.set_child(Some(&hbox));
-            let w_clone = w.clone();
+        let append_action = |box_: &gtk4::Box,
+                             icon: &str,
+                             text: &str,
+                             hint: &str,
+                             action: &str| {
+            let btn = make_popover_menu_item(icon, text, hint);
+            let w = v.clone();
             let p = popover.clone();
-            let action_name = action.to_string();
+            let a = action.to_string();
             btn.connect_clicked(move |_| {
-                let _ = w_clone.activate_action(&action_name, None::<&gtk4::glib::Variant>);
+                let _ = w.activate_action(&a, None::<&gtk4::glib::Variant>);
                 p.popdown();
             });
-            btn
+            box_.append(&btn);
         };
 
-        menu_box.append(&make_item(
+        let append_separator = |box_: &gtk4::Box| {
+            box_.append(&gtk4::Separator::new(gtk4::Orientation::Horizontal));
+        };
+
+        if editable {
+            let undo_btn = make_popover_menu_item("edit-undo-symbolic", "Undo", "Ctrl+Z");
+            undo_btn.set_sensitive(b.can_undo());
+            {
+                let bc = b.clone();
+                let p = popover.clone();
+                undo_btn.connect_clicked(move |_| {
+                    if bc.can_undo() {
+                        bc.undo();
+                    }
+                    p.popdown();
+                });
+            }
+            menu_box.append(&undo_btn);
+
+            let redo_btn = make_popover_menu_item("edit-redo-symbolic", "Redo", "Ctrl+Shift+Z");
+            redo_btn.set_sensitive(b.can_redo());
+            {
+                let bc = b.clone();
+                let p = popover.clone();
+                redo_btn.connect_clicked(move |_| {
+                    if bc.can_redo() {
+                        bc.redo();
+                    }
+                    p.popdown();
+                });
+            }
+            menu_box.append(&redo_btn);
+            append_separator(&menu_box);
+
+            append_action(&menu_box, "edit-cut-symbolic", "Cut", "Ctrl+X", "clipboard.cut");
+        }
+        append_action(
+            &menu_box,
             "edit-copy-symbolic",
             "Copy",
             "Ctrl+C",
             "clipboard.copy",
-        ));
+        );
         if editable {
-            menu_box.append(&make_item(
-                "edit-cut-symbolic",
-                "Cut",
-                "Ctrl+X",
-                "clipboard.cut",
-            ));
-            menu_box.append(&make_item(
+            append_action(
+                &menu_box,
                 "edit-paste-symbolic",
                 "Paste",
                 "Ctrl+V",
                 "clipboard.paste",
+            );
+        }
+        append_separator(&menu_box);
+
+        // Select All — operate directly on the buffer for reliability.
+        let select_all_btn =
+            make_popover_menu_item("edit-select-all-symbolic", "Select All", "Ctrl+A");
+        {
+            let bc = b.clone();
+            let p = popover.clone();
+            select_all_btn.connect_clicked(move |_| {
+                let (start, end) = bc.bounds();
+                bc.select_range(&start, &end);
+                p.popdown();
+            });
+        }
+        menu_box.append(&select_all_btn);
+
+        if editable {
+            // Change Case submenu (flat items).
+            append_separator(&menu_box);
+            let change_case = |case: sourceview5::ChangeCaseType, icon: &str, text: &str| {
+                let btn = make_popover_menu_item(icon, text, "");
+                let bc = b.clone();
+                let p = popover.clone();
+                btn.connect_clicked(move |_| {
+                    let (mut start, mut end) = if bc.has_selection() {
+                        bc.selection_bounds().unwrap_or_else(|| bc.bounds())
+                    } else {
+                        bc.bounds()
+                    };
+                    bc.change_case(case, &mut start, &mut end);
+                    p.popdown();
+                });
+                btn
+            };
+            menu_box.append(&change_case(
+                sourceview5::ChangeCaseType::Upper,
+                "format-text-underline-symbolic",
+                "UPPER CASE",
             ));
+            menu_box.append(&change_case(
+                sourceview5::ChangeCaseType::Lower,
+                "format-text-underline-symbolic",
+                "lower case",
+            ));
+            menu_box.append(&change_case(
+                sourceview5::ChangeCaseType::Title,
+                "format-text-underline-symbolic",
+                "Title Case",
+            ));
+            menu_box.append(&change_case(
+                sourceview5::ChangeCaseType::Toggle,
+                "format-text-underline-symbolic",
+                "tOGGLE cASE",
+            ));
+
+            append_separator(&menu_box);
+            append_action(
+                &menu_box,
+                "face-smile-symbolic",
+                "Insert Emoji",
+                "Ctrl+.",
+                "misc.insert-emoji",
+            );
         }
 
         popover.set_child(Some(&menu_box));
-        popover.set_parent(w);
+        popover.set_parent(v);
         popover.set_pointing_to(Some(&gtk4::gdk::Rectangle::new(x as i32, y as i32, 1, 1)));
         popover.popup();
-        g.set_state(gtk4::EventSequenceState::Claimed);
     });
-    widget.add_controller(gesture);
+    view.add_controller(gesture);
 }
 
 fn install_text_clipboard_shortcuts<W: IsA<gtk4::Widget>>(widget: &W) {
@@ -1026,7 +1162,7 @@ impl EditorTabs {
             view.set_left_margin(3);
             install_text_clipboard_shortcuts(&view);
             install_text_history_shortcuts(&view, buf);
-            install_text_context_menu(&view, editable);
+            install_text_context_menu(&view, buf, editable);
             if editable {
                 view.set_auto_indent(true);
                 view.set_tab_width(4);
