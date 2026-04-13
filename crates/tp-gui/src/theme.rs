@@ -149,6 +149,7 @@ pub enum Theme {
     Dracula,
     Nord,
     Aurora,
+    Quantum,
 }
 
 impl Default for Theme {
@@ -173,6 +174,7 @@ impl Theme {
             Theme::Dracula => "Dracula",
             Theme::Nord => "Nord",
             Theme::Aurora => "Aurora",
+            Theme::Quantum => "Quantum",
             Theme::System => unreachable!(),
         }
     }
@@ -185,12 +187,15 @@ impl Theme {
             Theme::CatppuccinLatte,
             Theme::Dracula,
             Theme::Aurora,
+            Theme::Quantum,
         ]
     }
 
     pub fn color_scheme(&self) -> libadwaita::ColorScheme {
         match self.resolved() {
-            Theme::CatppuccinLatte | Theme::Aurora => libadwaita::ColorScheme::ForceLight,
+            Theme::CatppuccinLatte | Theme::Aurora | Theme::Quantum => {
+                libadwaita::ColorScheme::ForceLight
+            }
             Theme::Graphite | Theme::CatppuccinMocha | Theme::Dracula | Theme::Nord => {
                 libadwaita::ColorScheme::ForceDark
             }
@@ -206,6 +211,7 @@ impl Theme {
             Theme::Dracula => "dracula",
             Theme::Nord => "nord",
             Theme::Aurora => "aurora",
+            Theme::Quantum => "quantum",
             Theme::System => unreachable!(),
         }
     }
@@ -219,6 +225,7 @@ impl Theme {
             "dracula" => Theme::Dracula,
             "nord" => Theme::Nord,
             "aurora" => Theme::Aurora,
+            "quantum" => Theme::Quantum,
             _ => Theme::Nord,
         }
     }
@@ -250,6 +257,10 @@ impl Theme {
                 gtk4::gdk::RGBA::new(0.965, 0.976, 0.992, 1.0), // #f6f9fd
                 gtk4::gdk::RGBA::new(0.102, 0.153, 0.251, 1.0), // #1a2740
             )),
+            Theme::Quantum => Some((
+                gtk4::gdk::RGBA::new(0.980, 0.988, 0.996, 1.0), // #fafcfe
+                gtk4::gdk::RGBA::new(0.039, 0.102, 0.200, 1.0), // #0a1a33
+            )),
             Theme::System => unreachable!(),
         }
     }
@@ -264,6 +275,7 @@ impl Theme {
             Theme::Dracula => "pax-dracula",
             Theme::Nord => "pax-nord",
             Theme::Aurora => "pax-aurora",
+            Theme::Quantum => "pax-quantum",
             Theme::System => unreachable!(),
         }
     }
@@ -273,7 +285,7 @@ impl Theme {
     pub fn sourceview_scheme_fallback(&self) -> &str {
         match self.resolved() {
             Theme::Graphite => "Adwaita-dark",
-            Theme::CatppuccinLatte | Theme::Aurora => "Adwaita",
+            Theme::CatppuccinLatte | Theme::Aurora | Theme::Quantum => "Adwaita",
             Theme::CatppuccinMocha | Theme::Dracula | Theme::Nord => "Adwaita-dark",
             Theme::System => unreachable!(),
         }
@@ -288,6 +300,7 @@ impl Theme {
             Theme::Dracula => DRACULA_CSS,
             Theme::Nord => NORD_CSS,
             Theme::Aurora => AURORA_CSS,
+            Theme::Quantum => QUANTUM_CSS,
             Theme::System => unreachable!(),
         }
     }
@@ -1236,11 +1249,57 @@ const AURORA_CSS: &str = "\
 @define-color headerbar_backdrop_color @headerbar_bg_color;
 ";
 
+// Quantum — austere monochrome-blue light theme.
+// Pure ice-white surfaces, single electric-blue palette, very thin
+// blue-tinted borders. Mission-control aesthetic.
+const QUANTUM_CSS: &str = "\
+@define-color bg_primary #fafcfe;
+@define-color bg_secondary #f0f4f9;
+@define-color bg_tertiary @bg_secondary;
+@define-color bg_card #e6ecf3;
+@define-color bg_dialog #e6ecf3;
+@define-color bg_popover #f0f4f9;
+@define-color bg_sidebar #eef3f8;
+@define-color bg_sidebar_secondary #fafcfe;
+@define-color bg_thumbnail #e6ecf3;
+@define-color bg_view #ffffff;
+@define-color bg_panel_header #f0f4f9;
+@define-color bg_terminal #fafcfe;
+@define-color window_bg_color @bg_primary;
+@define-color window_fg_color #0a1a33;
+@define-color headerbar_bg_color @bg_secondary;
+@define-color workspace_tabs_bar_bg_color @bg_tertiary;
+@define-color headerbar_fg_color #0a1a33;
+@define-color card_bg_color @bg_card;
+@define-color card_fg_color #0a1a33;
+@define-color dialog_bg_color @bg_dialog;
+@define-color dialog_fg_color #0a1a33;
+@define-color popover_bg_color @bg_popover;
+@define-color popover_fg_color #0a1a33;
+@define-color popover_shade_color alpha(#0a1a33, 0.08);
+@define-color sidebar_bg_color @bg_sidebar;
+@define-color sidebar_fg_color #0a1a33;
+@define-color secondary_sidebar_bg_color @bg_sidebar_secondary;
+@define-color secondary_sidebar_fg_color #0a1a33;
+@define-color thumbnail_bg_color @bg_thumbnail;
+@define-color view_bg_color @bg_view;
+@define-color panel_header_bg_color @bg_panel_header;
+@define-color view_fg_color #0a1a33;
+@define-color terminal_bg_color @bg_terminal;
+@define-color terminal_fg_color #0a1a33;
+@define-color accent_bg_color #0066ff;
+@define-color accent_fg_color #ffffff;
+@define-color accent_color #0066ff;
+@define-color borders alpha(#0066ff, 0.18);
+@define-color headerbar_border_color alpha(#0066ff, 0.20);
+@define-color headerbar_backdrop_color @headerbar_bg_color;
+";
+
 #[cfg(test)]
 mod tests {
     use super::{
         Theme, AURORA_CSS, BASE_CSS, CATPPUCCIN_LATTE_CSS, CATPPUCCIN_MOCHA_CSS, DRACULA_CSS,
-        GRAPHITE_CSS, NORD_CSS,
+        GRAPHITE_CSS, NORD_CSS, QUANTUM_CSS,
     };
 
     #[test]
@@ -1272,6 +1331,7 @@ mod tests {
             DRACULA_CSS,
             NORD_CSS,
             AURORA_CSS,
+            QUANTUM_CSS,
         ] {
             for token in [
                 "@define-color dialog_bg_color",
@@ -1298,6 +1358,7 @@ mod tests {
             DRACULA_CSS,
             NORD_CSS,
             AURORA_CSS,
+            QUANTUM_CSS,
         ] {
             for token in [
                 "@define-color bg_primary",
@@ -1343,6 +1404,23 @@ mod tests {
         // Cool polar-white surface, electric cyan accent.
         assert!(AURORA_CSS.contains("@define-color bg_primary #f4f7fb;"));
         assert!(AURORA_CSS.contains("@define-color accent_color #00b4d8;"));
+    }
+
+    #[test]
+    fn quantum_theme_is_available_as_light_theme() {
+        assert!(Theme::all().contains(&Theme::Quantum));
+        assert_eq!(Theme::from_id("quantum"), Theme::Quantum);
+        assert_eq!(Theme::Quantum.to_id(), "quantum");
+        assert_eq!(
+            Theme::Quantum.color_scheme(),
+            libadwaita::ColorScheme::ForceLight
+        );
+        // Quantum is monochrome blue: borders share the accent hue.
+        assert!(QUANTUM_CSS.contains("@define-color accent_color #0066ff;"));
+        assert!(QUANTUM_CSS.contains("@define-color borders alpha(#0066ff, 0.18);"));
+        assert!(QUANTUM_CSS.contains("@define-color headerbar_border_color alpha(#0066ff, 0.20);"));
+        // Pure ice-white view surface.
+        assert!(QUANTUM_CSS.contains("@define-color bg_view #ffffff;"));
     }
 
     #[test]

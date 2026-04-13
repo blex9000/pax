@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<style-scheme id="pax-quantum" name="Pax Quantum" version="1.0">
+  <author>Pax</author>
+  <description>Quantum — austere monochrome-blue light theme</description>
+  <metadata><property name="variant">light</property></metadata>
+
+  <color name="base"        value="#ffffff"/>
+  <color name="surface0"    value="#f0f4f9"/>
+  <color name="surface1"    value="#e6ecf3"/>
+  <color name="surface2"    value="#cce0ff"/>
+  <color name="overlay"     value="#6a7a95"/>
+  <color name="text"        value="#0a1a33"/>
+  <color name="electric"    value="#0066ff"/>
+  <color name="navy"        value="#003a99"/>
+  <color name="violet"      value="#5b3aff"/>
+  <color name="cyan"        value="#0091c8"/>
+  <color name="teal"        value="#0c7a8a"/>
+  <color name="green"       value="#1f8a5c"/>
+  <color name="amber"       value="#b87a00"/>
+  <color name="red"         value="#d12d3a"/>
+  <color name="dim"         value="#9aa6b8"/>
+
+  <style name="text"                        foreground="text" background="base"/>
+  <style name="cursor"                      foreground="electric"/>
+  <style name="selection"                   background="surface2"/>
+  <style name="current-line"                background="surface0"/>
+  <style name="line-numbers"                foreground="overlay" background="surface0"/>
+  <style name="current-line-number"         foreground="electric" background="surface0"/>
+  <style name="bracket-match"               foreground="text" background="surface1" bold="true"/>
+
+  <style name="def:comment"                 foreground="dim" italic="true"/>
+  <style name="def:constant"                foreground="amber"/>
+  <style name="def:string"                  foreground="green"/>
+  <style name="def:character"               foreground="teal"/>
+  <style name="def:number"                  foreground="amber"/>
+  <style name="def:boolean"                 foreground="amber"/>
+  <style name="def:floating-point"          foreground="amber"/>
+  <style name="def:keyword"                 foreground="electric" bold="true"/>
+  <style name="def:type"                    foreground="navy"/>
+  <style name="def:function"                foreground="cyan"/>
+  <style name="def:builtin"                 foreground="red"/>
+  <style name="def:identifier"              foreground="text"/>
+  <style name="def:preprocessor"            foreground="violet"/>
+  <style name="def:error"                   foreground="red" underline="true"/>
+  <style name="def:warning"                 foreground="amber" underline="true"/>
+  <style name="def:note"                    foreground="electric" bold="true"/>
+  <style name="def:special-char"            foreground="violet"/>
+  <style name="def:operator"                foreground="navy"/>
+  <style name="def:statement"               foreground="electric"/>
+  <style name="search-match"               background="#rgba(0,102,255,0.20)"/>
+</style-scheme>
