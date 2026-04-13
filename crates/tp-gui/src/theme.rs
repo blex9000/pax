@@ -150,6 +150,7 @@ pub enum Theme {
     Nord,
     Aurora,
     Quantum,
+    NeonPorcelain,
 }
 
 impl Default for Theme {
@@ -175,6 +176,7 @@ impl Theme {
             Theme::Nord => "Nord",
             Theme::Aurora => "Aurora",
             Theme::Quantum => "Quantum",
+            Theme::NeonPorcelain => "Neon Porcelain",
             Theme::System => unreachable!(),
         }
     }
@@ -188,14 +190,16 @@ impl Theme {
             Theme::Dracula,
             Theme::Aurora,
             Theme::Quantum,
+            Theme::NeonPorcelain,
         ]
     }
 
     pub fn color_scheme(&self) -> libadwaita::ColorScheme {
         match self.resolved() {
-            Theme::CatppuccinLatte | Theme::Aurora | Theme::Quantum => {
-                libadwaita::ColorScheme::ForceLight
-            }
+            Theme::CatppuccinLatte
+            | Theme::Aurora
+            | Theme::Quantum
+            | Theme::NeonPorcelain => libadwaita::ColorScheme::ForceLight,
             Theme::Graphite | Theme::CatppuccinMocha | Theme::Dracula | Theme::Nord => {
                 libadwaita::ColorScheme::ForceDark
             }
@@ -212,6 +216,7 @@ impl Theme {
             Theme::Nord => "nord",
             Theme::Aurora => "aurora",
             Theme::Quantum => "quantum",
+            Theme::NeonPorcelain => "neon-porcelain",
             Theme::System => unreachable!(),
         }
     }
@@ -226,6 +231,7 @@ impl Theme {
             "nord" => Theme::Nord,
             "aurora" => Theme::Aurora,
             "quantum" => Theme::Quantum,
+            "neon-porcelain" => Theme::NeonPorcelain,
             _ => Theme::Nord,
         }
     }
@@ -261,6 +267,10 @@ impl Theme {
                 gtk4::gdk::RGBA::new(0.980, 0.988, 0.996, 1.0), // #fafcfe
                 gtk4::gdk::RGBA::new(0.039, 0.102, 0.200, 1.0), // #0a1a33
             )),
+            Theme::NeonPorcelain => Some((
+                gtk4::gdk::RGBA::new(1.000, 0.988, 0.976, 1.0), // #fffcf9
+                gtk4::gdk::RGBA::new(0.102, 0.043, 0.122, 1.0), // #1a0b1f
+            )),
             Theme::System => unreachable!(),
         }
     }
@@ -276,6 +286,7 @@ impl Theme {
             Theme::Nord => "pax-nord",
             Theme::Aurora => "pax-aurora",
             Theme::Quantum => "pax-quantum",
+            Theme::NeonPorcelain => "pax-neon-porcelain",
             Theme::System => unreachable!(),
         }
     }
@@ -285,7 +296,10 @@ impl Theme {
     pub fn sourceview_scheme_fallback(&self) -> &str {
         match self.resolved() {
             Theme::Graphite => "Adwaita-dark",
-            Theme::CatppuccinLatte | Theme::Aurora | Theme::Quantum => "Adwaita",
+            Theme::CatppuccinLatte
+            | Theme::Aurora
+            | Theme::Quantum
+            | Theme::NeonPorcelain => "Adwaita",
             Theme::CatppuccinMocha | Theme::Dracula | Theme::Nord => "Adwaita-dark",
             Theme::System => unreachable!(),
         }
@@ -301,6 +315,7 @@ impl Theme {
             Theme::Nord => NORD_CSS,
             Theme::Aurora => AURORA_CSS,
             Theme::Quantum => QUANTUM_CSS,
+            Theme::NeonPorcelain => NEON_PORCELAIN_CSS,
             Theme::System => unreachable!(),
         }
     }
@@ -1296,11 +1311,57 @@ const QUANTUM_CSS: &str = "\
 @define-color headerbar_backdrop_color @headerbar_bg_color;
 ";
 
+// Neon Porcelain — synthwave-inverted light theme.
+// Warm cream surfaces with a hot-pink + cyan duality: pink borders on
+// the body, a teal/cyan separator under the headerbar. Miami Vice 2090.
+const NEON_PORCELAIN_CSS: &str = "\
+@define-color bg_primary #fcf9f7;
+@define-color bg_secondary #f5efe9;
+@define-color bg_tertiary @bg_secondary;
+@define-color bg_card #ebe2d8;
+@define-color bg_dialog #ebe2d8;
+@define-color bg_popover #f5efe9;
+@define-color bg_sidebar #f0e8e0;
+@define-color bg_sidebar_secondary #fcf9f7;
+@define-color bg_thumbnail #ebe2d8;
+@define-color bg_view #fffcf9;
+@define-color bg_panel_header #f5efe9;
+@define-color bg_terminal #fffcf9;
+@define-color window_bg_color @bg_primary;
+@define-color window_fg_color #1a0b1f;
+@define-color headerbar_bg_color @bg_secondary;
+@define-color workspace_tabs_bar_bg_color @bg_tertiary;
+@define-color headerbar_fg_color #1a0b1f;
+@define-color card_bg_color @bg_card;
+@define-color card_fg_color #1a0b1f;
+@define-color dialog_bg_color @bg_dialog;
+@define-color dialog_fg_color #1a0b1f;
+@define-color popover_bg_color @bg_popover;
+@define-color popover_fg_color #1a0b1f;
+@define-color popover_shade_color alpha(#1a0b1f, 0.16);
+@define-color sidebar_bg_color @bg_sidebar;
+@define-color sidebar_fg_color #1a0b1f;
+@define-color secondary_sidebar_bg_color @bg_sidebar_secondary;
+@define-color secondary_sidebar_fg_color #1a0b1f;
+@define-color thumbnail_bg_color @bg_thumbnail;
+@define-color view_bg_color @bg_view;
+@define-color panel_header_bg_color @bg_panel_header;
+@define-color view_fg_color #1a0b1f;
+@define-color terminal_bg_color @bg_terminal;
+@define-color terminal_fg_color #1a0b1f;
+@define-color accent_bg_color #ff2d95;
+@define-color accent_fg_color #ffffff;
+@define-color accent_color #ff2d95;
+@define-color borders alpha(#ff2d95, 0.40);
+@define-color headerbar_border_color alpha(#00c5b8, 0.55);
+@define-color headerbar_backdrop_color @headerbar_bg_color;
+";
+
 #[cfg(test)]
 mod tests {
     use super::{
         Theme, AURORA_CSS, BASE_CSS, CATPPUCCIN_LATTE_CSS, CATPPUCCIN_MOCHA_CSS, DRACULA_CSS,
-        GRAPHITE_CSS, NORD_CSS, QUANTUM_CSS,
+        GRAPHITE_CSS, NEON_PORCELAIN_CSS, NORD_CSS, QUANTUM_CSS,
     };
 
     #[test]
@@ -1333,6 +1394,7 @@ mod tests {
             NORD_CSS,
             AURORA_CSS,
             QUANTUM_CSS,
+            NEON_PORCELAIN_CSS,
         ] {
             for token in [
                 "@define-color dialog_bg_color",
@@ -1360,6 +1422,7 @@ mod tests {
             NORD_CSS,
             AURORA_CSS,
             QUANTUM_CSS,
+            NEON_PORCELAIN_CSS,
         ] {
             for token in [
                 "@define-color bg_primary",
@@ -1425,6 +1488,24 @@ mod tests {
         // Cooler slate-blue surface, distinct from Aurora's near-white.
         assert!(QUANTUM_CSS.contains("@define-color bg_primary #e8eff8;"));
         assert!(QUANTUM_CSS.contains("@define-color bg_view #ffffff;"));
+    }
+
+    #[test]
+    fn neon_porcelain_theme_is_available_as_light_theme() {
+        assert!(Theme::all().contains(&Theme::NeonPorcelain));
+        assert_eq!(Theme::from_id("neon-porcelain"), Theme::NeonPorcelain);
+        assert_eq!(Theme::NeonPorcelain.to_id(), "neon-porcelain");
+        assert_eq!(
+            Theme::NeonPorcelain.color_scheme(),
+            libadwaita::ColorScheme::ForceLight
+        );
+        // Synthwave duality: hot-pink body borders, cyan headerbar separator.
+        assert!(NEON_PORCELAIN_CSS.contains("@define-color accent_color #ff2d95;"));
+        assert!(NEON_PORCELAIN_CSS.contains("@define-color borders alpha(#ff2d95, 0.40);"));
+        assert!(NEON_PORCELAIN_CSS
+            .contains("@define-color headerbar_border_color alpha(#00c5b8, 0.55);"));
+        // Warm cream surface.
+        assert!(NEON_PORCELAIN_CSS.contains("@define-color bg_primary #fcf9f7;"));
     }
 
     #[test]
