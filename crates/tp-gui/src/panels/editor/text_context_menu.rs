@@ -43,12 +43,16 @@ impl TextContextMenuItem {
 /// the `host` ScrolledWindow with capture phase, intercepting the event before
 /// it reaches the view's own internal popup gesture.
 ///
+/// The buffer is read from `view` at click time (not at install time): the
+/// editor's main view swaps buffers as the user changes tabs, so capturing the
+/// install-time buffer would freeze the menu on the initial empty buffer and
+/// hide language-aware items like Comment/Uncomment.
+///
 /// `extras_factory` is invoked every time the menu opens, so context-specific
 /// items (e.g. format current file) can reflect up-to-date state.
 pub fn install(
     host: &gtk4::ScrolledWindow,
     view: &sourceview5::View,
-    buffer: &sourceview5::Buffer,
     editable: bool,
     extras_factory: impl Fn() -> Vec<TextContextMenuItem> + 'static,
 ) {
@@ -59,14 +63,17 @@ pub fn install(
     gesture.set_propagation_phase(gtk4::PropagationPhase::Capture);
 
     let view_cell = view.clone();
-    let buffer_cell = buffer.clone();
     let host_cell = host.clone();
     let extras_factory = std::rc::Rc::new(extras_factory);
 
     gesture.connect_pressed(move |g, _n, x, y| {
         g.set_state(gtk4::EventSequenceState::Claimed);
 
-        let popover = build_menu(&view_cell, &buffer_cell, editable, extras_factory());
+        let Ok(buffer) = view_cell.buffer().downcast::<sourceview5::Buffer>() else {
+            return;
+        };
+
+        let popover = build_menu(&view_cell, &buffer, editable, extras_factory());
 
         popover.set_parent(&host_cell);
         popover.set_pointing_to(Some(&gtk4::gdk::Rectangle::new(

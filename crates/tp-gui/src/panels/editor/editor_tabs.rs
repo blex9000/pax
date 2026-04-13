@@ -177,10 +177,10 @@ impl EditorTabs {
         // Right-click context menu on the main editor — extras factory looks
         // up the active file each time so the format action follows the
         // currently-open file's extension.
-        if let Some(buf) = source_view.buffer().downcast_ref::<sourceview5::Buffer>() {
+        {
             let view_for_menu = source_view.clone();
             let state_for_menu = state.clone();
-            text_context_menu::install(&source_scroll, &source_view, buf, true, move || {
+            text_context_menu::install(&source_scroll, &source_view, true, move || {
                 let st = state_for_menu.borrow();
                 let Some(idx) = st.active_tab else {
                     return Vec::new();
@@ -995,7 +995,7 @@ impl EditorTabs {
             scroll.set_hexpand(true);
             let file_path_factory = file_path_owned.clone();
             let buf_factory = buf.clone();
-            text_context_menu::install(&scroll, &view, buf, editable, move || {
+            text_context_menu::install(&scroll, &view, editable, move || {
                 if !editable {
                     return Vec::new();
                 }
@@ -1651,7 +1651,7 @@ fn show_commit_file_diff(
         scroll.set_child(Some(&view));
         scroll.set_vexpand(true);
         scroll.set_hexpand(true);
-        text_context_menu::install(&scroll, &view, buf, false, Vec::new);
+        text_context_menu::install(&scroll, &view, false, Vec::new);
         scroll
     };
 
