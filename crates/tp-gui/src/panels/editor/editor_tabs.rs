@@ -118,6 +118,9 @@ fn install_text_history_shortcuts<W: IsA<gtk4::Widget>>(widget: &W, buffer: &sou
 pub struct EditorTabs {
     pub notebook: gtk4::Notebook,
     pub source_view: sourceview5::View,
+    /// Buffer-word completion provider — every opened buffer is registered
+    /// here so the popup can suggest words from any file currently open.
+    completion_words: sourceview5::CompletionWords,
     /// Stack switching between "welcome" and "editor" content.
     pub content_stack: gtk4::Stack,
     /// Search/replace bar (hidden by default, toggled with Ctrl+F / Ctrl+H).
@@ -168,6 +171,20 @@ impl EditorTabs {
         if let Some(buf) = source_view.buffer().downcast_ref::<sourceview5::Buffer>() {
             crate::theme::register_sourceview_buffer(buf);
         }
+
+        // Buffer-word autocompletion. The provider scans every registered
+        // buffer for words and offers them as proposals as the user types.
+        // 3 chars minimum to avoid noise from very short prefixes; the popup
+        // also shows icons for proposal types.
+        const COMPLETION_MIN_WORD_LEN: u32 = 3;
+        let completion_words = sourceview5::CompletionWords::builder()
+            .title("Words")
+            .minimum_word_size(COMPLETION_MIN_WORD_LEN)
+            .build();
+        let completion = source_view.completion();
+        completion.set_show_icons(true);
+        completion.set_select_on_show(true);
+        completion.add_provider(&completion_words);
 
         let source_scroll = gtk4::ScrolledWindow::new();
         source_scroll.set_child(Some(&source_view));
@@ -562,6 +579,7 @@ impl EditorTabs {
         Self {
             notebook,
             source_view,
+            completion_words,
             content_stack,
             search_bar,
             status_bar,
@@ -626,6 +644,9 @@ impl EditorTabs {
 
         // Apply scheme and register for live theme updates
         crate::theme::register_sourceview_buffer(&buf);
+
+        // Feed this buffer's words into the autocompletion provider.
+        self.completion_words.register(&buf);
 
         // Reset undo after setting initial text
         buf.set_enable_undo(false);
