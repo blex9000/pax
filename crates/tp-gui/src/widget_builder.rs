@@ -15,10 +15,8 @@ const PANED_OVERLAY_CLASS: &str = "paned-overlay-shell";
 const COLLAPSED_DRAG_STRIP_SIZE: i32 = 4;
 const WORKSPACE_TAB_PAGE_SHELL_CLASS: &str = "workspace-tab-page-shell";
 const COLLAPSED_PLACEHOLDER_CLASS: &str = "panel-collapsed-placeholder";
-const COLLAPSED_OVERLAY_LENGTH_INSET: i32 = 6;
-const COLLAPSED_OVERLAY_EDGE_INSET: i32 = 6;
-const COLLAPSED_FACING_GAP: i32 = 6;
-const COLLAPSED_PANEL_ALLOC: i32 = COLLAPSED_PANEL_SIZE + COLLAPSED_FACING_GAP;
+const COLLAPSED_OVERLAY_MARGIN: i32 = 6;
+const COLLAPSED_PANEL_ALLOC: i32 = COLLAPSED_PANEL_SIZE + 2 * COLLAPSED_OVERLAY_MARGIN;
 
 fn workspace_tabs_are_root(path: &[usize]) -> bool {
     path.is_empty()
@@ -83,14 +81,11 @@ fn wrap_workspace_tab_page(child: gtk4::Widget) -> gtk4::Widget {
     shell.upcast()
 }
 
-fn apply_collapsed_overlay_length_inset(root: &gtk4::Box, orient: gtk4::Orientation) {
-    if orient == gtk4::Orientation::Horizontal {
-        root.set_margin_top(COLLAPSED_OVERLAY_LENGTH_INSET);
-        root.set_margin_bottom(COLLAPSED_OVERLAY_LENGTH_INSET);
-    } else {
-        root.set_margin_start(COLLAPSED_OVERLAY_LENGTH_INSET);
-        root.set_margin_end(COLLAPSED_OVERLAY_LENGTH_INSET);
-    }
+fn apply_collapsed_overlay_panel_margin(root: &gtk4::Box) {
+    root.set_margin_top(COLLAPSED_OVERLAY_MARGIN);
+    root.set_margin_bottom(COLLAPSED_OVERLAY_MARGIN);
+    root.set_margin_start(COLLAPSED_OVERLAY_MARGIN);
+    root.set_margin_end(COLLAPSED_OVERLAY_MARGIN);
 }
 
 pub fn build_tab_label(
@@ -440,24 +435,17 @@ mod tests {
     }
 
     #[test]
-    fn collapsed_overlay_length_inset_matches_orientation() {
+    fn collapsed_overlay_panel_margin_sets_all_sides() {
         if gtk4::init().is_err() {
             return;
         }
 
-        let horizontal = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
-        apply_collapsed_overlay_length_inset(&horizontal, gtk4::Orientation::Horizontal);
-        assert_eq!(horizontal.margin_top(), 6);
-        assert_eq!(horizontal.margin_bottom(), 6);
-        assert_eq!(horizontal.margin_start(), 0);
-        assert_eq!(horizontal.margin_end(), 0);
-
-        let vertical = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
-        apply_collapsed_overlay_length_inset(&vertical, gtk4::Orientation::Vertical);
-        assert_eq!(vertical.margin_start(), 6);
-        assert_eq!(vertical.margin_end(), 6);
-        assert_eq!(vertical.margin_top(), 0);
-        assert_eq!(vertical.margin_bottom(), 0);
+        let bar = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
+        apply_collapsed_overlay_panel_margin(&bar);
+        assert_eq!(bar.margin_top(), 6);
+        assert_eq!(bar.margin_bottom(), 6);
+        assert_eq!(bar.margin_start(), 6);
+        assert_eq!(bar.margin_end(), 6);
     }
 }
 
@@ -1542,7 +1530,7 @@ fn build_collapsed_overlay_control(
     root.add_css_class("panel-collapsed-overlay");
     root.set_visible(false);
     root.set_can_focus(false);
-    apply_collapsed_overlay_length_inset(&root, orient);
+    apply_collapsed_overlay_panel_margin(&root);
 
     match (orient, is_start) {
         (gtk4::Orientation::Horizontal, true) => {
@@ -1550,28 +1538,24 @@ fn build_collapsed_overlay_control(
             root.set_valign(gtk4::Align::Fill);
             root.set_vexpand(true);
             root.set_size_request(COLLAPSED_PANEL_SIZE, -1);
-            root.set_margin_start(COLLAPSED_OVERLAY_EDGE_INSET);
         }
         (gtk4::Orientation::Horizontal, false) => {
             root.set_halign(gtk4::Align::End);
             root.set_valign(gtk4::Align::Fill);
             root.set_vexpand(true);
             root.set_size_request(COLLAPSED_PANEL_SIZE, -1);
-            root.set_margin_end(COLLAPSED_OVERLAY_EDGE_INSET);
         }
         (gtk4::Orientation::Vertical, true) => {
             root.set_halign(gtk4::Align::Fill);
             root.set_valign(gtk4::Align::Start);
             root.set_hexpand(true);
             root.set_size_request(-1, COLLAPSED_PANEL_SIZE);
-            root.set_margin_top(COLLAPSED_OVERLAY_EDGE_INSET);
         }
         (gtk4::Orientation::Vertical, false) => {
             root.set_halign(gtk4::Align::Fill);
             root.set_valign(gtk4::Align::End);
             root.set_hexpand(true);
             root.set_size_request(-1, COLLAPSED_PANEL_SIZE);
-            root.set_margin_bottom(COLLAPSED_OVERLAY_EDGE_INSET);
         }
         _ => {}
     }
