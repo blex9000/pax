@@ -435,31 +435,26 @@ notebook.workspace-tabs > header > tabs {
   min-height: 14px;
   padding-left: 3px;
   padding-right: 3px;
-  /* Continuous baseline that tab right-edges curve into. */
-  border-bottom: 1px solid alpha(@headerbar_fg_color, 0.18);
+  /* Force tabs flush against each other so the per-tab bottom borders
+     join into a single continuous line (no inherited GTK tab spacing). */
+  border-spacing: 0;
 }
 notebook.workspace-tabs > header > tabs > tab {
-  /* Asymmetric leaf shape: small radius on top-left for softness, large
-     radius on top-right so the top border descends in a smooth quarter-arc
-     down to the baseline. No bottom border on the tab itself; the baseline
-     lives on the parent tabs and margin-bottom:-1px makes the arc overlap
-     it so the curve merges into the baseline rather than meets it. */
-  border-top-left-radius: 4px;
-  border-top-right-radius: 14px;
-  border-bottom-left-radius: 0;
-  border-bottom-right-radius: 0;
-  border-top: 1px solid alpha(@headerbar_fg_color, 0.18);
-  border-left: 1px solid alpha(@headerbar_fg_color, 0.18);
-  border-right: 1px solid alpha(@headerbar_fg_color, 0.18);
-  border-bottom: none;
-  margin-right: 4px;
-  margin-bottom: -1px;
+  /* Inactive tabs: only a bottom border. Margin/border-spacing zeroed so
+     the borders of adjacent tabs touch and form one continuous baseline. */
+  border-top: none;
+  border-left: none;
+  border-right: none;
+  border-bottom: 1px solid alpha(@accent_color, 0.34);
+  border-radius: 0;
+  margin: 0;
+  border-spacing: 0;
   min-height: 14px;
   background-color: transparent;
   padding-top: 0;
   padding-bottom: 0;
-  padding-left: 6px;
-  padding-right: 12px;
+  padding-left: 8px;
+  padding-right: 8px;
   box-shadow: none;
 }
 notebook.workspace-tabs > header > tabs > tab label {
@@ -485,19 +480,21 @@ notebook.workspace-tabs > header > tabs > tab:checked image.workspace-tab-type-i
   color: alpha(@headerbar_fg_color, 0.88);
 }
 notebook.workspace-tabs > header > tabs > tab:hover {
-  background-color: alpha(@accent_color, 0.10);
-  border-top-color: alpha(@accent_color, 0.50);
-  border-left-color: alpha(@accent_color, 0.50);
-  border-right-color: alpha(@accent_color, 0.50);
+  background-color: alpha(@accent_color, 0.08);
 }
 notebook.workspace-tabs > header > tabs > tab:checked {
-  /* Active tab lifts out of the baseline: opaque background covers the
-     parent's bottom border under the tab, so the arc reads as the only
-     thing meeting the line on the right. Border picks up the accent. */
-  background-color: @window_bg_color;
-  border-top-color: @accent_color;
-  border-left-color: @accent_color;
-  border-right-color: @accent_color;
+  /* Active tab: arch chrome (top-left + top-right rounded), three-sided
+     blue outline standing on the continuous baseline. No bg fill so the
+     baseline shows through under the tab and reads as the bottom edge. */
+  border-top: 1px solid alpha(@accent_color, 0.34);
+  border-left: 1px solid alpha(@accent_color, 0.34);
+  border-right: 1px solid alpha(@accent_color, 0.34);
+  border-bottom: none;
+  border-top-left-radius: 12px;
+  border-top-right-radius: 12px;
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
+  background-color: transparent;
   box-shadow: none;
 }
 notebook.workspace-tabs-root {
