@@ -239,7 +239,11 @@ pub fn do_open(
                     let win2 = win.clone();
                     let sa2 = sa.clone();
                     let on_continue: Rc<dyn Fn()> = Rc::new(move || {
-                        match ws2.borrow_mut().load_from_file(&path) {
+                        // Drop the borrow_mut() guard before entering the arm,
+                        // otherwise the second borrow_mut() inside Ok(()) would
+                        // panic with "RefCell already borrowed".
+                        let load_result = ws2.borrow_mut().load_from_file(&path);
+                        match load_result {
                             Ok(()) => {
                                 let theme = crate::app::apply_preferred_theme();
                                 ws2.borrow_mut()
@@ -362,7 +366,11 @@ pub fn show_recent_dialog(
                     let d2 = d.clone();
                     let path2 = path.clone();
                     let on_continue: Rc<dyn Fn()> = Rc::new(move || {
-                        match ws2.borrow_mut().load_from_file(&path2) {
+                        // Drop the borrow_mut() guard before entering the arm,
+                        // otherwise the second borrow_mut() inside Ok(()) would
+                        // panic with "RefCell already borrowed".
+                        let load_result = ws2.borrow_mut().load_from_file(&path2);
+                        match load_result {
                             Ok(()) => {
                                 let theme = crate::app::apply_preferred_theme();
                                 ws2.borrow_mut()
