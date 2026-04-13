@@ -121,6 +121,11 @@ pub struct EditorTabs {
     /// Buffer-word completion provider — every opened buffer is registered
     /// here so the popup can suggest words from any file currently open.
     completion_words: sourceview5::CompletionWords,
+    /// Hidden buffer pre-loaded with the active language's keywords so they
+    /// surface in the completion popup even before the user has typed them
+    /// once. Re-populated whenever the visible buffer (and thus its
+    /// language) changes.
+    keyword_shadow_buffer: sourceview5::Buffer,
     /// Stack switching between "welcome" and "editor" content.
     pub content_stack: gtk4::Stack,
     /// Search/replace bar (hidden by default, toggled with Ctrl+F / Ctrl+H).
@@ -185,6 +190,15 @@ impl EditorTabs {
         completion.set_show_icons(true);
         completion.set_select_on_show(true);
         completion.add_provider(&completion_words);
+
+        // Shadow buffer fed with language keywords so they appear in the
+        // popup even before the user has typed them. Always registered with
+        // the same provider; its contents are swapped by switch_to_buffer.
+        let keyword_shadow_buffer = sourceview5::Buffer::new(None::<&gtk4::TextTagTable>);
+        completion_words.register(&keyword_shadow_buffer);
+
+        // Auto-pair brackets/quotes (and wrap selections).
+        install_bracket_auto_pair(&source_view);
 
         let source_scroll = gtk4::ScrolledWindow::new();
         source_scroll.set_child(Some(&source_view));
@@ -580,6 +594,7 @@ impl EditorTabs {
             notebook,
             source_view,
             completion_words,
+            keyword_shadow_buffer,
             content_stack,
             search_bar,
             status_bar,
@@ -907,17 +922,28 @@ impl EditorTabs {
         let st = state.borrow();
         if let Some(open_file) = st.open_files.get(idx) {
             self.source_view.set_buffer(Some(&open_file.buffer));
-            if let Some(lang) = open_file.buffer.language() {
+            let language = open_file.buffer.language();
+            if let Some(lang) = language.as_ref() {
                 self.status_lang.set_text(&lang.name());
             } else {
                 self.status_lang.set_text("Plain Text");
             }
+            self.refresh_keyword_shadow(language.as_ref().map(|l| l.id().to_string()).as_deref());
             self.status_modified.set_text(if open_file.modified {
                 "\u{25CF} Modified"
             } else {
                 ""
             });
         }
+    }
+
+    /// Re-populate the shadow buffer with the keyword list for the active
+    /// language so completion proposals reflect the current file's syntax.
+    fn refresh_keyword_shadow(&self, lang_id: Option<&str>) {
+        let words = lang_id.map(keywords_for).unwrap_or(&[]);
+        // CompletionWords scans buffers for word boundaries; whitespace
+        // separation is enough.
+        self.keyword_shadow_buffer.set_text(&words.join(" "));
     }
 
     /// Show a side-by-side diff view for the given file.
@@ -1795,6 +1821,158 @@ fn show_commit_file_diff(
             cs.set_visible_child_name("commit-diff");
         });
     }
+}
+
+/// Language keyword lists fed into the completion shadow buffer so that
+/// language-defining tokens (e.g. `def`, `class`, `import` for Python)
+/// surface in the popup before the user has typed them once.
+///
+/// Keys are GtkSourceView language IDs (see `Language::id()`). Unknown
+/// languages return an empty slice — completion still works on
+/// already-typed words via the per-buffer scan.
+fn keywords_for(lang_id: &str) -> &'static [&'static str] {
+    match lang_id {
+        "python" | "python3" => &[
+            "False", "None", "True", "and", "as", "assert", "async", "await", "break",
+            "class", "continue", "def", "del", "elif", "else", "except", "finally", "for",
+            "from", "global", "if", "import", "in", "is", "lambda", "nonlocal", "not", "or",
+            "pass", "raise", "return", "try", "while", "with", "yield", "match", "case",
+            "self", "cls", "print", "len", "range", "str", "int", "float", "bool", "list",
+            "dict", "tuple", "set",
+        ],
+        "rust" => &[
+            "as", "async", "await", "break", "const", "continue", "crate", "dyn", "else",
+            "enum", "extern", "false", "fn", "for", "if", "impl", "in", "let", "loop",
+            "match", "mod", "move", "mut", "pub", "ref", "return", "Self", "self", "static",
+            "struct", "super", "trait", "true", "type", "unsafe", "use", "where", "while",
+            "Box", "Vec", "String", "Option", "Result", "Some", "None", "Ok", "Err",
+        ],
+        "js" | "javascript" => &[
+            "async", "await", "break", "case", "catch", "class", "const", "continue",
+            "debugger", "default", "delete", "do", "else", "export", "extends", "false",
+            "finally", "for", "from", "function", "if", "import", "in", "instanceof", "let",
+            "new", "null", "of", "return", "static", "super", "switch", "this", "throw",
+            "true", "try", "typeof", "undefined", "var", "void", "while", "with", "yield",
+        ],
+        "typescript" | "ts" => &[
+            "any", "as", "async", "await", "boolean", "break", "case", "catch", "class",
+            "const", "continue", "debugger", "declare", "default", "delete", "do", "else",
+            "enum", "export", "extends", "false", "finally", "for", "from", "function",
+            "if", "implements", "import", "in", "instanceof", "interface", "is", "keyof",
+            "let", "namespace", "never", "new", "null", "number", "of", "private",
+            "protected", "public", "readonly", "return", "static", "string", "super",
+            "switch", "this", "throw", "true", "try", "type", "typeof", "undefined",
+            "unknown", "var", "void", "while", "with", "yield",
+        ],
+        "go" => &[
+            "break", "case", "chan", "const", "continue", "default", "defer", "else",
+            "fallthrough", "for", "func", "go", "goto", "if", "import", "interface", "map",
+            "package", "range", "return", "select", "struct", "switch", "type", "var",
+            "true", "false", "nil", "iota", "make", "new", "len", "cap", "append", "copy",
+            "delete", "panic", "recover", "error", "string", "int", "bool",
+        ],
+        "sh" | "bash" | "zsh" => &[
+            "if", "then", "else", "elif", "fi", "for", "do", "done", "while", "until",
+            "case", "esac", "in", "function", "return", "break", "continue", "true",
+            "false", "export", "source", "local", "readonly", "declare", "unset", "alias",
+            "echo", "printf", "read", "test",
+        ],
+        "json" => &["true", "false", "null"],
+        "yaml" => &["true", "false", "null", "yes", "no", "on", "off"],
+        "toml" => &["true", "false"],
+        "html" | "xml" => &[
+            "html", "head", "body", "div", "span", "script", "style", "link", "meta",
+            "title", "class", "id", "href", "src",
+        ],
+        "css" | "scss" => &[
+            "important", "inherit", "initial", "unset", "auto", "none", "block", "inline",
+            "flex", "grid", "absolute", "relative", "fixed", "static", "hidden", "visible",
+        ],
+        "sql" => &[
+            "SELECT", "FROM", "WHERE", "INSERT", "INTO", "VALUES", "UPDATE", "SET",
+            "DELETE", "CREATE", "TABLE", "DROP", "ALTER", "ADD", "INDEX", "JOIN", "INNER",
+            "OUTER", "LEFT", "RIGHT", "ON", "AS", "AND", "OR", "NOT", "NULL", "PRIMARY",
+            "KEY", "FOREIGN", "REFERENCES", "GROUP", "BY", "ORDER", "HAVING", "LIMIT",
+        ],
+        _ => &[],
+    }
+}
+
+/// Install bracket and quote auto-pairing on the SourceView.
+///
+/// - Typing `(`, `[`, `{`, `"`, `'`, `` ` `` inserts the matching closer
+///   and places the cursor between them.
+/// - With a selection active, the selection is wrapped instead.
+/// - For the symmetrical pairs (quotes, backticks), if the cursor is
+///   already sitting on the same character, just step past it instead of
+///   inserting a doubled-up closer (matches what users expect from
+///   VS Code / IntelliJ).
+fn install_bracket_auto_pair(view: &sourceview5::View) {
+    use gtk4::gdk;
+
+    let key_ctrl = gtk4::EventControllerKey::new();
+    key_ctrl.set_propagation_phase(gtk4::PropagationPhase::Capture);
+
+    let view_clone = view.clone();
+    key_ctrl.connect_key_pressed(move |_, key, _, state| {
+        // Ignore when modifiers are held (Ctrl+(, Alt+", etc. shouldn't pair).
+        let allowed = gtk4::gdk::ModifierType::SHIFT_MASK;
+        if state.intersects(!allowed) {
+            return gtk4::glib::Propagation::Proceed;
+        }
+
+        let pair: Option<(&str, &str, bool)> = match key {
+            gdk::Key::parenleft => Some(("(", ")", false)),
+            gdk::Key::bracketleft => Some(("[", "]", false)),
+            gdk::Key::braceleft => Some(("{", "}", false)),
+            gdk::Key::quotedbl => Some(("\"", "\"", true)),
+            gdk::Key::apostrophe => Some(("'", "'", true)),
+            gdk::Key::grave => Some(("`", "`", true)),
+            _ => return gtk4::glib::Propagation::Proceed,
+        };
+        let (open, close, symmetrical) = pair.unwrap();
+
+        let Ok(buffer) = view_clone.buffer().downcast::<sourceview5::Buffer>() else {
+            return gtk4::glib::Propagation::Proceed;
+        };
+
+        // Wrap selection.
+        if buffer.has_selection() {
+            if let Some((mut s, mut e)) = buffer.selection_bounds() {
+                let text = buffer.text(&s, &e, false).to_string();
+                buffer.begin_user_action();
+                buffer.delete(&mut s, &mut e);
+                buffer.insert(&mut s, &format!("{}{}{}", open, text, close));
+                buffer.end_user_action();
+                return gtk4::glib::Propagation::Stop;
+            }
+        }
+
+        // For symmetrical chars (quotes, backticks): step over an existing
+        // matching closer rather than inserting a duplicate.
+        if symmetrical {
+            let cursor = buffer.iter_at_mark(&buffer.get_insert());
+            let mut next = cursor.clone();
+            if next.forward_char() {
+                let next_char = buffer.text(&cursor, &next, false).to_string();
+                if next_char == open {
+                    buffer.place_cursor(&next);
+                    return gtk4::glib::Propagation::Stop;
+                }
+            }
+        }
+
+        // Insert pair, leave cursor between.
+        let mut iter = buffer.iter_at_mark(&buffer.get_insert());
+        buffer.begin_user_action();
+        buffer.insert(&mut iter, &format!("{}{}", open, close));
+        let mut cursor = buffer.iter_at_mark(&buffer.get_insert());
+        cursor.backward_char();
+        buffer.place_cursor(&cursor);
+        buffer.end_user_action();
+        gtk4::glib::Propagation::Stop
+    });
+    view.add_controller(key_ctrl);
 }
 
 /// Pick a GtkSourceView language for files that the upstream mime/glob
