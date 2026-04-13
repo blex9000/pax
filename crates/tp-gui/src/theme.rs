@@ -148,6 +148,7 @@ pub enum Theme {
     CatppuccinLatte,
     Dracula,
     Nord,
+    Aurora,
 }
 
 impl Default for Theme {
@@ -171,6 +172,7 @@ impl Theme {
             Theme::CatppuccinLatte => "Catppuccin Latte",
             Theme::Dracula => "Dracula",
             Theme::Nord => "Nord",
+            Theme::Aurora => "Aurora",
             Theme::System => unreachable!(),
         }
     }
@@ -182,12 +184,13 @@ impl Theme {
             Theme::CatppuccinMocha,
             Theme::CatppuccinLatte,
             Theme::Dracula,
+            Theme::Aurora,
         ]
     }
 
     pub fn color_scheme(&self) -> libadwaita::ColorScheme {
         match self.resolved() {
-            Theme::CatppuccinLatte => libadwaita::ColorScheme::ForceLight,
+            Theme::CatppuccinLatte | Theme::Aurora => libadwaita::ColorScheme::ForceLight,
             Theme::Graphite | Theme::CatppuccinMocha | Theme::Dracula | Theme::Nord => {
                 libadwaita::ColorScheme::ForceDark
             }
@@ -202,6 +205,7 @@ impl Theme {
             Theme::CatppuccinLatte => "catppuccin-latte",
             Theme::Dracula => "dracula",
             Theme::Nord => "nord",
+            Theme::Aurora => "aurora",
             Theme::System => unreachable!(),
         }
     }
@@ -214,6 +218,7 @@ impl Theme {
             "catppuccin-latte" => Theme::CatppuccinLatte,
             "dracula" => Theme::Dracula,
             "nord" => Theme::Nord,
+            "aurora" => Theme::Aurora,
             _ => Theme::Nord,
         }
     }
@@ -241,6 +246,10 @@ impl Theme {
                 gtk4::gdk::RGBA::new(0.180, 0.204, 0.251, 1.0), // #2e3440
                 gtk4::gdk::RGBA::new(0.925, 0.937, 0.957, 1.0), // #eceff4
             )),
+            Theme::Aurora => Some((
+                gtk4::gdk::RGBA::new(0.965, 0.976, 0.992, 1.0), // #f6f9fd
+                gtk4::gdk::RGBA::new(0.102, 0.153, 0.251, 1.0), // #1a2740
+            )),
             Theme::System => unreachable!(),
         }
     }
@@ -254,6 +263,7 @@ impl Theme {
             Theme::CatppuccinLatte => "pax-catppuccin-latte",
             Theme::Dracula => "pax-dracula",
             Theme::Nord => "pax-nord",
+            Theme::Aurora => "pax-aurora",
             Theme::System => unreachable!(),
         }
     }
@@ -263,7 +273,7 @@ impl Theme {
     pub fn sourceview_scheme_fallback(&self) -> &str {
         match self.resolved() {
             Theme::Graphite => "Adwaita-dark",
-            Theme::CatppuccinLatte => "Adwaita",
+            Theme::CatppuccinLatte | Theme::Aurora => "Adwaita",
             Theme::CatppuccinMocha | Theme::Dracula | Theme::Nord => "Adwaita-dark",
             Theme::System => unreachable!(),
         }
@@ -277,6 +287,7 @@ impl Theme {
             Theme::CatppuccinLatte => CATPPUCCIN_LATTE_CSS,
             Theme::Dracula => DRACULA_CSS,
             Theme::Nord => NORD_CSS,
+            Theme::Aurora => AURORA_CSS,
             Theme::System => unreachable!(),
         }
     }
@@ -1179,11 +1190,57 @@ const NORD_CSS: &str = "\
 @define-color headerbar_backdrop_color @headerbar_bg_color;
 ";
 
+// Aurora — futuristic light theme.
+// Cool polar-white surfaces with iridescent cyan/violet borders.
+// Accent: electric cyan. Borders carry a violet wash for an "etched glass" feel.
+const AURORA_CSS: &str = "\
+@define-color bg_primary #f4f7fb;
+@define-color bg_secondary #eaf0f8;
+@define-color bg_tertiary @bg_secondary;
+@define-color bg_card #e0e8f3;
+@define-color bg_dialog #e0e8f3;
+@define-color bg_popover #eaf0f8;
+@define-color bg_sidebar #e8eef7;
+@define-color bg_sidebar_secondary #f4f7fb;
+@define-color bg_thumbnail #e0e8f3;
+@define-color bg_view #fafcfe;
+@define-color bg_panel_header #eaf0f8;
+@define-color bg_terminal #f6f9fd;
+@define-color window_bg_color @bg_primary;
+@define-color window_fg_color #1a2740;
+@define-color headerbar_bg_color @bg_secondary;
+@define-color workspace_tabs_bar_bg_color @bg_tertiary;
+@define-color headerbar_fg_color #1a2740;
+@define-color card_bg_color @bg_card;
+@define-color card_fg_color #1a2740;
+@define-color dialog_bg_color @bg_dialog;
+@define-color dialog_fg_color #1a2740;
+@define-color popover_bg_color @bg_popover;
+@define-color popover_fg_color #1a2740;
+@define-color popover_shade_color alpha(#1a2740, 0.10);
+@define-color sidebar_bg_color @bg_sidebar;
+@define-color sidebar_fg_color #1a2740;
+@define-color secondary_sidebar_bg_color @bg_sidebar_secondary;
+@define-color secondary_sidebar_fg_color #1a2740;
+@define-color thumbnail_bg_color @bg_thumbnail;
+@define-color view_bg_color @bg_view;
+@define-color panel_header_bg_color @bg_panel_header;
+@define-color view_fg_color #1a2740;
+@define-color terminal_bg_color @bg_terminal;
+@define-color terminal_fg_color #1a2740;
+@define-color accent_bg_color #00b4d8;
+@define-color accent_fg_color #ffffff;
+@define-color accent_color #00b4d8;
+@define-color borders alpha(#5b8def, 0.35);
+@define-color headerbar_border_color alpha(#7e6aff, 0.30);
+@define-color headerbar_backdrop_color @headerbar_bg_color;
+";
+
 #[cfg(test)]
 mod tests {
     use super::{
-        Theme, BASE_CSS, CATPPUCCIN_LATTE_CSS, CATPPUCCIN_MOCHA_CSS, DRACULA_CSS, GRAPHITE_CSS,
-        NORD_CSS,
+        Theme, AURORA_CSS, BASE_CSS, CATPPUCCIN_LATTE_CSS, CATPPUCCIN_MOCHA_CSS, DRACULA_CSS,
+        GRAPHITE_CSS, NORD_CSS,
     };
 
     #[test]
@@ -1214,6 +1271,7 @@ mod tests {
             CATPPUCCIN_LATTE_CSS,
             DRACULA_CSS,
             NORD_CSS,
+            AURORA_CSS,
         ] {
             for token in [
                 "@define-color dialog_bg_color",
@@ -1239,6 +1297,7 @@ mod tests {
             CATPPUCCIN_LATTE_CSS,
             DRACULA_CSS,
             NORD_CSS,
+            AURORA_CSS,
         ] {
             for token in [
                 "@define-color bg_primary",
@@ -1265,6 +1324,25 @@ mod tests {
         assert!(
             CATPPUCCIN_LATTE_CSS.contains("@define-color popover_bg_color @headerbar_bg_color;")
         );
+    }
+
+    #[test]
+    fn aurora_theme_is_available_as_light_theme() {
+        assert!(Theme::all().contains(&Theme::Aurora));
+        assert_eq!(Theme::from_id("aurora"), Theme::Aurora);
+        assert_eq!(Theme::Aurora.to_id(), "aurora");
+        assert_eq!(
+            Theme::Aurora.color_scheme(),
+            libadwaita::ColorScheme::ForceLight
+        );
+        // Iridescent border wash is the signature of Aurora.
+        assert!(AURORA_CSS.contains("@define-color borders alpha(#5b8def, 0.35);"));
+        assert!(
+            AURORA_CSS.contains("@define-color headerbar_border_color alpha(#7e6aff, 0.30);")
+        );
+        // Cool polar-white surface, electric cyan accent.
+        assert!(AURORA_CSS.contains("@define-color bg_primary #f4f7fb;"));
+        assert!(AURORA_CSS.contains("@define-color accent_color #00b4d8;"));
     }
 
     #[test]

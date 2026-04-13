@@ -627,6 +627,16 @@ fn terminal_palette_for(theme: crate::theme::Theme, _system_dark: bool) -> Termi
                 0x6272a4, 0xff6e6e, 0x69ff94, 0xffffa5, 0xd6acff, 0xff92df, 0xa4ffff, 0xffffff,
             ],
         ),
+        crate::theme::Theme::Aurora => make_terminal_palette(
+            0xf6f9fd,
+            0x1a2740,
+            0xcfe0f5,
+            0x1a2740,
+            [
+                0x1a2740, 0xe63946, 0x06a77d, 0xd68900, 0x0066ff, 0x9d4edd, 0x0095b6, 0xa9b4c2,
+                0x5a6a85, 0xff5566, 0x14c897, 0xeaa20a, 0x3385ff, 0xb368ff, 0x12b0d0, 0x1a2740,
+            ],
+        ),
     }
 }
 
