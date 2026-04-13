@@ -93,14 +93,15 @@ fn remove_builtin_context_gesture<W: IsA<gtk4::Widget>>(widget: &W) {
 }
 
 fn install_text_context_menu(
+    host: &gtk4::ScrolledWindow,
     view: &sourceview5::View,
     buffer: &sourceview5::Buffer,
     editable: bool,
 ) {
     // SourceView/TextView registers its own right-click gesture that shows
-    // GTK's default context menu with the unstyled bg wrapper. Best-effort
-    // removal plus capture-phase interception to ensure only our app-popover
-    // styled menu shows.
+    // GTK's default context menu with the unstyled bg wrapper. Attaching the
+    // gesture on the parent ScrolledWindow with capture phase guarantees we
+    // intercept the event before it reaches the view.
     remove_builtin_context_gesture(view);
 
     let gesture = gtk4::GestureClick::new();
@@ -108,6 +109,7 @@ fn install_text_context_menu(
     gesture.set_propagation_phase(gtk4::PropagationPhase::Capture);
     let view_for_menu = view.clone();
     let buffer_for_menu = buffer.clone();
+    let host_for_menu = host.clone();
     gesture.connect_pressed(move |g, _n, x, y| {
         g.set_state(gtk4::EventSequenceState::Claimed);
         let v = &view_for_menu;
@@ -256,11 +258,11 @@ fn install_text_context_menu(
         }
 
         popover.set_child(Some(&menu_box));
-        popover.set_parent(v);
+        popover.set_parent(&host_for_menu);
         popover.set_pointing_to(Some(&gtk4::gdk::Rectangle::new(x as i32, y as i32, 1, 1)));
         popover.popup();
     });
-    view.add_controller(gesture);
+    host.add_controller(gesture);
 }
 
 fn install_text_clipboard_shortcuts<W: IsA<gtk4::Widget>>(widget: &W) {
@@ -1164,7 +1166,6 @@ impl EditorTabs {
             view.set_left_margin(3);
             install_text_clipboard_shortcuts(&view);
             install_text_history_shortcuts(&view, buf);
-            install_text_context_menu(&view, buf, editable);
             if editable {
                 view.set_auto_indent(true);
                 view.set_tab_width(4);
@@ -1173,6 +1174,7 @@ impl EditorTabs {
             scroll.set_child(Some(&view));
             scroll.set_vexpand(true);
             scroll.set_hexpand(true);
+            install_text_context_menu(&scroll, &view, buf, editable);
             scroll
         };
 
