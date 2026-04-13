@@ -447,7 +447,7 @@ notebook.workspace-tabs > header > tabs > tab {
   margin-right: 6px;
   margin-bottom: 4px;
   min-height: 12px;
-  background-color: alpha(@headerbar_fg_color, 0.03);
+  background-color: transparent;
   padding-top: 0;
   padding-bottom: 0;
   padding-left: 3px;
@@ -480,7 +480,7 @@ notebook.workspace-tabs > header > tabs > tab:hover {
   background-color: alpha(@accent_color, 0.12);
 }
 notebook.workspace-tabs > header > tabs > tab:checked {
-  background-color: @panel_header_bg_color;
+  background-color: transparent;
   border-color: alpha(@accent_color, 0.34);
   box-shadow: none;
 }
