@@ -618,6 +618,9 @@ fn setup_notebook_menu_widget(notebook: &gtk4::Notebook, action_cb: Option<Panel
     notebook.append_page(&add_page_widget, Some(&add_label));
     notebook.set_tab_reorderable(&add_page_widget, false);
     notebook.set_tab_detachable(&add_page_widget, false);
+    let add_page_meta = notebook.page(&add_page_widget);
+    add_page_meta.set_tab_expand(false);
+    add_page_meta.set_tab_fill(false);
 
     if notebook.has_css_class("pax-tab-edit-gesture") {
         return;
@@ -1098,6 +1101,9 @@ pub fn build_layout_widget_inner(
                     &child_path,
                 );
                 notebook.append_page(&page_widget, Some(&label));
+                let page_meta = notebook.page(&page_widget);
+                page_meta.set_tab_expand(true);
+                page_meta.set_tab_fill(true);
 
                 // Panels inside tabs keep their title bar visible
                 // (includes collapse button at top-left)
