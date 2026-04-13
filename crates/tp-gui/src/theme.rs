@@ -150,7 +150,7 @@ pub enum Theme {
     Nord,
     Aurora,
     Quantum,
-    NeonPorcelain,
+    Hologram,
 }
 
 impl Default for Theme {
@@ -176,7 +176,7 @@ impl Theme {
             Theme::Nord => "Nord",
             Theme::Aurora => "Aurora",
             Theme::Quantum => "Quantum",
-            Theme::NeonPorcelain => "Neon Porcelain",
+            Theme::Hologram => "Hologram",
             Theme::System => unreachable!(),
         }
     }
@@ -190,16 +190,15 @@ impl Theme {
             Theme::Dracula,
             Theme::Aurora,
             Theme::Quantum,
-            Theme::NeonPorcelain,
+            Theme::Hologram,
         ]
     }
 
     pub fn color_scheme(&self) -> libadwaita::ColorScheme {
         match self.resolved() {
-            Theme::CatppuccinLatte
-            | Theme::Aurora
-            | Theme::Quantum
-            | Theme::NeonPorcelain => libadwaita::ColorScheme::ForceLight,
+            Theme::CatppuccinLatte | Theme::Aurora | Theme::Quantum | Theme::Hologram => {
+                libadwaita::ColorScheme::ForceLight
+            }
             Theme::Graphite | Theme::CatppuccinMocha | Theme::Dracula | Theme::Nord => {
                 libadwaita::ColorScheme::ForceDark
             }
@@ -216,7 +215,7 @@ impl Theme {
             Theme::Nord => "nord",
             Theme::Aurora => "aurora",
             Theme::Quantum => "quantum",
-            Theme::NeonPorcelain => "neon-porcelain",
+            Theme::Hologram => "hologram",
             Theme::System => unreachable!(),
         }
     }
@@ -231,7 +230,7 @@ impl Theme {
             "nord" => Theme::Nord,
             "aurora" => Theme::Aurora,
             "quantum" => Theme::Quantum,
-            "neon-porcelain" => Theme::NeonPorcelain,
+            "hologram" => Theme::Hologram,
             _ => Theme::Nord,
         }
     }
@@ -267,9 +266,9 @@ impl Theme {
                 gtk4::gdk::RGBA::new(0.980, 0.988, 0.996, 1.0), // #fafcfe
                 gtk4::gdk::RGBA::new(0.039, 0.102, 0.200, 1.0), // #0a1a33
             )),
-            Theme::NeonPorcelain => Some((
-                gtk4::gdk::RGBA::new(1.000, 0.988, 0.976, 1.0), // #fffcf9
-                gtk4::gdk::RGBA::new(0.102, 0.043, 0.122, 1.0), // #1a0b1f
+            Theme::Hologram => Some((
+                gtk4::gdk::RGBA::new(0.984, 0.988, 1.000, 1.0), // #fbfcff
+                gtk4::gdk::RGBA::new(0.039, 0.055, 0.122, 1.0), // #0a0e1f
             )),
             Theme::System => unreachable!(),
         }
@@ -286,7 +285,7 @@ impl Theme {
             Theme::Nord => "pax-nord",
             Theme::Aurora => "pax-aurora",
             Theme::Quantum => "pax-quantum",
-            Theme::NeonPorcelain => "pax-neon-porcelain",
+            Theme::Hologram => "pax-hologram",
             Theme::System => unreachable!(),
         }
     }
@@ -296,10 +295,7 @@ impl Theme {
     pub fn sourceview_scheme_fallback(&self) -> &str {
         match self.resolved() {
             Theme::Graphite => "Adwaita-dark",
-            Theme::CatppuccinLatte
-            | Theme::Aurora
-            | Theme::Quantum
-            | Theme::NeonPorcelain => "Adwaita",
+            Theme::CatppuccinLatte | Theme::Aurora | Theme::Quantum | Theme::Hologram => "Adwaita",
             Theme::CatppuccinMocha | Theme::Dracula | Theme::Nord => "Adwaita-dark",
             Theme::System => unreachable!(),
         }
@@ -315,8 +311,18 @@ impl Theme {
             Theme::Nord => NORD_CSS,
             Theme::Aurora => AURORA_CSS,
             Theme::Quantum => QUANTUM_CSS,
-            Theme::NeonPorcelain => NEON_PORCELAIN_CSS,
+            Theme::Hologram => HOLOGRAM_CSS,
             Theme::System => unreachable!(),
+        }
+    }
+
+    /// Optional theme-specific CSS rules (selectors + declarations) appended
+    /// AFTER BASE_CSS so they override base styling. Returns an empty string
+    /// for themes that only customize the color palette.
+    pub fn css_extra(&self) -> &str {
+        match self.resolved() {
+            Theme::Hologram => HOLOGRAM_EXTRA_CSS,
+            _ => "",
         }
     }
 }
@@ -1311,57 +1317,143 @@ const QUANTUM_CSS: &str = "\
 @define-color headerbar_backdrop_color @headerbar_bg_color;
 ";
 
-// Neon Porcelain — synthwave-inverted light theme.
-// Warm cream surfaces with a hot-pink + cyan duality: pink borders on
-// the body, a teal/cyan separator under the headerbar. Miami Vice 2090.
-const NEON_PORCELAIN_CSS: &str = "\
-@define-color bg_primary #fcf9f7;
-@define-color bg_secondary #f5efe9;
+// Hologram — sci-fi light theme that breaks the rectangle paradigm.
+// Iridescent ice surfaces with a mint-electric / laser-magenta duality.
+// Color tokens; structural rules live in HOLOGRAM_EXTRA_CSS so they can
+// override BASE_CSS (tabs gain a single bottom-edge glow line, panels
+// get an asymmetric left scanline, focus states gain neon glow shadows).
+const HOLOGRAM_CSS: &str = "\
+@define-color bg_primary #f3f5fc;
+@define-color bg_secondary #e8ecf7;
 @define-color bg_tertiary @bg_secondary;
-@define-color bg_card #ebe2d8;
-@define-color bg_dialog #ebe2d8;
-@define-color bg_popover #f5efe9;
-@define-color bg_sidebar #f0e8e0;
-@define-color bg_sidebar_secondary #fcf9f7;
-@define-color bg_thumbnail #ebe2d8;
-@define-color bg_view #fffcf9;
-@define-color bg_panel_header #f5efe9;
-@define-color bg_terminal #fffcf9;
+@define-color bg_card #dde2f0;
+@define-color bg_dialog #dde2f0;
+@define-color bg_popover #e8ecf7;
+@define-color bg_sidebar #e2e6f3;
+@define-color bg_sidebar_secondary #f3f5fc;
+@define-color bg_thumbnail #dde2f0;
+@define-color bg_view #fbfcff;
+@define-color bg_panel_header #e8ecf7;
+@define-color bg_terminal #fbfcff;
 @define-color window_bg_color @bg_primary;
-@define-color window_fg_color #1a0b1f;
+@define-color window_fg_color #0a0e1f;
 @define-color headerbar_bg_color @bg_secondary;
 @define-color workspace_tabs_bar_bg_color @bg_tertiary;
-@define-color headerbar_fg_color #1a0b1f;
+@define-color headerbar_fg_color #0a0e1f;
 @define-color card_bg_color @bg_card;
-@define-color card_fg_color #1a0b1f;
+@define-color card_fg_color #0a0e1f;
 @define-color dialog_bg_color @bg_dialog;
-@define-color dialog_fg_color #1a0b1f;
+@define-color dialog_fg_color #0a0e1f;
 @define-color popover_bg_color @bg_popover;
-@define-color popover_fg_color #1a0b1f;
-@define-color popover_shade_color alpha(#1a0b1f, 0.16);
+@define-color popover_fg_color #0a0e1f;
+@define-color popover_shade_color alpha(#0a0e1f, 0.18);
 @define-color sidebar_bg_color @bg_sidebar;
-@define-color sidebar_fg_color #1a0b1f;
+@define-color sidebar_fg_color #0a0e1f;
 @define-color secondary_sidebar_bg_color @bg_sidebar_secondary;
-@define-color secondary_sidebar_fg_color #1a0b1f;
+@define-color secondary_sidebar_fg_color #0a0e1f;
 @define-color thumbnail_bg_color @bg_thumbnail;
 @define-color view_bg_color @bg_view;
 @define-color panel_header_bg_color @bg_panel_header;
-@define-color view_fg_color #1a0b1f;
+@define-color view_fg_color #0a0e1f;
 @define-color terminal_bg_color @bg_terminal;
-@define-color terminal_fg_color #1a0b1f;
-@define-color accent_bg_color #ff2d95;
+@define-color terminal_fg_color #0a0e1f;
+@define-color accent_bg_color #00c4a3;
 @define-color accent_fg_color #ffffff;
-@define-color accent_color #ff2d95;
-@define-color borders alpha(#ff2d95, 0.40);
-@define-color headerbar_border_color alpha(#00c5b8, 0.55);
+@define-color accent_color #00c4a3;
+@define-color borders alpha(#00c4a3, 0.32);
+@define-color headerbar_border_color alpha(#ff3c92, 0.40);
 @define-color headerbar_backdrop_color @headerbar_bg_color;
+@define-color hologram_mint #00c4a3;
+@define-color hologram_magenta #ff3c92;
+@define-color hologram_glow_mint alpha(#00ffd0, 0.55);
+@define-color hologram_glow_magenta alpha(#ff3c92, 0.55);
+";
+
+// Hologram structural CSS — appended after BASE_CSS so it wins.
+// Tabs lose lateral borders entirely and gain a bottom-edge "scanline"
+// (mint at rest → magenta with glow when active). Panel frames get an
+// asymmetric mint left-edge "scanner". Buttons glow on hover.
+const HOLOGRAM_EXTRA_CSS: &str = "\
+notebook.workspace-tabs > header > tabs > tab,
+notebook.workspace-tabs > header > tabs > tab:checked {
+  border-top: none;
+  border-left: none;
+  border-right: none;
+  border-bottom: 1px solid alpha(@hologram_mint, 0.35);
+  border-radius: 0;
+  background-color: transparent;
+  background-image: none;
+  box-shadow: none;
+  margin-right: 8px;
+  margin-bottom: 0;
+  padding-bottom: 2px;
+}
+notebook.workspace-tabs > header > tabs > tab:hover {
+  border-bottom: 2px solid @hologram_mint;
+  background-color: transparent;
+  padding-bottom: 1px;
+}
+notebook.workspace-tabs > header > tabs > tab:checked {
+  border-bottom: 2px solid @hologram_magenta;
+  box-shadow: 0 4px 10px -2px @hologram_glow_magenta;
+  padding-bottom: 1px;
+}
+notebook.workspace-tabs > header > tabs > tab:checked label {
+  color: @hologram_magenta;
+}
+notebook.workspace-tabs > header > tabs > tab:checked image,
+notebook.workspace-tabs > header > tabs > tab:checked image.workspace-tab-type-icon {
+  color: @hologram_magenta;
+}
+box.panel-frame {
+  border-left: 1px solid alpha(@hologram_mint, 0.55);
+  border-top: none;
+  border-right: none;
+  border-bottom: none;
+}
+box.panel-frame:focus-within {
+  border-left: 2px solid @hologram_magenta;
+  box-shadow: -3px 0 10px -2px @hologram_glow_magenta;
+}
+button:hover image,
+togglebutton:hover image,
+menubutton > button:hover image {
+  color: @hologram_mint;
+  text-shadow: 0 0 6px @hologram_glow_mint;
+}
+button.suggested-action {
+  background-color: transparent;
+  background-image: none;
+  border: 1px solid @hologram_mint;
+  color: @hologram_mint;
+  box-shadow: 0 0 8px -1px @hologram_glow_mint;
+}
+button.suggested-action:hover {
+  background-color: alpha(@hologram_mint, 0.10);
+  box-shadow: 0 0 12px @hologram_glow_mint;
+}
+entry, spinbutton {
+  border: none;
+  border-bottom: 1px solid alpha(@hologram_mint, 0.40);
+  border-radius: 0;
+  background-color: transparent;
+  box-shadow: none;
+}
+entry:focus, spinbutton:focus {
+  border-bottom: 1px solid @hologram_magenta;
+  box-shadow: 0 2px 8px -2px @hologram_glow_magenta;
+}
+popover.app-popover > contents {
+  border: 1px solid alpha(@hologram_mint, 0.45);
+  box-shadow: 0 0 16px -2px @hologram_glow_mint;
+}
 ";
 
 #[cfg(test)]
 mod tests {
     use super::{
         Theme, AURORA_CSS, BASE_CSS, CATPPUCCIN_LATTE_CSS, CATPPUCCIN_MOCHA_CSS, DRACULA_CSS,
-        GRAPHITE_CSS, NEON_PORCELAIN_CSS, NORD_CSS, QUANTUM_CSS,
+        GRAPHITE_CSS, HOLOGRAM_CSS, HOLOGRAM_EXTRA_CSS, NORD_CSS, QUANTUM_CSS,
     };
 
     #[test]
@@ -1394,7 +1486,7 @@ mod tests {
             NORD_CSS,
             AURORA_CSS,
             QUANTUM_CSS,
-            NEON_PORCELAIN_CSS,
+            HOLOGRAM_CSS,
         ] {
             for token in [
                 "@define-color dialog_bg_color",
@@ -1422,7 +1514,7 @@ mod tests {
             NORD_CSS,
             AURORA_CSS,
             QUANTUM_CSS,
-            NEON_PORCELAIN_CSS,
+            HOLOGRAM_CSS,
         ] {
             for token in [
                 "@define-color bg_primary",
@@ -1491,21 +1583,58 @@ mod tests {
     }
 
     #[test]
-    fn neon_porcelain_theme_is_available_as_light_theme() {
-        assert!(Theme::all().contains(&Theme::NeonPorcelain));
-        assert_eq!(Theme::from_id("neon-porcelain"), Theme::NeonPorcelain);
-        assert_eq!(Theme::NeonPorcelain.to_id(), "neon-porcelain");
+    fn hologram_theme_is_available_as_light_theme() {
+        assert!(Theme::all().contains(&Theme::Hologram));
+        assert_eq!(Theme::from_id("hologram"), Theme::Hologram);
+        assert_eq!(Theme::Hologram.to_id(), "hologram");
         assert_eq!(
-            Theme::NeonPorcelain.color_scheme(),
+            Theme::Hologram.color_scheme(),
             libadwaita::ColorScheme::ForceLight
         );
-        // Synthwave duality: hot-pink body borders, cyan headerbar separator.
-        assert!(NEON_PORCELAIN_CSS.contains("@define-color accent_color #ff2d95;"));
-        assert!(NEON_PORCELAIN_CSS.contains("@define-color borders alpha(#ff2d95, 0.40);"));
-        assert!(NEON_PORCELAIN_CSS
-            .contains("@define-color headerbar_border_color alpha(#00c5b8, 0.55);"));
-        // Warm cream surface.
-        assert!(NEON_PORCELAIN_CSS.contains("@define-color bg_primary #fcf9f7;"));
+        // Mint accent + magenta separator define the Hologram duality.
+        assert!(HOLOGRAM_CSS.contains("@define-color accent_color #00c4a3;"));
+        assert!(
+            HOLOGRAM_CSS.contains("@define-color headerbar_border_color alpha(#ff3c92, 0.40);")
+        );
+        // Iridescent ice surface.
+        assert!(HOLOGRAM_CSS.contains("@define-color bg_primary #f3f5fc;"));
+        // Custom glow tokens for the structural rules.
+        assert!(HOLOGRAM_CSS.contains("@define-color hologram_mint #00c4a3;"));
+        assert!(HOLOGRAM_CSS.contains("@define-color hologram_magenta #ff3c92;"));
+    }
+
+    #[test]
+    fn hologram_extra_css_breaks_tab_borders_and_adds_glow() {
+        // Tabs lose lateral borders and gain only a bottom edge.
+        assert!(HOLOGRAM_EXTRA_CSS
+            .contains("border-bottom: 1px solid alpha(@hologram_mint, 0.35);"));
+        // Active tab gains magenta scanline + glow shadow.
+        assert!(HOLOGRAM_EXTRA_CSS.contains("border-bottom: 2px solid @hologram_magenta;"));
+        assert!(HOLOGRAM_EXTRA_CSS.contains("box-shadow: 0 4px 10px -2px @hologram_glow_magenta;"));
+        // Panel frames get an asymmetric mint scanline on the left edge.
+        assert!(
+            HOLOGRAM_EXTRA_CSS.contains("border-left: 1px solid alpha(@hologram_mint, 0.55);")
+        );
+    }
+
+    #[test]
+    fn other_themes_have_no_extra_css() {
+        for theme in [
+            Theme::Nord,
+            Theme::Graphite,
+            Theme::CatppuccinMocha,
+            Theme::CatppuccinLatte,
+            Theme::Dracula,
+            Theme::Aurora,
+            Theme::Quantum,
+        ] {
+            assert!(
+                theme.css_extra().is_empty(),
+                "theme {:?} unexpectedly defines css_extra",
+                theme
+            );
+        }
+        assert!(!Theme::Hologram.css_extra().is_empty());
     }
 
     #[test]

@@ -1444,8 +1444,14 @@ fn apply_theme(theme: Theme) {
     // Update VTE terminal colors
     crate::theme::set_current_theme(theme);
 
-    // Build CSS: theme overrides + base layout
-    let css = format!("{}\n{}", theme.css_overrides(), crate::theme::BASE_CSS);
+    // Build CSS: color overrides → base layout → theme-specific structural rules.
+    // Extras come last so themes can override BASE_CSS selectors when needed.
+    let css = format!(
+        "{}\n{}\n{}",
+        theme.css_overrides(),
+        crate::theme::BASE_CSS,
+        theme.css_extra(),
+    );
 
     let provider = gtk4::CssProvider::new();
     provider.load_from_data(&css);
