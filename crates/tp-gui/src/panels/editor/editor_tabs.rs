@@ -636,9 +636,14 @@ impl EditorTabs {
         buf.set_text(&content);
         buf.set_highlight_syntax(true);
 
-        // Detect language
+        // Detect language. GtkSourceView's mime/glob heuristics miss some
+        // common files (e.g. .env, .envrc) — fall back to a hand-rolled map
+        // so syntax highlighting and the language-aware comment toggle work.
         let lang_manager = sourceview5::LanguageManager::default();
-        if let Some(lang) = lang_manager.guess_language(Some(path), None::<&str>) {
+        let lang = lang_manager
+            .guess_language(Some(path), None::<&str>)
+            .or_else(|| fallback_language_for(&lang_manager, path));
+        if let Some(lang) = lang {
             buf.set_language(Some(&lang));
         }
 
@@ -1790,6 +1795,25 @@ fn show_commit_file_diff(
             cs.set_visible_child_name("commit-diff");
         });
     }
+}
+
+/// Pick a GtkSourceView language for files that the upstream mime/glob
+/// heuristics fail to recognise. Returns `None` when no override applies,
+/// leaving the buffer unstyled (the editor still works as plain text).
+fn fallback_language_for(
+    manager: &sourceview5::LanguageManager,
+    path: &Path,
+) -> Option<sourceview5::Language> {
+    let name = path.file_name().and_then(|s| s.to_str())?;
+    // Dotenv-style files: KEY=value with `#` comments, shell-compatible.
+    if name == ".env"
+        || name == ".envrc"
+        || name.starts_with(".env.")
+        || name.ends_with(".env")
+    {
+        return manager.language("sh");
+    }
+    None
 }
 
 fn get_mtime(path: &Path) -> u64 {
