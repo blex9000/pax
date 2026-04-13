@@ -16,6 +16,8 @@ const COLLAPSED_DRAG_STRIP_SIZE: i32 = 4;
 const WORKSPACE_TAB_PAGE_SHELL_CLASS: &str = "workspace-tab-page-shell";
 const COLLAPSED_PLACEHOLDER_CLASS: &str = "panel-collapsed-placeholder";
 const COLLAPSED_OVERLAY_LENGTH_INSET: i32 = 6;
+const COLLAPSED_FACING_GAP: i32 = 6;
+const COLLAPSED_PANEL_ALLOC: i32 = COLLAPSED_PANEL_SIZE + COLLAPSED_FACING_GAP;
 
 fn workspace_tabs_are_root(path: &[usize]) -> bool {
     path.is_empty()
@@ -1774,7 +1776,7 @@ fn setup_paned_drag_collapse(
             }
             target
                 .outer
-                .set_size_request(COLLAPSED_PANEL_SIZE, COLLAPSED_PANEL_SIZE);
+                .set_size_request(COLLAPSED_PANEL_ALLOC, COLLAPSED_PANEL_ALLOC);
             let icon = collapsed_icon_name(orient, is_start);
             if let Some(control) = overlay {
                 target.collapsed_view.set_visible(false);
@@ -1834,8 +1836,8 @@ fn setup_paned_drag_collapse(
         // schedule idle set_position with guard held to prevent cascading.
         let sc = start.as_ref().map_or(false, |t| t.is_collapsed());
         let ec = end.as_ref().map_or(false, |t| t.is_collapsed());
-        let need_snap_start = sc && start_size != COLLAPSED_PANEL_SIZE;
-        let need_snap_end = ec && end_size != COLLAPSED_PANEL_SIZE;
+        let need_snap_start = sc && start_size != COLLAPSED_PANEL_ALLOC;
+        let need_snap_end = ec && end_size != COLLAPSED_PANEL_ALLOC;
         if need_snap_start || need_snap_end {
             let p = paned.clone();
             let g = snap_guard.clone();
@@ -1848,10 +1850,10 @@ fn setup_paned_drag_collapse(
                 };
                 if t > 0 {
                     if need_snap_start {
-                        p.set_position(COLLAPSED_PANEL_SIZE);
+                        p.set_position(COLLAPSED_PANEL_ALLOC);
                     }
                     if need_snap_end {
-                        p.set_position(t - COLLAPSED_PANEL_SIZE);
+                        p.set_position(t - COLLAPSED_PANEL_ALLOC);
                     }
                 }
                 g.set(false);
