@@ -176,8 +176,44 @@ fn build_menu(
             &popover,
             buffer,
             sourceview5::ChangeCaseType::Toggle,
-            "tOGGLE cASE",
+            "Toggle Case",
         );
+
+        // Comment / uncomment driven by the buffer's source-language metadata.
+        let syntax = comment_syntax(buffer);
+        if syntax.line.is_some() || syntax.block.is_some() {
+            append_separator(&menu_box);
+            if let Some(line_marker) = syntax.line.clone() {
+                let btn = make_menu_button(
+                    "format-indent-more-symbolic",
+                    "Toggle Line Comment",
+                    "Ctrl+/",
+                );
+                let b = buffer.clone();
+                let p = popover.clone();
+                let marker = line_marker.clone();
+                btn.connect_clicked(move |_| {
+                    toggle_line_comment(&b, &marker);
+                    p.popdown();
+                });
+                menu_box.append(&btn);
+            }
+            if let Some((start_marker, end_marker)) = syntax.block.clone() {
+                let btn = make_menu_button(
+                    "format-justify-fill-symbolic",
+                    "Toggle Block Comment",
+                    "Ctrl+Shift+/",
+                );
+                let b = buffer.clone();
+                let p = popover.clone();
+                btn.connect_clicked(move |_| {
+                    toggle_block_comment(&b, &start_marker, &end_marker);
+                    p.popdown();
+                });
+                menu_box.append(&btn);
+            }
+        }
+
         append_separator(&menu_box);
         append_view_action(
             &menu_box,
@@ -311,6 +347,149 @@ fn remove_builtin_context_gesture<W: IsA<gtk4::Widget>>(widget: &W) {
             }
         }
     }
+}
+
+// ── Comment / uncomment ─────────────────────────────────────────────────────
+
+#[derive(Default, Clone)]
+struct CommentSyntax {
+    line: Option<String>,
+    block: Option<(String, String)>,
+}
+
+fn comment_syntax(buffer: &sourceview5::Buffer) -> CommentSyntax {
+    let Some(lang) = buffer.language() else {
+        return CommentSyntax::default();
+    };
+    let line = lang
+        .metadata("line-comment-start")
+        .map(|s| s.to_string())
+        .filter(|s| !s.is_empty());
+    let block_start = lang
+        .metadata("block-comment-start")
+        .map(|s| s.to_string())
+        .filter(|s| !s.is_empty());
+    let block_end = lang
+        .metadata("block-comment-end")
+        .map(|s| s.to_string())
+        .filter(|s| !s.is_empty());
+    let block = match (block_start, block_end) {
+        (Some(s), Some(e)) => Some((s, e)),
+        _ => None,
+    };
+    CommentSyntax { line, block }
+}
+
+/// Toggle line comment on the current line or every line touched by the
+/// selection. If every non-empty line in the range starts with the marker the
+/// markers are removed; otherwise the marker (followed by a space) is inserted
+/// at the column of the first non-whitespace character.
+fn toggle_line_comment(buffer: &sourceview5::Buffer, marker: &str) {
+    let (sel_start, sel_end) = if buffer.has_selection() {
+        buffer.selection_bounds().unwrap_or_else(|| buffer.bounds())
+    } else {
+        let cursor = buffer.iter_at_mark(&buffer.get_insert());
+        (cursor.clone(), cursor)
+    };
+    let start_line = sel_start.line();
+    let mut end_line = sel_end.line();
+    // If the selection ends at column 0 on a new line, treat it as belonging
+    // to the previous line (matches how editors commonly behave).
+    if sel_end.line_offset() == 0 && end_line > start_line {
+        end_line -= 1;
+    }
+
+    let line_text_at = |line_num: i32| -> Option<(gtk4::TextIter, gtk4::TextIter, String)> {
+        let line_iter = buffer.iter_at_line(line_num)?;
+        let mut end_iter = line_iter.clone();
+        end_iter.forward_to_line_end();
+        let text = buffer.text(&line_iter, &end_iter, false).to_string();
+        Some((line_iter, end_iter, text))
+    };
+
+    let all_commented = (start_line..=end_line).all(|line_num| {
+        let Some((_, _, text)) = line_text_at(line_num) else {
+            return true;
+        };
+        let trimmed = text.trim_start();
+        trimmed.is_empty() || trimmed.starts_with(marker)
+    });
+
+    buffer.begin_user_action();
+    // Iterate in reverse so earlier mutations don't shift later iterators.
+    for line_num in (start_line..=end_line).rev() {
+        let Some((line_iter, end_iter, text)) = line_text_at(line_num) else {
+            continue;
+        };
+        let trimmed = text.trim_start();
+        if trimmed.is_empty() {
+            continue;
+        }
+        if all_commented {
+            // Strip marker (and a single trailing space if present).
+            let leading_ws_chars =
+                text.chars().take_while(|c| c.is_whitespace()).count() as i32;
+            let mut from = line_iter.clone();
+            from.forward_chars(leading_ws_chars);
+            let marker_chars = marker.chars().count() as i32;
+            let mut to = from.clone();
+            to.forward_chars(marker_chars);
+            // Optional single space after marker.
+            let after = buffer.text(&to, &end_iter, false).to_string();
+            if after.starts_with(' ') {
+                to.forward_char();
+            }
+            buffer.delete(&mut from, &mut to);
+        } else {
+            let leading_ws_chars =
+                text.chars().take_while(|c| c.is_whitespace()).count() as i32;
+            let mut insert_at = line_iter.clone();
+            insert_at.forward_chars(leading_ws_chars);
+            buffer.insert(&mut insert_at, &format!("{} ", marker));
+        }
+    }
+    buffer.end_user_action();
+}
+
+/// Toggle a block comment around the current selection (or current line if no
+/// selection). If the trimmed selection already starts with `start_marker` and
+/// ends with `end_marker`, the markers are removed; otherwise the selection is
+/// wrapped.
+fn toggle_block_comment(buffer: &sourceview5::Buffer, start_marker: &str, end_marker: &str) {
+    let (mut start, mut end) = if buffer.has_selection() {
+        buffer.selection_bounds().unwrap_or_else(|| buffer.bounds())
+    } else {
+        let cursor = buffer.iter_at_mark(&buffer.get_insert());
+        let mut line_start = cursor.clone();
+        line_start.set_line_offset(0);
+        let mut line_end = cursor.clone();
+        line_end.forward_to_line_end();
+        (line_start, line_end)
+    };
+
+    let text = buffer.text(&start, &end, false).to_string();
+    let trimmed = text.trim();
+
+    buffer.begin_user_action();
+    if trimmed.starts_with(start_marker) && trimmed.ends_with(end_marker) {
+        // Unwrap — keep surrounding whitespace from the original selection.
+        let leading_ws = &text[..text.len() - text.trim_start().len()];
+        let trailing_ws = &text[text.trim_end().len()..];
+        let inner = trimmed
+            .strip_prefix(start_marker)
+            .and_then(|s| s.strip_suffix(end_marker))
+            .unwrap_or(trimmed)
+            .trim_start_matches(' ')
+            .trim_end_matches(' ');
+        let replaced = format!("{}{}{}", leading_ws, inner, trailing_ws);
+        buffer.delete(&mut start, &mut end);
+        buffer.insert(&mut start, &replaced);
+    } else {
+        let replaced = format!("{} {} {}", start_marker, text, end_marker);
+        buffer.delete(&mut start, &mut end);
+        buffer.insert(&mut start, &replaced);
+    }
+    buffer.end_user_action();
 }
 
 // ── Smart format ─────────────────────────────────────────────────────────────
