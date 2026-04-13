@@ -76,10 +76,11 @@ fn make_popover_menu_item(icon: &str, label_text: &str, hint: &str) -> gtk4::But
     btn
 }
 
-fn remove_builtin_context_gesture<W: IsA<gtk4::Widget>>(widget: &W) {
+fn remove_builtin_context_gesture<W: IsA<gtk4::Widget>>(widget: &W) -> usize {
     let widget = widget.as_ref();
     let controllers = widget.observe_controllers();
     let n = controllers.n_items();
+    let mut removed = 0;
     for i in (0..n).rev() {
         let Some(obj) = controllers.item(i) else {
             continue;
@@ -87,9 +88,11 @@ fn remove_builtin_context_gesture<W: IsA<gtk4::Widget>>(widget: &W) {
         if let Ok(gc) = obj.downcast::<gtk4::GestureClick>() {
             if gc.button() == CONTEXT_MENU_BUTTON {
                 widget.remove_controller(&gc);
+                removed += 1;
             }
         }
     }
+    removed
 }
 
 fn install_text_context_menu(
@@ -102,7 +105,8 @@ fn install_text_context_menu(
     // GTK's default context menu with the unstyled bg wrapper. Attaching the
     // gesture on the parent ScrolledWindow with capture phase guarantees we
     // intercept the event before it reaches the view.
-    remove_builtin_context_gesture(view);
+    let removed = remove_builtin_context_gesture(view);
+    tracing::info!("diff context menu installed (removed {} builtin gestures)", removed);
 
     let gesture = gtk4::GestureClick::new();
     gesture.set_button(CONTEXT_MENU_BUTTON);
@@ -111,6 +115,7 @@ fn install_text_context_menu(
     let buffer_for_menu = buffer.clone();
     let host_for_menu = host.clone();
     gesture.connect_pressed(move |g, _n, x, y| {
+        tracing::info!("diff context menu gesture fired x={} y={}", x, y);
         g.set_state(gtk4::EventSequenceState::Claimed);
         let v = &view_for_menu;
         let b = &buffer_for_menu;
