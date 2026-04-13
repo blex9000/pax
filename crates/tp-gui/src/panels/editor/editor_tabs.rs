@@ -55,220 +55,7 @@ fn text_history_action(
     }
 }
 
-const CONTEXT_MENU_BUTTON: u32 = 3;
-
-fn make_popover_menu_item(icon: &str, label_text: &str, hint: &str) -> gtk4::Button {
-    let btn = gtk4::Button::new();
-    btn.add_css_class("flat");
-    btn.add_css_class("app-popover-button");
-    let hbox = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
-    hbox.append(&gtk4::Image::from_icon_name(icon));
-    let lbl = gtk4::Label::new(Some(label_text));
-    lbl.set_hexpand(true);
-    lbl.set_halign(gtk4::Align::Start);
-    hbox.append(&lbl);
-    if !hint.is_empty() {
-        let hint_lbl = gtk4::Label::new(Some(hint));
-        hint_lbl.add_css_class("dim-label");
-        hbox.append(&hint_lbl);
-    }
-    btn.set_child(Some(&hbox));
-    btn
-}
-
-fn remove_builtin_context_gesture<W: IsA<gtk4::Widget>>(widget: &W) -> usize {
-    let widget = widget.as_ref();
-    let controllers = widget.observe_controllers();
-    let n = controllers.n_items();
-    let mut removed = 0;
-    for i in (0..n).rev() {
-        let Some(obj) = controllers.item(i) else {
-            continue;
-        };
-        if let Ok(gc) = obj.downcast::<gtk4::GestureClick>() {
-            if gc.button() == CONTEXT_MENU_BUTTON {
-                widget.remove_controller(&gc);
-                removed += 1;
-            }
-        }
-    }
-    removed
-}
-
-fn install_text_context_menu(
-    host: &gtk4::ScrolledWindow,
-    view: &sourceview5::View,
-    buffer: &sourceview5::Buffer,
-    editable: bool,
-) {
-    // SourceView/TextView registers its own right-click gesture that shows
-    // GTK's default context menu with the unstyled bg wrapper. Attaching the
-    // gesture on the parent ScrolledWindow with capture phase guarantees we
-    // intercept the event before it reaches the view.
-    let removed = remove_builtin_context_gesture(view);
-    tracing::info!("diff context menu installed (removed {} builtin gestures)", removed);
-
-    let gesture = gtk4::GestureClick::new();
-    gesture.set_button(CONTEXT_MENU_BUTTON);
-    gesture.set_propagation_phase(gtk4::PropagationPhase::Capture);
-    let view_for_menu = view.clone();
-    let buffer_for_menu = buffer.clone();
-    let host_for_menu = host.clone();
-    gesture.connect_pressed(move |g, _n, x, y| {
-        tracing::info!("diff context menu gesture fired x={} y={}", x, y);
-        g.set_state(gtk4::EventSequenceState::Claimed);
-        let v = &view_for_menu;
-        let b = &buffer_for_menu;
-
-        let popover = gtk4::PopoverMenu::from_model(None::<&gtk4::gio::MenuModel>);
-        crate::theme::configure_popover(&popover);
-
-        let menu_box = gtk4::Box::new(gtk4::Orientation::Vertical, 2);
-        menu_box.set_margin_top(4);
-        menu_box.set_margin_bottom(4);
-        menu_box.set_margin_start(4);
-        menu_box.set_margin_end(4);
-
-        let append_action = |box_: &gtk4::Box,
-                             icon: &str,
-                             text: &str,
-                             hint: &str,
-                             action: &str| {
-            let btn = make_popover_menu_item(icon, text, hint);
-            let w = v.clone();
-            let p = popover.clone();
-            let a = action.to_string();
-            btn.connect_clicked(move |_| {
-                let _ = w.activate_action(&a, None::<&gtk4::glib::Variant>);
-                p.popdown();
-            });
-            box_.append(&btn);
-        };
-
-        let append_separator = |box_: &gtk4::Box| {
-            box_.append(&gtk4::Separator::new(gtk4::Orientation::Horizontal));
-        };
-
-        if editable {
-            let undo_btn = make_popover_menu_item("edit-undo-symbolic", "Undo", "Ctrl+Z");
-            undo_btn.set_sensitive(b.can_undo());
-            {
-                let bc = b.clone();
-                let p = popover.clone();
-                undo_btn.connect_clicked(move |_| {
-                    if bc.can_undo() {
-                        bc.undo();
-                    }
-                    p.popdown();
-                });
-            }
-            menu_box.append(&undo_btn);
-
-            let redo_btn = make_popover_menu_item("edit-redo-symbolic", "Redo", "Ctrl+Shift+Z");
-            redo_btn.set_sensitive(b.can_redo());
-            {
-                let bc = b.clone();
-                let p = popover.clone();
-                redo_btn.connect_clicked(move |_| {
-                    if bc.can_redo() {
-                        bc.redo();
-                    }
-                    p.popdown();
-                });
-            }
-            menu_box.append(&redo_btn);
-            append_separator(&menu_box);
-
-            append_action(&menu_box, "edit-cut-symbolic", "Cut", "Ctrl+X", "clipboard.cut");
-        }
-        append_action(
-            &menu_box,
-            "edit-copy-symbolic",
-            "Copy",
-            "Ctrl+C",
-            "clipboard.copy",
-        );
-        if editable {
-            append_action(
-                &menu_box,
-                "edit-paste-symbolic",
-                "Paste",
-                "Ctrl+V",
-                "clipboard.paste",
-            );
-        }
-        append_separator(&menu_box);
-
-        // Select All — operate directly on the buffer for reliability.
-        let select_all_btn =
-            make_popover_menu_item("edit-select-all-symbolic", "Select All", "Ctrl+A");
-        {
-            let bc = b.clone();
-            let p = popover.clone();
-            select_all_btn.connect_clicked(move |_| {
-                let (start, end) = bc.bounds();
-                bc.select_range(&start, &end);
-                p.popdown();
-            });
-        }
-        menu_box.append(&select_all_btn);
-
-        if editable {
-            // Change Case submenu (flat items).
-            append_separator(&menu_box);
-            let change_case = |case: sourceview5::ChangeCaseType, icon: &str, text: &str| {
-                let btn = make_popover_menu_item(icon, text, "");
-                let bc = b.clone();
-                let p = popover.clone();
-                btn.connect_clicked(move |_| {
-                    let (mut start, mut end) = if bc.has_selection() {
-                        bc.selection_bounds().unwrap_or_else(|| bc.bounds())
-                    } else {
-                        bc.bounds()
-                    };
-                    bc.change_case(case, &mut start, &mut end);
-                    p.popdown();
-                });
-                btn
-            };
-            menu_box.append(&change_case(
-                sourceview5::ChangeCaseType::Upper,
-                "format-text-underline-symbolic",
-                "UPPER CASE",
-            ));
-            menu_box.append(&change_case(
-                sourceview5::ChangeCaseType::Lower,
-                "format-text-underline-symbolic",
-                "lower case",
-            ));
-            menu_box.append(&change_case(
-                sourceview5::ChangeCaseType::Title,
-                "format-text-underline-symbolic",
-                "Title Case",
-            ));
-            menu_box.append(&change_case(
-                sourceview5::ChangeCaseType::Toggle,
-                "format-text-underline-symbolic",
-                "tOGGLE cASE",
-            ));
-
-            append_separator(&menu_box);
-            append_action(
-                &menu_box,
-                "face-smile-symbolic",
-                "Insert Emoji",
-                "Ctrl+.",
-                "misc.insert-emoji",
-            );
-        }
-
-        popover.set_child(Some(&menu_box));
-        popover.set_parent(&host_for_menu);
-        popover.set_pointing_to(Some(&gtk4::gdk::Rectangle::new(x as i32, y as i32, 1, 1)));
-        popover.popup();
-    });
-    host.add_controller(gesture);
-}
+use super::text_context_menu;
 
 fn install_text_clipboard_shortcuts<W: IsA<gtk4::Widget>>(widget: &W) {
     let widget = widget.as_ref().clone();
@@ -386,6 +173,32 @@ impl EditorTabs {
         source_scroll.set_child(Some(&source_view));
         source_scroll.set_vexpand(true);
         source_scroll.set_hexpand(true);
+
+        // Right-click context menu on the main editor — extras factory looks
+        // up the active file each time so the format action follows the
+        // currently-open file's extension.
+        if let Some(buf) = source_view.buffer().downcast_ref::<sourceview5::Buffer>() {
+            let view_for_menu = source_view.clone();
+            let state_for_menu = state.clone();
+            text_context_menu::install(&source_scroll, &source_view, buf, true, move || {
+                let st = state_for_menu.borrow();
+                let Some(idx) = st.active_tab else {
+                    return Vec::new();
+                };
+                let Some(open_file) = st.open_files.get(idx) else {
+                    return Vec::new();
+                };
+                let path = open_file.path.clone();
+                let buffer = match view_for_menu.buffer().downcast::<sourceview5::Buffer>() {
+                    Ok(b) => b,
+                    Err(_) => return Vec::new(),
+                };
+                drop(st);
+                text_context_menu::format_item_for(&path, &buffer)
+                    .map(|i| vec![i])
+                    .unwrap_or_default()
+            });
+        }
 
         // InfoBar container (for file-changed-on-disk warnings)
         let info_bar_container = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
@@ -1162,6 +975,7 @@ impl EditorTabs {
             }
         }
 
+        let file_path_owned = file_path.to_path_buf();
         let make_sv = |buf: &sourceview5::Buffer, editable: bool| -> gtk4::ScrolledWindow {
             let view = sourceview5::View::with_buffer(buf);
             view.add_css_class("editor-code-view");
@@ -1179,7 +993,16 @@ impl EditorTabs {
             scroll.set_child(Some(&view));
             scroll.set_vexpand(true);
             scroll.set_hexpand(true);
-            install_text_context_menu(&scroll, &view, buf, editable);
+            let file_path_factory = file_path_owned.clone();
+            let buf_factory = buf.clone();
+            text_context_menu::install(&scroll, &view, buf, editable, move || {
+                if !editable {
+                    return Vec::new();
+                }
+                text_context_menu::format_item_for(&file_path_factory, &buf_factory)
+                    .map(|i| vec![i])
+                    .unwrap_or_default()
+            });
             scroll
         };
 
@@ -1828,6 +1651,7 @@ fn show_commit_file_diff(
         scroll.set_child(Some(&view));
         scroll.set_vexpand(true);
         scroll.set_hexpand(true);
+        text_context_menu::install(&scroll, &view, buf, false, Vec::new);
         scroll
     };
 

@@ -1,5 +1,7 @@
 #[cfg(feature = "sourceview")]
 mod editor_tabs;
+#[cfg(feature = "sourceview")]
+mod text_context_menu;
 // Submodules for future tasks (stubs for now)
 pub mod file_backend;
 #[cfg(feature = "sourceview")]
