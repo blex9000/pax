@@ -510,7 +510,7 @@ notebook.workspace-tabs > header > tabs > tab:checked {
 }
 notebook.workspace-tabs-root {
   margin-top: 6px;
-  background-color: @panel_header_bg_color;
+  background-color: transparent;
 }
 notebook.workspace-tabs-nested {
   margin-top: 6px;
