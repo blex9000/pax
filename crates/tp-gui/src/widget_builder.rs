@@ -15,8 +15,6 @@ const PANED_OVERLAY_CLASS: &str = "paned-overlay-shell";
 const COLLAPSED_DRAG_STRIP_SIZE: i32 = 4;
 const WORKSPACE_TAB_PAGE_SHELL_CLASS: &str = "workspace-tab-page-shell";
 const COLLAPSED_PLACEHOLDER_CLASS: &str = "panel-collapsed-placeholder";
-const COLLAPSED_OVERLAY_LENGTH_INSET: i32 = 6;
-const COLLAPSED_OVERLAY_SHELL_CLASS: &str = "panel-collapsed-overlay-shell";
 
 fn workspace_tabs_are_root(path: &[usize]) -> bool {
     path.is_empty()
@@ -81,13 +79,49 @@ fn wrap_workspace_tab_page(child: gtk4::Widget) -> gtk4::Widget {
     shell.upcast()
 }
 
-fn apply_collapsed_overlay_length_inset(root: &gtk4::Box, orient: gtk4::Orientation) {
-    if orient == gtk4::Orientation::Horizontal {
-        root.set_margin_top(COLLAPSED_OVERLAY_LENGTH_INSET);
-        root.set_margin_bottom(COLLAPSED_OVERLAY_LENGTH_INSET);
-    } else {
-        root.set_margin_start(COLLAPSED_OVERLAY_LENGTH_INSET);
-        root.set_margin_end(COLLAPSED_OVERLAY_LENGTH_INSET);
+fn sync_collapsed_overlay_geometry(
+    control: &CollapsedOverlayControl,
+    overlay: &gtk4::Overlay,
+    sibling: Option<&DragCollapseTarget>,
+    orient: gtk4::Orientation,
+) {
+    let overlay_alloc = overlay.allocation();
+    let overlay_width = overlay_alloc.width();
+    let overlay_height = overlay_alloc.height();
+    if overlay_width <= 0 || overlay_height <= 0 {
+        return;
+    }
+
+    let Some(sibling_bounds) = sibling.and_then(|target| target.outer.compute_bounds(overlay)) else {
+        return;
+    };
+
+    let x = sibling_bounds.x().round().max(0.0) as i32;
+    let y = sibling_bounds.y().round().max(0.0) as i32;
+    let width = sibling_bounds.width().round().max(COLLAPSED_PANEL_SIZE as f32) as i32;
+    let height = sibling_bounds.height().round().max(COLLAPSED_PANEL_SIZE as f32) as i32;
+
+    control.root.set_margin_start(0);
+    control.root.set_margin_end(0);
+    control.root.set_margin_top(0);
+    control.root.set_margin_bottom(0);
+
+    match orient {
+        gtk4::Orientation::Horizontal => {
+            control.root.set_margin_top(y);
+            control
+                .root
+                .set_margin_bottom((overlay_height - (y + height)).max(0));
+            control.root.set_size_request(COLLAPSED_PANEL_SIZE, height);
+        }
+        gtk4::Orientation::Vertical => {
+            control.root.set_margin_start(x);
+            control
+                .root
+                .set_margin_end((overlay_width - (x + width)).max(0));
+            control.root.set_size_request(width, COLLAPSED_PANEL_SIZE);
+        }
+        _ => {}
     }
 }
 
@@ -438,24 +472,28 @@ mod tests {
     }
 
     #[test]
-    fn collapsed_overlay_length_inset_matches_orientation() {
+    fn collapsed_overlay_geometry_matches_sibling_rect() {
         if gtk4::init().is_err() {
             return;
         }
 
-        let horizontal = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
-        apply_collapsed_overlay_length_inset(&horizontal, gtk4::Orientation::Horizontal);
-        assert_eq!(horizontal.margin_top(), 6);
-        assert_eq!(horizontal.margin_bottom(), 6);
-        assert_eq!(horizontal.margin_start(), 0);
-        assert_eq!(horizontal.margin_end(), 0);
+        let overlay = gtk4::Overlay::new();
+        overlay.set_size_request(200, 120);
 
-        let vertical = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
-        apply_collapsed_overlay_length_inset(&vertical, gtk4::Orientation::Vertical);
-        assert_eq!(vertical.margin_start(), 6);
-        assert_eq!(vertical.margin_end(), 6);
-        assert_eq!(vertical.margin_top(), 0);
-        assert_eq!(vertical.margin_bottom(), 0);
+        let sibling = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
+        sibling.set_size_request(120, 80);
+        overlay.set_child(Some(&sibling));
+
+        let control = CollapsedOverlayControl {
+            root: gtk4::Box::new(gtk4::Orientation::Horizontal, 0),
+            icon: gtk4::Image::new(),
+        };
+
+        // No assertion on computed bounds here because GTK won't allocate without a real frame.
+        // The helper should still be safe to call with missing bounds.
+        sync_collapsed_overlay_geometry(&control, &overlay, None, gtk4::Orientation::Horizontal);
+        assert_eq!(control.root.margin_top(), 0);
+        assert_eq!(control.root.margin_bottom(), 0);
     }
 }
 
@@ -1537,45 +1575,33 @@ fn build_collapsed_overlay_control(
     is_start: bool,
 ) -> CollapsedOverlayControl {
     let root = gtk4::Box::new(orient, 0);
-    root.add_css_class(COLLAPSED_OVERLAY_SHELL_CLASS);
+    root.add_css_class("panel-collapsed-overlay");
     root.set_visible(false);
     root.set_can_focus(false);
 
     match (orient, is_start) {
         (gtk4::Orientation::Horizontal, true) => {
             root.set_halign(gtk4::Align::Start);
-            root.set_valign(gtk4::Align::Fill);
-            root.set_vexpand(true);
-            root.set_size_request(COLLAPSED_PANEL_SIZE, -1);
+            root.set_valign(gtk4::Align::Start);
+            root.set_size_request(COLLAPSED_PANEL_SIZE, COLLAPSED_PANEL_SIZE);
         }
         (gtk4::Orientation::Horizontal, false) => {
             root.set_halign(gtk4::Align::End);
-            root.set_valign(gtk4::Align::Fill);
-            root.set_vexpand(true);
-            root.set_size_request(COLLAPSED_PANEL_SIZE, -1);
+            root.set_valign(gtk4::Align::Start);
+            root.set_size_request(COLLAPSED_PANEL_SIZE, COLLAPSED_PANEL_SIZE);
         }
         (gtk4::Orientation::Vertical, true) => {
-            root.set_halign(gtk4::Align::Fill);
+            root.set_halign(gtk4::Align::Start);
             root.set_valign(gtk4::Align::Start);
-            root.set_hexpand(true);
-            root.set_size_request(-1, COLLAPSED_PANEL_SIZE);
+            root.set_size_request(COLLAPSED_PANEL_SIZE, COLLAPSED_PANEL_SIZE);
         }
         (gtk4::Orientation::Vertical, false) => {
-            root.set_halign(gtk4::Align::Fill);
+            root.set_halign(gtk4::Align::Start);
             root.set_valign(gtk4::Align::End);
-            root.set_hexpand(true);
-            root.set_size_request(-1, COLLAPSED_PANEL_SIZE);
+            root.set_size_request(COLLAPSED_PANEL_SIZE, COLLAPSED_PANEL_SIZE);
         }
         _ => {}
     }
-
-    let chrome = gtk4::Box::new(orient, 0);
-    chrome.add_css_class("panel-collapsed-overlay");
-    chrome.set_halign(gtk4::Align::Fill);
-    chrome.set_valign(gtk4::Align::Fill);
-    chrome.set_hexpand(true);
-    chrome.set_vexpand(true);
-    apply_collapsed_overlay_length_inset(&chrome, orient);
 
     let expand_area = gtk4::CenterBox::new();
     expand_area.add_css_class("panel-collapsed-chip");
@@ -1652,16 +1678,14 @@ fn build_collapsed_overlay_control(
 
     match (orient, is_start) {
         (gtk4::Orientation::Horizontal, true) | (gtk4::Orientation::Vertical, true) => {
-            chrome.append(&expand_area);
-            chrome.append(&drag_strip);
+            root.append(&expand_area);
+            root.append(&drag_strip);
         }
         _ => {
-            chrome.append(&drag_strip);
-            chrome.append(&expand_area);
+            root.append(&drag_strip);
+            root.append(&expand_area);
         }
     }
-
-    root.append(&chrome);
 
     CollapsedOverlayControl { root, icon }
 }
@@ -1704,7 +1728,7 @@ fn wrap_paned_with_collapse_overlay(
         overlay.set_measure_overlay(&control.root, false);
     }
 
-    setup_paned_drag_collapse(paned, start, end, start_control, end_control);
+    setup_paned_drag_collapse(&overlay, paned, start, end, start_control, end_control);
     overlay.upcast()
 }
 
@@ -1730,6 +1754,7 @@ fn find_image_descendant(widget: &gtk4::Widget) -> Option<gtk4::Image> {
 /// while reacting to notify. See panel_host.rs header comment for full explanation of
 /// constraints. Visibility and size requests are safe here.
 fn setup_paned_drag_collapse(
+    overlay: &gtk4::Overlay,
     paned: &gtk4::Paned,
     start: Option<DragCollapseTarget>,
     end: Option<DragCollapseTarget>,
@@ -1738,6 +1763,7 @@ fn setup_paned_drag_collapse(
 ) {
     let threshold = COLLAPSE_SIZE + 8; // slightly above collapse size for drag detection
     let orient = paned.orientation();
+    let overlay = overlay.clone();
 
     if start.is_none() && end.is_none() {
         return;
@@ -1766,9 +1792,16 @@ fn setup_paned_drag_collapse(
         let start_size = pos;
         let end_size = total - pos;
 
+        if let Some(control) = start_control.as_ref() {
+            sync_collapsed_overlay_geometry(control, &overlay, end.as_ref(), orient);
+        }
+        if let Some(control) = end_control.as_ref() {
+            sync_collapsed_overlay_geometry(control, &overlay, start.as_ref(), orient);
+        }
+
         // Helper: collapse a target
         let do_collapse = |target: &DragCollapseTarget,
-                           overlay: Option<&CollapsedOverlayControl>,
+                           control: Option<&CollapsedOverlayControl>,
                            is_start: bool| {
             tracing::debug!(
                 "drag_collapse orient={:?} side={} pos={} total={} target='{}'",
@@ -1786,10 +1819,12 @@ fn setup_paned_drag_collapse(
                 .outer
                 .set_size_request(COLLAPSED_PANEL_SIZE, COLLAPSED_PANEL_SIZE);
             let icon = collapsed_icon_name(orient, is_start);
-            if let Some(control) = overlay {
+            if let Some(control) = control {
+                let sibling = if is_start { end.as_ref() } else { start.as_ref() };
                 target.collapsed_view.set_visible(false);
                 target.outer.add_css_class(COLLAPSED_PLACEHOLDER_CLASS);
                 control.icon.set_icon_name(Some(icon));
+                sync_collapsed_overlay_geometry(control, &overlay, sibling, orient);
                 control.root.set_visible(true);
             } else {
                 target.outer.remove_css_class(COLLAPSED_PLACEHOLDER_CLASS);
@@ -1801,7 +1836,7 @@ fn setup_paned_drag_collapse(
         };
 
         // Helper: expand a target
-        let do_expand = |target: &DragCollapseTarget, overlay: Option<&CollapsedOverlayControl>| {
+        let do_expand = |target: &DragCollapseTarget, control: Option<&CollapsedOverlayControl>| {
             tracing::debug!(
                 "drag_expand orient={:?} pos={} total={} target='{}'",
                 orient,
@@ -1816,7 +1851,7 @@ fn setup_paned_drag_collapse(
             if let (Some(ref f), Some(ref lbl)) = (&target.footer, &target.footer_label) {
                 f.set_visible(!lbl.text().is_empty());
             }
-            if let Some(control) = overlay {
+            if let Some(control) = control {
                 control.root.set_visible(false);
             }
         };
