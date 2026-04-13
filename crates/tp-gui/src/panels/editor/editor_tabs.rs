@@ -55,6 +55,76 @@ fn text_history_action(
     }
 }
 
+fn install_text_context_menu<W: IsA<gtk4::Widget>>(widget: &W, editable: bool) {
+    let widget = widget.as_ref().clone();
+    let gesture = gtk4::GestureClick::new();
+    gesture.set_button(gtk4::gdk::ffi::GDK_BUTTON_SECONDARY as u32);
+    let widget_for_menu = widget.clone();
+    gesture.connect_pressed(move |g, _n, x, y| {
+        let w = &widget_for_menu;
+        let popover = gtk4::PopoverMenu::from_model(None::<&gtk4::gio::MenuModel>);
+        crate::theme::configure_popover(&popover);
+
+        let menu_box = gtk4::Box::new(gtk4::Orientation::Vertical, 2);
+        menu_box.set_margin_top(4);
+        menu_box.set_margin_bottom(4);
+        menu_box.set_margin_start(4);
+        menu_box.set_margin_end(4);
+
+        let make_item = |icon: &str, label_text: &str, hint: &str, action: &str| -> gtk4::Button {
+            let btn = gtk4::Button::new();
+            btn.add_css_class("flat");
+            btn.add_css_class("app-popover-button");
+            let hbox = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
+            hbox.append(&gtk4::Image::from_icon_name(icon));
+            let lbl = gtk4::Label::new(Some(label_text));
+            lbl.set_hexpand(true);
+            lbl.set_halign(gtk4::Align::Start);
+            hbox.append(&lbl);
+            let hint_lbl = gtk4::Label::new(Some(hint));
+            hint_lbl.add_css_class("dim-label");
+            hbox.append(&hint_lbl);
+            btn.set_child(Some(&hbox));
+            let w_clone = w.clone();
+            let p = popover.clone();
+            let action_name = action.to_string();
+            btn.connect_clicked(move |_| {
+                let _ = w_clone.activate_action(&action_name, None::<&gtk4::glib::Variant>);
+                p.popdown();
+            });
+            btn
+        };
+
+        menu_box.append(&make_item(
+            "edit-copy-symbolic",
+            "Copy",
+            "Ctrl+C",
+            "clipboard.copy",
+        ));
+        if editable {
+            menu_box.append(&make_item(
+                "edit-cut-symbolic",
+                "Cut",
+                "Ctrl+X",
+                "clipboard.cut",
+            ));
+            menu_box.append(&make_item(
+                "edit-paste-symbolic",
+                "Paste",
+                "Ctrl+V",
+                "clipboard.paste",
+            ));
+        }
+
+        popover.set_child(Some(&menu_box));
+        popover.set_parent(w);
+        popover.set_pointing_to(Some(&gtk4::gdk::Rectangle::new(x as i32, y as i32, 1, 1)));
+        popover.popup();
+        g.set_state(gtk4::EventSequenceState::Claimed);
+    });
+    widget.add_controller(gesture);
+}
+
 fn install_text_clipboard_shortcuts<W: IsA<gtk4::Widget>>(widget: &W) {
     let widget = widget.as_ref().clone();
     let widget_for_action = widget.clone();
@@ -956,6 +1026,7 @@ impl EditorTabs {
             view.set_left_margin(3);
             install_text_clipboard_shortcuts(&view);
             install_text_history_shortcuts(&view, buf);
+            install_text_context_menu(&view, editable);
             if editable {
                 view.set_auto_indent(true);
                 view.set_tab_width(4);
