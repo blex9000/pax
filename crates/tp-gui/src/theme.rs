@@ -423,14 +423,14 @@ notebook.workspace-tabs > header > tabs > tab {
   box-shadow: none;
 }
 notebook.workspace-tabs {
-  background-color: transparent;
+  background-color: alpha(@headerbar_bg_color, 0.18);
   color: @headerbar_fg_color;
   border-color: transparent;
   background-image: none;
   box-shadow: none;
 }
 notebook.workspace-tabs > header {
-  background-color: alpha(@headerbar_bg_color, 0.18);
+  background-color: transparent;
   border-bottom: none;
   box-shadow: none;
   min-height: 16px;
@@ -492,11 +492,8 @@ notebook.workspace-tabs-nested {
 }
 box.workspace-tab-page-shell {
   border-radius: 0 0 14px 14px;
-  background-color: alpha(@headerbar_bg_color, 0.18);
-  box-shadow: none;
-}
-notebook.workspace-tabs-nested box.workspace-tab-page-shell {
   background-color: transparent;
+  box-shadow: none;
 }
 box.workspace-tab-page-shell > box.panel-frame {
   margin: 6px;
