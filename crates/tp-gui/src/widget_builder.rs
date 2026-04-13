@@ -16,6 +16,7 @@ const COLLAPSED_DRAG_STRIP_SIZE: i32 = 4;
 const WORKSPACE_TAB_PAGE_SHELL_CLASS: &str = "workspace-tab-page-shell";
 const COLLAPSED_PLACEHOLDER_CLASS: &str = "panel-collapsed-placeholder";
 const COLLAPSED_OVERLAY_LENGTH_INSET: i32 = 6;
+const COLLAPSED_OVERLAY_SHELL_CLASS: &str = "panel-collapsed-overlay-shell";
 
 fn workspace_tabs_are_root(path: &[usize]) -> bool {
     path.is_empty()
@@ -1536,10 +1537,9 @@ fn build_collapsed_overlay_control(
     is_start: bool,
 ) -> CollapsedOverlayControl {
     let root = gtk4::Box::new(orient, 0);
-    root.add_css_class("panel-collapsed-overlay");
+    root.add_css_class(COLLAPSED_OVERLAY_SHELL_CLASS);
     root.set_visible(false);
     root.set_can_focus(false);
-    apply_collapsed_overlay_length_inset(&root, orient);
 
     match (orient, is_start) {
         (gtk4::Orientation::Horizontal, true) => {
@@ -1568,6 +1568,14 @@ fn build_collapsed_overlay_control(
         }
         _ => {}
     }
+
+    let chrome = gtk4::Box::new(orient, 0);
+    chrome.add_css_class("panel-collapsed-overlay");
+    chrome.set_halign(gtk4::Align::Fill);
+    chrome.set_valign(gtk4::Align::Fill);
+    chrome.set_hexpand(true);
+    chrome.set_vexpand(true);
+    apply_collapsed_overlay_length_inset(&chrome, orient);
 
     let expand_area = gtk4::CenterBox::new();
     expand_area.add_css_class("panel-collapsed-chip");
@@ -1644,14 +1652,16 @@ fn build_collapsed_overlay_control(
 
     match (orient, is_start) {
         (gtk4::Orientation::Horizontal, true) | (gtk4::Orientation::Vertical, true) => {
-            root.append(&expand_area);
-            root.append(&drag_strip);
+            chrome.append(&expand_area);
+            chrome.append(&drag_strip);
         }
         _ => {
-            root.append(&drag_strip);
-            root.append(&expand_area);
+            chrome.append(&drag_strip);
+            chrome.append(&expand_area);
         }
     }
+
+    root.append(&chrome);
 
     CollapsedOverlayControl { root, icon }
 }
