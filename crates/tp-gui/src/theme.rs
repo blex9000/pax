@@ -418,7 +418,8 @@ menubutton.flat > button image {
 notebook.workspace-tabs > header > tabs > tab {
   background-color: @workspace_tabs_bar_bg_color;
   color: @headerbar_fg_color;
-  border-color: transparent;
+  border: 1px solid @headerbar_border_color;
+  border-bottom: none;
   background-image: none;
   box-shadow: none;
 }
@@ -443,7 +444,7 @@ notebook.workspace-tabs > header > tabs {
   padding-right: 3px;
 }
 notebook.workspace-tabs > header > tabs > tab {
-  border-radius: 9px 9px 0 0;
+  border-radius: 14px 14px 0 0;
   margin-right: 6px;
   min-height: 14px;
   background-color: alpha(@headerbar_fg_color, 0.03);
@@ -480,6 +481,7 @@ notebook.workspace-tabs > header > tabs > tab:hover {
 }
 notebook.workspace-tabs > header > tabs > tab:checked {
   background-color: @panel_header_bg_color;
+  border-color: @accent_color;
   box-shadow: none;
 }
 notebook.workspace-tabs-root {
