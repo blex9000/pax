@@ -435,17 +435,31 @@ notebook.workspace-tabs > header > tabs {
   min-height: 14px;
   padding-left: 3px;
   padding-right: 3px;
+  /* Continuous baseline that tab right-edges curve into. */
+  border-bottom: 1px solid alpha(@headerbar_fg_color, 0.18);
 }
 notebook.workspace-tabs > header > tabs > tab {
-  border-radius: 14px;
-  margin-right: 6px;
-  margin-bottom: 4px;
-  min-height: 12px;
+  /* Asymmetric leaf shape: small radius on top-left for softness, large
+     radius on top-right so the top border descends in a smooth quarter-arc
+     down to the baseline. No bottom border on the tab itself; the baseline
+     lives on the parent tabs and margin-bottom:-1px makes the arc overlap
+     it so the curve merges into the baseline rather than meets it. */
+  border-top-left-radius: 4px;
+  border-top-right-radius: 14px;
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
+  border-top: 1px solid alpha(@headerbar_fg_color, 0.18);
+  border-left: 1px solid alpha(@headerbar_fg_color, 0.18);
+  border-right: 1px solid alpha(@headerbar_fg_color, 0.18);
+  border-bottom: none;
+  margin-right: 4px;
+  margin-bottom: -1px;
+  min-height: 14px;
   background-color: transparent;
   padding-top: 0;
   padding-bottom: 0;
-  padding-left: 3px;
-  padding-right: 3px;
+  padding-left: 6px;
+  padding-right: 12px;
   box-shadow: none;
 }
 notebook.workspace-tabs > header > tabs > tab label {
@@ -471,11 +485,19 @@ notebook.workspace-tabs > header > tabs > tab:checked image.workspace-tab-type-i
   color: alpha(@headerbar_fg_color, 0.88);
 }
 notebook.workspace-tabs > header > tabs > tab:hover {
-  background-color: alpha(@accent_color, 0.12);
+  background-color: alpha(@accent_color, 0.10);
+  border-top-color: alpha(@accent_color, 0.50);
+  border-left-color: alpha(@accent_color, 0.50);
+  border-right-color: alpha(@accent_color, 0.50);
 }
 notebook.workspace-tabs > header > tabs > tab:checked {
-  background-color: transparent;
-  border-color: alpha(@accent_color, 0.34);
+  /* Active tab lifts out of the baseline: opaque background covers the
+     parent's bottom border under the tab, so the arc reads as the only
+     thing meeting the line on the right. Border picks up the accent. */
+  background-color: @window_bg_color;
+  border-top-color: @accent_color;
+  border-left-color: @accent_color;
+  border-right-color: @accent_color;
   box-shadow: none;
 }
 notebook.workspace-tabs-root {
