@@ -14,6 +14,7 @@ use crate::panel_host::{
 const PANED_OVERLAY_CLASS: &str = "paned-overlay-shell";
 const COLLAPSED_DRAG_STRIP_SIZE: i32 = 4;
 const WORKSPACE_TAB_PAGE_SHELL_CLASS: &str = "workspace-tab-page-shell";
+const COLLAPSED_PLACEHOLDER_CLASS: &str = "panel-collapsed-placeholder";
 
 fn workspace_tabs_are_root(path: &[usize]) -> bool {
     path.is_empty()
@@ -423,6 +424,7 @@ mod tests {
         let unwrapped = unwrap_layout_shell(shell.upcast_ref());
         assert_eq!(unwrapped, inner);
     }
+
 }
 
 fn preview_move_workspace_tab(child_widget: &gtk4::Widget, step: i32) -> bool {
@@ -1738,17 +1740,21 @@ fn setup_paned_drag_collapse(
             if let Some(ref f) = target.footer {
                 f.set_visible(false);
             }
-            target.collapsed_view.set_visible(true);
             target
                 .outer
                 .set_size_request(COLLAPSED_PANEL_SIZE, COLLAPSED_PANEL_SIZE);
             let icon = collapsed_icon_name(orient, is_start);
-            if let Some(img) = collapsed_view_icon(&target.collapsed_view) {
-                img.set_icon_name(Some(icon));
-            }
             if let Some(control) = overlay {
+                target.collapsed_view.set_visible(false);
+                target.outer.add_css_class(COLLAPSED_PLACEHOLDER_CLASS);
                 control.icon.set_icon_name(Some(icon));
                 control.root.set_visible(true);
+            } else {
+                target.outer.remove_css_class(COLLAPSED_PLACEHOLDER_CLASS);
+                target.collapsed_view.set_visible(true);
+                if let Some(img) = collapsed_view_icon(&target.collapsed_view) {
+                    img.set_icon_name(Some(icon));
+                }
             }
         };
 
@@ -1761,6 +1767,7 @@ fn setup_paned_drag_collapse(
                 total,
                 target.outer.widget_name()
             );
+            target.outer.remove_css_class(COLLAPSED_PLACEHOLDER_CLASS);
             target.collapsed_view.set_visible(false);
             target.content.set_visible(true);
             target.outer.set_size_request(-1, -1);
