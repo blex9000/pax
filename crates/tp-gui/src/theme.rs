@@ -495,6 +495,9 @@ box.workspace-tab-page-shell {
   background-color: alpha(@headerbar_bg_color, 0.18);
   box-shadow: none;
 }
+notebook.workspace-tabs-nested box.workspace-tab-page-shell {
+  background-color: transparent;
+}
 box.workspace-tab-page-shell > box.panel-frame {
   margin: 6px;
   box-shadow: none;
