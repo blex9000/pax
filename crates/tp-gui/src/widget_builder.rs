@@ -14,6 +14,8 @@ use crate::panel_host::{
 const PANED_OVERLAY_CLASS: &str = "paned-overlay-shell";
 const COLLAPSED_DRAG_STRIP_SIZE: i32 = 4;
 const WORKSPACE_TAB_PAGE_SHELL_CLASS: &str = "workspace-tab-page-shell";
+const COLLAPSED_PLACEHOLDER_CLASS: &str = "panel-collapsed-placeholder";
+const COLLAPSED_OVERLAY_LENGTH_INSET: i32 = 6;
 
 fn workspace_tabs_are_root(path: &[usize]) -> bool {
     path.is_empty()
@@ -76,6 +78,16 @@ fn wrap_workspace_tab_page(child: gtk4::Widget) -> gtk4::Widget {
     shell.set_vexpand(true);
     shell.append(&child);
     shell.upcast()
+}
+
+fn apply_collapsed_overlay_length_inset(root: &gtk4::Box, orient: gtk4::Orientation) {
+    if orient == gtk4::Orientation::Horizontal {
+        root.set_margin_top(COLLAPSED_OVERLAY_LENGTH_INSET);
+        root.set_margin_bottom(COLLAPSED_OVERLAY_LENGTH_INSET);
+    } else {
+        root.set_margin_start(COLLAPSED_OVERLAY_LENGTH_INSET);
+        root.set_margin_end(COLLAPSED_OVERLAY_LENGTH_INSET);
+    }
 }
 
 pub fn build_tab_label(
@@ -422,6 +434,27 @@ mod tests {
 
         let unwrapped = unwrap_layout_shell(shell.upcast_ref());
         assert_eq!(unwrapped, inner);
+    }
+
+    #[test]
+    fn collapsed_overlay_length_inset_matches_orientation() {
+        if gtk4::init().is_err() {
+            return;
+        }
+
+        let horizontal = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
+        apply_collapsed_overlay_length_inset(&horizontal, gtk4::Orientation::Horizontal);
+        assert_eq!(horizontal.margin_top(), 6);
+        assert_eq!(horizontal.margin_bottom(), 6);
+        assert_eq!(horizontal.margin_start(), 0);
+        assert_eq!(horizontal.margin_end(), 0);
+
+        let vertical = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
+        apply_collapsed_overlay_length_inset(&vertical, gtk4::Orientation::Vertical);
+        assert_eq!(vertical.margin_start(), 6);
+        assert_eq!(vertical.margin_end(), 6);
+        assert_eq!(vertical.margin_top(), 0);
+        assert_eq!(vertical.margin_bottom(), 0);
     }
 }
 
@@ -1506,6 +1539,7 @@ fn build_collapsed_overlay_control(
     root.add_css_class("panel-collapsed-overlay");
     root.set_visible(false);
     root.set_can_focus(false);
+    apply_collapsed_overlay_length_inset(&root, orient);
 
     match (orient, is_start) {
         (gtk4::Orientation::Horizontal, true) => {
@@ -1738,17 +1772,21 @@ fn setup_paned_drag_collapse(
             if let Some(ref f) = target.footer {
                 f.set_visible(false);
             }
-            target.collapsed_view.set_visible(true);
             target
                 .outer
                 .set_size_request(COLLAPSED_PANEL_SIZE, COLLAPSED_PANEL_SIZE);
             let icon = collapsed_icon_name(orient, is_start);
-            if let Some(img) = collapsed_view_icon(&target.collapsed_view) {
-                img.set_icon_name(Some(icon));
-            }
             if let Some(control) = overlay {
+                target.collapsed_view.set_visible(false);
+                target.outer.add_css_class(COLLAPSED_PLACEHOLDER_CLASS);
                 control.icon.set_icon_name(Some(icon));
                 control.root.set_visible(true);
+            } else {
+                target.outer.remove_css_class(COLLAPSED_PLACEHOLDER_CLASS);
+                target.collapsed_view.set_visible(true);
+                if let Some(img) = collapsed_view_icon(&target.collapsed_view) {
+                    img.set_icon_name(Some(icon));
+                }
             }
         };
 
@@ -1761,6 +1799,7 @@ fn setup_paned_drag_collapse(
                 total,
                 target.outer.widget_name()
             );
+            target.outer.remove_css_class(COLLAPSED_PLACEHOLDER_CLASS);
             target.collapsed_view.set_visible(false);
             target.content.set_visible(true);
             target.outer.set_size_request(-1, -1);

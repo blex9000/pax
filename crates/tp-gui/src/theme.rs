@@ -492,21 +492,19 @@ box.workspace-tab-page-shell {
   margin-left: 6px;
   margin-right: 6px;
   margin-bottom: 6px;
-  border-radius: 0 0 10px 10px;
+  border-radius: 0 0 14px 14px;
   background-color: alpha(@headerbar_bg_color, 0.18);
   box-shadow: none;
 }
 box.workspace-tab-page-shell > box.panel-frame {
-  margin-left: 6px;
-  margin-right: 6px;
-  margin-bottom: 6px;
+  margin: 0;
   box-shadow: none;
 }
 box.workspace-tab-page-shell > box.panel-frame > box.panel-title-bar {
-  border-radius: 10px 10px 0 0;
+  border-radius: 14px 14px 0 0;
 }
 box.workspace-tab-page-shell > box.panel-frame > box.panel-footer-bar {
-  border-radius: 0 0 10px 10px;
+  border-radius: 0 0 14px 14px;
 }
 notebook.workspace-tabs > header > tabs > tab button.workspace-tab-close-btn {
   min-height: 15px;
@@ -603,8 +601,17 @@ popover.app-popover label,
 popover.app-popover image {
   color: @popover_fg_color;
 }
-box.panel-frame { border: 1px solid alpha(@headerbar_border_color, 0.18); border-radius: 10px; margin: 0; padding: 0; }
+box.panel-frame { border: 1px solid @headerbar_border_color; border-radius: 14px; margin: 6px; padding: 0; }
+box.panel-frame.panel-collapsed-placeholder {
+  border: none;
+  background-color: transparent;
+  box-shadow: none;
+  margin: 0;
+  padding: 0;
+}
 box.panel-frame > box { margin: 0; padding: 0; }
+box.panel-frame > box.panel-title-bar { border-radius: 14px 14px 0 0; }
+box.panel-frame > box.panel-footer-bar { border-radius: 0 0 14px 14px; }
 box.panel-title-bar { padding: 0 4px; margin: 0; min-height: 13px; border-bottom: 1px solid alpha(@borders, 0.4); }
 .panel-title { font-size: 9px; font-weight: bold; }
 box.panel-frame box.panel-title-bar {
@@ -714,12 +721,21 @@ box.editor-file-preview-footer.panel-footer {
 .tab-close-btn image {
   -gtk-icon-size: 14px;
 }
-.panel-collapsed-overlay { background-color: transparent; border: none; padding: 0; min-width: 0; min-height: 0; }
+.panel-collapsed-overlay {
+  background-color: @panel_header_bg_color;
+  color: @headerbar_fg_color;
+  border: 1px solid @headerbar_border_color;
+  border-radius: 14px;
+  box-shadow: none;
+  padding: 0;
+  min-width: 0;
+  min-height: 0;
+}
 .panel-collapsed-chip {
-  background-color: @headerbar_bg_color;
+  background-color: transparent;
   color: @headerbar_fg_color;
   border: none;
-  border-radius: 0;
+  border-radius: 13px;
   padding: 0;
   min-width: 22px;
   min-height: 22px;
@@ -728,11 +744,18 @@ box.editor-file-preview-footer.panel-footer {
   -gtk-icon-size: 12px;
 }
 .panel-collapsed-drag-strip {
-  background-color: @headerbar_bg_color;
+  background-color: transparent;
   border: none;
   padding: 0;
 }
-paned > separator { min-width: 1px; min-height: 1px; }
+paned > separator {
+  min-width: 1px;
+  min-height: 1px;
+  background-image: none;
+  background-color: transparent;
+  border: none;
+  box-shadow: none;
+}
 .dirty-indicator { color: #ff8c00; }
 .editor-tabs { border-bottom: 1px solid alpha(@borders, 0.3); }
 .editor-sidebar { border-right: 1px solid alpha(@borders, 0.3); }
@@ -934,27 +957,39 @@ window.app-dialog dropdown.settings-theme-dropdown > popover.menu row:selected,
 ";
 
 const CATPPUCCIN_MOCHA_CSS: &str = "\
-@define-color window_bg_color #1e1e2e;
+@define-color bg_primary #1e1e2e;
+@define-color bg_secondary #181825;
+@define-color bg_tertiary @bg_secondary;
+@define-color bg_card #313244;
+@define-color bg_dialog #313244;
+@define-color bg_popover #313244;
+@define-color bg_sidebar #313244;
+@define-color bg_sidebar_secondary #181825;
+@define-color bg_thumbnail #313244;
+@define-color bg_view #1e1e2e;
+@define-color bg_panel_header #1c1c2b;
+@define-color bg_terminal #1e1e2e;
+@define-color window_bg_color @bg_primary;
 @define-color window_fg_color #cdd6f4;
-@define-color headerbar_bg_color #181825;
-@define-color workspace_tabs_bar_bg_color @headerbar_bg_color;
+@define-color headerbar_bg_color @bg_secondary;
+@define-color workspace_tabs_bar_bg_color @bg_tertiary;
 @define-color headerbar_fg_color #cdd6f4;
-@define-color card_bg_color #313244;
+@define-color card_bg_color @bg_card;
 @define-color card_fg_color #cdd6f4;
-@define-color dialog_bg_color #313244;
+@define-color dialog_bg_color @bg_dialog;
 @define-color dialog_fg_color #cdd6f4;
-@define-color popover_bg_color #313244;
+@define-color popover_bg_color @bg_popover;
 @define-color popover_fg_color #cdd6f4;
 @define-color popover_shade_color alpha(black, 0.25);
-@define-color sidebar_bg_color #313244;
+@define-color sidebar_bg_color @bg_sidebar;
 @define-color sidebar_fg_color #cdd6f4;
-@define-color secondary_sidebar_bg_color #181825;
+@define-color secondary_sidebar_bg_color @bg_sidebar_secondary;
 @define-color secondary_sidebar_fg_color #cdd6f4;
-@define-color thumbnail_bg_color #313244;
-@define-color view_bg_color #1e1e2e;
-@define-color panel_header_bg_color #1c1c2b;
+@define-color thumbnail_bg_color @bg_thumbnail;
+@define-color view_bg_color @bg_view;
+@define-color panel_header_bg_color @bg_panel_header;
 @define-color view_fg_color #cdd6f4;
-@define-color terminal_bg_color #1e1e2e;
+@define-color terminal_bg_color @bg_terminal;
 @define-color terminal_fg_color #cdd6f4;
 @define-color accent_bg_color #89b4fa;
 @define-color accent_fg_color #1e1e2e;
@@ -965,27 +1000,39 @@ const CATPPUCCIN_MOCHA_CSS: &str = "\
 ";
 
 const GRAPHITE_CSS: &str = "\
-@define-color window_bg_color #141a22;
+@define-color bg_primary #141a22;
+@define-color bg_secondary #1a212c;
+@define-color bg_tertiary #161d27;
+@define-color bg_card #202938;
+@define-color bg_dialog #202938;
+@define-color bg_popover #202938;
+@define-color bg_sidebar #1d2531;
+@define-color bg_sidebar_secondary #151b24;
+@define-color bg_thumbnail #202938;
+@define-color bg_view #0f141b;
+@define-color bg_panel_header #131820;
+@define-color bg_terminal #0f141b;
+@define-color window_bg_color @bg_primary;
 @define-color window_fg_color #e5ecf3;
-@define-color headerbar_bg_color #1a212c;
-@define-color workspace_tabs_bar_bg_color #161d27;
+@define-color headerbar_bg_color @bg_secondary;
+@define-color workspace_tabs_bar_bg_color @bg_tertiary;
 @define-color headerbar_fg_color #e5ecf3;
-@define-color card_bg_color #202938;
+@define-color card_bg_color @bg_card;
 @define-color card_fg_color #e5ecf3;
-@define-color dialog_bg_color #202938;
+@define-color dialog_bg_color @bg_dialog;
 @define-color dialog_fg_color #e5ecf3;
-@define-color popover_bg_color #202938;
+@define-color popover_bg_color @bg_popover;
 @define-color popover_fg_color #e5ecf3;
 @define-color popover_shade_color alpha(black, 0.28);
-@define-color sidebar_bg_color #1d2531;
+@define-color sidebar_bg_color @bg_sidebar;
 @define-color sidebar_fg_color #d8e0ea;
-@define-color secondary_sidebar_bg_color #151b24;
+@define-color secondary_sidebar_bg_color @bg_sidebar_secondary;
 @define-color secondary_sidebar_fg_color #d8e0ea;
-@define-color thumbnail_bg_color #202938;
-@define-color view_bg_color #0f141b;
-@define-color panel_header_bg_color #131820;
+@define-color thumbnail_bg_color @bg_thumbnail;
+@define-color view_bg_color @bg_view;
+@define-color panel_header_bg_color @bg_panel_header;
 @define-color view_fg_color #e5ecf3;
-@define-color terminal_bg_color #0f141b;
+@define-color terminal_bg_color @bg_terminal;
 @define-color terminal_fg_color #e5ecf3;
 @define-color accent_bg_color #6ea7ff;
 @define-color accent_fg_color #0f141b;
@@ -996,27 +1043,39 @@ const GRAPHITE_CSS: &str = "\
 ";
 
 const CATPPUCCIN_LATTE_CSS: &str = "\
-@define-color window_bg_color #eff1f5;
+@define-color bg_primary #eff1f5;
+@define-color bg_secondary #e6e9ef;
+@define-color bg_tertiary @bg_secondary;
+@define-color bg_card #ccd0da;
+@define-color bg_dialog #ccd0da;
+@define-color bg_popover @bg_secondary;
+@define-color bg_sidebar #ccd0da;
+@define-color bg_sidebar_secondary #e6e9ef;
+@define-color bg_thumbnail #ccd0da;
+@define-color bg_view #eff1f5;
+@define-color bg_panel_header #eceef3;
+@define-color bg_terminal #eff1f5;
+@define-color window_bg_color @bg_primary;
 @define-color window_fg_color #4c4f69;
-@define-color headerbar_bg_color #e6e9ef;
-@define-color workspace_tabs_bar_bg_color @headerbar_bg_color;
+@define-color headerbar_bg_color @bg_secondary;
+@define-color workspace_tabs_bar_bg_color @bg_tertiary;
 @define-color headerbar_fg_color #4c4f69;
-@define-color card_bg_color #ccd0da;
+@define-color card_bg_color @bg_card;
 @define-color card_fg_color #4c4f69;
-@define-color dialog_bg_color #ccd0da;
+@define-color dialog_bg_color @bg_dialog;
 @define-color dialog_fg_color #4c4f69;
-@define-color popover_bg_color @headerbar_bg_color;
+@define-color popover_bg_color @bg_popover;
 @define-color popover_fg_color #4c4f69;
 @define-color popover_shade_color alpha(black, 0.12);
-@define-color sidebar_bg_color #ccd0da;
+@define-color sidebar_bg_color @bg_sidebar;
 @define-color sidebar_fg_color #4c4f69;
-@define-color secondary_sidebar_bg_color #e6e9ef;
+@define-color secondary_sidebar_bg_color @bg_sidebar_secondary;
 @define-color secondary_sidebar_fg_color #4c4f69;
-@define-color thumbnail_bg_color #ccd0da;
-@define-color view_bg_color #eff1f5;
-@define-color panel_header_bg_color #eceef3;
+@define-color thumbnail_bg_color @bg_thumbnail;
+@define-color view_bg_color @bg_view;
+@define-color panel_header_bg_color @bg_panel_header;
 @define-color view_fg_color #4c4f69;
-@define-color terminal_bg_color #eff1f5;
+@define-color terminal_bg_color @bg_terminal;
 @define-color terminal_fg_color #4c4f69;
 @define-color accent_bg_color #1e66f5;
 @define-color accent_fg_color #eff1f5;
@@ -1027,27 +1086,39 @@ const CATPPUCCIN_LATTE_CSS: &str = "\
 ";
 
 const DRACULA_CSS: &str = "\
-@define-color window_bg_color #282a36;
+@define-color bg_primary #282a36;
+@define-color bg_secondary #21222c;
+@define-color bg_tertiary @bg_secondary;
+@define-color bg_card #44475a;
+@define-color bg_dialog #44475a;
+@define-color bg_popover #44475a;
+@define-color bg_sidebar #44475a;
+@define-color bg_sidebar_secondary #21222c;
+@define-color bg_thumbnail #44475a;
+@define-color bg_view #282a36;
+@define-color bg_panel_header #262733;
+@define-color bg_terminal #282a36;
+@define-color window_bg_color @bg_primary;
 @define-color window_fg_color #f8f8f2;
-@define-color headerbar_bg_color #21222c;
-@define-color workspace_tabs_bar_bg_color @headerbar_bg_color;
+@define-color headerbar_bg_color @bg_secondary;
+@define-color workspace_tabs_bar_bg_color @bg_tertiary;
 @define-color headerbar_fg_color #f8f8f2;
-@define-color card_bg_color #44475a;
+@define-color card_bg_color @bg_card;
 @define-color card_fg_color #f8f8f2;
-@define-color dialog_bg_color #44475a;
+@define-color dialog_bg_color @bg_dialog;
 @define-color dialog_fg_color #f8f8f2;
-@define-color popover_bg_color #44475a;
+@define-color popover_bg_color @bg_popover;
 @define-color popover_fg_color #f8f8f2;
 @define-color popover_shade_color alpha(black, 0.25);
-@define-color sidebar_bg_color #44475a;
+@define-color sidebar_bg_color @bg_sidebar;
 @define-color sidebar_fg_color #f8f8f2;
-@define-color secondary_sidebar_bg_color #21222c;
+@define-color secondary_sidebar_bg_color @bg_sidebar_secondary;
 @define-color secondary_sidebar_fg_color #f8f8f2;
-@define-color thumbnail_bg_color #44475a;
-@define-color view_bg_color #282a36;
-@define-color panel_header_bg_color #262733;
+@define-color thumbnail_bg_color @bg_thumbnail;
+@define-color view_bg_color @bg_view;
+@define-color panel_header_bg_color @bg_panel_header;
 @define-color view_fg_color #f8f8f2;
-@define-color terminal_bg_color #282a36;
+@define-color terminal_bg_color @bg_terminal;
 @define-color terminal_fg_color #f8f8f2;
 @define-color accent_bg_color #bd93f9;
 @define-color accent_fg_color #282a36;
@@ -1058,27 +1129,39 @@ const DRACULA_CSS: &str = "\
 ";
 
 const NORD_CSS: &str = "\
-@define-color window_bg_color #2e3440;
+@define-color bg_primary #2e3440;
+@define-color bg_secondary #3b4252;
+@define-color bg_tertiary @bg_secondary;
+@define-color bg_card #3b4252;
+@define-color bg_dialog #3b4252;
+@define-color bg_popover #3b4252;
+@define-color bg_sidebar #3b4252;
+@define-color bg_sidebar_secondary #2e3440;
+@define-color bg_thumbnail #3b4252;
+@define-color bg_view #2e3440;
+@define-color bg_panel_header #323846;
+@define-color bg_terminal #2e3440;
+@define-color window_bg_color @bg_primary;
 @define-color window_fg_color #eceff4;
-@define-color headerbar_bg_color #3b4252;
-@define-color workspace_tabs_bar_bg_color @headerbar_bg_color;
+@define-color headerbar_bg_color @bg_secondary;
+@define-color workspace_tabs_bar_bg_color @bg_tertiary;
 @define-color headerbar_fg_color #eceff4;
-@define-color card_bg_color #3b4252;
+@define-color card_bg_color @bg_card;
 @define-color card_fg_color #eceff4;
-@define-color dialog_bg_color #3b4252;
+@define-color dialog_bg_color @bg_dialog;
 @define-color dialog_fg_color #eceff4;
-@define-color popover_bg_color #3b4252;
+@define-color popover_bg_color @bg_popover;
 @define-color popover_fg_color #eceff4;
 @define-color popover_shade_color alpha(black, 0.25);
-@define-color sidebar_bg_color #3b4252;
+@define-color sidebar_bg_color @bg_sidebar;
 @define-color sidebar_fg_color #eceff4;
-@define-color secondary_sidebar_bg_color #2e3440;
+@define-color secondary_sidebar_bg_color @bg_sidebar_secondary;
 @define-color secondary_sidebar_fg_color #eceff4;
-@define-color thumbnail_bg_color #3b4252;
-@define-color view_bg_color #2e3440;
-@define-color panel_header_bg_color #323846;
+@define-color thumbnail_bg_color @bg_thumbnail;
+@define-color view_bg_color @bg_view;
+@define-color panel_header_bg_color @bg_panel_header;
 @define-color view_fg_color #eceff4;
-@define-color terminal_bg_color #2e3440;
+@define-color terminal_bg_color @bg_terminal;
 @define-color terminal_fg_color #eceff4;
 @define-color accent_bg_color #88c0d0;
 @define-color accent_fg_color #2e3440;
@@ -1134,6 +1217,34 @@ mod tests {
                 "@define-color thumbnail_bg_color",
                 "@define-color terminal_bg_color",
                 "@define-color terminal_fg_color",
+            ] {
+                assert!(css.contains(token), "missing token {token} in theme css");
+            }
+        }
+    }
+
+    #[test]
+    fn custom_themes_define_semantic_background_palette() {
+        for css in [
+            GRAPHITE_CSS,
+            CATPPUCCIN_MOCHA_CSS,
+            CATPPUCCIN_LATTE_CSS,
+            DRACULA_CSS,
+            NORD_CSS,
+        ] {
+            for token in [
+                "@define-color bg_primary",
+                "@define-color bg_secondary",
+                "@define-color bg_tertiary",
+                "@define-color bg_card",
+                "@define-color bg_dialog",
+                "@define-color bg_popover",
+                "@define-color bg_sidebar",
+                "@define-color bg_sidebar_secondary",
+                "@define-color bg_thumbnail",
+                "@define-color bg_view",
+                "@define-color bg_panel_header",
+                "@define-color bg_terminal",
             ] {
                 assert!(css.contains(token), "missing token {token} in theme css");
             }
@@ -1220,11 +1331,19 @@ mod tests {
         assert!(BASE_CSS.contains("margin-left: 14px;"));
         assert!(BASE_CSS.contains(".panel-action-btn { min-height: 10px;"));
         assert!(BASE_CSS.contains(".tab-close-btn { min-height: 15px;"));
-        assert!(BASE_CSS.contains(".panel-collapsed-overlay { background-color: transparent;"));
+        assert!(BASE_CSS.contains(".panel-collapsed-overlay {\n  background-color: @panel_header_bg_color;"));
         assert!(BASE_CSS.contains(".panel-collapsed-chip"));
         assert!(BASE_CSS.contains(".panel-collapsed-drag-strip"));
-        assert!(BASE_CSS.contains("background-color: @headerbar_bg_color;"));
+        assert!(BASE_CSS.contains("border-radius: 14px;"));
         assert!(BASE_CSS.contains("min-height: 22px;"));
+    }
+
+    #[test]
+    fn collapsed_panels_use_panel_toolbar_surface_and_rounding() {
+        assert!(BASE_CSS.contains(".panel-collapsed-overlay {\n  background-color: @panel_header_bg_color;"));
+        assert!(BASE_CSS.contains("border: 1px solid @headerbar_border_color;"));
+        assert!(BASE_CSS.contains("border-radius: 14px;"));
+        assert!(BASE_CSS.contains(".panel-collapsed-chip {\n  background-color: transparent;"));
     }
 
     #[test]
@@ -1272,6 +1391,34 @@ mod tests {
         assert!(BASE_CSS.contains("notebook.workspace-tabs > header > tabs > tab image"));
         assert!(BASE_CSS.contains("-gtk-icon-size: 9px;"));
         assert!(BASE_CSS.contains("box.workspace-tab-page-shell {"));
+    }
+
+    #[test]
+    fn panel_frames_keep_visible_card_margins_and_rounding() {
+        assert!(BASE_CSS.contains(
+            "box.panel-frame { border: 1px solid @headerbar_border_color; border-radius: 14px; margin: 6px; padding: 0; }"
+        ));
+        assert!(BASE_CSS.contains(
+            "box.panel-frame > box.panel-title-bar { border-radius: 14px 14px 0 0; }"
+        ));
+        assert!(BASE_CSS.contains(
+            "box.panel-frame > box.panel-footer-bar { border-radius: 0 0 14px 14px; }"
+        ));
+    }
+
+    #[test]
+    fn collapsed_placeholder_frame_is_hidden_when_overlay_control_is_used() {
+        assert!(BASE_CSS.contains("box.panel-frame.panel-collapsed-placeholder {"));
+        assert!(BASE_CSS.contains("border: none;"));
+        assert!(BASE_CSS.contains("background-color: transparent;"));
+        assert!(BASE_CSS.contains("margin: 0;"));
+    }
+
+    #[test]
+    fn paned_separator_is_transparent() {
+        assert!(BASE_CSS.contains("paned > separator {\n  min-width: 1px;"));
+        assert!(BASE_CSS.contains("background-color: transparent;"));
+        assert!(BASE_CSS.contains("box-shadow: none;"));
     }
 
     #[test]
