@@ -419,7 +419,6 @@ notebook.workspace-tabs > header > tabs > tab {
   background-color: @workspace_tabs_bar_bg_color;
   color: @headerbar_fg_color;
   border: 1px solid @headerbar_border_color;
-  border-bottom: none;
   background-image: none;
   box-shadow: none;
 }
@@ -444,7 +443,7 @@ notebook.workspace-tabs > header > tabs {
   padding-right: 3px;
 }
 notebook.workspace-tabs > header > tabs > tab {
-  border-radius: 14px 14px 0 0;
+  border-radius: 14px;
   margin-right: 6px;
   min-height: 14px;
   background-color: alpha(@headerbar_fg_color, 0.03);
