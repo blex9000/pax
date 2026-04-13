@@ -16,6 +16,7 @@ const COLLAPSED_DRAG_STRIP_SIZE: i32 = 4;
 const WORKSPACE_TAB_PAGE_SHELL_CLASS: &str = "workspace-tab-page-shell";
 const COLLAPSED_PLACEHOLDER_CLASS: &str = "panel-collapsed-placeholder";
 const COLLAPSED_OVERLAY_LENGTH_INSET: i32 = 6;
+const COLLAPSED_OVERLAY_EDGE_INSET: i32 = 6;
 const COLLAPSED_FACING_GAP: i32 = 6;
 const COLLAPSED_PANEL_ALLOC: i32 = COLLAPSED_PANEL_SIZE + COLLAPSED_FACING_GAP;
 
@@ -1549,24 +1550,28 @@ fn build_collapsed_overlay_control(
             root.set_valign(gtk4::Align::Fill);
             root.set_vexpand(true);
             root.set_size_request(COLLAPSED_PANEL_SIZE, -1);
+            root.set_margin_start(COLLAPSED_OVERLAY_EDGE_INSET);
         }
         (gtk4::Orientation::Horizontal, false) => {
             root.set_halign(gtk4::Align::End);
             root.set_valign(gtk4::Align::Fill);
             root.set_vexpand(true);
             root.set_size_request(COLLAPSED_PANEL_SIZE, -1);
+            root.set_margin_end(COLLAPSED_OVERLAY_EDGE_INSET);
         }
         (gtk4::Orientation::Vertical, true) => {
             root.set_halign(gtk4::Align::Fill);
             root.set_valign(gtk4::Align::Start);
             root.set_hexpand(true);
             root.set_size_request(-1, COLLAPSED_PANEL_SIZE);
+            root.set_margin_top(COLLAPSED_OVERLAY_EDGE_INSET);
         }
         (gtk4::Orientation::Vertical, false) => {
             root.set_halign(gtk4::Align::Fill);
             root.set_valign(gtk4::Align::End);
             root.set_hexpand(true);
             root.set_size_request(-1, COLLAPSED_PANEL_SIZE);
+            root.set_margin_bottom(COLLAPSED_OVERLAY_EDGE_INSET);
         }
         _ => {}
     }
