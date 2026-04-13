@@ -491,9 +491,6 @@ notebook.workspace-tabs-nested {
   margin-top: 6px;
 }
 box.workspace-tab-page-shell {
-  margin-left: 6px;
-  margin-right: 6px;
-  margin-bottom: 6px;
   border-radius: 0 0 14px 14px;
   background-color: alpha(@headerbar_bg_color, 0.18);
   box-shadow: none;
