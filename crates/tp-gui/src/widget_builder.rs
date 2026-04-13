@@ -103,7 +103,8 @@ pub fn build_tab_label(
         gtk4::Orientation::Horizontal,
         if is_root_label { 4 } else { 3 },
     );
-    hbox.set_halign(gtk4::Align::Start);
+    hbox.set_halign(gtk4::Align::Fill);
+    hbox.set_hexpand(true);
     hbox.add_css_class("workspace-tab-label");
     hbox.add_css_class(if is_root_label {
         "workspace-tab-label-root"
@@ -138,6 +139,7 @@ pub fn build_tab_label(
 
     let stack = gtk4::Stack::new();
     stack.set_halign(gtk4::Align::Start);
+    stack.set_hexpand(true);
     let label = gtk4::Label::new(Some(name));
     label.add_css_class("workspace-tab-text");
     label.set_halign(gtk4::Align::Start);
