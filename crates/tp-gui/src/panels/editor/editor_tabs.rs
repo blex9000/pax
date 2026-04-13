@@ -98,12 +98,14 @@ fn install_text_context_menu(
     editable: bool,
 ) {
     // SourceView/TextView registers its own right-click gesture that shows
-    // GTK's default context menu with the unstyled bg wrapper. Remove it so
-    // only our app-popover styled menu shows.
+    // GTK's default context menu with the unstyled bg wrapper. Best-effort
+    // removal plus capture-phase interception to ensure only our app-popover
+    // styled menu shows.
     remove_builtin_context_gesture(view);
 
     let gesture = gtk4::GestureClick::new();
     gesture.set_button(CONTEXT_MENU_BUTTON);
+    gesture.set_propagation_phase(gtk4::PropagationPhase::Capture);
     let view_for_menu = view.clone();
     let buffer_for_menu = buffer.clone();
     gesture.connect_pressed(move |g, _n, x, y| {
