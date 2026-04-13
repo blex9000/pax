@@ -1249,22 +1249,23 @@ const AURORA_CSS: &str = "\
 @define-color headerbar_backdrop_color @headerbar_bg_color;
 ";
 
-// Quantum — austere monochrome-blue light theme.
-// Pure ice-white surfaces, single electric-blue palette, very thin
-// blue-tinted borders. Mission-control aesthetic.
+// Quantum — austere mission-control light theme.
+// Cooler slate-blue surfaces with a marked tonal step between primary
+// and chrome, deep royal-blue accent, and clearly visible blue borders.
+// Designed to read very differently from Aurora at a glance.
 const QUANTUM_CSS: &str = "\
-@define-color bg_primary #fafcfe;
-@define-color bg_secondary #f0f4f9;
+@define-color bg_primary #e8eff8;
+@define-color bg_secondary #d8e2f0;
 @define-color bg_tertiary @bg_secondary;
-@define-color bg_card #e6ecf3;
-@define-color bg_dialog #e6ecf3;
-@define-color bg_popover #f0f4f9;
-@define-color bg_sidebar #eef3f8;
-@define-color bg_sidebar_secondary #fafcfe;
-@define-color bg_thumbnail #e6ecf3;
+@define-color bg_card #c5d3e6;
+@define-color bg_dialog #c5d3e6;
+@define-color bg_popover #d8e2f0;
+@define-color bg_sidebar #cfdcec;
+@define-color bg_sidebar_secondary #e8eff8;
+@define-color bg_thumbnail #c5d3e6;
 @define-color bg_view #ffffff;
-@define-color bg_panel_header #f0f4f9;
-@define-color bg_terminal #fafcfe;
+@define-color bg_panel_header #d8e2f0;
+@define-color bg_terminal #f6f9fd;
 @define-color window_bg_color @bg_primary;
 @define-color window_fg_color #0a1a33;
 @define-color headerbar_bg_color @bg_secondary;
@@ -1276,7 +1277,7 @@ const QUANTUM_CSS: &str = "\
 @define-color dialog_fg_color #0a1a33;
 @define-color popover_bg_color @bg_popover;
 @define-color popover_fg_color #0a1a33;
-@define-color popover_shade_color alpha(#0a1a33, 0.08);
+@define-color popover_shade_color alpha(#0a1a33, 0.18);
 @define-color sidebar_bg_color @bg_sidebar;
 @define-color sidebar_fg_color #0a1a33;
 @define-color secondary_sidebar_bg_color @bg_sidebar_secondary;
@@ -1287,11 +1288,11 @@ const QUANTUM_CSS: &str = "\
 @define-color view_fg_color #0a1a33;
 @define-color terminal_bg_color @bg_terminal;
 @define-color terminal_fg_color #0a1a33;
-@define-color accent_bg_color #0066ff;
+@define-color accent_bg_color #0044cc;
 @define-color accent_fg_color #ffffff;
-@define-color accent_color #0066ff;
-@define-color borders alpha(#0066ff, 0.18);
-@define-color headerbar_border_color alpha(#0066ff, 0.20);
+@define-color accent_color #0044cc;
+@define-color borders alpha(#0044cc, 0.45);
+@define-color headerbar_border_color alpha(#003a99, 0.55);
 @define-color headerbar_backdrop_color @headerbar_bg_color;
 ";
 
@@ -1415,11 +1416,14 @@ mod tests {
             Theme::Quantum.color_scheme(),
             libadwaita::ColorScheme::ForceLight
         );
-        // Quantum is monochrome blue: borders share the accent hue.
-        assert!(QUANTUM_CSS.contains("@define-color accent_color #0066ff;"));
-        assert!(QUANTUM_CSS.contains("@define-color borders alpha(#0066ff, 0.18);"));
-        assert!(QUANTUM_CSS.contains("@define-color headerbar_border_color alpha(#0066ff, 0.20);"));
-        // Pure ice-white view surface.
+        // Quantum is monochrome blue: borders share the accent hue and are clearly visible.
+        assert!(QUANTUM_CSS.contains("@define-color accent_color #0044cc;"));
+        assert!(QUANTUM_CSS.contains("@define-color borders alpha(#0044cc, 0.45);"));
+        assert!(
+            QUANTUM_CSS.contains("@define-color headerbar_border_color alpha(#003a99, 0.55);")
+        );
+        // Cooler slate-blue surface, distinct from Aurora's near-white.
+        assert!(QUANTUM_CSS.contains("@define-color bg_primary #e8eff8;"));
         assert!(QUANTUM_CSS.contains("@define-color bg_view #ffffff;"));
     }
 

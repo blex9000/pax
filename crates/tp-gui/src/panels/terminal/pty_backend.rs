@@ -638,13 +638,13 @@ fn terminal_palette_for(theme: crate::theme::Theme, _system_dark: bool) -> Termi
             ],
         ),
         crate::theme::Theme::Quantum => make_terminal_palette(
-            0xfafcfe,
+            0xf6f9fd,
             0x0a1a33,
-            0xcce0ff,
+            0xb8ccea,
             0x0a1a33,
             [
-                0x0a1a33, 0xd12d3a, 0x1f8a5c, 0xb87a00, 0x0066ff, 0x5b3aff, 0x0091c8, 0x9aa6b8,
-                0x4a5670, 0xe04550, 0x2ba36e, 0xd09000, 0x3385ff, 0x7a5dff, 0x10a8d8, 0x0a1a33,
+                0x0a1a33, 0xd12d3a, 0x1f8a5c, 0xb87a00, 0x0044cc, 0x5b3aff, 0x0091c8, 0x9aa6b8,
+                0x4a5670, 0xe04550, 0x2ba36e, 0xd09000, 0x1a5fdb, 0x7a5dff, 0x10a8d8, 0x0a1a33,
             ],
         ),
     }
