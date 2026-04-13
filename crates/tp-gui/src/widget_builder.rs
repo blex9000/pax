@@ -13,6 +13,7 @@ use crate::panel_host::{
 
 const PANED_OVERLAY_CLASS: &str = "paned-overlay-shell";
 const COLLAPSED_DRAG_STRIP_SIZE: i32 = 4;
+const WORKSPACE_TAB_PAGE_SHELL_CLASS: &str = "workspace-tab-page-shell";
 
 fn workspace_tabs_are_root(path: &[usize]) -> bool {
     path.is_empty()
@@ -66,6 +67,15 @@ pub fn add_plus_buttons_recursive(widget: &gtk4::Widget, action_cb: &PanelAction
         add_plus_buttons_recursive(&c, action_cb);
         child = c.next_sibling();
     }
+}
+
+fn wrap_workspace_tab_page(child: gtk4::Widget) -> gtk4::Widget {
+    let shell = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
+    shell.add_css_class(WORKSPACE_TAB_PAGE_SHELL_CLASS);
+    shell.set_hexpand(true);
+    shell.set_vexpand(true);
+    shell.append(&child);
+    shell.upcast()
 }
 
 pub fn build_tab_label(
@@ -397,6 +407,21 @@ mod tests {
 
         assert_eq!(notebook.n_pages(), 2);
         assert_eq!(workspace_tab_real_page_count(&notebook), 1);
+    }
+
+    #[test]
+    fn unwrap_layout_shell_skips_workspace_tab_page_shell() {
+        if gtk4::init().is_err() {
+            return;
+        }
+
+        let inner = gtk4::Box::new(gtk4::Orientation::Vertical, 0).upcast::<gtk4::Widget>();
+        let shell = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
+        shell.add_css_class(WORKSPACE_TAB_PAGE_SHELL_CLASS);
+        shell.append(&inner);
+
+        let unwrapped = unwrap_layout_shell(shell.upcast_ref());
+        assert_eq!(unwrapped, inner);
     }
 }
 
@@ -1024,6 +1049,7 @@ pub fn build_layout_widget_inner(
                     edit_state,
                     &child_path,
                 );
+                let page_widget = wrap_workspace_tab_page(child_widget);
                 let label_text = labels
                     .get(i)
                     .cloned()
@@ -1042,12 +1068,12 @@ pub fn build_layout_widget_inner(
                     &label_text,
                     panel_type_id,
                     action_cb,
-                    &child_widget,
+                    &page_widget,
                     edit_state,
                     &tab_id,
                     &child_path,
                 );
-                notebook.append_page(&child_widget, Some(&label));
+                notebook.append_page(&page_widget, Some(&label));
 
                 // Panels inside tabs keep their title bar visible
                 // (includes collapse button at top-left)
@@ -1361,6 +1387,12 @@ fn unwrap_layout_shell(widget: &gtk4::Widget) -> gtk4::Widget {
     loop {
         if let Ok(bx) = current.clone().downcast::<gtk4::Box>() {
             if bx.has_css_class(COLLAPSE_WRAPPER_CLASS) {
+                if let Some(content) = bx.first_child() {
+                    current = content;
+                    continue;
+                }
+            }
+            if bx.has_css_class(WORKSPACE_TAB_PAGE_SHELL_CLASS) {
                 if let Some(content) = bx.first_child() {
                     current = content;
                     continue;

@@ -355,6 +355,9 @@ impl PanelHost {
         outer.append(&container);
         outer.append(&collapsed_view);
         outer.append(&footer_bar);
+        // Clip backend content to the rounded panel frame so inner widgets
+        // (editor/terminal/footer) do not visually square off the corners.
+        outer.set_overflow(gtk4::Overflow::Hidden);
         {
             let cb_ref = action_cb_ref.clone();
             let pid = panel_id.to_string();
@@ -908,5 +911,15 @@ mod tests {
         assert_eq!(COLLAPSED_CHROME_SIZE, COLLAPSED_PANEL_SIZE);
         assert!(COLLAPSED_PANEL_SIZE < COLLAPSE_SIZE);
         assert!(COLLAPSED_ICON_SIZE < COLLAPSED_CHROME_SIZE);
+    }
+
+    #[test]
+    fn panel_host_clips_contents_to_rounded_frame() {
+        if gtk4::init().is_err() {
+            return;
+        }
+
+        let host = PanelHost::new("panel-1", "Panel", None);
+        assert_eq!(host.outer.overflow(), gtk4::Overflow::Hidden);
     }
 }

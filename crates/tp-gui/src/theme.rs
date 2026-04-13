@@ -415,9 +415,6 @@ menubutton.flat > button image {
   border-bottom: none;
   border-left: none;
 }
-notebook.workspace-tabs,
-notebook.workspace-tabs > header,
-notebook.workspace-tabs > header > tabs,
 notebook.workspace-tabs > header > tabs > tab {
   background-color: @workspace_tabs_bar_bg_color;
   color: @headerbar_fg_color;
@@ -425,13 +422,22 @@ notebook.workspace-tabs > header > tabs > tab {
   background-image: none;
   box-shadow: none;
 }
+notebook.workspace-tabs {
+  background-color: transparent;
+  color: @headerbar_fg_color;
+  border-color: transparent;
+  background-image: none;
+  box-shadow: none;
+}
 notebook.workspace-tabs > header {
+  background-color: transparent;
   border-bottom: none;
   box-shadow: none;
   min-height: 16px;
 }
 notebook.workspace-tabs > header > tabs {
-  box-shadow: inset 0 -1px 0 0 alpha(@headerbar_border_color, 0.52);
+  background-color: transparent;
+  box-shadow: none;
   min-height: 14px;
   padding-left: 3px;
   padding-right: 3px;
@@ -473,7 +479,7 @@ notebook.workspace-tabs > header > tabs > tab:hover {
   background-color: alpha(@accent_color, 0.12);
 }
 notebook.workspace-tabs > header > tabs > tab:checked {
-  background-color: @headerbar_bg_color;
+  background-color: @panel_header_bg_color;
   box-shadow: none;
 }
 notebook.workspace-tabs-root {
@@ -481,6 +487,26 @@ notebook.workspace-tabs-root {
 }
 notebook.workspace-tabs-nested {
   margin-top: 6px;
+}
+box.workspace-tab-page-shell {
+  margin-left: 6px;
+  margin-right: 6px;
+  margin-bottom: 6px;
+  border-radius: 0 0 10px 10px;
+  background-color: alpha(@headerbar_bg_color, 0.18);
+  box-shadow: none;
+}
+box.workspace-tab-page-shell > box.panel-frame {
+  margin-left: 6px;
+  margin-right: 6px;
+  margin-bottom: 6px;
+  box-shadow: none;
+}
+box.workspace-tab-page-shell > box.panel-frame > box.panel-title-bar {
+  border-radius: 10px 10px 0 0;
+}
+box.workspace-tab-page-shell > box.panel-frame > box.panel-footer-bar {
+  border-radius: 0 0 10px 10px;
 }
 notebook.workspace-tabs > header > tabs > tab button.workspace-tab-close-btn {
   min-height: 15px;
@@ -577,7 +603,7 @@ popover.app-popover label,
 popover.app-popover image {
   color: @popover_fg_color;
 }
-box.panel-frame { border: none; border-radius: 0; margin: 0; padding: 0; }
+box.panel-frame { border: 1px solid alpha(@headerbar_border_color, 0.18); border-radius: 10px; margin: 0; padding: 0; }
 box.panel-frame > box { margin: 0; padding: 0; }
 box.panel-title-bar { padding: 0 4px; margin: 0; min-height: 13px; border-bottom: 1px solid alpha(@borders, 0.4); }
 .panel-title { font-size: 9px; font-weight: bold; }
@@ -1245,6 +1271,7 @@ mod tests {
         assert!(BASE_CSS.contains("font-size: 9px;"));
         assert!(BASE_CSS.contains("notebook.workspace-tabs > header > tabs > tab image"));
         assert!(BASE_CSS.contains("-gtk-icon-size: 9px;"));
+        assert!(BASE_CSS.contains("box.workspace-tab-page-shell {"));
     }
 
     #[test]
