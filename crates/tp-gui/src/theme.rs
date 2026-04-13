@@ -423,7 +423,7 @@ notebook.workspace-tabs > header > tabs > tab {
   box-shadow: none;
 }
 notebook.workspace-tabs {
-  background-color: alpha(@headerbar_bg_color, 0.18);
+  background-color: transparent;
   color: @headerbar_fg_color;
   border-color: transparent;
   background-image: none;
@@ -486,9 +486,11 @@ notebook.workspace-tabs > header > tabs > tab:checked {
 }
 notebook.workspace-tabs-root {
   margin-top: 6px;
+  background-color: alpha(@headerbar_bg_color, 0.18);
 }
 notebook.workspace-tabs-nested {
   margin-top: 6px;
+  background-color: transparent;
 }
 box.workspace-tab-page-shell {
   border-radius: 0 0 14px 14px;
