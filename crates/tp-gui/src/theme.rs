@@ -499,7 +499,7 @@ box.workspace-tab-page-shell {
   box-shadow: none;
 }
 box.workspace-tab-page-shell > box.panel-frame {
-  margin: 0;
+  margin: 6px 0 0 0;
   box-shadow: none;
 }
 box.workspace-tab-page-shell > box.panel-frame > box.panel-title-bar {
