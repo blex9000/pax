@@ -39,31 +39,25 @@ const GROUPS: &[(&str, &[ColorToken])] = &[
     ("Borders", BORDER_TOKENS),
 ];
 
-/// Try to parse a hex color string (`#rrggbb` or `#rrggbbaa`) into an RGBA.
-fn hex_to_rgba(hex: &str) -> Option<gtk4::gdk::RGBA> {
-    let hex = hex.trim().trim_start_matches('#');
-    let (r, g, b, a) = match hex.len() {
-        6 => {
-            let r = u8::from_str_radix(&hex[0..2], 16).ok()?;
-            let g = u8::from_str_radix(&hex[2..4], 16).ok()?;
-            let b = u8::from_str_radix(&hex[4..6], 16).ok()?;
-            (r, g, b, 255u8)
-        }
-        8 => {
-            let r = u8::from_str_radix(&hex[0..2], 16).ok()?;
-            let g = u8::from_str_radix(&hex[2..4], 16).ok()?;
-            let b = u8::from_str_radix(&hex[4..6], 16).ok()?;
-            let a = u8::from_str_radix(&hex[6..8], 16).ok()?;
-            (r, g, b, a)
-        }
-        _ => return None,
-    };
-    Some(gtk4::gdk::RGBA::new(
-        r as f32 / 255.0,
-        g as f32 / 255.0,
-        b as f32 / 255.0,
-        a as f32 / 255.0,
-    ))
+/// Parse a CSS color value into an RGBA. Handles hex (#rrggbb), named colors
+/// (white, black), and the GTK `alpha(color, opacity)` function.
+fn css_value_to_rgba(val: &str) -> Option<gtk4::gdk::RGBA> {
+    let val = val.trim();
+    // Try direct parse first: handles #hex, rgb(), rgba(), named colors
+    if let Ok(rgba) = gtk4::gdk::RGBA::parse(val) {
+        return Some(rgba);
+    }
+    // Handle alpha(color, opacity) — common in border tokens
+    if let Some(inner) = val.strip_prefix("alpha(").and_then(|s| s.strip_suffix(')')) {
+        let last_comma = inner.rfind(',')?;
+        let color_part = inner[..last_comma].trim();
+        let alpha_part = inner[last_comma + 1..].trim();
+        let mut base = gtk4::gdk::RGBA::parse(color_part).ok()?;
+        let alpha: f32 = alpha_part.parse().ok()?;
+        base.set_alpha(alpha);
+        return Some(base);
+    }
+    None
 }
 
 fn rgba_to_hex(c: &gtk4::gdk::RGBA) -> String {
@@ -139,7 +133,7 @@ pub fn show_color_customizer_dialog(parent: &impl IsA<gtk4::Window>) {
                 .or_else(|| crate::theme::parse_define_color(css, token.css_name));
             let initial_rgba = initial_hex
                 .as_deref()
-                .and_then(hex_to_rgba)
+                .and_then(css_value_to_rgba)
                 .unwrap_or_else(|| gtk4::gdk::RGBA::new(0.5, 0.5, 0.5, 1.0));
 
             let color_dialog = gtk4::ColorDialog::new();
