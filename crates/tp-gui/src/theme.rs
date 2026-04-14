@@ -864,7 +864,7 @@ notebook.editor-tabs > header > tabs > tab {
   padding: 1px 6px;
 }
 notebook.editor-tabs > header > tabs > tab:checked {
-  border-bottom: 2px solid @accent_color;
+  border-bottom: 1px solid @accent_color;
 }
 .editor-welcome { background-color: @view_bg_color; color: @view_fg_color; }
 .editor-sidebar { border-right: 1px solid alpha(@border_soft, 0.3); }
