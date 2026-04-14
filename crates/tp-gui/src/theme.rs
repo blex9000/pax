@@ -433,8 +433,10 @@ notebook.workspace-tabs > header > tabs {
   background-color: transparent;
   box-shadow: none;
   min-height: 14px;
-  padding-left: 3px;
-  padding-right: 3px;
+  /* Match the panel-frame margin (6px) on both sides so the tab strip
+     aligns with the panels below it. */
+  padding-left: 6px;
+  padding-right: 6px;
   /* Force tabs flush against each other so the per-tab bottom borders
      join into a single continuous line (no inherited GTK tab spacing). */
   border-spacing: 0;
@@ -445,7 +447,7 @@ notebook.workspace-tabs > header > tabs > tab {
   border-top: none;
   border-left: none;
   border-right: none;
-  border-bottom: 1px solid alpha(@accent_color, 0.34);
+  border-bottom: 1px solid @headerbar_border_color;
   border-radius: 0;
   margin: 0;
   border-spacing: 0;
@@ -458,18 +460,18 @@ notebook.workspace-tabs > header > tabs > tab {
   box-shadow: none;
 }
 notebook.workspace-tabs > header > tabs > tab label {
-  font-size: 9px;
+  font-size: 10px;
   font-weight: 600;
   color: alpha(@headerbar_fg_color, 0.46);
 }
 notebook.workspace-tabs > header > tabs > tab image {
-  -gtk-icon-size: 9px;
+  -gtk-icon-size: 10px;
   color: alpha(@headerbar_fg_color, 0.44);
 }
 image.workspace-tab-type-icon {
-  -gtk-icon-size: 10px;
-  min-height: 10px;
-  min-width: 10px;
+  -gtk-icon-size: 11px;
+  min-height: 11px;
+  min-width: 11px;
   color: alpha(@headerbar_fg_color, 0.56);
 }
 notebook.workspace-tabs > header > tabs > tab:checked label {
@@ -477,23 +479,27 @@ notebook.workspace-tabs > header > tabs > tab:checked label {
 }
 notebook.workspace-tabs > header > tabs > tab:checked image,
 notebook.workspace-tabs > header > tabs > tab:checked image.workspace-tab-type-icon {
-  color: alpha(@headerbar_fg_color, 0.88);
+  color: @accent_color;
 }
 notebook.workspace-tabs > header > tabs > tab:hover {
   background-color: alpha(@accent_color, 0.08);
+  border-top-left-radius: 12px;
+  border-top-right-radius: 12px;
+  border-bottom-left-radius: 4px;
+  border-bottom-right-radius: 4px;
 }
 notebook.workspace-tabs > header > tabs > tab:checked {
   /* Active tab: arch chrome (top-left + top-right rounded), three-sided
-     blue outline standing on the continuous baseline. No bg fill so the
-     baseline shows through under the tab and reads as the bottom edge. */
-  border-top: 1px solid alpha(@accent_color, 0.34);
-  border-left: 1px solid alpha(@accent_color, 0.34);
-  border-right: 1px solid alpha(@accent_color, 0.34);
+     outline in the same gray used by unfocused panel borders. No bg fill
+     so the baseline reads as the bottom edge. */
+  border-top: 1px solid @headerbar_border_color;
+  border-left: 1px solid @headerbar_border_color;
+  border-right: 1px solid @headerbar_border_color;
   border-bottom: none;
   border-top-left-radius: 12px;
   border-top-right-radius: 12px;
-  border-bottom-left-radius: 0;
-  border-bottom-right-radius: 0;
+  border-bottom-left-radius: 4px;
+  border-bottom-right-radius: 4px;
   background-color: transparent;
   box-shadow: none;
 }
@@ -630,45 +636,44 @@ box.panel-frame.panel-collapsed-placeholder {
 box.panel-frame > box { margin: 0; padding: 0; }
 box.panel-frame > box.panel-title-bar { border-radius: 14px 14px 0 0; }
 box.panel-frame > box.panel-footer-bar { border-radius: 0 0 14px 14px; }
-box.panel-title-bar { padding: 0 4px; margin: 0; min-height: 13px; border-bottom: 1px solid alpha(@borders, 0.4); }
-.panel-title { font-size: 9px; font-weight: bold; }
+box.panel-title-bar { padding: 0 4px; margin: 0; min-height: 13px; border-bottom: none; }
+.panel-title { font-size: 10px; font-weight: bold; }
 box.panel-frame box.panel-title-bar {
   background-color: transparent;
-  border-bottom: 1px solid alpha(@borders, 0.12);
+  border-bottom: none;
 }
-box.panel-frame.panel-focused {
-  border-color: alpha(@accent_color, 0.34);
-}
+/* Focused panels keep the same gray borders as unfocused ones — only the
+   type icon switches to the accent color so focus is communicated via a
+   single accent cue. */
 box.panel-frame.panel-focused box.panel-title-bar {
   background-color: @panel_header_bg_color;
-  border-bottom: 1px solid alpha(@accent_color, 0.34);
 }
 box.panel-frame.panel-unfocused box.panel-title-bar {
   background-color: transparent;
 }
-box.panel-frame.panel-focused > box.panel-footer-bar {
-  border-top: 1px solid alpha(@accent_color, 0.18);
-}
-box.panel-frame.panel-unfocused > box.panel-footer-bar {
-  border-top: 1px solid alpha(@borders, 0.12);
-}
 box.panel-frame.panel-unfocused .panel-title,
-box.panel-frame.panel-unfocused .panel-title-type-icon,
 box.panel-frame.panel-unfocused .panel-footer {
   color: alpha(@headerbar_fg_color, 0.74);
   opacity: 0.68;
 }
+box.panel-frame.panel-unfocused .panel-title-type-icon {
+  color: alpha(@headerbar_fg_color, 0.74);
+  opacity: 0.68;
+}
 box.panel-frame.panel-focused .panel-title,
-box.panel-frame.panel-focused .panel-title-type-icon,
 box.panel-frame.panel-focused .panel-footer {
   color: @headerbar_fg_color;
   opacity: 1.0;
 }
+box.panel-frame.panel-focused .panel-title-type-icon {
+  color: @accent_color;
+  opacity: 1.0;
+}
 .panel-type-icon { min-height: 9px; min-width: 9px; opacity: 0.6; margin-right: 1px; }
 .panel-title-type-icon {
-  -gtk-icon-size: 10px;
-  min-height: 10px;
-  min-width: 10px;
+  -gtk-icon-size: 11px;
+  min-height: 11px;
+  min-width: 11px;
   margin-left: 14px;
   margin-right: 3px;
 }
