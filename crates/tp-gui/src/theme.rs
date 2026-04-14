@@ -901,7 +901,7 @@ paned > separator {
 .editor-file-tree-list > row:selected,
 .editor-file-tree-list > row:selected:hover,
 .editor-file-tree-list > row:selected:focus {
-  background-color: @accent_bg_color;
+  background-color: @accent_color;
   color: @accent_fg_color;
 }
 .editor-file-tree-list > row:selected > box,
@@ -977,7 +977,7 @@ combobox > box > button:focus {
 entry selection,
 text selection,
 textview text selection {
-  background-color: @accent_bg_color;
+  background-color: @accent_color;
   color: @accent_fg_color;
 }
 button.git-has-changes, togglebutton.git-has-changes { color: #ff8c00; }
@@ -1053,7 +1053,7 @@ window.app-dialog dropdown.settings-theme-dropdown > popover.menu row:hover,
 window.app-dialog dropdown.settings-theme-dropdown > popover.menu row:selected,
 .editor-sidebar-pane dropdown > popover.menu row:hover,
 .editor-sidebar-pane dropdown > popover.menu row:selected {
-  background-color: alpha(@accent_bg_color, 0.18);
+  background-color: alpha(@accent_color, 0.18);
   color: @popover_fg_color;
 }
 ";
@@ -1366,8 +1366,8 @@ mod tests {
     #[test]
     fn text_selection_uses_full_accent_surface_for_contrast() {
         assert!(BASE_CSS.contains("entry selection,"));
-        assert!(BASE_CSS.contains("background-color: @accent_bg_color;"));
-        assert!(!BASE_CSS.contains("alpha(@accent_bg_color, 0.32)"));
+        assert!(BASE_CSS.contains("background-color: @accent_color;"));
+        assert!(!BASE_CSS.contains("alpha(@accent_color, 0.32)"));
     }
 
     #[test]
