@@ -468,7 +468,7 @@ menubutton.flat > button image {
   color: @view_fg_color;
   border-top: none;
   border-right: none;
-  border-bottom: 1px solid alpha(@border_soft, 0.4);
+  border-bottom: 1px solid @border_soft;
   border-left: none;
 }
 .editor-file-tree-header {
