@@ -858,7 +858,7 @@ paned > separator {
   box-shadow: none;
 }
 .dirty-indicator { color: #ff8c00; }
-.editor-tabs { border-bottom: 1px solid alpha(@borders, 0.3); background-color: @headerbar_bg_color; color: @headerbar_fg_color; }
+.editor-tabs { border-bottom: 1px solid alpha(@borders, 0.3); background-color: @view_bg_color; color: @view_fg_color; }
 .editor-welcome { background-color: @view_bg_color; color: @view_fg_color; }
 .editor-sidebar { border-right: 1px solid alpha(@borders, 0.3); }
 .navigation-sidebar, .boxed-list { background-color: @sidebar_bg_color; color: @sidebar_fg_color; }
@@ -1060,7 +1060,7 @@ window.app-dialog dropdown.settings-theme-dropdown > popover.menu row:selected,
 
 const GRAPHITE_CSS: &str = "\
 @define-color bg_window #141a22;\n\
-@define-color bg_chrome #1a212c;\n\
+@define-color bg_chrome @bg_window;\n\
 @define-color bg_surface #0f141b;\n\
 @define-color bg_elevated #202938;\n\
 @define-color fg_ui #e5ecf3;\n\
@@ -1102,7 +1102,7 @@ const GRAPHITE_CSS: &str = "\
 
 const DRACULA_CSS: &str = "\
 @define-color bg_window #282a36;\n\
-@define-color bg_chrome #21222c;\n\
+@define-color bg_chrome @bg_window;\n\
 @define-color bg_surface #282a36;\n\
 @define-color bg_elevated #44475a;\n\
 @define-color fg_ui #f8f8f2;\n\
@@ -1144,7 +1144,7 @@ const DRACULA_CSS: &str = "\
 
 const AURORA_CSS: &str = "\
 @define-color bg_window #f4f7fb;\n\
-@define-color bg_chrome #eaf0f8;\n\
+@define-color bg_chrome @bg_window;\n\
 @define-color bg_surface #fafcfe;\n\
 @define-color bg_elevated #e0e8f3;\n\
 @define-color fg_ui #1a2740;\n\
@@ -1186,7 +1186,7 @@ const AURORA_CSS: &str = "\
 
 const QUANTUM_CSS: &str = "\
 @define-color bg_window #e8eff8;\n\
-@define-color bg_chrome #d8e2f0;\n\
+@define-color bg_chrome @bg_window;\n\
 @define-color bg_surface #ffffff;\n\
 @define-color bg_elevated #c5d3e6;\n\
 @define-color fg_ui #0a1a33;\n\

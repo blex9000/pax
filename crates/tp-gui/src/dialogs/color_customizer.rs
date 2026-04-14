@@ -12,8 +12,7 @@ struct ColorToken {
 }
 
 const BG_TOKENS: &[ColorToken] = &[
-    ColorToken { css_name: "bg_window", label: "Window" },
-    ColorToken { css_name: "bg_chrome", label: "Toolbars, Headers & Dialogs" },
+    ColorToken { css_name: "bg_window", label: "Window & Chrome" },
     ColorToken { css_name: "bg_surface", label: "Content (Editor, Terminal, Forms)" },
     ColorToken { css_name: "bg_elevated", label: "Popovers, Cards & Sidebars" },
 ];
