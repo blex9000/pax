@@ -145,8 +145,12 @@ pub fn show_color_customizer_dialog(parent: &impl IsA<gtk4::Window>) {
                 .as_deref()
                 .and_then(css_value_to_rgba)
                 .unwrap_or_else(|| gtk4::gdk::RGBA::new(0.5, 0.5, 0.5, 1.0));
+            tracing::debug!("color_customizer: {} = {:?} -> rgba({},{},{},{})",
+                token.css_name, initial_hex,
+                initial_rgba.red(), initial_rgba.green(), initial_rgba.blue(), initial_rgba.alpha());
 
             let color_dialog = gtk4::ColorDialog::new();
+            color_dialog.set_with_alpha(true);
             let btn = gtk4::ColorDialogButton::new(Some(color_dialog));
             btn.set_rgba(&initial_rgba);
             btn.set_valign(gtk4::Align::Center);
