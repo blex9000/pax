@@ -149,22 +149,65 @@ pub fn show_color_customizer_dialog(parent: &impl IsA<gtk4::Window>) {
                 token.css_name, initial_hex,
                 initial_rgba.red(), initial_rgba.green(), initial_rgba.blue(), initial_rgba.alpha());
 
-            let color_dialog = gtk4::ColorDialog::new();
-            color_dialog.set_with_alpha(true);
-            let btn = gtk4::ColorDialogButton::new(Some(color_dialog));
-            btn.set_rgba(&initial_rgba);
-            btn.set_valign(gtk4::Align::Center);
+            let current_rgba = Rc::new(RefCell::new(initial_rgba));
 
+            // Color swatch button
+            let btn = gtk4::Button::new();
+            btn.set_valign(gtk4::Align::Center);
+            btn.set_size_request(28, 20);
+            let swatch = gtk4::DrawingArea::new();
+            swatch.set_size_request(28, 20);
+            let rgba_for_draw = current_rgba.clone();
+            swatch.set_draw_func(move |_, cr, w, h| {
+                let c = rgba_for_draw.borrow();
+                cr.set_source_rgba(c.red() as f64, c.green() as f64, c.blue() as f64, c.alpha() as f64);
+                cr.rectangle(0.0, 0.0, w as f64, h as f64);
+                let _ = cr.fill();
+            });
+            btn.set_child(Some(&swatch));
+
+            // Value label showing hex/rgba text
+            let value_label = gtk4::Label::new(Some(&rgba_to_css(&initial_rgba)));
+            value_label.add_css_class("dim-label");
+            value_label.add_css_class("caption");
+            value_label.set_width_chars(22);
+            value_label.set_xalign(0.0);
+
+            // Single click handler: open ColorDialog with current color
             let overrides_ref = overrides.clone();
             let token_name = token.css_name.to_string();
             let theme_copy = theme;
-            btn.connect_rgba_notify(move |b| {
-                let rgba = b.rgba();
-                let hex = rgba_to_css(&rgba);
-                overrides_ref.borrow_mut().insert(token_name.clone(), hex);
-                crate::app::apply_theme_with_overrides(theme_copy, &overrides_ref.borrow());
+            let current_for_click = current_rgba.clone();
+            let swatch_for_click = swatch.clone();
+            let dialog_ref = dialog.clone();
+            let vlabel = value_label.clone();
+            btn.connect_clicked(move |_| {
+                let color_dialog = gtk4::ColorDialog::new();
+                color_dialog.set_with_alpha(true);
+                let rgba_now = *current_for_click.borrow();
+                let overrides_c = overrides_ref.clone();
+                let token_c = token_name.clone();
+                let current_c = current_for_click.clone();
+                let swatch_c = swatch_for_click.clone();
+                let vlabel_c = vlabel.clone();
+                color_dialog.choose_rgba(
+                    Some(&dialog_ref),
+                    Some(&rgba_now),
+                    gtk4::gio::Cancellable::NONE,
+                    move |result| {
+                        if let Ok(rgba) = result {
+                            *current_c.borrow_mut() = rgba;
+                            swatch_c.queue_draw();
+                            let css_val = rgba_to_css(&rgba);
+                            vlabel_c.set_text(&css_val);
+                            overrides_c.borrow_mut().insert(token_c.clone(), css_val);
+                            crate::app::apply_theme_with_overrides(theme_copy, &overrides_c.borrow());
+                        }
+                    },
+                );
             });
 
+            row.append(&value_label);
             row.append(&btn);
             vbox.append(&row);
         }
