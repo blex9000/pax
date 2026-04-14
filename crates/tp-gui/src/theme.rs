@@ -992,8 +992,8 @@ spinbutton:focus-within,
 textview:focus,
 dropdown > button:focus,
 combobox > box > button:focus {
-  border-color: @accent_color;
-  box-shadow: inset 0 0 0 1px alpha(@accent_color, 0.35);
+  border-color: @border_soft;
+  box-shadow: none;
 }
 entry selection,
 text selection,
