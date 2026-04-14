@@ -262,6 +262,9 @@ fn build_app_menu_popover(
 
 /// Single entry point — shows welcome if no workspace, or workspace directly.
 pub fn run_app(workspace: Option<Workspace>, config_path: Option<&Path>) -> Result<()> {
+    // Force GTK built-in color dialog instead of the xdg-desktop-portal one,
+    // which often ignores the initial color parameter.
+    std::env::set_var("GTK_USE_PORTAL", "0");
     let app = adw::Application::builder()
         .application_id("com.sinelec.pax")
         .build();

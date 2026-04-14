@@ -88,7 +88,7 @@ pub fn show_color_customizer_dialog(parent: &impl IsA<gtk4::Window>) {
         .title("Customize Theme Colors")
         .transient_for(parent)
         .modal(true)
-        .default_width(420)
+        .default_width(520)
         .default_height(540)
         .build();
     crate::theme::configure_dialog_window(&dialog);
@@ -170,8 +170,9 @@ pub fn show_color_customizer_dialog(parent: &impl IsA<gtk4::Window>) {
             let value_label = gtk4::Label::new(Some(&rgba_to_css(&initial_rgba)));
             value_label.add_css_class("dim-label");
             value_label.add_css_class("caption");
-            value_label.set_width_chars(22);
+            value_label.set_width_chars(24);
             value_label.set_xalign(0.0);
+            value_label.set_selectable(true);
 
             // Single click handler: open ColorDialog with current color
             let overrides_ref = overrides.clone();
