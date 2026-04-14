@@ -1735,7 +1735,7 @@ mod tests {
 }
 
 #[cfg(feature = "sourceview")]
-fn sourceview_style_search_paths() -> Vec<std::path::PathBuf> {
+pub(crate) fn sourceview_style_search_paths() -> Vec<std::path::PathBuf> {
     let exe = std::env::current_exe().ok();
     let candidates = [
         std::path::PathBuf::from("resources/sourceview-styles"),

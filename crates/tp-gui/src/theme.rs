@@ -123,16 +123,22 @@ pub fn apply_custom_vte_colors(bg: Option<&gtk4::gdk::RGBA>, fg: Option<&gtk4::g
 #[cfg(feature = "sourceview")]
 pub fn register_sourceview_buffer(buf: &sourceview5::Buffer) {
     use sourceview5::prelude::*;
-    // Apply current scheme
     let theme = current_theme();
     let scheme_id = theme.sourceview_scheme();
     let fallback_id = theme.sourceview_scheme_fallback();
     let manager = sourceview5::StyleSchemeManager::default();
+    // Safety: re-append custom search paths in case they were lost
+    // (can happen if the manager was reset or paths weren't registered yet).
+    for path in crate::app::sourceview_style_search_paths() {
+        manager.append_search_path(&path.to_string_lossy());
+    }
     if let Some(scheme) = manager
         .scheme(scheme_id)
         .or_else(|| manager.scheme(fallback_id))
     {
         buf.set_style_scheme(Some(&scheme));
+    } else {
+        tracing::warn!("sourceview scheme {} not found, available: {:?}", scheme_id, manager.scheme_ids());
     }
     SV_BUFFERS.with(|cell| {
         cell.borrow_mut().push(buf.clone());
@@ -812,13 +818,6 @@ box.editor-file-preview-footer.panel-footer {
   background-color: @view_bg_color;
   color: @view_fg_color;
 }
-.editor-code-view .line-numbers {
-  background-color: @view_bg_color;
-  color: alpha(@view_fg_color, 0.4);
-}
-.editor-code-view .current-line-number {
-  color: @accent_color;
-}
 .markdown-toolbar { border-bottom: 1px solid alpha(@border_soft, 0.3); padding: 0 2px; }
 .markdown-toolbar button,
 .markdown-toolbar togglebutton {
@@ -866,13 +865,7 @@ paned > separator {
 }
 .dirty-indicator { color: #ff8c00; }
 .editor-tabs { border-bottom: 1px solid alpha(@border_soft, 0.3); background-color: @view_bg_color; color: @view_fg_color; }
-notebook.editor-tabs > header > tabs > tab {
-  min-height: 8px;
-  padding: 1px 6px;
-}
-notebook.editor-tabs > header > tabs > tab:checked {
-  border-bottom: 1px solid @accent_color;
-}
+.editor-tab-active { border-bottom: 1px solid @accent_color; }
 .editor-welcome { background-color: @view_bg_color; color: @view_fg_color; }
 .editor-sidebar { border-right: 1px solid alpha(@border_soft, 0.3); }
 .navigation-sidebar, .boxed-list { background-color: @view_bg_color; color: @view_fg_color; }

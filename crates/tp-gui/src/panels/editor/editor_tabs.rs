@@ -685,6 +685,7 @@ impl EditorTabs {
 
         // Build tab label
         let tab_box = gtk4::Box::new(gtk4::Orientation::Horizontal, 4);
+        tab_box.add_css_class("editor-tab-label");
         let dot = gtk4::Label::new(None);
         dot.add_css_class("dirty-indicator");
         let label = gtk4::Label::new(Some(&file_name));
@@ -924,6 +925,20 @@ impl EditorTabs {
 
     /// Switch the SourceView to display the buffer at the given index.
     pub fn switch_to_buffer(&self, idx: usize, state: &Rc<RefCell<EditorState>>) {
+        // Toggle active CSS class on editor tab labels
+        let n = self.notebook.n_pages();
+        for i in 0..n {
+            if let Some(page) = self.notebook.nth_page(Some(i)) {
+                if let Some(tab_label) = self.notebook.tab_label(&page) {
+                    if i == idx as u32 {
+                        tab_label.add_css_class("editor-tab-active");
+                    } else {
+                        tab_label.remove_css_class("editor-tab-active");
+                    }
+                }
+            }
+        }
+
         let st = state.borrow();
         if let Some(open_file) = st.open_files.get(idx) {
             self.source_view.set_buffer(Some(&open_file.buffer));
