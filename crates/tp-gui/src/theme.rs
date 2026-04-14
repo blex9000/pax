@@ -565,6 +565,16 @@ box.workspace-tab-add-wrap > label.workspace-tab-add-label {
 notebook.workspace-tabs > header > tabs > tab:hover box.workspace-tab-add-wrap > label.workspace-tab-add-label {
   color: @accent_color;
 }
+checkbutton.app-popover-check {
+  min-height: 22px;
+  padding: 2px 4px;
+}
+checkbutton.app-popover-check:hover {
+  color: @accent_color;
+}
+checkbutton.app-popover-check check {
+  -gtk-icon-size: 13px;
+}
 button.panel-action-btn, menubutton.panel-menu-btn > button, menubutton.app-menu-btn > button, headerbar.app-headerbar button, headerbar.app-headerbar menubutton > button {
   background-image: none;
   background-color: transparent;

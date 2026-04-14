@@ -385,6 +385,81 @@ fn setup_welcome_ui(window: &Rc<adw::ApplicationWindow>) {
     window.set_content(Some(&toolbar_view));
 }
 
+/// Build the theme-picker popover attached to the header bar button.
+/// Radio check buttons for each theme + a Customize button at the bottom.
+fn build_theme_popover(parent_window: &Rc<adw::ApplicationWindow>) -> gtk4::Popover {
+    use gtk4::prelude::*;
+
+    let popover = gtk4::Popover::new();
+    crate::theme::configure_popover(&popover);
+
+    let vbox = gtk4::Box::new(gtk4::Orientation::Vertical, 2);
+    vbox.set_margin_top(6);
+    vbox.set_margin_bottom(6);
+    vbox.set_margin_start(6);
+    vbox.set_margin_end(6);
+
+    let group_leader = gtk4::CheckButton::new();
+    let current = crate::theme::current_theme();
+
+    let checks: Vec<gtk4::CheckButton> = Theme::all()
+        .iter()
+        .map(|theme| {
+            let check = gtk4::CheckButton::with_label(theme.label());
+            check.set_group(Some(&group_leader));
+            check.add_css_class("app-popover-check");
+            if *theme == current {
+                check.set_active(true);
+            }
+            let t = *theme;
+            let pop = popover.clone();
+            check.connect_toggled(move |c| {
+                if c.is_active() {
+                    apply_theme(t);
+                    save_preferred_theme(t);
+                    pop.popdown();
+                }
+            });
+            vbox.append(&check);
+            check
+        })
+        .collect();
+
+    // Refresh radio state every time the popover opens (theme may have been
+    // changed via Settings dialog).
+    let checks_for_show = checks.clone();
+    popover.connect_show(move |_| {
+        let active = crate::theme::current_theme();
+        for (i, theme) in Theme::all().iter().enumerate() {
+            if *theme == active {
+                if let Some(c) = checks_for_show.get(i) {
+                    c.set_active(true);
+                }
+            }
+        }
+    });
+
+    vbox.append(&gtk4::Separator::new(gtk4::Orientation::Horizontal));
+
+    let customize_btn = gtk4::Button::new();
+    customize_btn.add_css_class("flat");
+    customize_btn.add_css_class("app-popover-check");
+    let hbox = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
+    hbox.append(&gtk4::Image::from_icon_name("preferences-color-symbolic"));
+    hbox.append(&gtk4::Label::new(Some("Customize...")));
+    customize_btn.set_child(Some(&hbox));
+    let pop2 = popover.clone();
+    let win = parent_window.clone();
+    customize_btn.connect_clicked(move |_| {
+        pop2.popdown();
+        crate::dialogs::color_customizer::show_color_customizer_dialog(&*win);
+    });
+    vbox.append(&customize_btn);
+
+    popover.set_child(Some(&vbox));
+    popover
+}
+
 /// Setup the full workspace UI in the window (replaces any existing content).
 fn setup_workspace_ui(
     window: &Rc<adw::ApplicationWindow>,
@@ -447,6 +522,15 @@ fn setup_workspace_ui(
     DIRTY_INDICATOR.with(|cell| {
         cell.borrow_mut().replace((dirty_icon, dirty_sep));
     });
+
+    // Theme picker button (right side of header)
+    let theme_btn = gtk4::MenuButton::new();
+    theme_btn.set_icon_name("applications-graphics-symbolic");
+    theme_btn.set_tooltip_text(Some("Theme"));
+    theme_btn.add_css_class("flat");
+    let theme_popover = build_theme_popover(window);
+    theme_btn.set_popover(Some(&theme_popover));
+    header.pack_end(&theme_btn);
 
     // Shared state
     let ws_view = Rc::new(RefCell::new(WorkspaceView::build(&workspace, config_path)));
@@ -1413,7 +1497,7 @@ fn load_preferred_theme_from_db(db: &pax_db::Database) -> Option<Theme> {
         .map(|value| Theme::from_id(&value))
 }
 
-fn save_preferred_theme(theme: Theme) {
+pub(crate) fn save_preferred_theme(theme: Theme) {
     let db_path = pax_db::Database::default_path();
     let Ok(db) = pax_db::Database::open(&db_path) else {
         return;
@@ -1427,7 +1511,7 @@ pub(crate) fn apply_preferred_theme() -> Theme {
     theme
 }
 
-fn apply_theme(theme: Theme) {
+pub(crate) fn apply_theme(theme: Theme) {
     let display = gdk::Display::default().expect("Could not connect to display");
 
     // Remove old provider
