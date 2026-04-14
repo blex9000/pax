@@ -869,6 +869,13 @@ notebook.editor-tabs > header > tabs > tab:checked {
 .editor-welcome { background-color: @view_bg_color; color: @view_fg_color; }
 .editor-sidebar { border-right: 1px solid alpha(@border_soft, 0.3); }
 .navigation-sidebar, .boxed-list { background-color: @view_bg_color; color: @view_fg_color; }
+list row:hover, listview row:hover, listbox row:hover {
+  background-color: alpha(@accent_color, 0.10);
+}
+list row:selected, listview row:selected, listbox row:selected {
+  background-color: @accent_color;
+  color: @accent_fg;
+}
 .editor-file-tree,
 .editor-file-tree-scroll,
 .editor-file-tree-scroll viewport,
@@ -896,7 +903,7 @@ notebook.editor-tabs > header > tabs > tab:checked {
   background-color: transparent;
 }
 .editor-file-tree-list > row:hover {
-  background-color: alpha(@view_fg_color, 0.06);
+  background-color: alpha(@accent_color, 0.10);
 }
 .editor-file-tree-entry.editor-file-tree-ignored,
 .editor-file-tree-entry.editor-file-tree-ignored > label,
@@ -934,6 +941,13 @@ notebook.editor-tabs > header > tabs > tab:checked {
 .editor-sidebar-pane-list > row > box,
 .editor-sidebar-pane-list > row > box > * {
   background-color: transparent;
+}
+.editor-sidebar-pane-list > row:hover {
+  background-color: alpha(@accent_color, 0.10);
+}
+.editor-sidebar-pane-list > row:selected {
+  background-color: @accent_color;
+  color: @accent_fg;
 }
 .editor-sidebar-pane-footer {
   background-color: @view_bg_color;
