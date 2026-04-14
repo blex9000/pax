@@ -70,11 +70,11 @@ fn rgba_to_css(c: &gtk4::gdk::RGBA) -> String {
         )
     } else {
         format!(
-            "rgba({}, {}, {}, {:.2})",
+            "#{:02x}{:02x}{:02x}{:02x}",
             (c.red() * 255.0) as u8,
             (c.green() * 255.0) as u8,
             (c.blue() * 255.0) as u8,
-            c.alpha(),
+            (c.alpha() * 255.0) as u8,
         )
     }
 }
