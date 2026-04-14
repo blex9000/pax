@@ -60,13 +60,23 @@ fn css_value_to_rgba(val: &str) -> Option<gtk4::gdk::RGBA> {
     None
 }
 
-fn rgba_to_hex(c: &gtk4::gdk::RGBA) -> String {
-    format!(
-        "#{:02x}{:02x}{:02x}",
-        (c.red() * 255.0) as u8,
-        (c.green() * 255.0) as u8,
-        (c.blue() * 255.0) as u8,
-    )
+fn rgba_to_css(c: &gtk4::gdk::RGBA) -> String {
+    if (c.alpha() - 1.0).abs() < 0.01 {
+        format!(
+            "#{:02x}{:02x}{:02x}",
+            (c.red() * 255.0) as u8,
+            (c.green() * 255.0) as u8,
+            (c.blue() * 255.0) as u8,
+        )
+    } else {
+        format!(
+            "rgba({}, {}, {}, {:.2})",
+            (c.red() * 255.0) as u8,
+            (c.green() * 255.0) as u8,
+            (c.blue() * 255.0) as u8,
+            c.alpha(),
+        )
+    }
 }
 
 /// Open the color customizer dialog for tweaking individual theme CSS tokens.
@@ -146,7 +156,7 @@ pub fn show_color_customizer_dialog(parent: &impl IsA<gtk4::Window>) {
             let theme_copy = theme;
             btn.connect_rgba_notify(move |b| {
                 let rgba = b.rgba();
-                let hex = rgba_to_hex(&rgba);
+                let hex = rgba_to_css(&rgba);
                 overrides_ref.borrow_mut().insert(token_name.clone(), hex);
                 crate::app::apply_theme_with_overrides(theme_copy, &overrides_ref.borrow());
             });
