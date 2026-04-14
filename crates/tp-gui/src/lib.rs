@@ -3,6 +3,7 @@ pub mod app;
 pub mod backend_factory;
 pub mod dialogs;
 pub mod focus;
+mod fonts;
 mod icons;
 pub mod layout_ops;
 pub mod panel_host;

@@ -708,6 +708,47 @@ popover.app-popover label,
 popover.app-popover image {
   color: @view_fg_color;
 }
+popover.menu {
+  background-color: transparent;
+  background-image: none;
+  box-shadow: none;
+}
+popover.menu > contents {
+  background-color: @bg_popover;
+  color: @view_fg_color;
+  border: 1px solid alpha(@border_soft, 0.9);
+  border-radius: 12px;
+  box-shadow: none;
+  padding: 3px;
+}
+popover.menu > arrow {
+  background-color: @bg_popover;
+  color: @bg_popover;
+}
+popover.menu modelbutton {
+  color: @view_fg_color;
+  background-image: none;
+  background-color: transparent;
+  border: none;
+  border-radius: 8px;
+  box-shadow: none;
+  min-height: 20px;
+  padding: 0 4px;
+}
+popover.menu modelbutton:hover {
+  background-color: transparent;
+  background-image: none;
+  border-color: transparent;
+  box-shadow: none;
+  color: @accent_color;
+}
+popover.menu modelbutton:hover label,
+popover.menu modelbutton:hover image {
+  color: @accent_color;
+}
+popover.menu separator {
+  background-color: @border_soft;
+}
 box.panel-frame { border: 1px solid @border_hard; border-radius: 14px; margin: 6px; padding: 0; }
 box.panel-frame.panel-collapsed-placeholder {
   border: none;

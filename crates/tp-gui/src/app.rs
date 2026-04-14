@@ -270,6 +270,7 @@ pub fn run_app(workspace: Option<Workspace>, config_path: Option<&Path>) -> Resu
     let cp = config_path.map(|p| p.to_path_buf());
 
     app.connect_activate(move |app| {
+        crate::fonts::register_bundled_fonts();
         load_css();
 
         // Register custom icons from resources/icons/

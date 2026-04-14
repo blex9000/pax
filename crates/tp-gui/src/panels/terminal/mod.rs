@@ -47,21 +47,18 @@ use backend::TerminalInner;
 
 // ── Shared terminal font configuration ──────────────────────────────────────
 
-/// Default terminal font family and size, consistent across all backends.
-const DEFAULT_TERMINAL_FONT: &str = "Monospace 11";
-
-/// Return the terminal font spec: `PAX_TERMINAL_FONT` env var, or the default.
-pub(crate) fn terminal_font_spec() -> String {
-    std::env::var("PAX_TERMINAL_FONT")
-        .ok()
-        .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty())
-        .unwrap_or_else(|| DEFAULT_TERMINAL_FONT.to_string())
-}
+/// Default terminal font (matches `.editor-code-view` CSS).
+/// 8.25pt ≈ 11px at standard 96 DPI (11 × 72/96 = 8.25).
+const DEFAULT_TERMINAL_FONT: &str = "JetBrains Mono 8.25";
 
 /// Pango `FontDescription` for the terminal.
 pub(crate) fn terminal_font_description() -> gtk4::pango::FontDescription {
-    gtk4::pango::FontDescription::from_string(&terminal_font_spec())
+    let spec = std::env::var("PAX_TERMINAL_FONT")
+        .ok()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| DEFAULT_TERMINAL_FONT.to_string());
+    gtk4::pango::FontDescription::from_string(&spec)
 }
 
 /// Terminal panel — uses VTE4 on Linux, PTY+cell renderer fallback on macOS.
