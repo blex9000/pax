@@ -865,7 +865,7 @@ paned > separator {
 }
 .dirty-indicator { color: #ff8c00; }
 .editor-tabs { border-bottom: none; background-color: @view_bg_color; color: @view_fg_color; }
-.editor-tab-active { border-bottom: 1px solid @accent_color; }
+.editor-tab-active { border-bottom: none; }
 .editor-welcome { background-color: @view_bg_color; color: @view_fg_color; }
 .editor-sidebar { border-right: 1px solid alpha(@border_soft, 0.3); }
 .navigation-sidebar, .boxed-list { background-color: @view_bg_color; color: @view_fg_color; }
