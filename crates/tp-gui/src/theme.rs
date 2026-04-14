@@ -99,6 +99,26 @@ fn apply_theme_to_all_terminals(theme: Theme) {
     });
 }
 
+/// Apply custom bg/fg overrides to all registered VTE terminals.
+/// Called by the color customizer when the user changes bg_surface or fg_content.
+#[cfg(feature = "vte")]
+pub fn apply_custom_vte_colors(bg: Option<&gtk4::gdk::RGBA>, fg: Option<&gtk4::gdk::RGBA>) {
+    use gtk4::prelude::*;
+    use vte4::prelude::*;
+    VTE_TERMINALS.with(|cell| {
+        let mut terminals = cell.borrow_mut();
+        terminals.retain(|vte| vte.parent().is_some());
+        for vte in terminals.iter() {
+            if let Some(bg) = bg {
+                vte.set_color_background(bg);
+            }
+            if let Some(fg) = fg {
+                vte.set_color_foreground(fg);
+            }
+        }
+    });
+}
+
 /// Register a sourceview5 Buffer for theme updates.
 #[cfg(feature = "sourceview")]
 pub fn register_sourceview_buffer(buf: &sourceview5::Buffer) {
@@ -695,9 +715,7 @@ box.panel-frame box.panel-title-bar {
 /* Focused panels keep the same gray borders as unfocused ones — only the
    type icon switches to the accent color so focus is communicated via a
    single accent cue. */
-box.panel-frame.panel-focused box.panel-title-bar {
-  background-color: @panel_header_bg_color;
-}
+box.panel-frame.panel-focused box.panel-title-bar,
 box.panel-frame.panel-unfocused box.panel-title-bar {
   background-color: transparent;
 }
@@ -768,6 +786,10 @@ box.panel-footer-bar.terminal-panel-footer {
   border-bottom: none;
   border-left: none;
 }
+.terminal-fallback {
+  background-color: @terminal_bg_color;
+  color: @terminal_fg_color;
+}
 box.panel-footer-bar.editor-file-preview-footer,
 box.editor-file-preview-footer.panel-footer {
   background-color: @view_bg_color;
@@ -787,6 +809,8 @@ box.editor-file-preview-footer.panel-footer {
 .editor-code-view text {
   font-family: \"JetBrains Mono\", \"SF Mono\", \"Cascadia Code\", \"IBM Plex Mono\", \"Fira Code\", monospace;
   font-size: 11px;
+  background-color: @view_bg_color;
+  color: @view_fg_color;
 }
 .markdown-toolbar { border-bottom: 1px solid alpha(@borders, 0.3); padding: 0 2px; }
 .markdown-toolbar button,
@@ -834,7 +858,7 @@ paned > separator {
   box-shadow: none;
 }
 .dirty-indicator { color: #ff8c00; }
-.editor-tabs { border-bottom: 1px solid alpha(@borders, 0.3); }
+.editor-tabs { border-bottom: 1px solid alpha(@borders, 0.3); background-color: @headerbar_bg_color; color: @headerbar_fg_color; }
 .editor-sidebar { border-right: 1px solid alpha(@borders, 0.3); }
 .navigation-sidebar, .boxed-list { background-color: @sidebar_bg_color; color: @sidebar_fg_color; }
 .editor-file-tree,

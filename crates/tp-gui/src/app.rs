@@ -1596,6 +1596,21 @@ pub(crate) fn apply_theme_with_overrides(
         cell.borrow_mut().replace(provider);
     });
 
+    // If bg_surface or fg_content were overridden, push those colors
+    // to VTE terminals which use programmatic coloring, not CSS.
+    #[cfg(feature = "vte")]
+    {
+        let bg = overrides
+            .get("bg_surface")
+            .and_then(|hex| gtk4::gdk::RGBA::parse(hex).ok());
+        let fg = overrides
+            .get("fg_content")
+            .and_then(|hex| gtk4::gdk::RGBA::parse(hex).ok());
+        if bg.is_some() || fg.is_some() {
+            crate::theme::apply_custom_vte_colors(bg.as_ref(), fg.as_ref());
+        }
+    }
+
     for widget in gtk4::Window::list_toplevels() {
         widget.queue_draw();
     }
