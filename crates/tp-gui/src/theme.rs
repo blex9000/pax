@@ -345,16 +345,16 @@ window, .background {
 }
 window.app-dialog,
 window.app-dialog > * {
-  background-color: @headerbar_bg_color;
-  color: @headerbar_fg_color;
+  background-color: @window_bg_color;
+  color: @window_fg_color;
 }
 toolbarview.app-toolbar-view { background-color: @window_bg_color; color: @window_fg_color; }
-toolbarview.app-toolbar-view .top-bar { background-color: @headerbar_bg_color; color: @headerbar_fg_color; border-bottom: 1px solid @headerbar_border_color; min-height: 28px; padding-top: 0; padding-bottom: 0; }
-toolbarview.app-toolbar-view .top-bar > * { background-color: @headerbar_bg_color; color: @headerbar_fg_color; }
-headerbar.app-headerbar { background-color: @headerbar_bg_color; color: @headerbar_fg_color; border: none; min-height: 28px; padding-top: 0; padding-bottom: 0; }
+toolbarview.app-toolbar-view .top-bar { background-color: @window_bg_color; color: @window_fg_color; border-bottom: none; min-height: 28px; padding-top: 0; padding-bottom: 0; }
+toolbarview.app-toolbar-view .top-bar > * { background-color: @window_bg_color; color: @window_fg_color; }
+headerbar.app-headerbar { background-color: @window_bg_color; color: @window_fg_color; border: none; min-height: 28px; padding-top: 0; padding-bottom: 0; }
 headerbar.app-headerbar windowhandle { min-height: 28px; }
-headerbar.app-headerbar box, headerbar.app-headerbar label, headerbar.app-headerbar image, headerbar.app-headerbar button, headerbar.app-headerbar menubutton > button { color: @headerbar_fg_color; }
-box.panel-title-bar, box.panel-footer-bar, .status-bar, .markdown-toolbar { background-color: @headerbar_bg_color; color: @headerbar_fg_color; }
+headerbar.app-headerbar box, headerbar.app-headerbar label, headerbar.app-headerbar image, headerbar.app-headerbar button, headerbar.app-headerbar menubutton > button { color: @window_fg_color; }
+box.panel-title-bar, box.panel-footer-bar, .status-bar, .markdown-toolbar { background-color: @window_bg_color; color: @window_fg_color; }
 button,
 menubutton > button,
 togglebutton {
@@ -414,8 +414,8 @@ menubutton.flat > button image {
 }
 .editor-sidebar-toolbar-surface,
 .editor-sidebar-toolbar {
-  background-color: @headerbar_bg_color;
-  color: @headerbar_fg_color;
+  background-color: @window_bg_color;
+  color: @window_fg_color;
 }
 .editor-sidebar-toolbar {
   min-height: 18px;
@@ -447,7 +447,7 @@ menubutton.flat > button image {
 .editor-file-tree-actions {
   background-color: @view_bg_color;
   color: @view_fg_color;
-  border-top: 1px solid alpha(@borders, 0.4);
+  border-top: 1px solid alpha(@border_soft, 0.4);
   border-right: none;
   border-bottom: none;
   border-left: none;
@@ -457,7 +457,7 @@ menubutton.flat > button image {
   color: @view_fg_color;
   border-top: none;
   border-right: none;
-  border-bottom: 1px solid alpha(@borders, 0.4);
+  border-bottom: 1px solid alpha(@border_soft, 0.4);
   border-left: none;
 }
 .editor-file-tree-header {
@@ -469,15 +469,15 @@ menubutton.flat > button image {
   border-left: none;
 }
 notebook.workspace-tabs > header > tabs > tab {
-  background-color: @workspace_tabs_bar_bg_color;
-  color: @headerbar_fg_color;
-  border: 1px solid @headerbar_border_color;
+  background-color: @window_bg_color;
+  color: @window_fg_color;
+  border: 1px solid @border_hard;
   background-image: none;
   box-shadow: none;
 }
 notebook.workspace-tabs {
   background-color: transparent;
-  color: @headerbar_fg_color;
+  color: @window_fg_color;
   border-color: transparent;
   background-image: none;
   box-shadow: none;
@@ -506,7 +506,7 @@ notebook.workspace-tabs > header > tabs > tab {
   border-top: none;
   border-left: none;
   border-right: none;
-  border-bottom: 1px solid @headerbar_border_color;
+  border-bottom: 1px solid @border_hard;
   border-radius: 0;
   margin: 0;
   border-spacing: 0;
@@ -521,21 +521,21 @@ notebook.workspace-tabs > header > tabs > tab {
 notebook.workspace-tabs > header > tabs > tab label {
   font-size: 10px;
   font-weight: 600;
-  color: alpha(@headerbar_fg_color, 0.46);
+  color: alpha(@window_fg_color, 0.46);
 }
 notebook.workspace-tabs > header > tabs > tab image {
   -gtk-icon-size: 10px;
-  color: alpha(@headerbar_fg_color, 0.44);
+  color: alpha(@window_fg_color, 0.44);
 }
 image.workspace-tab-type-icon {
   -gtk-icon-size: 13px;
   min-height: 13px;
   min-width: 13px;
   margin-top: 1px;
-  color: alpha(@headerbar_fg_color, 0.56);
+  color: alpha(@window_fg_color, 0.56);
 }
 notebook.workspace-tabs > header > tabs > tab:checked label {
-  color: alpha(@headerbar_fg_color, 0.96);
+  color: alpha(@window_fg_color, 0.96);
 }
 notebook.workspace-tabs > header > tabs > tab:checked image,
 notebook.workspace-tabs > header > tabs > tab:checked image.workspace-tab-type-icon {
@@ -552,9 +552,9 @@ notebook.workspace-tabs > header > tabs > tab:checked {
   /* Active tab: arch chrome (top-left + top-right rounded), three-sided
      outline in the same gray used by unfocused panel borders. No bg fill
      so the baseline reads as the bottom edge. */
-  border-top: 1px solid @headerbar_border_color;
-  border-left: 1px solid @headerbar_border_color;
-  border-right: 1px solid @headerbar_border_color;
+  border-top: 1px solid @border_hard;
+  border-left: 1px solid @border_hard;
+  border-right: 1px solid @border_hard;
   border-bottom: none;
   border-top-left-radius: 12px;
   border-top-right-radius: 12px;
@@ -620,7 +620,7 @@ box.workspace-tab-add-wrap > label.workspace-tab-add-label {
   font-size: 15px;
   font-weight: 800;
   opacity: 0.65;
-  color: alpha(@headerbar_fg_color, 0.74);
+  color: alpha(@window_fg_color, 0.74);
 }
 notebook.workspace-tabs > header > tabs > tab:hover box.workspace-tab-add-wrap > label.workspace-tab-add-label {
   color: @accent_color;
@@ -676,16 +676,16 @@ popover.app-popover {
   box-shadow: none;
 }
 popover.app-popover > contents {
-  background-color: @popover_bg_color;
-  color: @popover_fg_color;
-  border: 1px solid alpha(@borders, 0.9);
+  background-color: @view_bg_color;
+  color: @view_fg_color;
+  border: 1px solid alpha(@border_soft, 0.9);
   border-radius: 12px;
   box-shadow: none;
   padding: 3px;
 }
 popover.app-popover > arrow {
-  background-color: @popover_bg_color;
-  color: @popover_bg_color;
+  background-color: @view_bg_color;
+  color: @view_bg_color;
 }
 popover.app-popover menu,
 popover.app-popover box,
@@ -693,9 +693,9 @@ popover.app-popover modelbutton,
 popover.app-popover button,
 popover.app-popover label,
 popover.app-popover image {
-  color: @popover_fg_color;
+  color: @view_fg_color;
 }
-box.panel-frame { border: 1px solid @headerbar_border_color; border-radius: 14px; margin: 6px; padding: 0; }
+box.panel-frame { border: 1px solid @border_hard; border-radius: 14px; margin: 6px; padding: 0; }
 box.panel-frame.panel-collapsed-placeholder {
   border: none;
   background-color: transparent;
@@ -721,16 +721,16 @@ box.panel-frame.panel-unfocused box.panel-title-bar {
 }
 box.panel-frame.panel-unfocused .panel-title,
 box.panel-frame.panel-unfocused .panel-footer {
-  color: alpha(@headerbar_fg_color, 0.74);
+  color: alpha(@window_fg_color, 0.74);
   opacity: 0.68;
 }
 box.panel-frame.panel-unfocused .panel-title-type-icon {
-  color: alpha(@headerbar_fg_color, 0.74);
+  color: alpha(@window_fg_color, 0.74);
   opacity: 0.68;
 }
 box.panel-frame.panel-focused .panel-title,
 box.panel-frame.panel-focused .panel-footer {
-  color: @headerbar_fg_color;
+  color: @window_fg_color;
   opacity: 1.0;
 }
 box.panel-frame.panel-focused .panel-title-type-icon {
@@ -776,25 +776,25 @@ menubutton.panel-menu-btn > button {
 .panel-focused { border: none; }
 .panel-unfocused { border: none; }
 .panel-type-btn { min-width: 120px; }
-.panel-footer-bar { padding: 0 5px 0 8px; min-height: 13px; border-top: 1px solid alpha(@borders, 0.4); }
+.panel-footer-bar { padding: 0 5px 0 8px; min-height: 13px; border-top: 1px solid alpha(@border_soft, 0.4); }
 .panel-footer { font-size: 10px; }
 box.panel-footer-bar.terminal-panel-footer {
-  background-color: @terminal_bg_color;
-  color: @terminal_fg_color;
-  border-top: 1px solid alpha(@terminal_fg_color, 0.14);
+  background-color: @view_bg_color;
+  color: @view_fg_color;
+  border-top: 1px solid alpha(@view_fg_color, 0.14);
   border-right: none;
   border-bottom: none;
   border-left: none;
 }
 .terminal-fallback {
-  background-color: @terminal_bg_color;
-  color: @terminal_fg_color;
+  background-color: @view_bg_color;
+  color: @view_fg_color;
 }
 box.panel-footer-bar.editor-file-preview-footer,
 box.editor-file-preview-footer.panel-footer {
   background-color: @view_bg_color;
   color: @view_fg_color;
-  border-top: 1px solid alpha(@borders, 0.4);
+  border-top: 1px solid alpha(@border_soft, 0.4);
   border-right: none;
   border-bottom: none;
   border-left: none;
@@ -812,7 +812,7 @@ box.editor-file-preview-footer.panel-footer {
   background-color: @view_bg_color;
   color: @view_fg_color;
 }
-.markdown-toolbar { border-bottom: 1px solid alpha(@borders, 0.3); padding: 0 2px; }
+.markdown-toolbar { border-bottom: 1px solid alpha(@border_soft, 0.3); padding: 0 2px; }
 .markdown-toolbar button,
 .markdown-toolbar togglebutton {
   margin-left: 1px;
@@ -823,9 +823,9 @@ box.editor-file-preview-footer.panel-footer {
   -gtk-icon-size: 14px;
 }
 .panel-collapsed-overlay {
-  background-color: @panel_header_bg_color;
-  color: @headerbar_fg_color;
-  border: 1px solid @headerbar_border_color;
+  background-color: @window_bg_color;
+  color: @window_fg_color;
+  border: 1px solid @border_hard;
   border-radius: 14px;
   box-shadow: none;
   padding: 0;
@@ -834,7 +834,7 @@ box.editor-file-preview-footer.panel-footer {
 }
 .panel-collapsed-chip {
   background-color: transparent;
-  color: @headerbar_fg_color;
+  color: @window_fg_color;
   border: none;
   border-radius: 13px;
   padding: 0;
@@ -858,10 +858,10 @@ paned > separator {
   box-shadow: none;
 }
 .dirty-indicator { color: #ff8c00; }
-.editor-tabs { border-bottom: 1px solid alpha(@borders, 0.3); background-color: @view_bg_color; color: @view_fg_color; }
+.editor-tabs { border-bottom: 1px solid alpha(@border_soft, 0.3); background-color: @view_bg_color; color: @view_fg_color; }
 .editor-welcome { background-color: @view_bg_color; color: @view_fg_color; }
-.editor-sidebar { border-right: 1px solid alpha(@borders, 0.3); }
-.navigation-sidebar, .boxed-list { background-color: @sidebar_bg_color; color: @sidebar_fg_color; }
+.editor-sidebar { border-right: 1px solid alpha(@border_soft, 0.3); }
+.navigation-sidebar, .boxed-list { background-color: @view_bg_color; color: @view_fg_color; }
 .editor-file-tree,
 .editor-file-tree-scroll,
 .editor-file-tree-scroll viewport,
@@ -902,12 +902,12 @@ paned > separator {
 .editor-file-tree-list > row:selected:hover,
 .editor-file-tree-list > row:selected:focus {
   background-color: @accent_color;
-  color: @accent_fg_color;
+  color: @accent_fg;
 }
 .editor-file-tree-list > row:selected > box,
 .editor-file-tree-list > row:selected > box > label,
 .editor-file-tree-list > row:selected > box > image {
-  color: @accent_fg_color;
+  color: @accent_fg;
 }
 .editor-file-tree-list > row:selected > box.editor-file-tree-ignored,
 .editor-file-tree-list > row:selected > box.editor-file-tree-ignored > label,
@@ -931,12 +931,12 @@ paned > separator {
 .editor-sidebar-pane-footer {
   background-color: @view_bg_color;
   color: @view_fg_color;
-  border-top: 1px solid alpha(@borders, 0.4);
+  border-top: 1px solid alpha(@border_soft, 0.4);
   border-right: none;
   border-bottom: none;
   border-left: none;
 }
-.card, button.card, .welcome-action-btn { background-color: @card_bg_color; color: @card_fg_color; }
+.card, button.card, .welcome-action-btn { background-color: @view_bg_color; color: @view_fg_color; }
 entry,
 spinbutton,
 textview,
@@ -944,7 +944,7 @@ dropdown > button,
 combobox > box > button {
   background-color: @view_bg_color;
   color: @view_fg_color;
-  border-color: alpha(@borders, 0.8);
+  border-color: alpha(@border_soft, 0.8);
   background-image: none;
   box-shadow: none;
   min-height: 28px;
@@ -978,11 +978,11 @@ entry selection,
 text selection,
 textview text selection {
   background-color: @accent_color;
-  color: @accent_fg_color;
+  color: @accent_fg;
 }
 button.git-has-changes, togglebutton.git-has-changes { color: #ff8c00; }
 button.git-has-changes:hover, togglebutton.git-has-changes:hover { color: #ffaa33; }
-popover.app-popover separator { background-color: @borders; }
+popover.app-popover separator { background-color: @border_soft; }
 popover.app-popover modelbutton,
 popover.app-popover button.app-popover-button {
   background-image: none;
@@ -1021,9 +1021,9 @@ window.app-dialog dropdown.settings-theme-dropdown > popover.menu,
 }
 window.app-dialog dropdown.settings-theme-dropdown > popover.menu > contents,
 .editor-sidebar-pane dropdown > popover.menu > contents {
-  background-color: @popover_bg_color;
-  color: @popover_fg_color;
-  border: 1px solid alpha(@borders, 0.9);
+  background-color: @view_bg_color;
+  color: @view_fg_color;
+  border: 1px solid alpha(@border_soft, 0.9);
   border-radius: 12px;
   box-shadow: none;
   padding: 4px;
@@ -1039,22 +1039,22 @@ window.app-dialog dropdown.settings-theme-dropdown > popover.menu viewport,
 }
 window.app-dialog dropdown.settings-theme-dropdown > popover.menu > arrow,
 .editor-sidebar-pane dropdown > popover.menu > arrow {
-  background-color: @popover_bg_color;
-  color: @popover_bg_color;
+  background-color: @view_bg_color;
+  color: @view_bg_color;
 }
 window.app-dialog dropdown.settings-theme-dropdown > popover.menu listview,
 window.app-dialog dropdown.settings-theme-dropdown > popover.menu row,
 .editor-sidebar-pane dropdown > popover.menu listview,
 .editor-sidebar-pane dropdown > popover.menu row {
   background-color: transparent;
-  color: @popover_fg_color;
+  color: @view_fg_color;
 }
 window.app-dialog dropdown.settings-theme-dropdown > popover.menu row:hover,
 window.app-dialog dropdown.settings-theme-dropdown > popover.menu row:selected,
 .editor-sidebar-pane dropdown > popover.menu row:hover,
 .editor-sidebar-pane dropdown > popover.menu row:selected {
   background-color: alpha(@accent_color, 0.18);
-  color: @popover_fg_color;
+  color: @view_fg_color;
 }
 ";
 
@@ -1350,7 +1350,7 @@ mod tests {
         assert!(BASE_CSS.contains("background-color: @view_bg_color;"));
         assert!(BASE_CSS.contains("color: @view_fg_color;"));
         assert!(BASE_CSS.contains("box.panel-footer-bar.terminal-panel-footer"));
-        assert!(BASE_CSS.contains("background-color: @terminal_bg_color;"));
+        assert!(BASE_CSS.contains("background-color: @view_bg_color;"));
         assert!(BASE_CSS.contains(".editor-file-tree-entry.editor-file-tree-ignored"));
         assert!(BASE_CSS.contains(".editor-file-tree-list > row:selected"));
         assert!(BASE_CSS.contains(".editor-file-tree-entry {\n  min-height: 18px;"));
@@ -1359,8 +1359,8 @@ mod tests {
     #[test]
     fn app_dialog_windows_use_headerbar_surface() {
         assert!(BASE_CSS.contains("window.app-dialog,"));
-        assert!(BASE_CSS.contains("background-color: @headerbar_bg_color;"));
-        assert!(BASE_CSS.contains("color: @headerbar_fg_color;"));
+        assert!(BASE_CSS.contains("background-color: @window_bg_color;"));
+        assert!(BASE_CSS.contains("color: @window_fg_color;"));
     }
 
     #[test]
@@ -1397,7 +1397,7 @@ mod tests {
         assert!(BASE_CSS.contains("margin-left: 14px;"));
         assert!(BASE_CSS.contains(".panel-action-btn { min-height: 10px;"));
         assert!(BASE_CSS.contains(".tab-close-btn { min-height: 15px;"));
-        assert!(BASE_CSS.contains(".panel-collapsed-overlay {\n  background-color: @panel_header_bg_color;"));
+        assert!(BASE_CSS.contains(".panel-collapsed-overlay {\n  background-color: @window_bg_color;"));
         assert!(BASE_CSS.contains(".panel-collapsed-chip"));
         assert!(BASE_CSS.contains(".panel-collapsed-drag-strip"));
         assert!(BASE_CSS.contains("border-radius: 14px;"));
@@ -1406,8 +1406,8 @@ mod tests {
 
     #[test]
     fn collapsed_panels_use_panel_toolbar_surface_and_rounding() {
-        assert!(BASE_CSS.contains(".panel-collapsed-overlay {\n  background-color: @panel_header_bg_color;"));
-        assert!(BASE_CSS.contains("border: 1px solid @headerbar_border_color;"));
+        assert!(BASE_CSS.contains(".panel-collapsed-overlay {\n  background-color: @window_bg_color;"));
+        assert!(BASE_CSS.contains("border: 1px solid @border_hard;"));
         assert!(BASE_CSS.contains("border-radius: 14px;"));
         assert!(BASE_CSS.contains(".panel-collapsed-chip {\n  background-color: transparent;"));
     }
@@ -1462,7 +1462,7 @@ mod tests {
     #[test]
     fn panel_frames_keep_visible_card_margins_and_rounding() {
         assert!(BASE_CSS.contains(
-            "box.panel-frame { border: 1px solid @headerbar_border_color; border-radius: 14px; margin: 6px; padding: 0; }"
+            "box.panel-frame { border: 1px solid @border_hard; border-radius: 14px; margin: 6px; padding: 0; }"
         ));
         assert!(BASE_CSS.contains(
             "box.panel-frame > box.panel-title-bar { border-radius: 14px 14px 0 0; }"
@@ -1492,8 +1492,8 @@ mod tests {
         assert!(BASE_CSS.contains("notebook.workspace-tabs > header {\n  border-bottom: none;\n  box-shadow: none;\n  min-height: 16px;"));
         assert!(BASE_CSS.contains("notebook.workspace-tabs-root {\n  margin-top: 6px;"));
         assert!(BASE_CSS.contains("notebook.workspace-tabs-nested {\n  margin-top: 6px;"));
-        assert!(BASE_CSS.contains("background-color: @panel_header_bg_color;"));
-        assert!(BASE_CSS.contains("notebook.workspace-tabs > header > tabs > tab:checked label {\n  color: alpha(@headerbar_fg_color, 0.96);"));
+        assert!(BASE_CSS.contains("background-color: @window_bg_color;"));
+        assert!(BASE_CSS.contains("notebook.workspace-tabs > header > tabs > tab:checked label {\n  color: alpha(@window_fg_color, 0.96);"));
         assert!(BASE_CSS.contains("button.workspace-tab-close-btn"));
         assert!(BASE_CSS.contains("box.panel-frame.panel-focused box.panel-title-bar"));
         assert!(BASE_CSS.contains("box.panel-frame.panel-unfocused .panel-title"));
