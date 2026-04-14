@@ -23,9 +23,8 @@ const TEXT_TOKENS: &[ColorToken] = &[
 ];
 
 const ACCENT_TOKENS: &[ColorToken] = &[
-    ColorToken { css_name: "accent", label: "Hover & Focus Highlights" },
-    ColorToken { css_name: "accent_bg", label: "Selection & Active Backgrounds" },
-    ColorToken { css_name: "accent_fg", label: "Text on Selections & Buttons" },
+    ColorToken { css_name: "accent", label: "Accent (Hover, Focus, Selection & Active)" },
+    ColorToken { css_name: "accent_fg", label: "Text on Accent Backgrounds" },
 ];
 
 const BORDER_TOKENS: &[ColorToken] = &[

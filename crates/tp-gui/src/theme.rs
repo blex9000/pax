@@ -1066,7 +1066,7 @@ const GRAPHITE_CSS: &str = "\
 @define-color fg_ui #e5ecf3;\n\
 @define-color fg_content #e5ecf3;\n\
 @define-color accent #6ea7ff;\n\
-@define-color accent_bg #6ea7ff;\n\
+@define-color accent_bg @accent;\n\
 @define-color accent_fg #0f141b;\n\
 @define-color border_soft alpha(white, 0.10);\n\
 @define-color border_hard alpha(white, 0.10);\n\
@@ -1108,7 +1108,7 @@ const DRACULA_CSS: &str = "\
 @define-color fg_ui #f8f8f2;\n\
 @define-color fg_content #f8f8f2;\n\
 @define-color accent #bd93f9;\n\
-@define-color accent_bg #bd93f9;\n\
+@define-color accent_bg @accent;\n\
 @define-color accent_fg #282a36;\n\
 @define-color border_soft alpha(white, 0.15);\n\
 @define-color border_hard alpha(white, 0.15);\n\
@@ -1150,7 +1150,7 @@ const AURORA_CSS: &str = "\
 @define-color fg_ui #1a2740;\n\
 @define-color fg_content #1a2740;\n\
 @define-color accent #00b4d8;\n\
-@define-color accent_bg #00b4d8;\n\
+@define-color accent_bg @accent;\n\
 @define-color accent_fg #ffffff;\n\
 @define-color border_soft alpha(#5b8def, 0.35);\n\
 @define-color border_hard alpha(#7e6aff, 0.30);\n\
@@ -1192,7 +1192,7 @@ const QUANTUM_CSS: &str = "\
 @define-color fg_ui #0a1a33;\n\
 @define-color fg_content #0a1a33;\n\
 @define-color accent #0044cc;\n\
-@define-color accent_bg #0044cc;\n\
+@define-color accent_bg @accent;\n\
 @define-color accent_fg #ffffff;\n\
 @define-color border_soft alpha(#0044cc, 0.45);\n\
 @define-color border_hard alpha(#003a99, 0.55);\n\
