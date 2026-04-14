@@ -10,6 +10,7 @@
   <color name="surface2"    value="#cce0ff"/>
   <color name="overlay"     value="#6a7a95"/>
   <color name="text"        value="#0a1a33"/>
+  <color name="accent"      value="#0044cc"/>
   <color name="electric"    value="#0044cc"/>
   <color name="navy"        value="#003a99"/>
   <color name="violet"      value="#5b3aff"/>
@@ -25,7 +26,7 @@
   <style name="selection"                   background="surface2"/>
   <style name="current-line"                background="surface0"/>
   <style name="line-numbers"                foreground="overlay" background="surface0"/>
-  <style name="current-line-number"         foreground="electric" background="surface0"/>
+  <style name="current-line-number"         foreground="accent" background="surface0"/>
   <style name="bracket-match"               foreground="text" background="surface1" bold="true"/>
 
   <style name="def:comment"                 foreground="dim" italic="true"/>

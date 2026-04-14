@@ -8,6 +8,7 @@
   <color name="current"    value="#44475a"/>
   <color name="fg"         value="#f8f8f2"/>
   <color name="comment"    value="#6272a4"/>
+  <color name="accent"     value="#bd93f9"/>
   <color name="cyan"       value="#8be9fd"/>
   <color name="green"      value="#50fa7b"/>
   <color name="orange"     value="#ffb86c"/>
@@ -21,7 +22,7 @@
   <style name="selection"                   background="current"/>
   <style name="current-line"                background="current"/>
   <style name="line-numbers"                foreground="comment" background="bg"/>
-  <style name="current-line-number"         foreground="yellow" background="current"/>
+  <style name="current-line-number"         foreground="accent" background="current"/>
   <style name="bracket-match"               foreground="fg" background="current" bold="true"/>
 
   <style name="def:comment"                 foreground="comment" italic="true"/>
