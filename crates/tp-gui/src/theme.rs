@@ -508,9 +508,10 @@ notebook.workspace-tabs > header > tabs > tab image {
   color: alpha(@headerbar_fg_color, 0.44);
 }
 image.workspace-tab-type-icon {
-  -gtk-icon-size: 11px;
-  min-height: 11px;
-  min-width: 11px;
+  -gtk-icon-size: 13px;
+  min-height: 13px;
+  min-width: 13px;
+  margin-top: 1px;
   color: alpha(@headerbar_fg_color, 0.56);
 }
 notebook.workspace-tabs > header > tabs > tab:checked label {
@@ -720,11 +721,12 @@ box.panel-frame.panel-focused .panel-title-type-icon {
 }
 .panel-type-icon { min-height: 9px; min-width: 9px; opacity: 0.6; margin-right: 1px; }
 .panel-title-type-icon {
-  -gtk-icon-size: 11px;
-  min-height: 11px;
-  min-width: 11px;
+  -gtk-icon-size: 13px;
+  min-height: 13px;
+  min-width: 13px;
   margin-left: 14px;
   margin-right: 3px;
+  margin-top: 1px;
 }
 .panel-menu-btn { min-height: 10px; min-width: 10px; padding: 0; }
 .panel-action-btn { min-height: 10px; min-width: 10px; padding: 0; opacity: 0.5; }
