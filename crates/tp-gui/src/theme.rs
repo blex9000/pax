@@ -542,7 +542,7 @@ image.workspace-tab-type-icon {
   -gtk-icon-size: 13px;
   min-height: 13px;
   min-width: 13px;
-  margin-top: 1px;
+  margin-top: 2px;
   color: alpha(@window_fg_color, 0.56);
 }
 notebook.workspace-tabs > header > tabs > tab:checked label {
