@@ -382,7 +382,12 @@ menubutton.flat > button {
 }
 button:hover,
 togglebutton:hover,
-menubutton > button:hover,
+menubutton > button:hover {
+  background-color: @hover_bg;
+  background-image: none;
+  border-color: transparent;
+  box-shadow: none;
+}
 button.flat:hover,
 togglebutton.flat:hover,
 menubutton.flat > button:hover {
@@ -546,6 +551,7 @@ notebook.workspace-tabs > header > tabs > tab:checked label {
 notebook.workspace-tabs > header > tabs > tab:checked image,
 notebook.workspace-tabs > header > tabs > tab:checked image.workspace-tab-type-icon {
   color: @accent_color;
+  opacity: 1.0;
 }
 notebook.workspace-tabs > header > tabs > tab:hover {
   background-color: @hover_bg;
