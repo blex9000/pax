@@ -94,6 +94,14 @@ pub fn show_color_customizer_dialog(parent: &impl IsA<gtk4::Window>) {
         .build();
     crate::theme::configure_dialog_window(&dialog);
 
+    // Closing via the X button (without Save) reverts to the base theme
+    // so the app never stays in a half-customized state.
+    let theme_for_close = theme;
+    dialog.connect_close_request(move |_| {
+        crate::app::apply_theme(theme_for_close);
+        gtk4::glib::Propagation::Proceed
+    });
+
     let overrides: Rc<RefCell<HashMap<String, String>>> = Rc::new(RefCell::new(HashMap::new()));
 
     let scroll = gtk4::ScrolledWindow::new();
