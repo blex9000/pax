@@ -548,7 +548,7 @@ notebook.workspace-tabs > header > tabs > tab:checked image.workspace-tab-type-i
   color: @accent_color;
 }
 notebook.workspace-tabs > header > tabs > tab:hover {
-  background-color: alpha(@accent_color, 0.08);
+  background-color: @hover_bg;
   border-top-left-radius: 12px;
   border-top-right-radius: 12px;
   border-bottom-left-radius: 0;
@@ -872,7 +872,7 @@ paned > separator {
 .editor-sidebar { border-right: 1px solid alpha(@border_soft, 0.3); }
 .navigation-sidebar, .boxed-list { background-color: @view_bg_color; color: @view_fg_color; }
 list row:hover, listview row:hover, listbox row:hover {
-  background-color: alpha(@accent_color, 0.10);
+  background-color: @hover_bg;
 }
 list row:selected, listview row:selected, listbox row:selected {
   background-color: @accent_color;
@@ -905,7 +905,7 @@ list row:selected, listview row:selected, listbox row:selected {
   background-color: transparent;
 }
 .editor-file-tree-list > row:hover {
-  background-color: alpha(@accent_color, 0.10);
+  background-color: @hover_bg;
 }
 .editor-file-tree-entry.editor-file-tree-ignored,
 .editor-file-tree-entry.editor-file-tree-ignored > label,
@@ -945,7 +945,7 @@ list row:selected, listview row:selected, listbox row:selected {
   background-color: transparent;
 }
 .editor-sidebar-pane-list > row:hover {
-  background-color: alpha(@accent_color, 0.10);
+  background-color: @hover_bg;
 }
 .editor-sidebar-pane-list > row:selected {
   background-color: @accent_color;
@@ -1091,6 +1091,7 @@ const GRAPHITE_CSS: &str = "\
 @define-color accent #6ea7ff;\n\
 @define-color accent_bg @accent;\n\
 @define-color accent_fg #0f141b;\n\
+@define-color hover_bg #1e2a3a;\n\
 @define-color border_soft alpha(white, 0.10);\n\
 @define-color border_hard alpha(white, 0.10);\n\
 @define-color window_bg_color @bg_window;\n\
@@ -1133,6 +1134,7 @@ const DRACULA_CSS: &str = "\
 @define-color accent #bd93f9;\n\
 @define-color accent_bg @accent;\n\
 @define-color accent_fg #282a36;\n\
+@define-color hover_bg #353848;\n\
 @define-color border_soft alpha(white, 0.15);\n\
 @define-color border_hard alpha(white, 0.15);\n\
 @define-color window_bg_color @bg_window;\n\
@@ -1175,6 +1177,7 @@ const AURORA_CSS: &str = "\
 @define-color accent #00b4d8;\n\
 @define-color accent_bg @accent;\n\
 @define-color accent_fg #ffffff;\n\
+@define-color hover_bg #e8f0fa;\n\
 @define-color border_soft alpha(#5b8def, 0.35);\n\
 @define-color border_hard alpha(#7e6aff, 0.30);\n\
 @define-color window_bg_color @bg_window;\n\
@@ -1217,6 +1220,7 @@ const QUANTUM_CSS: &str = "\
 @define-color accent #0044cc;\n\
 @define-color accent_bg @accent;\n\
 @define-color accent_fg #ffffff;\n\
+@define-color hover_bg #dde8f5;\n\
 @define-color border_soft alpha(#0044cc, 0.45);\n\
 @define-color border_hard alpha(#003a99, 0.55);\n\
 @define-color window_bg_color @bg_window;\n\

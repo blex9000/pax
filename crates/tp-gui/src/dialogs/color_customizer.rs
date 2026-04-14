@@ -23,8 +23,9 @@ const TEXT_TOKENS: &[ColorToken] = &[
 ];
 
 const ACCENT_TOKENS: &[ColorToken] = &[
-    ColorToken { css_name: "accent", label: "Accent (Hover, Focus, Selection & Active)" },
+    ColorToken { css_name: "accent", label: "Accent (Focus, Selection & Active)" },
     ColorToken { css_name: "accent_fg", label: "Text on Accent Backgrounds" },
+    ColorToken { css_name: "hover_bg", label: "Hover Background" },
 ];
 
 const BORDER_TOKENS: &[ColorToken] = &[
@@ -286,7 +287,7 @@ fn save_custom_colors(theme: Theme, overrides: &HashMap<String, String>) {
 const VALID_BASE_TOKENS: &[&str] = &[
     "bg_window", "bg_surface", "bg_elevated",
     "fg_ui", "fg_content",
-    "accent", "accent_fg",
+    "accent", "accent_fg", "hover_bg",
     "border_soft", "border_hard",
 ];
 
