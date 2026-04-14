@@ -228,6 +228,16 @@ fn save_custom_colors(theme: Theme, overrides: &HashMap<String, String>) {
     let _ = db.set_app_preference("custom-theme-colors", &payload.to_string());
 }
 
+/// The only token names that may be overridden. Anything else stored in the
+/// DB from an earlier session (e.g. old alias names like accent_bg, bg_chrome)
+/// is silently dropped so stale overrides cannot break the alias chains.
+const VALID_BASE_TOKENS: &[&str] = &[
+    "bg_window", "bg_surface", "bg_elevated",
+    "fg_ui", "fg_content",
+    "accent", "accent_fg",
+    "border_soft", "border_hard",
+];
+
 pub(crate) fn load_custom_colors(theme: Theme) -> Option<HashMap<String, String>> {
     let db_path = pax_db::Database::default_path();
     let db = pax_db::Database::open(&db_path).ok()?;
@@ -240,8 +250,10 @@ pub(crate) fn load_custom_colors(theme: Theme) -> Option<HashMap<String, String>
     let map = v.get("overrides")?.as_object()?;
     let mut out = HashMap::new();
     for (k, val) in map {
-        if let Some(s) = val.as_str() {
-            out.insert(k.clone(), s.to_string());
+        if VALID_BASE_TOKENS.contains(&k.as_str()) {
+            if let Some(s) = val.as_str() {
+                out.insert(k.clone(), s.to_string());
+            }
         }
     }
     if out.is_empty() { None } else { Some(out) }
