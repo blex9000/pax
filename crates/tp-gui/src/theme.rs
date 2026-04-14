@@ -859,6 +859,7 @@ paned > separator {
 }
 .dirty-indicator { color: #ff8c00; }
 .editor-tabs { border-bottom: 1px solid alpha(@borders, 0.3); background-color: @headerbar_bg_color; color: @headerbar_fg_color; }
+.editor-welcome { background-color: @view_bg_color; color: @view_fg_color; }
 .editor-sidebar { border-right: 1px solid alpha(@borders, 0.3); }
 .navigation-sidebar, .boxed-list { background-color: @sidebar_bg_color; color: @sidebar_fg_color; }
 .editor-file-tree,

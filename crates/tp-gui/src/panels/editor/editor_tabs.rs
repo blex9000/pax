@@ -580,13 +580,18 @@ impl EditorTabs {
         content_stack.set_vexpand(true);
         content_stack.set_hexpand(true);
 
+        let welcome_wrap = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
+        welcome_wrap.add_css_class("editor-welcome");
+        welcome_wrap.set_vexpand(true);
+        welcome_wrap.set_hexpand(true);
         let welcome = gtk4::Label::new(Some(
             "Open a file from the sidebar\nor press Ctrl+P to search",
         ));
         welcome.add_css_class("dim-label");
         welcome.set_vexpand(true);
         welcome.set_valign(gtk4::Align::Center);
-        content_stack.add_named(&welcome, Some("welcome"));
+        welcome_wrap.append(&welcome);
+        content_stack.add_named(&welcome_wrap, Some("welcome"));
         content_stack.add_named(&source_scroll, Some("editor"));
         content_stack.set_visible_child_name("welcome");
 
