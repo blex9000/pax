@@ -524,8 +524,8 @@ notebook.workspace-tabs > header > tabs > tab:hover {
   background-color: alpha(@accent_color, 0.08);
   border-top-left-radius: 12px;
   border-top-right-radius: 12px;
-  border-bottom-left-radius: 4px;
-  border-bottom-right-radius: 4px;
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
 }
 notebook.workspace-tabs > header > tabs > tab:checked {
   /* Active tab: arch chrome (top-left + top-right rounded), three-sided
@@ -537,8 +537,8 @@ notebook.workspace-tabs > header > tabs > tab:checked {
   border-bottom: none;
   border-top-left-radius: 12px;
   border-top-right-radius: 12px;
-  border-bottom-left-radius: 4px;
-  border-bottom-right-radius: 4px;
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
   background-color: transparent;
   box-shadow: none;
 }
