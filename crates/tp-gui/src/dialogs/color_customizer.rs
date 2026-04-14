@@ -14,7 +14,8 @@ struct ColorToken {
 const BG_TOKENS: &[ColorToken] = &[
     ColorToken { css_name: "bg_window", label: "Window & Chrome" },
     ColorToken { css_name: "bg_surface", label: "Content (Editor, Terminal, Forms)" },
-    ColorToken { css_name: "bg_elevated", label: "Popovers, Cards & Sidebars" },
+    ColorToken { css_name: "bg_elevated", label: "Cards & Sidebars" },
+    ColorToken { css_name: "bg_popover", label: "Popovers & Dropdowns" },
 ];
 
 const TEXT_TOKENS: &[ColorToken] = &[
@@ -285,7 +286,7 @@ fn save_custom_colors(theme: Theme, overrides: &HashMap<String, String>) {
 /// DB from an earlier session (e.g. old alias names like accent_bg, bg_chrome)
 /// is silently dropped so stale overrides cannot break the alias chains.
 const VALID_BASE_TOKENS: &[&str] = &[
-    "bg_window", "bg_surface", "bg_elevated",
+    "bg_window", "bg_surface", "bg_elevated", "bg_popover",
     "fg_ui", "fg_content",
     "accent", "accent_fg", "hover_bg",
     "border_soft", "border_hard",

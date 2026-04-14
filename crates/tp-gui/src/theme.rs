@@ -689,7 +689,7 @@ popover.app-popover {
   box-shadow: none;
 }
 popover.app-popover > contents {
-  background-color: @view_bg_color;
+  background-color: @bg_popover;
   color: @view_fg_color;
   border: 1px solid alpha(@border_soft, 0.9);
   border-radius: 12px;
@@ -697,8 +697,8 @@ popover.app-popover > contents {
   padding: 3px;
 }
 popover.app-popover > arrow {
-  background-color: @view_bg_color;
-  color: @view_bg_color;
+  background-color: @bg_popover;
+  color: @bg_popover;
 }
 popover.app-popover menu,
 popover.app-popover box,
@@ -1051,7 +1051,7 @@ window.app-dialog dropdown.settings-theme-dropdown > popover.menu,
 }
 window.app-dialog dropdown.settings-theme-dropdown > popover.menu > contents,
 .editor-sidebar-pane dropdown > popover.menu > contents {
-  background-color: @view_bg_color;
+  background-color: @bg_popover;
   color: @view_fg_color;
   border: 1px solid alpha(@border_soft, 0.9);
   border-radius: 12px;
@@ -1069,8 +1069,8 @@ window.app-dialog dropdown.settings-theme-dropdown > popover.menu viewport,
 }
 window.app-dialog dropdown.settings-theme-dropdown > popover.menu > arrow,
 .editor-sidebar-pane dropdown > popover.menu > arrow {
-  background-color: @view_bg_color;
-  color: @view_bg_color;
+  background-color: @bg_popover;
+  color: @bg_popover;
 }
 window.app-dialog dropdown.settings-theme-dropdown > popover.menu listview,
 window.app-dialog dropdown.settings-theme-dropdown > popover.menu row,
@@ -1099,6 +1099,7 @@ const GRAPHITE_CSS: &str = "\
 @define-color accent_bg @accent;\n\
 @define-color accent_fg #0f141b;\n\
 @define-color hover_bg #1e2a3a;\n\
+@define-color bg_popover @bg_elevated;\n\
 @define-color border_soft alpha(white, 0.10);\n\
 @define-color border_hard alpha(white, 0.10);\n\
 @define-color window_bg_color @bg_window;\n\
@@ -1142,6 +1143,7 @@ const DRACULA_CSS: &str = "\
 @define-color accent_bg @accent;\n\
 @define-color accent_fg #282a36;\n\
 @define-color hover_bg #353848;\n\
+@define-color bg_popover @bg_elevated;\n\
 @define-color border_soft alpha(white, 0.15);\n\
 @define-color border_hard alpha(white, 0.15);\n\
 @define-color window_bg_color @bg_window;\n\
@@ -1185,6 +1187,7 @@ const AURORA_CSS: &str = "\
 @define-color accent_bg @accent;\n\
 @define-color accent_fg #ffffff;\n\
 @define-color hover_bg #e8f0fa;\n\
+@define-color bg_popover @bg_elevated;\n\
 @define-color border_soft alpha(#5b8def, 0.35);\n\
 @define-color border_hard alpha(#7e6aff, 0.30);\n\
 @define-color window_bg_color @bg_window;\n\
@@ -1228,6 +1231,7 @@ const QUANTUM_CSS: &str = "\
 @define-color accent_bg @accent;\n\
 @define-color accent_fg #ffffff;\n\
 @define-color hover_bg #dde8f5;\n\
+@define-color bg_popover @bg_elevated;\n\
 @define-color border_soft alpha(#0044cc, 0.45);\n\
 @define-color border_hard alpha(#003a99, 0.55);\n\
 @define-color window_bg_color @bg_window;\n\
