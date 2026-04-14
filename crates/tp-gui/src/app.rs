@@ -1532,12 +1532,11 @@ pub(crate) fn apply_theme(theme: Theme) {
     // If the user has saved custom color tweaks for this theme, apply them
     // on top of the base palette.
     let base_overrides = theme.css_overrides();
-    let effective_overrides =
-        if let Some(custom) = crate::dialogs::color_customizer::load_custom_colors(theme) {
-            crate::theme::apply_color_overrides(base_overrides, &custom)
-        } else {
-            base_overrides.to_string()
-        };
+    let custom = crate::dialogs::color_customizer::load_custom_colors(theme);
+    let effective_overrides = match custom.as_ref() {
+        Some(c) => crate::theme::apply_color_overrides(base_overrides, c),
+        None => base_overrides.to_string(),
+    };
     let css = format!(
         "{}\n{}\n{}",
         effective_overrides,
@@ -1556,6 +1555,18 @@ pub(crate) fn apply_theme(theme: Theme) {
     THEME_PROVIDER.with(|cell| {
         cell.borrow_mut().replace(provider);
     });
+
+    // Push custom bg/fg to VTE terminals (which use programmatic colors,
+    // not CSS). Without this, Save + close would revert the terminal to
+    // the base theme palette while the rest of the UI keeps the overrides.
+    #[cfg(feature = "vte")]
+    if let Some(ref c) = custom {
+        let bg = c.get("bg_surface").and_then(|h| gtk4::gdk::RGBA::parse(h).ok());
+        let fg = c.get("fg_content").and_then(|h| gtk4::gdk::RGBA::parse(h).ok());
+        if bg.is_some() || fg.is_some() {
+            crate::theme::apply_custom_vte_colors(bg.as_ref(), fg.as_ref());
+        }
+    }
 
     for widget in gtk4::Window::list_toplevels() {
         widget.queue_draw();
