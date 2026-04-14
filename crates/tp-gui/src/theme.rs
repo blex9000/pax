@@ -812,6 +812,13 @@ box.editor-file-preview-footer.panel-footer {
   background-color: @view_bg_color;
   color: @view_fg_color;
 }
+.editor-code-view .line-numbers {
+  background-color: @view_bg_color;
+  color: alpha(@view_fg_color, 0.4);
+}
+.editor-code-view .current-line-number {
+  color: @accent_color;
+}
 .markdown-toolbar { border-bottom: 1px solid alpha(@border_soft, 0.3); padding: 0 2px; }
 .markdown-toolbar button,
 .markdown-toolbar togglebutton {
