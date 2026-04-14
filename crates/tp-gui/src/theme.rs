@@ -276,6 +276,45 @@ impl Theme {
     }
 }
 
+/// Extract the raw value of `@define-color <token> <value>;` from a CSS
+/// string. Returns the value portion (e.g. `"#141a22"` or `"alpha(#fff, 0.1)"`).
+pub fn parse_define_color(css: &str, token: &str) -> Option<String> {
+    for line in css.lines() {
+        let trimmed = line.trim();
+        if let Some(rest) = trimmed.strip_prefix("@define-color ") {
+            let mut parts = rest.splitn(2, char::is_whitespace);
+            if let (Some(name), Some(value)) = (parts.next(), parts.next()) {
+                if name == token {
+                    return Some(value.trim_end_matches(';').trim().to_string());
+                }
+            }
+        }
+    }
+    None
+}
+
+/// Replace `@define-color` values in a CSS string using the given overrides map.
+/// Lines whose token name appears in the map get their value swapped; other
+/// lines pass through unchanged.
+pub fn apply_color_overrides(base_css: &str, overrides: &std::collections::HashMap<String, String>) -> String {
+    let mut result = String::with_capacity(base_css.len());
+    for line in base_css.lines() {
+        let trimmed = line.trim();
+        if let Some(rest) = trimmed.strip_prefix("@define-color ") {
+            if let Some(token_name) = rest.split_whitespace().next() {
+                if let Some(custom_val) = overrides.get(token_name) {
+                    result.push_str(&format!("@define-color {} {};", token_name, custom_val));
+                    result.push('\n');
+                    continue;
+                }
+            }
+        }
+        result.push_str(line);
+        result.push('\n');
+    }
+    result
+}
+
 /// Minimal CSS — only layout, no colors.
 pub const BASE_CSS: &str = "
 window, .background {

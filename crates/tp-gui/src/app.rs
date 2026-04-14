@@ -1529,13 +1529,60 @@ pub(crate) fn apply_theme(theme: Theme) {
     crate::theme::set_current_theme(theme);
 
     // Build CSS: color overrides → base layout → theme-specific structural rules.
-    // Extras come last so themes can override BASE_CSS selectors when needed.
+    // If the user has saved custom color tweaks for this theme, apply them
+    // on top of the base palette.
+    let base_overrides = theme.css_overrides();
+    let effective_overrides =
+        if let Some(custom) = crate::dialogs::color_customizer::load_custom_colors(theme) {
+            crate::theme::apply_color_overrides(base_overrides, &custom)
+        } else {
+            base_overrides.to_string()
+        };
     let css = format!(
         "{}\n{}\n{}",
-        theme.css_overrides(),
+        effective_overrides,
         crate::theme::BASE_CSS,
         theme.css_extra(),
     );
+
+    let provider = gtk4::CssProvider::new();
+    provider.load_from_data(&css);
+    gtk4::style_context_add_provider_for_display(
+        &display,
+        &provider,
+        gtk4::STYLE_PROVIDER_PRIORITY_APPLICATION,
+    );
+
+    THEME_PROVIDER.with(|cell| {
+        cell.borrow_mut().replace(provider);
+    });
+
+    for widget in gtk4::Window::list_toplevels() {
+        widget.queue_draw();
+    }
+}
+
+/// Like `apply_theme` but patches the base CSS overrides with per-token
+/// color values before loading. Used by the color customizer for live
+/// preview without saving.
+pub(crate) fn apply_theme_with_overrides(
+    theme: Theme,
+    overrides: &std::collections::HashMap<String, String>,
+) {
+    let display = gdk::Display::default().expect("Could not connect to display");
+
+    THEME_PROVIDER.with(|cell| {
+        if let Some(old) = cell.borrow_mut().take() {
+            gtk4::style_context_remove_provider_for_display(&display, &old);
+        }
+    });
+
+    let style_manager = adw::StyleManager::default();
+    style_manager.set_color_scheme(theme.color_scheme());
+    crate::theme::set_current_theme(theme);
+
+    let patched = crate::theme::apply_color_overrides(theme.css_overrides(), overrides);
+    let css = format!("{}\n{}\n{}", patched, crate::theme::BASE_CSS, theme.css_extra());
 
     let provider = gtk4::CssProvider::new();
     provider.load_from_data(&css);
