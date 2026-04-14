@@ -424,7 +424,7 @@ menubutton.flat > button image {
   color: @window_fg_color;
 }
 .editor-sidebar-toolbar {
-  min-height: 24px;
+  min-height: 23px;
   padding: 0 2px;
 }
 .editor-sidebar-toolbar button,
