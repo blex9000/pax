@@ -12,26 +12,26 @@ struct ColorToken {
 }
 
 const BG_TOKENS: &[ColorToken] = &[
-    ColorToken { css_name: "bg_primary", label: "Window Background" },
-    ColorToken { css_name: "bg_secondary", label: "Toolbar, Dialogs & Footer" },
-    ColorToken { css_name: "bg_view", label: "Editor Sidebar & Preview Footer" },
-    ColorToken { css_name: "bg_terminal", label: "Terminal Background" },
+    ColorToken { css_name: "bg_window", label: "Window" },
+    ColorToken { css_name: "bg_chrome", label: "Toolbars, Headers & Dialogs" },
+    ColorToken { css_name: "bg_surface", label: "Content (Editor, Terminal, Forms)" },
+    ColorToken { css_name: "bg_elevated", label: "Popovers, Cards & Sidebars" },
 ];
 
 const TEXT_TOKENS: &[ColorToken] = &[
-    ColorToken { css_name: "headerbar_fg_color", label: "UI Text & Icons" },
-    ColorToken { css_name: "view_fg_color", label: "Editor, File Tree & Form Text" },
+    ColorToken { css_name: "fg_ui", label: "UI Chrome (Labels, Icons, Buttons)" },
+    ColorToken { css_name: "fg_content", label: "Content (Editor, File Tree, Forms)" },
 ];
 
 const ACCENT_TOKENS: &[ColorToken] = &[
-    ColorToken { css_name: "accent_color", label: "Hover & Focus Highlights" },
-    ColorToken { css_name: "accent_bg_color", label: "Selection Background" },
-    ColorToken { css_name: "accent_fg_color", label: "Selection & Button Text" },
+    ColorToken { css_name: "accent", label: "Hover & Focus Highlights" },
+    ColorToken { css_name: "accent_bg", label: "Selection & Active Backgrounds" },
+    ColorToken { css_name: "accent_fg", label: "Text on Selections & Buttons" },
 ];
 
 const BORDER_TOKENS: &[ColorToken] = &[
-    ColorToken { css_name: "borders", label: "Popup & Editor Borders" },
-    ColorToken { css_name: "headerbar_border_color", label: "Panel, Tab & Header Borders" },
+    ColorToken { css_name: "border_soft", label: "Internal (Popups, Editor Dividers)" },
+    ColorToken { css_name: "border_hard", label: "Structural (Panels, Tabs, Header)" },
 ];
 
 const GROUPS: &[(&str, &[ColorToken])] = &[

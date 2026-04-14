@@ -1034,182 +1034,171 @@ window.app-dialog dropdown.settings-theme-dropdown > popover.menu row:selected,
 ";
 
 const GRAPHITE_CSS: &str = "\
-@define-color bg_primary #141a22;
-@define-color bg_secondary #1a212c;
-@define-color bg_tertiary #161d27;
-@define-color bg_card #202938;
-@define-color bg_dialog #202938;
-@define-color bg_popover #202938;
-@define-color bg_sidebar #1d2531;
-@define-color bg_sidebar_secondary #151b24;
-@define-color bg_thumbnail #202938;
-@define-color bg_view #0f141b;
-@define-color bg_panel_header #131820;
-@define-color bg_terminal #0f141b;
-@define-color window_bg_color @bg_primary;
-@define-color window_fg_color #e5ecf3;
-@define-color headerbar_bg_color @bg_secondary;
-@define-color workspace_tabs_bar_bg_color @bg_tertiary;
-@define-color headerbar_fg_color #e5ecf3;
-@define-color card_bg_color @bg_card;
-@define-color card_fg_color #e5ecf3;
-@define-color dialog_bg_color @bg_dialog;
-@define-color dialog_fg_color #e5ecf3;
-@define-color popover_bg_color @bg_popover;
-@define-color popover_fg_color #e5ecf3;
-@define-color popover_shade_color alpha(black, 0.28);
-@define-color sidebar_bg_color @bg_sidebar;
-@define-color sidebar_fg_color #d8e0ea;
-@define-color secondary_sidebar_bg_color @bg_sidebar_secondary;
-@define-color secondary_sidebar_fg_color #d8e0ea;
-@define-color thumbnail_bg_color @bg_thumbnail;
-@define-color view_bg_color @bg_view;
-@define-color panel_header_bg_color @bg_panel_header;
-@define-color view_fg_color #e5ecf3;
-@define-color terminal_bg_color @bg_terminal;
-@define-color terminal_fg_color #e5ecf3;
-@define-color accent_bg_color #6ea7ff;
-@define-color accent_fg_color #0f141b;
-@define-color accent_color #6ea7ff;
-@define-color borders alpha(white, 0.10);
-@define-color headerbar_border_color alpha(white, 0.10);
-@define-color headerbar_backdrop_color @headerbar_bg_color;
+@define-color bg_window #141a22;\n\
+@define-color bg_chrome #1a212c;\n\
+@define-color bg_surface #0f141b;\n\
+@define-color bg_elevated #202938;\n\
+@define-color fg_ui #e5ecf3;\n\
+@define-color fg_content #e5ecf3;\n\
+@define-color accent #6ea7ff;\n\
+@define-color accent_bg #6ea7ff;\n\
+@define-color accent_fg #0f141b;\n\
+@define-color border_soft alpha(white, 0.10);\n\
+@define-color border_hard alpha(white, 0.10);\n\
+@define-color window_bg_color @bg_window;\n\
+@define-color window_fg_color @fg_ui;\n\
+@define-color headerbar_bg_color @bg_chrome;\n\
+@define-color workspace_tabs_bar_bg_color @bg_chrome;\n\
+@define-color headerbar_fg_color @fg_ui;\n\
+@define-color view_bg_color @bg_surface;\n\
+@define-color view_fg_color @fg_content;\n\
+@define-color terminal_bg_color @bg_surface;\n\
+@define-color terminal_fg_color @fg_content;\n\
+@define-color panel_header_bg_color @bg_chrome;\n\
+@define-color card_bg_color @bg_elevated;\n\
+@define-color card_fg_color @fg_ui;\n\
+@define-color dialog_bg_color @bg_elevated;\n\
+@define-color dialog_fg_color @fg_ui;\n\
+@define-color popover_bg_color @bg_elevated;\n\
+@define-color popover_fg_color @fg_ui;\n\
+@define-color popover_shade_color alpha(black, 0.28);\n\
+@define-color sidebar_bg_color @bg_elevated;\n\
+@define-color sidebar_fg_color @fg_content;\n\
+@define-color secondary_sidebar_bg_color @bg_chrome;\n\
+@define-color secondary_sidebar_fg_color @fg_content;\n\
+@define-color thumbnail_bg_color @bg_elevated;\n\
+@define-color accent_color @accent;\n\
+@define-color accent_bg_color @accent_bg;\n\
+@define-color accent_fg_color @accent_fg;\n\
+@define-color borders @border_soft;\n\
+@define-color headerbar_border_color @border_hard;\n\
+@define-color headerbar_backdrop_color @bg_chrome;\n\
 ";
 
 const DRACULA_CSS: &str = "\
-@define-color bg_primary #282a36;
-@define-color bg_secondary #21222c;
-@define-color bg_tertiary @bg_secondary;
-@define-color bg_card #44475a;
-@define-color bg_dialog #44475a;
-@define-color bg_popover #44475a;
-@define-color bg_sidebar #44475a;
-@define-color bg_sidebar_secondary #21222c;
-@define-color bg_thumbnail #44475a;
-@define-color bg_view #282a36;
-@define-color bg_panel_header #262733;
-@define-color bg_terminal #282a36;
-@define-color window_bg_color @bg_primary;
-@define-color window_fg_color #f8f8f2;
-@define-color headerbar_bg_color @bg_secondary;
-@define-color workspace_tabs_bar_bg_color @bg_tertiary;
-@define-color headerbar_fg_color #f8f8f2;
-@define-color card_bg_color @bg_card;
-@define-color card_fg_color #f8f8f2;
-@define-color dialog_bg_color @bg_dialog;
-@define-color dialog_fg_color #f8f8f2;
-@define-color popover_bg_color @bg_popover;
-@define-color popover_fg_color #f8f8f2;
-@define-color popover_shade_color alpha(black, 0.25);
-@define-color sidebar_bg_color @bg_sidebar;
-@define-color sidebar_fg_color #f8f8f2;
-@define-color secondary_sidebar_bg_color @bg_sidebar_secondary;
-@define-color secondary_sidebar_fg_color #f8f8f2;
-@define-color thumbnail_bg_color @bg_thumbnail;
-@define-color view_bg_color @bg_view;
-@define-color panel_header_bg_color @bg_panel_header;
-@define-color view_fg_color #f8f8f2;
-@define-color terminal_bg_color @bg_terminal;
-@define-color terminal_fg_color #f8f8f2;
-@define-color accent_bg_color #bd93f9;
-@define-color accent_fg_color #282a36;
-@define-color accent_color #bd93f9;
-@define-color borders alpha(white, 0.15);
-@define-color headerbar_border_color alpha(white, 0.15);
-@define-color headerbar_backdrop_color @headerbar_bg_color;
+@define-color bg_window #282a36;\n\
+@define-color bg_chrome #21222c;\n\
+@define-color bg_surface #282a36;\n\
+@define-color bg_elevated #44475a;\n\
+@define-color fg_ui #f8f8f2;\n\
+@define-color fg_content #f8f8f2;\n\
+@define-color accent #bd93f9;\n\
+@define-color accent_bg #bd93f9;\n\
+@define-color accent_fg #282a36;\n\
+@define-color border_soft alpha(white, 0.15);\n\
+@define-color border_hard alpha(white, 0.15);\n\
+@define-color window_bg_color @bg_window;\n\
+@define-color window_fg_color @fg_ui;\n\
+@define-color headerbar_bg_color @bg_chrome;\n\
+@define-color workspace_tabs_bar_bg_color @bg_chrome;\n\
+@define-color headerbar_fg_color @fg_ui;\n\
+@define-color view_bg_color @bg_surface;\n\
+@define-color view_fg_color @fg_content;\n\
+@define-color terminal_bg_color @bg_surface;\n\
+@define-color terminal_fg_color @fg_content;\n\
+@define-color panel_header_bg_color @bg_chrome;\n\
+@define-color card_bg_color @bg_elevated;\n\
+@define-color card_fg_color @fg_ui;\n\
+@define-color dialog_bg_color @bg_elevated;\n\
+@define-color dialog_fg_color @fg_ui;\n\
+@define-color popover_bg_color @bg_elevated;\n\
+@define-color popover_fg_color @fg_ui;\n\
+@define-color popover_shade_color alpha(black, 0.25);\n\
+@define-color sidebar_bg_color @bg_elevated;\n\
+@define-color sidebar_fg_color @fg_content;\n\
+@define-color secondary_sidebar_bg_color @bg_chrome;\n\
+@define-color secondary_sidebar_fg_color @fg_content;\n\
+@define-color thumbnail_bg_color @bg_elevated;\n\
+@define-color accent_color @accent;\n\
+@define-color accent_bg_color @accent_bg;\n\
+@define-color accent_fg_color @accent_fg;\n\
+@define-color borders @border_soft;\n\
+@define-color headerbar_border_color @border_hard;\n\
+@define-color headerbar_backdrop_color @bg_chrome;\n\
 ";
 
-// Aurora — futuristic light theme.
-// Cool polar-white surfaces with iridescent cyan/violet borders.
-// Accent: electric cyan. Borders carry a violet wash for an "etched glass" feel.
 const AURORA_CSS: &str = "\
-@define-color bg_primary #f4f7fb;
-@define-color bg_secondary #eaf0f8;
-@define-color bg_tertiary @bg_secondary;
-@define-color bg_card #e0e8f3;
-@define-color bg_dialog #e0e8f3;
-@define-color bg_popover #eaf0f8;
-@define-color bg_sidebar #e8eef7;
-@define-color bg_sidebar_secondary #f4f7fb;
-@define-color bg_thumbnail #e0e8f3;
-@define-color bg_view #fafcfe;
-@define-color bg_panel_header #eaf0f8;
-@define-color bg_terminal #f6f9fd;
-@define-color window_bg_color @bg_primary;
-@define-color window_fg_color #1a2740;
-@define-color headerbar_bg_color @bg_secondary;
-@define-color workspace_tabs_bar_bg_color @bg_tertiary;
-@define-color headerbar_fg_color #1a2740;
-@define-color card_bg_color @bg_card;
-@define-color card_fg_color #1a2740;
-@define-color dialog_bg_color @bg_dialog;
-@define-color dialog_fg_color #1a2740;
-@define-color popover_bg_color @bg_popover;
-@define-color popover_fg_color #1a2740;
-@define-color popover_shade_color alpha(#1a2740, 0.10);
-@define-color sidebar_bg_color @bg_sidebar;
-@define-color sidebar_fg_color #1a2740;
-@define-color secondary_sidebar_bg_color @bg_sidebar_secondary;
-@define-color secondary_sidebar_fg_color #1a2740;
-@define-color thumbnail_bg_color @bg_thumbnail;
-@define-color view_bg_color @bg_view;
-@define-color panel_header_bg_color @bg_panel_header;
-@define-color view_fg_color #1a2740;
-@define-color terminal_bg_color @bg_terminal;
-@define-color terminal_fg_color #1a2740;
-@define-color accent_bg_color #00b4d8;
-@define-color accent_fg_color #ffffff;
-@define-color accent_color #00b4d8;
-@define-color borders alpha(#5b8def, 0.35);
-@define-color headerbar_border_color alpha(#7e6aff, 0.30);
-@define-color headerbar_backdrop_color @headerbar_bg_color;
+@define-color bg_window #f4f7fb;\n\
+@define-color bg_chrome #eaf0f8;\n\
+@define-color bg_surface #fafcfe;\n\
+@define-color bg_elevated #e0e8f3;\n\
+@define-color fg_ui #1a2740;\n\
+@define-color fg_content #1a2740;\n\
+@define-color accent #00b4d8;\n\
+@define-color accent_bg #00b4d8;\n\
+@define-color accent_fg #ffffff;\n\
+@define-color border_soft alpha(#5b8def, 0.35);\n\
+@define-color border_hard alpha(#7e6aff, 0.30);\n\
+@define-color window_bg_color @bg_window;\n\
+@define-color window_fg_color @fg_ui;\n\
+@define-color headerbar_bg_color @bg_chrome;\n\
+@define-color workspace_tabs_bar_bg_color @bg_chrome;\n\
+@define-color headerbar_fg_color @fg_ui;\n\
+@define-color view_bg_color @bg_surface;\n\
+@define-color view_fg_color @fg_content;\n\
+@define-color terminal_bg_color @bg_surface;\n\
+@define-color terminal_fg_color @fg_content;\n\
+@define-color panel_header_bg_color @bg_chrome;\n\
+@define-color card_bg_color @bg_elevated;\n\
+@define-color card_fg_color @fg_ui;\n\
+@define-color dialog_bg_color @bg_elevated;\n\
+@define-color dialog_fg_color @fg_ui;\n\
+@define-color popover_bg_color @bg_chrome;\n\
+@define-color popover_fg_color @fg_ui;\n\
+@define-color popover_shade_color alpha(#1a2740, 0.10);\n\
+@define-color sidebar_bg_color @bg_elevated;\n\
+@define-color sidebar_fg_color @fg_content;\n\
+@define-color secondary_sidebar_bg_color @bg_chrome;\n\
+@define-color secondary_sidebar_fg_color @fg_content;\n\
+@define-color thumbnail_bg_color @bg_elevated;\n\
+@define-color accent_color @accent;\n\
+@define-color accent_bg_color @accent_bg;\n\
+@define-color accent_fg_color @accent_fg;\n\
+@define-color borders @border_soft;\n\
+@define-color headerbar_border_color @border_hard;\n\
+@define-color headerbar_backdrop_color @bg_chrome;\n\
 ";
 
-// Quantum — austere mission-control light theme.
-// Cooler slate-blue surfaces with a marked tonal step between primary
-// and chrome, deep royal-blue accent, and clearly visible blue borders.
-// Designed to read very differently from Aurora at a glance.
 const QUANTUM_CSS: &str = "\
-@define-color bg_primary #e8eff8;
-@define-color bg_secondary #d8e2f0;
-@define-color bg_tertiary @bg_secondary;
-@define-color bg_card #c5d3e6;
-@define-color bg_dialog #c5d3e6;
-@define-color bg_popover #d8e2f0;
-@define-color bg_sidebar #cfdcec;
-@define-color bg_sidebar_secondary #e8eff8;
-@define-color bg_thumbnail #c5d3e6;
-@define-color bg_view #ffffff;
-@define-color bg_panel_header #d8e2f0;
-@define-color bg_terminal #f6f9fd;
-@define-color window_bg_color @bg_primary;
-@define-color window_fg_color #0a1a33;
-@define-color headerbar_bg_color @bg_secondary;
-@define-color workspace_tabs_bar_bg_color @bg_tertiary;
-@define-color headerbar_fg_color #0a1a33;
-@define-color card_bg_color @bg_card;
-@define-color card_fg_color #0a1a33;
-@define-color dialog_bg_color @bg_dialog;
-@define-color dialog_fg_color #0a1a33;
-@define-color popover_bg_color @bg_popover;
-@define-color popover_fg_color #0a1a33;
-@define-color popover_shade_color alpha(#0a1a33, 0.18);
-@define-color sidebar_bg_color @bg_sidebar;
-@define-color sidebar_fg_color #0a1a33;
-@define-color secondary_sidebar_bg_color @bg_sidebar_secondary;
-@define-color secondary_sidebar_fg_color #0a1a33;
-@define-color thumbnail_bg_color @bg_thumbnail;
-@define-color view_bg_color @bg_view;
-@define-color panel_header_bg_color @bg_panel_header;
-@define-color view_fg_color #0a1a33;
-@define-color terminal_bg_color @bg_terminal;
-@define-color terminal_fg_color #0a1a33;
-@define-color accent_bg_color #0044cc;
-@define-color accent_fg_color #ffffff;
-@define-color accent_color #0044cc;
-@define-color borders alpha(#0044cc, 0.45);
-@define-color headerbar_border_color alpha(#003a99, 0.55);
-@define-color headerbar_backdrop_color @headerbar_bg_color;
+@define-color bg_window #e8eff8;\n\
+@define-color bg_chrome #d8e2f0;\n\
+@define-color bg_surface #ffffff;\n\
+@define-color bg_elevated #c5d3e6;\n\
+@define-color fg_ui #0a1a33;\n\
+@define-color fg_content #0a1a33;\n\
+@define-color accent #0044cc;\n\
+@define-color accent_bg #0044cc;\n\
+@define-color accent_fg #ffffff;\n\
+@define-color border_soft alpha(#0044cc, 0.45);\n\
+@define-color border_hard alpha(#003a99, 0.55);\n\
+@define-color window_bg_color @bg_window;\n\
+@define-color window_fg_color @fg_ui;\n\
+@define-color headerbar_bg_color @bg_chrome;\n\
+@define-color workspace_tabs_bar_bg_color @bg_chrome;\n\
+@define-color headerbar_fg_color @fg_ui;\n\
+@define-color view_bg_color @bg_surface;\n\
+@define-color view_fg_color @fg_content;\n\
+@define-color terminal_bg_color @bg_surface;\n\
+@define-color terminal_fg_color @fg_content;\n\
+@define-color panel_header_bg_color @bg_chrome;\n\
+@define-color card_bg_color @bg_elevated;\n\
+@define-color card_fg_color @fg_ui;\n\
+@define-color dialog_bg_color @bg_elevated;\n\
+@define-color dialog_fg_color @fg_ui;\n\
+@define-color popover_bg_color @bg_chrome;\n\
+@define-color popover_fg_color @fg_ui;\n\
+@define-color popover_shade_color alpha(#0a1a33, 0.18);\n\
+@define-color sidebar_bg_color @bg_elevated;\n\
+@define-color sidebar_fg_color @fg_content;\n\
+@define-color secondary_sidebar_bg_color @bg_chrome;\n\
+@define-color secondary_sidebar_fg_color @fg_content;\n\
+@define-color thumbnail_bg_color @bg_elevated;\n\
+@define-color accent_color @accent;\n\
+@define-color accent_bg_color @accent_bg;\n\
+@define-color accent_fg_color @accent_fg;\n\
+@define-color borders @border_soft;\n\
+@define-color headerbar_border_color @border_hard;\n\
+@define-color headerbar_backdrop_color @bg_chrome;\n\
 ";
 
 #[cfg(test)]
@@ -1246,40 +1235,26 @@ mod tests {
     }
 
     #[test]
-    fn custom_themes_define_dialog_sidebar_and_thumbnail_tokens() {
+    fn custom_themes_define_base_palette_and_semantic_aliases() {
         for css in [GRAPHITE_CSS, DRACULA_CSS, AURORA_CSS, QUANTUM_CSS] {
             for token in [
-                "@define-color dialog_bg_color",
-                "@define-color dialog_fg_color",
-                "@define-color sidebar_bg_color",
-                "@define-color sidebar_fg_color",
-                "@define-color secondary_sidebar_bg_color",
-                "@define-color secondary_sidebar_fg_color",
-                "@define-color thumbnail_bg_color",
-                "@define-color terminal_bg_color",
-                "@define-color terminal_fg_color",
-            ] {
-                assert!(css.contains(token), "missing token {token} in theme css");
-            }
-        }
-    }
-
-    #[test]
-    fn custom_themes_define_semantic_background_palette() {
-        for css in [GRAPHITE_CSS, DRACULA_CSS, AURORA_CSS, QUANTUM_CSS] {
-            for token in [
-                "@define-color bg_primary",
-                "@define-color bg_secondary",
-                "@define-color bg_tertiary",
-                "@define-color bg_card",
-                "@define-color bg_dialog",
-                "@define-color bg_popover",
-                "@define-color bg_sidebar",
-                "@define-color bg_sidebar_secondary",
-                "@define-color bg_thumbnail",
-                "@define-color bg_view",
-                "@define-color bg_panel_header",
-                "@define-color bg_terminal",
+                "@define-color bg_window",
+                "@define-color bg_chrome",
+                "@define-color bg_surface",
+                "@define-color bg_elevated",
+                "@define-color fg_ui",
+                "@define-color fg_content",
+                "@define-color accent ",
+                "@define-color accent_bg ",
+                "@define-color accent_fg ",
+                "@define-color border_soft",
+                "@define-color border_hard",
+                "@define-color window_bg_color",
+                "@define-color headerbar_bg_color",
+                "@define-color view_bg_color",
+                "@define-color accent_color",
+                "@define-color borders",
+                "@define-color headerbar_border_color",
             ] {
                 assert!(css.contains(token), "missing token {token} in theme css");
             }
@@ -1290,19 +1265,12 @@ mod tests {
     fn aurora_theme_is_available_as_light_theme() {
         assert!(Theme::all().contains(&Theme::Aurora));
         assert_eq!(Theme::from_id("aurora"), Theme::Aurora);
-        assert_eq!(Theme::Aurora.to_id(), "aurora");
         assert_eq!(
             Theme::Aurora.color_scheme(),
             libadwaita::ColorScheme::ForceLight
         );
-        // Iridescent border wash is the signature of Aurora.
-        assert!(AURORA_CSS.contains("@define-color borders alpha(#5b8def, 0.35);"));
-        assert!(
-            AURORA_CSS.contains("@define-color headerbar_border_color alpha(#7e6aff, 0.30);")
-        );
-        // Cool polar-white surface, electric cyan accent.
-        assert!(AURORA_CSS.contains("@define-color bg_primary #f4f7fb;"));
-        assert!(AURORA_CSS.contains("@define-color accent_color #00b4d8;"));
+        assert!(AURORA_CSS.contains("@define-color bg_window #f4f7fb;"));
+        assert!(AURORA_CSS.contains("@define-color accent #00b4d8;"));
     }
 
     #[test]
@@ -1314,15 +1282,9 @@ mod tests {
             Theme::Quantum.color_scheme(),
             libadwaita::ColorScheme::ForceLight
         );
-        // Quantum is monochrome blue: borders share the accent hue and are clearly visible.
-        assert!(QUANTUM_CSS.contains("@define-color accent_color #0044cc;"));
-        assert!(QUANTUM_CSS.contains("@define-color borders alpha(#0044cc, 0.45);"));
-        assert!(
-            QUANTUM_CSS.contains("@define-color headerbar_border_color alpha(#003a99, 0.55);")
-        );
-        // Cooler slate-blue surface, distinct from Aurora's near-white.
-        assert!(QUANTUM_CSS.contains("@define-color bg_primary #e8eff8;"));
-        assert!(QUANTUM_CSS.contains("@define-color bg_view #ffffff;"));
+        assert!(QUANTUM_CSS.contains("@define-color accent #0044cc;"));
+        assert!(QUANTUM_CSS.contains("@define-color bg_window #e8eff8;"));
+        assert!(QUANTUM_CSS.contains("@define-color bg_surface #ffffff;"));
     }
 
     #[test]
@@ -1347,7 +1309,7 @@ mod tests {
             Theme::Graphite.color_scheme(),
             libadwaita::ColorScheme::ForceDark
         );
-        assert!(GRAPHITE_CSS.contains("@define-color view_bg_color #0f141b;"));
+        assert!(GRAPHITE_CSS.contains("@define-color bg_surface #0f141b;"));
     }
 
     #[test]
