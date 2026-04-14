@@ -12,29 +12,26 @@ struct ColorToken {
 }
 
 const BG_TOKENS: &[ColorToken] = &[
-    ColorToken { css_name: "bg_primary", label: "Primary Background" },
-    ColorToken { css_name: "bg_secondary", label: "Secondary / Header" },
-    ColorToken { css_name: "bg_view", label: "View / Editor" },
-    ColorToken { css_name: "bg_terminal", label: "Terminal" },
-    ColorToken { css_name: "bg_panel_header", label: "Panel Header" },
+    ColorToken { css_name: "bg_primary", label: "Window Background" },
+    ColorToken { css_name: "bg_secondary", label: "Toolbar, Dialogs & Footer" },
+    ColorToken { css_name: "bg_view", label: "Editor Sidebar & Preview Footer" },
+    ColorToken { css_name: "bg_terminal", label: "Terminal Background" },
 ];
 
 const TEXT_TOKENS: &[ColorToken] = &[
-    ColorToken { css_name: "window_fg_color", label: "Window Text" },
-    ColorToken { css_name: "headerbar_fg_color", label: "Header Text" },
-    ColorToken { css_name: "view_fg_color", label: "View Text" },
-    ColorToken { css_name: "terminal_fg_color", label: "Terminal Text" },
+    ColorToken { css_name: "headerbar_fg_color", label: "UI Text & Icons" },
+    ColorToken { css_name: "view_fg_color", label: "Editor, File Tree & Form Text" },
 ];
 
 const ACCENT_TOKENS: &[ColorToken] = &[
-    ColorToken { css_name: "accent_color", label: "Accent" },
-    ColorToken { css_name: "accent_bg_color", label: "Accent Background" },
-    ColorToken { css_name: "accent_fg_color", label: "Accent Text" },
+    ColorToken { css_name: "accent_color", label: "Hover & Focus Highlights" },
+    ColorToken { css_name: "accent_bg_color", label: "Selection Background" },
+    ColorToken { css_name: "accent_fg_color", label: "Selection & Button Text" },
 ];
 
 const BORDER_TOKENS: &[ColorToken] = &[
-    ColorToken { css_name: "borders", label: "Borders" },
-    ColorToken { css_name: "headerbar_border_color", label: "Header Border" },
+    ColorToken { css_name: "borders", label: "Popup & Editor Borders" },
+    ColorToken { css_name: "headerbar_border_color", label: "Panel, Tab & Header Borders" },
 ];
 
 const GROUPS: &[(&str, &[ColorToken])] = &[
@@ -102,7 +99,11 @@ pub fn show_color_customizer_dialog(parent: &impl IsA<gtk4::Window>) {
         gtk4::glib::Propagation::Proceed
     });
 
-    let overrides: Rc<RefCell<HashMap<String, String>>> = Rc::new(RefCell::new(HashMap::new()));
+    // Load any previously saved overrides so the pickers start at the
+    // user's last saved state (not the base theme defaults).
+    let saved = load_custom_colors(theme).unwrap_or_default();
+    let overrides: Rc<RefCell<HashMap<String, String>>> =
+        Rc::new(RefCell::new(saved.clone()));
 
     let scroll = gtk4::ScrolledWindow::new();
     scroll.set_vexpand(true);
@@ -132,8 +133,13 @@ pub fn show_color_customizer_dialog(parent: &impl IsA<gtk4::Window>) {
             lbl.set_xalign(0.0);
             row.append(&lbl);
 
-            let raw_value = crate::theme::parse_define_color(css, token.css_name);
-            let initial_rgba = raw_value
+            // Use the saved override value if present, otherwise fall back
+            // to the base theme's CSS value.
+            let initial_hex = saved
+                .get(token.css_name)
+                .cloned()
+                .or_else(|| crate::theme::parse_define_color(css, token.css_name));
+            let initial_rgba = initial_hex
                 .as_deref()
                 .and_then(hex_to_rgba)
                 .unwrap_or_else(|| gtk4::gdk::RGBA::new(0.5, 0.5, 0.5, 1.0));
