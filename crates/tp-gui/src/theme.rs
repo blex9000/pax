@@ -530,7 +530,7 @@ notebook.workspace-tabs > header > tabs > tab label {
   color: alpha(@window_fg_color, 0.46);
 }
 notebook.workspace-tabs > header > tabs > tab image {
-  -gtk-icon-size: 10px;
+  -gtk-icon-size: 13px;
   color: alpha(@window_fg_color, 0.44);
 }
 image.workspace-tab-type-icon {
