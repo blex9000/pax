@@ -181,6 +181,7 @@ pub fn show_color_customizer_dialog(parent: &impl IsA<gtk4::Window>) {
     let theme_for_reset = theme;
     let d = dialog.clone();
     reset_btn.connect_clicked(move |_| {
+        clear_custom_colors();
         crate::app::apply_theme(theme_for_reset);
         d.close();
     });
