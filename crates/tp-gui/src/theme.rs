@@ -865,6 +865,10 @@ paned > separator {
 }
 .dirty-indicator { color: #ff8c00; }
 .editor-tabs { border-bottom: none; background-color: @view_bg_color; color: @view_fg_color; }
+.editor-tabs > header { border: none; box-shadow: none; background-color: @view_bg_color; }
+.editor-tabs > header > tabs { border: none; box-shadow: none; }
+.editor-tabs > header > tabs > tab { border: none; box-shadow: none; }
+.editor-tabs > header > tabs > tab:checked { border: none; box-shadow: none; }
 .editor-tab-active { border-bottom: none; }
 .editor-welcome { background-color: @view_bg_color; color: @view_fg_color; }
 .editor-sidebar { border-right: 1px solid alpha(@border_soft, 0.3); }
