@@ -556,24 +556,6 @@ impl TerminalPalette {
     }
 }
 
-fn terminal_font_spec() -> String {
-    resolve_terminal_font_spec(
-        std::env::var("PAX_TERMINAL_FONT").ok().as_deref(),
-        cfg!(target_os = "macos"),
-    )
-}
-
-fn resolve_terminal_font_spec(override_font: Option<&str>, is_macos: bool) -> String {
-    if let Some(font) = override_font.map(str::trim).filter(|font| !font.is_empty()) {
-        return font.to_string();
-    }
-
-    if is_macos {
-        "Menlo 13".to_string()
-    } else {
-        "Monospace 11".to_string()
-    }
-}
 
 fn terminal_palette_for(theme: crate::theme::Theme, _system_dark: bool) -> TerminalPalette {
     match theme {
@@ -759,7 +741,7 @@ fn draw_terminal(
     let colors = renderable.colors;
 
     let layout = pangocairo::create_layout(cr);
-    layout.set_font_description(Some(&terminal_font_description()));
+    layout.set_font_description(Some(&super::terminal_font_description()));
 
     for indexed in renderable.display_iter {
         let row = indexed.point.line.0 + display_offset;
@@ -869,7 +851,7 @@ fn draw_cursor(
             let text = cell_text(cell);
             if !text.is_empty() && text != " " && !cell.flags.contains(Flags::HIDDEN) {
                 let layout = pangocairo::create_layout(cr);
-                layout.set_font_description(Some(&terminal_font_description()));
+                layout.set_font_description(Some(&super::terminal_font_description()));
                 layout.set_text(&text);
                 paint_rgb(cr, palette.cursor_fg);
                 cr.move_to(x as f64, y as f64);
@@ -907,13 +889,9 @@ fn draw_cursor(
 
 fn measure_cell_metrics<W: IsA<gtk4::Widget>>(widget: &W) -> Option<CellMetrics> {
     let layout = widget.create_pango_layout(Some("W"));
-    layout.set_font_description(Some(&terminal_font_description()));
+    layout.set_font_description(Some(&super::terminal_font_description()));
     let (width, height) = layout.pixel_size();
     (width > 0 && height > 0).then_some(CellMetrics { width, height })
-}
-
-fn terminal_font_description() -> gtk4::pango::FontDescription {
-    gtk4::pango::FontDescription::from_string(&terminal_font_spec())
 }
 
 fn install_shell_bootstrap(writer: &Arc<Mutex<Box<dyn Write + Send>>>) {
@@ -1224,20 +1202,6 @@ mod tests {
         let palette = terminal_palette_for(crate::theme::Theme::Dracula, true);
         let rgb = indexed_rgb(21, &palette);
         assert_eq!(rgb, Rgb { r: 0, g: 0, b: 255 });
-    }
-
-    #[test]
-    fn terminal_font_spec_prefers_explicit_override() {
-        assert_eq!(
-            resolve_terminal_font_spec(Some("JetBrains Mono 14"), true),
-            "JetBrains Mono 14"
-        );
-    }
-
-    #[test]
-    fn terminal_font_spec_uses_platform_defaults() {
-        assert_eq!(resolve_terminal_font_spec(None, true), "Menlo 13");
-        assert_eq!(resolve_terminal_font_spec(None, false), "Monospace 11");
     }
 
     #[test]

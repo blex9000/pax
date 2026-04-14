@@ -70,6 +70,7 @@ impl TerminalInner {
         vte.set_scroll_on_keystroke(true);
         vte.set_scrollback_lines(10_000);
         vte.set_allow_hyperlink(true);
+        vte.set_font(Some(&super::terminal_font_description()));
 
         let pending_commands: Rc<RefCell<Vec<String>>> = Rc::new(RefCell::new(Vec::new()));
         let spawned: Rc<RefCell<bool>> = Rc::new(RefCell::new(false));

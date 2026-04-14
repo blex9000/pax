@@ -45,6 +45,25 @@ use super::PanelBackend;
 use crate::panels::PanelInputCallback;
 use backend::TerminalInner;
 
+// ── Shared terminal font configuration ──────────────────────────────────────
+
+/// Default terminal font family and size, consistent across all backends.
+const DEFAULT_TERMINAL_FONT: &str = "Monospace 11";
+
+/// Return the terminal font spec: `PAX_TERMINAL_FONT` env var, or the default.
+pub(crate) fn terminal_font_spec() -> String {
+    std::env::var("PAX_TERMINAL_FONT")
+        .ok()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| DEFAULT_TERMINAL_FONT.to_string())
+}
+
+/// Pango `FontDescription` for the terminal.
+pub(crate) fn terminal_font_description() -> gtk4::pango::FontDescription {
+    gtk4::pango::FontDescription::from_string(&terminal_font_spec())
+}
+
 /// Terminal panel — uses VTE4 on Linux, PTY+cell renderer fallback on macOS.
 ///
 /// Created by the panel registry when a `PanelType::Terminal` config is loaded.
