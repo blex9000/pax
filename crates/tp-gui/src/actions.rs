@@ -289,24 +289,18 @@ pub fn show_recent_dialog(
         .default_width(550)
         .default_height(400)
         .build();
+    // Route the dialog through the same chrome every other Pax dialog uses:
+    // adds .app-dialog to the window and a libadwaita HeaderBar tagged
+    // .app-headerbar so the title strip matches the rest of the UI instead
+    // of defaulting to the GTK-native look.
+    crate::theme::configure_dialog_window(&dialog);
 
     let vbox = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
-
-    let header_box = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
-    header_box.set_margin_top(12);
-    header_box.set_margin_bottom(8);
-    header_box.set_margin_start(16);
-    header_box.set_margin_end(16);
-    let title = gtk4::Label::new(Some("Recent Workspaces"));
-    title.add_css_class("title-3");
-    title.set_hexpand(true);
-    title.set_halign(gtk4::Align::Start);
-    header_box.append(&title);
-    vbox.append(&header_box);
 
     let list_box = gtk4::ListBox::new();
     list_box.set_selection_mode(gtk4::SelectionMode::Single);
     list_box.add_css_class("boxed-list");
+    list_box.set_margin_top(12);
     list_box.set_margin_start(16);
     list_box.set_margin_end(16);
     // Breathing room under the last row so the dialog edge isn't flush
