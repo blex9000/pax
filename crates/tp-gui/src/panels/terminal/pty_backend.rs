@@ -16,6 +16,7 @@
 //! much closer terminal experience than the old `vt100 + TextView` fallback
 //! while keeping the same PTY and panel architecture.
 
+use super::TERMINAL_PADDING_PX;
 use alacritty_terminal::event::{Event, EventListener, WindowSize};
 use alacritty_terminal::grid::{Dimensions, Scroll};
 use alacritty_terminal::index::{Column, Line, Point, Side};
@@ -198,7 +199,11 @@ impl TerminalInner {
                 let Some(metrics) = measure_cell_metrics(area) else {
                     return;
                 };
-                let Some(size) = grid_size_for_area(width, height, metrics.width, metrics.height)
+                // Reserve padding on all four edges before computing the grid.
+                let inner_width = width - 2 * TERMINAL_PADDING_PX;
+                let inner_height = height - 2 * TERMINAL_PADDING_PX;
+                let Some(size) =
+                    grid_size_for_area(inner_width, inner_height, metrics.width, metrics.height)
                 else {
                     return;
                 };
@@ -247,7 +252,10 @@ impl TerminalInner {
                     let Ok(mut state) = term_state.lock() else {
                         return;
                     };
-                    let Some(point) = point_from_coords(&state.term, metrics, x, y) else {
+                    // Shift pointer into the padded content coordinate space.
+                    let cx = x - TERMINAL_PADDING_PX as f64;
+                    let cy = y - TERMINAL_PADDING_PX as f64;
+                    let Some(point) = point_from_coords(&state.term, metrics, cx, cy) else {
                         return;
                     };
                     *selection_anchor.borrow_mut() = Some(DragSelectionAnchor { point, x, y });
@@ -269,9 +277,10 @@ impl TerminalInner {
                     let Ok(mut state) = term_state.lock() else {
                         return;
                     };
-                    let Some(point) =
-                        point_from_coords(&state.term, metrics, anchor.x + dx, anchor.y + dy)
-                    else {
+                    // Shift pointer into the padded content coordinate space.
+                    let cx = anchor.x + dx - TERMINAL_PADDING_PX as f64;
+                    let cy = anchor.y + dy - TERMINAL_PADDING_PX as f64;
+                    let Some(point) = point_from_coords(&state.term, metrics, cx, cy) else {
                         return;
                     };
                     state.term.selection = Some(simple_selection(anchor.point, point));
@@ -762,8 +771,8 @@ fn draw_terminal(
         }
 
         let col = indexed.point.column.0 as i32;
-        let x = col * metrics.width;
-        let y = row * metrics.height;
+        let x = TERMINAL_PADDING_PX + col * metrics.width;
+        let y = TERMINAL_PADDING_PX + row * metrics.height;
         let cell_width = if indexed.cell.flags.contains(Flags::WIDE_CHAR) {
             metrics.width * 2
         } else {
@@ -833,8 +842,8 @@ fn draw_cursor(
     }
 
     let col = cursor.point.column.0 as i32;
-    let x = col * metrics.width;
-    let y = row * metrics.height;
+    let x = TERMINAL_PADDING_PX + col * metrics.width;
+    let y = TERMINAL_PADDING_PX + row * metrics.height;
     let cell = &term.grid()[cursor.point];
     let width = if cell.flags.contains(Flags::WIDE_CHAR) {
         metrics.width * 2

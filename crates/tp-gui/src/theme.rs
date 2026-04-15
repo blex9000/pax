@@ -881,6 +881,11 @@ box.panel-footer-bar.terminal-panel-footer {
   background-color: @view_bg_color;
   color: @view_fg_color;
 }
+/* Breathing room between the terminal content and the panel borders.
+ * Keep in sync with TERMINAL_PADDING_PX in panels/terminal/mod.rs. */
+vte-terminal {
+  padding: 6px;
+}
 box.panel-footer-bar.editor-file-preview-footer,
 box.editor-file-preview-footer.panel-footer {
   background-color: @view_bg_color;

@@ -51,6 +51,18 @@ use backend::TerminalInner;
 /// 8.25pt ≈ 11px at standard 96 DPI (11 × 72/96 = 8.25).
 const DEFAULT_TERMINAL_FONT: &str = "JetBrains Mono 8.25";
 
+/// Padding (in pixels) between the terminal content and the widget edges.
+///
+/// Applied consistently to both backends:
+/// - VTE backend: via CSS `vte-terminal { padding: ... }` in `BASE_CSS`.
+/// - PTY backend: via a drawing offset and coordinate adjustment (this const).
+///
+/// Keep this value in sync with the `vte-terminal` padding rule in
+/// `crate::theme::BASE_CSS` — that rule must hard-code the same number of
+/// pixels, since CSS is a plain `&str` constant and cannot reference this.
+#[cfg(not(feature = "vte"))]
+pub(crate) const TERMINAL_PADDING_PX: i32 = 6;
+
 /// Pango `FontDescription` for the terminal.
 pub(crate) fn terminal_font_description() -> gtk4::pango::FontDescription {
     let spec = std::env::var("PAX_TERMINAL_FONT")
