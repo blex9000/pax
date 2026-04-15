@@ -209,6 +209,12 @@ impl GitStatusView {
 
         for entry in &entries {
             let outer = gtk4::Box::new(gtk4::Orientation::Vertical, 2);
+            outer.add_css_class("git-row");
+            if entry.staged {
+                outer.add_css_class("git-row-staged");
+            } else {
+                outer.add_css_class("git-row-unstaged");
+            }
             outer.set_margin_start(6);
             outer.set_margin_end(6);
             outer.set_margin_top(4);

@@ -1044,6 +1044,20 @@ list row:selected, listview row:selected, listbox row:selected {
   border-bottom: none;
   border-left: none;
 }
+/* Git status rows: staged files glow in the accent color so users can */
+/* distinguish at a glance what's queued for the next commit from what */
+/* is still only modified on disk. Unstaged rows stay dim. */
+.git-row-staged button.flat label {
+  color: @accent_color;
+  font-weight: 600;
+}
+.git-row-staged button.flat:hover label,
+.git-row-staged button.flat:focus label {
+  color: @accent_color;
+}
+.git-row-unstaged button.flat label {
+  opacity: 0.75;
+}
 .card, button.card, .welcome-action-btn { background-color: @view_bg_color; color: @view_fg_color; }
 entry,
 spinbutton,
