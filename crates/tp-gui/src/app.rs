@@ -1468,6 +1468,21 @@ fn setup_workspace_ui(
     // Initial UI state
     actions::update_dirty_ui(&ws_view, &window_rc, &save_action);
     actions::update_status_bar_path(&ws_view, &status_bar);
+
+    // macOS workaround: libadwaita HeaderBars and view-bg surfaces sometimes
+    // capture the libadwaita default colors before our CSS provider has fully
+    // cascaded, which leaves the main window header (and editor tabs) the
+    // wrong color until something — like opening a transient dialog — forces
+    // a style re-evaluation. Re-applying the theme on idle, after the entire
+    // workspace UI has been built and presented, mimics that re-evaluation
+    // explicitly. No-op on other platforms.
+    #[cfg(target_os = "macos")]
+    {
+        let theme_for_idle = workspace_theme;
+        glib::idle_add_local_once(move || {
+            apply_theme(theme_for_idle);
+        });
+    }
 }
 
 thread_local! {
