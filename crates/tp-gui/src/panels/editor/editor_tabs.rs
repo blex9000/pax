@@ -1009,7 +1009,11 @@ impl EditorTabs {
         crate::theme::register_sourceview_buffer(&old_buf);
         crate::theme::register_sourceview_buffer(&new_buf);
 
-        // Highlight changed lines using similar
+        // Highlight changed lines using similar. We also collect the per-side
+        // line numbers of every delete/insert so the overview ruler can draw
+        // clickable markers that jump to each change.
+        let mut old_change_lines: Vec<i32> = Vec::new();
+        let mut new_change_lines: Vec<i32> = Vec::new();
         {
             let diff = similar::TextDiff::from_lines(&old_content, &new_content);
 
@@ -1046,6 +1050,7 @@ impl EditorTabs {
                             end.forward_char();
                             old_buf.apply_tag_by_name("diff-del", &start, &end);
                         }
+                        old_change_lines.push(old_line);
                         old_line += 1;
                     }
                     similar::ChangeTag::Insert => {
@@ -1055,6 +1060,7 @@ impl EditorTabs {
                             end.forward_char();
                             new_buf.apply_tag_by_name("diff-add", &start, &end);
                         }
+                        new_change_lines.push(new_line);
                         new_line += 1;
                     }
                 }
@@ -1062,39 +1068,65 @@ impl EditorTabs {
         }
 
         let file_path_owned = file_path.to_path_buf();
-        let make_sv = |buf: &sourceview5::Buffer, editable: bool| -> gtk4::ScrolledWindow {
-            let view = sourceview5::View::with_buffer(buf);
-            view.add_css_class("editor-code-view");
-            view.set_editable(editable);
-            view.set_show_line_numbers(true);
-            view.set_monospace(true);
-            view.set_left_margin(3);
-            install_text_clipboard_shortcuts(&view);
-            install_text_history_shortcuts(&view, buf);
-            if editable {
-                view.set_auto_indent(true);
-                view.set_tab_width(4);
-            }
-            let scroll = gtk4::ScrolledWindow::new();
-            scroll.set_child(Some(&view));
-            scroll.set_vexpand(true);
-            scroll.set_hexpand(true);
-            let file_path_factory = file_path_owned.clone();
-            let buf_factory = buf.clone();
-            text_context_menu::install(&scroll, &view, editable, move || {
-                if !editable {
-                    return Vec::new();
+        let make_sv =
+            |buf: &sourceview5::Buffer,
+             editable: bool|
+             -> (sourceview5::View, gtk4::ScrolledWindow) {
+                let view = sourceview5::View::with_buffer(buf);
+                view.add_css_class("editor-code-view");
+                view.set_editable(editable);
+                view.set_show_line_numbers(true);
+                view.set_monospace(true);
+                view.set_left_margin(3);
+                install_text_clipboard_shortcuts(&view);
+                install_text_history_shortcuts(&view, buf);
+                if editable {
+                    view.set_auto_indent(true);
+                    view.set_tab_width(4);
                 }
-                text_context_menu::format_item_for(&file_path_factory, &buf_factory)
-                    .map(|i| vec![i])
-                    .unwrap_or_default()
-            });
-            scroll
-        };
+                let scroll = gtk4::ScrolledWindow::new();
+                scroll.set_child(Some(&view));
+                scroll.set_vexpand(true);
+                scroll.set_hexpand(true);
+                let file_path_factory = file_path_owned.clone();
+                let buf_factory = buf.clone();
+                text_context_menu::install(&scroll, &view, editable, move || {
+                    if !editable {
+                        return Vec::new();
+                    }
+                    text_context_menu::format_item_for(&file_path_factory, &buf_factory)
+                        .map(|i| vec![i])
+                        .unwrap_or_default()
+                });
+                (view, scroll)
+            };
 
         // Left: HEAD version (read-only), Right: working version (editable)
-        let old_scroll = make_sv(&old_buf, false);
-        let new_scroll = make_sv(&new_buf, true);
+        let (old_view, old_scroll) = make_sv(&old_buf, false);
+        let (new_view, new_scroll) = make_sv(&new_buf, true);
+
+        // Overview rulers: narrow DrawingAreas next to each editor that mark
+        // every changed line proportionally through the file. Clicking a
+        // marker scrolls the view (and its counterpart via the adjustment
+        // sync below) to the corresponding line.
+        let old_bar = build_overview_ruler(
+            old_change_lines,
+            old_buf.line_count(),
+            OverviewRulerKind::Delete,
+            &old_view,
+        );
+        let new_bar = build_overview_ruler(
+            new_change_lines,
+            new_buf.line_count(),
+            OverviewRulerKind::Insert,
+            &new_view,
+        );
+        let old_column = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
+        old_column.append(&old_scroll);
+        old_column.append(&old_bar);
+        let new_column = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
+        new_column.append(&new_scroll);
+        new_column.append(&new_bar);
 
         // Sync scrolling between old and new
         let syncing = Rc::new(std::cell::Cell::new(false));
@@ -1181,13 +1213,15 @@ impl EditorTabs {
 
         // Column labels
         let labels = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
-        let old_label =
-            gtk4::Label::new(Some(&format!("← PRIMA  {}  (HEAD)", rel.to_string_lossy())));
+        let old_label = gtk4::Label::new(Some(&format!(
+            "← PREVIOUS  {}  (HEAD)",
+            rel.to_string_lossy()
+        )));
         old_label.add_css_class("dim-label");
         old_label.set_hexpand(true);
         old_label.set_margin_start(8);
         let new_label = gtk4::Label::new(Some(&format!(
-            "→ DOPO  {}  (working)",
+            "CURRENT  {}  (working) →",
             rel.to_string_lossy()
         )));
         new_label.add_css_class("dim-label");
@@ -1200,8 +1234,8 @@ impl EditorTabs {
         // Paned: HEAD (read-only) | working (editable)
         let paned = gtk4::Paned::new(gtk4::Orientation::Horizontal);
         paned.set_vexpand(true);
-        paned.set_start_child(Some(&old_scroll));
-        paned.set_end_child(Some(&new_scroll));
+        paned.set_start_child(Some(&old_column));
+        paned.set_end_child(Some(&new_column));
         diff_box.append(&paned);
 
         // Save working side on Ctrl+S (via key controller on the diff_box)
@@ -1896,7 +1930,7 @@ fn show_commit_file_diff(
     // Column labels
     let labels = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
     let old_label = gtk4::Label::new(Some(&format!(
-        "← PRIMA  {}  ({})",
+        "← PREVIOUS  {}  ({})",
         file_rel,
         &parent[..parent.len().min(8)]
     )));
@@ -1904,7 +1938,7 @@ fn show_commit_file_diff(
     old_label.set_hexpand(true);
     old_label.set_margin_start(8);
     let new_label = gtk4::Label::new(Some(&format!(
-        "→ DOPO  {}  ({})",
+        "CURRENT  {}  ({}) →",
         file_rel,
         &commit_hash[..commit_hash.len().min(8)]
     )));
@@ -2110,6 +2144,100 @@ fn fallback_language_for(
         return manager.language("sh");
     }
     None
+}
+
+#[derive(Debug, Clone, Copy)]
+enum OverviewRulerKind {
+    /// Red marks for deleted lines (on the PREVIOUS side).
+    Delete,
+    /// Green marks for inserted lines (on the CURRENT side).
+    Insert,
+}
+
+/// Pixel width of the overview ruler strip. Wide enough to be tappable
+/// without crowding the editor's scrollbar.
+const OVERVIEW_RULER_WIDTH: i32 = 10;
+/// Minimum pixel height of a single marker so it stays visible and clickable
+/// even in very long files where each line would otherwise collapse to
+/// sub-pixel size.
+const OVERVIEW_RULER_MARK_MIN_HEIGHT: f64 = 2.0;
+/// Alpha for the neutral backdrop behind the marks. Low enough to blend
+/// with the surrounding chrome but present so the strip has a visual
+/// identity even when the file has no changes.
+const OVERVIEW_RULER_BG_ALPHA: f64 = 0.05;
+
+fn overview_ruler_color(kind: OverviewRulerKind) -> (f64, f64, f64) {
+    // Match the rgba fills already used for diff-del / diff-add paragraph
+    // backgrounds so the minimap reads as the same language as the inline
+    // highlighting.
+    match kind {
+        OverviewRulerKind::Delete => (220.0 / 255.0, 50.0 / 255.0, 47.0 / 255.0),
+        OverviewRulerKind::Insert => (40.0 / 255.0, 180.0 / 255.0, 60.0 / 255.0),
+    }
+}
+
+/// Build a narrow clickable strip that shows every changed line at its
+/// proportional position in the file. Clicking a marker (or anywhere in the
+/// strip) scrolls `view` to the nearest change and places the cursor there.
+fn build_overview_ruler(
+    change_lines: Vec<i32>,
+    total_lines: i32,
+    kind: OverviewRulerKind,
+    view: &sourceview5::View,
+) -> gtk4::DrawingArea {
+    let bar = gtk4::DrawingArea::new();
+    bar.set_width_request(OVERVIEW_RULER_WIDTH);
+    bar.set_vexpand(true);
+    bar.add_css_class("diff-overview-ruler");
+    bar.set_tooltip_text(Some("Click a marker to jump to that change"));
+
+    let lines = Rc::new(change_lines);
+    let total = total_lines.max(1);
+
+    {
+        let lines = lines.clone();
+        bar.set_draw_func(move |_, cr, w, h| {
+            let (r, g, b) = overview_ruler_color(kind);
+            let h_f = h as f64;
+            let w_f = w as f64;
+            cr.set_source_rgba(0.5, 0.5, 0.5, OVERVIEW_RULER_BG_ALPHA);
+            let _ = cr.paint();
+            cr.set_source_rgba(r, g, b, 0.9);
+            let mark_h = (h_f / total as f64).max(OVERVIEW_RULER_MARK_MIN_HEIGHT);
+            for &line in lines.iter() {
+                let y = (line as f64 / total as f64) * h_f;
+                cr.rectangle(0.0, y, w_f, mark_h);
+            }
+            let _ = cr.fill();
+        });
+    }
+
+    {
+        let view = view.clone();
+        let lines = lines.clone();
+        let bar_for_click = bar.clone();
+        let gesture = gtk4::GestureClick::new();
+        gesture.connect_pressed(move |_, _n, _x, y| {
+            let h = bar_for_click.height().max(1) as f64;
+            let proportion = (y / h).clamp(0.0, 1.0);
+            let clicked = (proportion * total as f64) as i32;
+            // Snap to the nearest known change so clicking the backdrop
+            // between two markers still lands on a real change.
+            let target = lines
+                .iter()
+                .copied()
+                .min_by_key(|l| (*l - clicked).abs())
+                .unwrap_or(clicked);
+            let buf = view.buffer();
+            if let Some(iter) = buf.iter_at_line(target) {
+                buf.place_cursor(&iter);
+                view.scroll_to_iter(&mut iter.clone(), 0.1, true, 0.5, 0.5);
+            }
+        });
+        bar.add_controller(gesture);
+    }
+
+    bar
 }
 
 fn get_mtime(path: &Path) -> u64 {
