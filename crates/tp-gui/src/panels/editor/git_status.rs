@@ -69,10 +69,20 @@ impl GitStatusView {
         commit_entry.set_placeholder_text(Some("Commit message..."));
         commit_box.append(&commit_entry);
 
+        // Action row: compact buttons aligned to the right.
+        let action_row = gtk4::Box::new(gtk4::Orientation::Horizontal, 6);
+        action_row.set_halign(gtk4::Align::End);
+
+        let stage_all_btn = gtk4::Button::with_label("Stage All");
+        stage_all_btn.set_tooltip_text(Some("Stage all changes — equivalent to `git add -A`"));
+        action_row.append(&stage_all_btn);
+
         let commit_btn = gtk4::Button::with_label("Commit");
         commit_btn.add_css_class("suggested-action");
         commit_btn.set_sensitive(false);
-        commit_box.append(&commit_btn);
+        action_row.append(&commit_btn);
+
+        commit_box.append(&action_row);
 
         container.append(&commit_box);
 
@@ -81,6 +91,23 @@ impl GitStatusView {
             let btn = commit_btn.clone();
             commit_entry.connect_changed(move |entry| {
                 btn.set_sensitive(!entry.text().is_empty());
+            });
+        }
+
+        // Stage All action: `git add -A` then refresh
+        {
+            let be = backend.clone();
+            let action_cb = on_git_action.clone();
+            stage_all_btn.connect_clicked(move |_| {
+                match be.git_command(&["add", "-A"]) {
+                    Ok(_) => {
+                        tracing::info!("Staged all changes");
+                        action_cb();
+                    }
+                    Err(e) => {
+                        tracing::warn!("git add -A failed: {}", e);
+                    }
+                }
             });
         }
 
