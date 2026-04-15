@@ -59,6 +59,95 @@ struct TreeSnapshot {
     file_index: Vec<PathBuf>,
 }
 
+/// A single reversible mutation of the tree. Stored on an undo/redo stack so
+/// the user can take back a create/delete/rename/paste done through the
+/// context menu. Each variant holds enough state to run the mutation forward
+/// and backward without consulting the UI again.
+#[derive(Debug, Clone)]
+enum FileTreeOp {
+    /// New empty file or directory created at `path`.
+    Created { path: PathBuf, is_dir: bool },
+    /// Trashed file/directory that originally lived at `path`. Undo restores
+    /// from the XDG trash; only recorded for local backends because the SSH
+    /// path is a hard delete with no restore semantics.
+    Deleted { path: PathBuf, is_dir: bool },
+    /// Rename from → to on disk.
+    Renamed { from: PathBuf, to: PathBuf },
+    /// Paste of `source` (still on disk) duplicated to `dest`. Undo deletes
+    /// only `dest`; `source` is left alone.
+    Copied {
+        source: PathBuf,
+        dest: PathBuf,
+        is_dir: bool,
+    },
+}
+
+impl FileTreeOp {
+    /// Short human-readable label used in the Undo/Redo menu entries.
+    fn summary(&self) -> String {
+        fn name(p: &Path) -> String {
+            p.file_name()
+                .map(|n| n.to_string_lossy().to_string())
+                .unwrap_or_else(|| p.display().to_string())
+        }
+        match self {
+            FileTreeOp::Created { path, is_dir } => format!(
+                "Create {} {}",
+                if *is_dir { "folder" } else { "file" },
+                name(path)
+            ),
+            FileTreeOp::Deleted { path, is_dir } => format!(
+                "Delete {} {}",
+                if *is_dir { "folder" } else { "file" },
+                name(path)
+            ),
+            FileTreeOp::Renamed { from, to } => {
+                format!("Rename {} → {}", name(from), name(to))
+            }
+            FileTreeOp::Copied { dest, is_dir, .. } => format!(
+                "Paste {} {}",
+                if *is_dir { "folder" } else { "file" },
+                name(dest)
+            ),
+        }
+    }
+}
+
+/// Undo/redo history for file tree mutations. The menu reads the top op of
+/// each stack to label the entries; performing an undo pops the undo stack,
+/// executes the inverse, and pushes the original op onto the redo stack (and
+/// vice versa). A fresh mutation clears the redo stack because branching
+/// timelines are confusing.
+struct OpHistory {
+    undo: Vec<FileTreeOp>,
+    redo: Vec<FileTreeOp>,
+}
+
+/// Cap on the number of ops retained per stack. Bounded so a long-running
+/// session doesn't grow history indefinitely. 100 is a generous interactive
+/// limit (IDEs typically cap at 50–200).
+const OP_HISTORY_MAX_DEPTH: usize = 100;
+
+impl OpHistory {
+    fn new() -> Self {
+        Self {
+            undo: Vec::new(),
+            redo: Vec::new(),
+        }
+    }
+
+    /// Record a freshly-executed mutation. Clears the redo stack because a
+    /// new branch of history has started.
+    fn record(&mut self, op: FileTreeOp) {
+        self.undo.push(op);
+        self.redo.clear();
+        if self.undo.len() > OP_HISTORY_MAX_DEPTH {
+            let drop_count = self.undo.len() - OP_HISTORY_MAX_DEPTH;
+            self.undo.drain(0..drop_count);
+        }
+    }
+}
+
 impl FileTree {
     pub fn new(root_dir: &Path, on_file_open: OnFileOpen, backend: Arc<dyn FileBackend>) -> Self {
         Self::new_with_context(root_dir, on_file_open, None, None, None, backend)
@@ -97,6 +186,10 @@ impl FileTree {
         // source path plus whether it's a directory so Paste can pick the
         // right backend operation (copy_file vs copy_dir).
         let clipboard: Rc<RefCell<Option<(PathBuf, bool)>>> = Rc::new(RefCell::new(None));
+        // Undo/redo stack for context-menu mutations. Shared across every
+        // handler so each mutation records an op, and the Undo/Redo menu
+        // entries read/write the same history.
+        let history: Rc<RefCell<OpHistory>> = Rc::new(RefCell::new(OpHistory::new()));
 
         let list_box = gtk4::ListBox::new();
         list_box.set_selection_mode(gtk4::SelectionMode::Single);
@@ -176,6 +269,7 @@ impl FileTree {
             let rename_cb = on_file_renamed.clone();
             let delete_cb = on_path_deleted.clone();
             let clipboard_for_menu = clipboard.clone();
+            let history_for_menu = history.clone();
             let backend = backend.clone();
             let on_open = on_file_open.clone();
             let gesture = gtk4::GestureClick::new();
@@ -254,6 +348,57 @@ impl FileTree {
                     btn
                 };
 
+                // ── Undo / Redo (only shown when the stack has something to
+                // replay; labelled with the op summary so the user can see
+                // what's about to happen) ──
+                let (undo_top, redo_top) = {
+                    let h = history_for_menu.borrow();
+                    (
+                        h.undo.last().map(|op| op.summary()),
+                        h.redo.last().map(|op| op.summary()),
+                    )
+                };
+                let mut history_section_present = false;
+                if let Some(summary) = undo_top {
+                    let undo_btn = make_item("edit-undo-symbolic", &format!("Undo {}", summary));
+                    {
+                        let be = backend.clone();
+                        let refresh_tree = refresh_tree.clone();
+                        let rename_cb = rename_cb.clone();
+                        let delete_cb = delete_cb.clone();
+                        let history = history_for_menu.clone();
+                        undo_btn.connect_clicked(move |btn| {
+                            undo_last_op(&history, &*be, &rename_cb, &delete_cb, &refresh_tree);
+                            if let Some(pop) = btn.ancestor(gtk4::Popover::static_type()) {
+                                pop.downcast_ref::<gtk4::Popover>().unwrap().popdown();
+                            }
+                        });
+                    }
+                    menu_box.append(&undo_btn);
+                    history_section_present = true;
+                }
+                if let Some(summary) = redo_top {
+                    let redo_btn = make_item("edit-redo-symbolic", &format!("Redo {}", summary));
+                    {
+                        let be = backend.clone();
+                        let refresh_tree = refresh_tree.clone();
+                        let rename_cb = rename_cb.clone();
+                        let delete_cb = delete_cb.clone();
+                        let history = history_for_menu.clone();
+                        redo_btn.connect_clicked(move |btn| {
+                            redo_last_op(&history, &*be, &rename_cb, &delete_cb, &refresh_tree);
+                            if let Some(pop) = btn.ancestor(gtk4::Popover::static_type()) {
+                                pop.downcast_ref::<gtk4::Popover>().unwrap().popdown();
+                            }
+                        });
+                    }
+                    menu_box.append(&redo_btn);
+                    history_section_present = true;
+                }
+                if history_section_present {
+                    menu_box.append(&gtk4::Separator::new(gtk4::Orientation::Horizontal));
+                }
+
                 let create_file_btn = make_item("document-new-symbolic", "New File");
                 {
                     let target_dir = target_dir.clone();
@@ -261,6 +406,7 @@ impl FileTree {
                     let refresh_tree = refresh_tree.clone();
                     let on_open = on_open.clone();
                     let parent_window = parent_window.clone();
+                    let history_for_create_file = history_for_menu.clone();
                     create_file_btn.connect_clicked(move |btn| {
                         if let Some(pop) = btn.ancestor(gtk4::Popover::static_type()) {
                             pop.downcast_ref::<gtk4::Popover>().unwrap().popdown();
@@ -270,6 +416,7 @@ impl FileTree {
                         let be = be.clone();
                         let refresh_tree = refresh_tree.clone();
                         let on_open = on_open.clone();
+                        let history = history_for_create_file.clone();
                         glib::idle_add_local_once(move || {
                             show_name_input_dialog(
                                 parent_window.as_ref(),
@@ -292,6 +439,10 @@ impl FileTree {
                                         write_result.is_ok()
                                     );
                                     if write_result.is_ok() {
+                                        history.borrow_mut().record(FileTreeOp::Created {
+                                            path: dest.clone(),
+                                            is_dir: false,
+                                        });
                                         refresh_tree();
                                         tracing::info!("editor.ft: create_file refresh_tree scheduled");
                                         on_open(&dest);
@@ -313,6 +464,7 @@ impl FileTree {
                     let be = backend.clone();
                     let refresh_tree = refresh_tree.clone();
                     let parent_window = parent_window.clone();
+                    let history_for_create_folder = history_for_menu.clone();
                     create_folder_btn.connect_clicked(move |btn| {
                         if let Some(pop) = btn.ancestor(gtk4::Popover::static_type()) {
                             pop.downcast_ref::<gtk4::Popover>().unwrap().popdown();
@@ -321,6 +473,7 @@ impl FileTree {
                         let target_dir = target_dir.clone();
                         let be = be.clone();
                         let refresh_tree = refresh_tree.clone();
+                        let history = history_for_create_folder.clone();
                         glib::idle_add_local_once(move || {
                             show_name_input_dialog(
                                 parent_window.as_ref(),
@@ -343,6 +496,10 @@ impl FileTree {
                                         mkdir_result.is_ok()
                                     );
                                     if mkdir_result.is_ok() {
+                                        history.borrow_mut().record(FileTreeOp::Created {
+                                            path: dest.clone(),
+                                            is_dir: true,
+                                        });
                                         refresh_tree();
                                         tracing::info!("editor.ft: create_dir refresh_tree scheduled");
                                     }
@@ -367,6 +524,7 @@ impl FileTree {
                         let be = backend.clone();
                         let refresh_tree = refresh_tree.clone();
                         let target_dir = target_dir.clone();
+                        let history = history_for_menu.clone();
                         paste_btn.connect_clicked(move |btn| {
                             let source_name = source_path
                                 .file_name()
@@ -396,6 +554,11 @@ impl FileTree {
                                 copy_result.is_ok()
                             );
                             if copy_result.is_ok() {
+                                history.borrow_mut().record(FileTreeOp::Copied {
+                                    source: source_path.clone(),
+                                    dest: dest.clone(),
+                                    is_dir: source_is_dir,
+                                });
                                 refresh_tree();
                             }
                             if let Some(pop) = btn.ancestor(gtk4::Popover::static_type()) {
@@ -459,6 +622,7 @@ impl FileTree {
                         let refresh_tree = refresh_tree.clone();
                         let parent_window = parent_window.clone();
                         let rename_cb_for_btn = rename_cb.clone();
+                        let history_for_rename = history_for_menu.clone();
                         rename_btn.connect_clicked(move |btn| {
                             if let Some(pop) = btn.ancestor(gtk4::Popover::static_type()) {
                                 pop.downcast_ref::<gtk4::Popover>().unwrap().popdown();
@@ -474,6 +638,7 @@ impl FileTree {
                             let be = be.clone();
                             let refresh_tree = refresh_tree.clone();
                             let rename_cb = rename_cb_for_btn.clone();
+                            let history = history_for_rename.clone();
                             glib::idle_add_local_once(move || {
                                 show_name_input_dialog(
                                     parent_window.as_ref(),
@@ -502,6 +667,10 @@ impl FileTree {
                                                 rename_result.is_ok()
                                             );
                                             if rename_result.is_ok() {
+                                                history.borrow_mut().record(FileTreeOp::Renamed {
+                                                    from: p.clone(),
+                                                    to: dest.clone(),
+                                                });
                                                 if let Some(ref cb) = rename_cb {
                                                     cb(&p, &dest);
                                                 }
@@ -551,6 +720,8 @@ impl FileTree {
                             let refresh_tree = refresh_tree.clone();
                             let delete_cb = delete_cb.clone();
                             let parent_window = parent_window.clone();
+                            let history_for_del = history_for_menu.clone();
+                            let backend_is_remote = backend.is_remote();
                             del_btn.connect_clicked(move |btn| {
                                 if let Some(pop) = btn.ancestor(gtk4::Popover::static_type()) {
                                     pop.downcast_ref::<gtk4::Popover>().unwrap().popdown();
@@ -560,6 +731,7 @@ impl FileTree {
                                 let refresh_tree = refresh_tree.clone();
                                 let delete_cb = delete_cb.clone();
                                 let parent_window = parent_window.clone();
+                                let history = history_for_del.clone();
                                 let name = p
                                     .file_name()
                                     .map(|n| n.to_string_lossy().to_string())
@@ -585,6 +757,17 @@ impl FileTree {
                                                 del_result.is_ok()
                                             );
                                             if del_result.is_ok() {
+                                                // Remote deletes are hard (rm -rf), not trash —
+                                                // no restore path, so don't pollute the undo
+                                                // stack with unrecoverable ops.
+                                                if !backend_is_remote {
+                                                    history.borrow_mut().record(
+                                                        FileTreeOp::Deleted {
+                                                            path: p.clone(),
+                                                            is_dir: true,
+                                                        },
+                                                    );
+                                                }
                                                 if let Some(ref cb) = delete_cb {
                                                     cb(&p);
                                                 }
@@ -605,19 +788,24 @@ impl FileTree {
                             let p = path.clone();
                             let be = backend.clone();
                             let refresh_tree = refresh_tree.clone();
+                            let history_for_dup = history_for_menu.clone();
                             dup_btn.connect_clicked(move |btn| {
-                                let result = if let Some(ext) = p.extension() {
+                                let dest = if let Some(ext) = p.extension() {
                                     let stem = p.file_stem().unwrap_or_default().to_string_lossy();
                                     let new_name =
                                         format!("{}_copy.{}", stem, ext.to_string_lossy());
-                                    let dest = p.with_file_name(new_name);
-                                    be.copy_file(&p, &dest)
+                                    p.with_file_name(new_name)
                                 } else {
                                     let name = p.file_name().unwrap_or_default().to_string_lossy();
-                                    let dest = p.with_file_name(format!("{}_copy", name));
-                                    be.copy_file(&p, &dest)
+                                    p.with_file_name(format!("{}_copy", name))
                                 };
+                                let result = be.copy_file(&p, &dest);
                                 if result.is_ok() {
+                                    history_for_dup.borrow_mut().record(FileTreeOp::Copied {
+                                        source: p.clone(),
+                                        dest: dest.clone(),
+                                        is_dir: false,
+                                    });
                                     refresh_tree();
                                 }
                                 if let Some(pop) = btn.ancestor(gtk4::Popover::static_type()) {
@@ -634,6 +822,8 @@ impl FileTree {
                             let refresh_tree = refresh_tree.clone();
                             let delete_cb = delete_cb.clone();
                             let parent_window = parent_window.clone();
+                            let history_for_del = history_for_menu.clone();
+                            let backend_is_remote = backend.is_remote();
                             del_btn.connect_clicked(move |btn| {
                                 if let Some(pop) = btn.ancestor(gtk4::Popover::static_type()) {
                                     pop.downcast_ref::<gtk4::Popover>().unwrap().popdown();
@@ -643,6 +833,7 @@ impl FileTree {
                                 let refresh_tree = refresh_tree.clone();
                                 let delete_cb = delete_cb.clone();
                                 let parent_window = parent_window.clone();
+                                let history = history_for_del.clone();
                                 let name = p
                                     .file_name()
                                     .map(|n| n.to_string_lossy().to_string())
@@ -665,6 +856,14 @@ impl FileTree {
                                                 del_result.is_ok()
                                             );
                                             if del_result.is_ok() {
+                                                if !backend_is_remote {
+                                                    history.borrow_mut().record(
+                                                        FileTreeOp::Deleted {
+                                                            path: p.clone(),
+                                                            is_dir: false,
+                                                        },
+                                                    );
+                                                }
                                                 if let Some(ref cb) = delete_cb {
                                                     cb(&p);
                                                 }
@@ -1796,6 +1995,163 @@ fn show_name_input_dialog(
 /// Show a modal confirm dialog with a destructive primary action. Used for
 /// delete operations so a stray click on the menu item can't erase a file
 /// without a second intentional confirmation.
+/// Restore a single item from the XDG trash back to its original path.
+/// Matches on `original_path == path` and picks the most recently deleted
+/// candidate so "delete X, create X, delete X, undo, undo" restores the
+/// most recently trashed X first. Linux-only because the `trash` crate's
+/// `os_limited` restore API is limited to the freedesktop trash spec.
+#[cfg(target_os = "linux")]
+fn restore_from_trash(path: &Path) -> Result<(), String> {
+    use trash::os_limited;
+    let items = os_limited::list().map_err(|e| e.to_string())?;
+    let mut candidates: Vec<_> = items
+        .into_iter()
+        .filter(|item| item.original_path() == path)
+        .collect();
+    // Most recent last (largest time_deleted) so pop() returns newest.
+    candidates.sort_by_key(|item| item.time_deleted);
+    let newest = candidates.pop().ok_or_else(|| {
+        format!("no trash item found for {}", path.display())
+    })?;
+    os_limited::restore_all(std::iter::once(newest))
+        .map_err(|e| format!("trash restore failed: {:?}", e))
+}
+
+#[cfg(not(target_os = "linux"))]
+fn restore_from_trash(_path: &Path) -> Result<(), String> {
+    Err("restore from trash is only supported on Linux (XDG trash)".to_string())
+}
+
+/// Pop the top of the undo stack, run the inverse mutation, and push the
+/// original op onto the redo stack. On failure leave the op on the undo
+/// stack so the user can retry rather than losing the history entry.
+fn undo_last_op(
+    history: &Rc<RefCell<OpHistory>>,
+    backend: &dyn FileBackend,
+    rename_cb: &Option<OnFileRenamed>,
+    delete_cb: &Option<OnPathDeleted>,
+    refresh_tree: &Rc<dyn Fn()>,
+) {
+    let op = match history.borrow_mut().undo.pop() {
+        Some(op) => op,
+        None => return,
+    };
+    tracing::info!("editor.ft: undo op={:?}", op);
+    let result: Result<(), String> = match &op {
+        FileTreeOp::Created { path, is_dir } => {
+            let r = if *is_dir {
+                backend.delete_dir(path)
+            } else {
+                backend.delete_file(path)
+            };
+            if r.is_ok() {
+                if let Some(cb) = delete_cb {
+                    cb(path);
+                }
+            }
+            r
+        }
+        FileTreeOp::Deleted { path, .. } => restore_from_trash(path),
+        FileTreeOp::Renamed { from, to } => {
+            let r = backend.rename_file(to, from);
+            if r.is_ok() {
+                if let Some(cb) = rename_cb {
+                    cb(to, from);
+                }
+            }
+            r
+        }
+        FileTreeOp::Copied { dest, is_dir, .. } => {
+            let r = if *is_dir {
+                backend.delete_dir(dest)
+            } else {
+                backend.delete_file(dest)
+            };
+            if r.is_ok() {
+                if let Some(cb) = delete_cb {
+                    cb(dest);
+                }
+            }
+            r
+        }
+    };
+    match result {
+        Ok(()) => {
+            history.borrow_mut().redo.push(op);
+            refresh_tree();
+        }
+        Err(e) => {
+            tracing::warn!("editor.ft: undo failed: {}", e);
+            // Keep the op on the undo stack so the user can retry.
+            history.borrow_mut().undo.push(op);
+        }
+    }
+}
+
+/// Pop the top of the redo stack, re-run the original mutation, and push it
+/// back onto the undo stack. Mirror of `undo_last_op`.
+fn redo_last_op(
+    history: &Rc<RefCell<OpHistory>>,
+    backend: &dyn FileBackend,
+    rename_cb: &Option<OnFileRenamed>,
+    delete_cb: &Option<OnPathDeleted>,
+    refresh_tree: &Rc<dyn Fn()>,
+) {
+    let op = match history.borrow_mut().redo.pop() {
+        Some(op) => op,
+        None => return,
+    };
+    tracing::info!("editor.ft: redo op={:?}", op);
+    let result: Result<(), String> = match &op {
+        FileTreeOp::Created { path, is_dir } => {
+            if *is_dir {
+                backend.create_dir(path)
+            } else {
+                backend.write_file(path, "")
+            }
+        }
+        FileTreeOp::Deleted { path, is_dir } => {
+            let r = if *is_dir {
+                backend.delete_dir(path)
+            } else {
+                backend.delete_file(path)
+            };
+            if r.is_ok() {
+                if let Some(cb) = delete_cb {
+                    cb(path);
+                }
+            }
+            r
+        }
+        FileTreeOp::Renamed { from, to } => {
+            let r = backend.rename_file(from, to);
+            if r.is_ok() {
+                if let Some(cb) = rename_cb {
+                    cb(from, to);
+                }
+            }
+            r
+        }
+        FileTreeOp::Copied { source, dest, is_dir } => {
+            if *is_dir {
+                backend.copy_dir(source, dest)
+            } else {
+                backend.copy_file(source, dest)
+            }
+        }
+    };
+    match result {
+        Ok(()) => {
+            history.borrow_mut().undo.push(op);
+            refresh_tree();
+        }
+        Err(e) => {
+            tracing::warn!("editor.ft: redo failed: {}", e);
+            history.borrow_mut().redo.push(op);
+        }
+    }
+}
+
 fn show_confirm_dialog(
     transient_parent: Option<&gtk4::Window>,
     title: &str,
