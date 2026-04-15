@@ -305,17 +305,81 @@ pub fn show_recent_dialog(
     vbox.append(&header_box);
 
     let list_box = gtk4::ListBox::new();
-    list_box.set_selection_mode(gtk4::SelectionMode::None);
+    list_box.set_selection_mode(gtk4::SelectionMode::Single);
     list_box.add_css_class("boxed-list");
     list_box.set_margin_start(16);
     list_box.set_margin_end(16);
+    // Breathing room under the last row so the dialog edge isn't flush
+    // against the bottom entry.
+    list_box.set_margin_bottom(16);
 
     let scrolled = gtk4::ScrolledWindow::new();
     scrolled.set_child(Some(&list_box));
     scrolled.set_vexpand(true);
     vbox.append(&scrolled);
 
-    for record in &workspaces {
+    // Shared "open record N" closure — used by both the per-row Open button
+    // and the ListBox row-activated signal so clicking anywhere on the row
+    // (or pressing Enter on the keyboard-selected row) triggers the same
+    // code path. `row-activated` dispatches by `row.index()` into this
+    // closure, which looks the record up out of the Rc<Vec>.
+    let workspaces_rc: Rc<Vec<_>> = Rc::new(workspaces);
+    let open_record: Rc<dyn Fn(&pax_db::workspaces::WorkspaceRecord)> = Rc::new({
+        let ws = ws.clone();
+        let sb = sb.clone();
+        let window = window.clone();
+        let save_action = save_action.clone();
+        let dialog = dialog.clone();
+        move |record: &pax_db::workspaces::WorkspaceRecord| {
+            let Some(ref path_str) = record.config_path else {
+                sb.borrow().set_message("Workspace has no config file");
+                return;
+            };
+            let path = std::path::PathBuf::from(path_str);
+            if !path.exists() {
+                sb.borrow().set_message(&format!("File not found: {}", path.display()));
+                return;
+            }
+            let ws_for_continue = ws.clone();
+            let sb_for_continue = sb.clone();
+            let win_for_continue = window.clone();
+            let sa_for_continue = save_action.clone();
+            let dialog_for_continue = dialog.clone();
+            let path_for_continue = path.clone();
+            let on_continue: Rc<dyn Fn()> = Rc::new(move || {
+                // Drop the borrow_mut() guard before entering the Ok arm:
+                // the second borrow_mut() inside would panic with
+                // "RefCell already borrowed".
+                let load_result = ws_for_continue
+                    .borrow_mut()
+                    .load_from_file(&path_for_continue);
+                match load_result {
+                    Ok(()) => {
+                        let theme = crate::app::apply_preferred_theme();
+                        ws_for_continue
+                            .borrow_mut()
+                            .set_workspace_theme_id_clean(theme.to_id());
+                        sb_for_continue.borrow().set_message(&format!(
+                            "Opened: {}",
+                            path_for_continue.display()
+                        ));
+                    }
+                    Err(e) => {
+                        sb_for_continue
+                            .borrow()
+                            .set_message(&format!("Error: {}", e));
+                        return;
+                    }
+                }
+                update_dirty_ui(&ws_for_continue, &win_for_continue, &sa_for_continue);
+                update_status_bar_path(&ws_for_continue, &sb_for_continue);
+                dialog_for_continue.close();
+            });
+            confirm_discard_workspace_changes(&ws, &sb, &window, &save_action, on_continue);
+        }
+    });
+
+    for record in workspaces_rc.iter() {
         let row = gtk4::Box::new(gtk4::Orientation::Vertical, 4);
         row.set_margin_top(8);
         row.set_margin_bottom(8);
@@ -349,51 +413,25 @@ pub fn show_recent_dialog(
         open_btn.add_css_class("flat");
         open_btn.set_tooltip_text(Some("Open this workspace"));
 
-        if let Some(ref path) = record.config_path {
-            let path = std::path::PathBuf::from(path);
-            let ws_clone = ws.clone();
-            let sb_clone = sb.clone();
-            let win_clone = window.clone();
-            let sa_clone = save_action.clone();
-            let d = dialog.clone();
+        // Disable the button (and indirectly the row-activated path, via
+        // set_activatable(false)) when the backing file can't be opened.
+        let can_open = record
+            .config_path
+            .as_ref()
+            .map(|p| std::path::PathBuf::from(p).exists())
+            .unwrap_or(false);
 
-            if path.exists() {
-                open_btn.connect_clicked(move |_| {
-                    let ws2 = ws_clone.clone();
-                    let sb2 = sb_clone.clone();
-                    let win2 = win_clone.clone();
-                    let sa2 = sa_clone.clone();
-                    let d2 = d.clone();
-                    let path2 = path.clone();
-                    let on_continue: Rc<dyn Fn()> = Rc::new(move || {
-                        // Drop the borrow_mut() guard before entering the arm,
-                        // otherwise the second borrow_mut() inside Ok(()) would
-                        // panic with "RefCell already borrowed".
-                        let load_result = ws2.borrow_mut().load_from_file(&path2);
-                        match load_result {
-                            Ok(()) => {
-                                let theme = crate::app::apply_preferred_theme();
-                                ws2.borrow_mut()
-                                    .set_workspace_theme_id_clean(theme.to_id());
-                                sb2.borrow().set_message(&format!("Opened: {}", path2.display()));
-                            }
-                            Err(e) => {
-                                sb2.borrow().set_message(&format!("Error: {}", e));
-                                return;
-                            }
-                        }
-                        update_dirty_ui(&ws2, &win2, &sa2);
-                        update_status_bar_path(&ws2, &sb2);
-                        d2.close();
-                    });
-                    confirm_discard_workspace_changes(&ws_clone, &sb_clone, &win_clone, &sa_clone, on_continue);
-                });
-            } else {
-                open_btn.set_sensitive(false);
-                open_btn.set_tooltip_text(Some("File not found"));
-            }
+        if can_open {
+            let record = record.clone();
+            let open_record_for_btn = open_record.clone();
+            open_btn.connect_clicked(move |_| {
+                open_record_for_btn(&record);
+            });
         } else {
             open_btn.set_sensitive(false);
+            open_btn.set_tooltip_text(Some(
+                if record.config_path.is_some() { "File not found" } else { "No config file" },
+            ));
         }
 
         bottom_row.append(&open_btn);
@@ -401,7 +439,29 @@ pub fn show_recent_dialog(
 
         let list_row = gtk4::ListBoxRow::new();
         list_row.set_child(Some(&row));
+        // Entire row is a click target — matches the user's affordance
+        // expectation that the whole card is the open action, not just the
+        // icon. Unopenable records stay inert so a click on a missing-file
+        // row can't produce a confusing "loading" state.
+        list_row.set_activatable(can_open);
+        list_row.set_selectable(can_open);
+        if !can_open {
+            list_row.add_css_class("dim-label");
+        }
         list_box.append(&list_row);
+    }
+
+    // Dispatch row-activated (click anywhere in the row, or Enter on the
+    // selected row) to the shared open closure via the row's index.
+    {
+        let workspaces_for_activate = workspaces_rc.clone();
+        let open_record_for_activate = open_record.clone();
+        list_box.connect_row_activated(move |_lb, row| {
+            let idx = row.index() as usize;
+            if let Some(record) = workspaces_for_activate.get(idx) {
+                open_record_for_activate(record);
+            }
+        });
     }
 
     dialog.set_child(Some(&vbox));

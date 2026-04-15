@@ -3,7 +3,7 @@ use rusqlite::{params, OptionalExtension};
 
 use crate::Database;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct WorkspaceRecord {
     pub id: i64,
     pub name: String,
