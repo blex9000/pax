@@ -259,8 +259,12 @@ impl TerminalInner {
                         return;
                     };
                     *selection_anchor.borrow_mut() = Some(DragSelectionAnchor { point, x, y });
-                    state.term.selection = Some(simple_selection(point, point));
-                    drag_area.queue_draw();
+                    // Dismiss any existing selection and defer creating a new one
+                    // until drag_update — so a plain click doesn't leave a
+                    // single-cell highlight behind.
+                    if state.term.selection.take().is_some() {
+                        drag_area.queue_draw();
+                    }
                 });
             }
             {
