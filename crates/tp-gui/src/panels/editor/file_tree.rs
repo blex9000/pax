@@ -467,27 +467,52 @@ impl FileTree {
                             let be = backend.clone();
                             let refresh_tree = refresh_tree.clone();
                             let delete_cb = delete_cb.clone();
+                            let parent_window = parent_window.clone();
                             del_btn.connect_clicked(move |btn| {
-                                tracing::info!(
-                                    "editor.ft: delete_dir begin path={}",
-                                    p.display()
-                                );
-                                let del_result = be.delete_dir(&p);
-                                tracing::info!(
-                                    "editor.ft: delete_dir result ok={}",
-                                    del_result.is_ok()
-                                );
-                                if del_result.is_ok() {
-                                    if let Some(ref cb) = delete_cb {
-                                        cb(&p);
-                                    }
-                                    refresh_tree();
-                                    tracing::info!("editor.ft: delete_dir refresh_tree scheduled");
-                                }
                                 if let Some(pop) = btn.ancestor(gtk4::Popover::static_type()) {
                                     pop.downcast_ref::<gtk4::Popover>().unwrap().popdown();
                                 }
-                                tracing::info!("editor.ft: delete_dir popdown done");
+                                let p = p.clone();
+                                let be = be.clone();
+                                let refresh_tree = refresh_tree.clone();
+                                let delete_cb = delete_cb.clone();
+                                let parent_window = parent_window.clone();
+                                let name = p
+                                    .file_name()
+                                    .map(|n| n.to_string_lossy().to_string())
+                                    .unwrap_or_else(|| p.display().to_string());
+                                let message = format!(
+                                    "Delete folder \"{}\" and everything inside it?",
+                                    name
+                                );
+                                glib::idle_add_local_once(move || {
+                                    show_confirm_dialog(
+                                        parent_window.as_ref(),
+                                        "Delete Folder?",
+                                        &message,
+                                        "Delete",
+                                        Rc::new(move || {
+                                            tracing::info!(
+                                                "editor.ft: delete_dir begin path={}",
+                                                p.display()
+                                            );
+                                            let del_result = be.delete_dir(&p);
+                                            tracing::info!(
+                                                "editor.ft: delete_dir result ok={}",
+                                                del_result.is_ok()
+                                            );
+                                            if del_result.is_ok() {
+                                                if let Some(ref cb) = delete_cb {
+                                                    cb(&p);
+                                                }
+                                                refresh_tree();
+                                                tracing::info!(
+                                                    "editor.ft: delete_dir refresh_tree scheduled"
+                                                );
+                                            }
+                                        }),
+                                    );
+                                });
                             });
                         }
                         menu_box.append(&del_btn);
@@ -525,27 +550,49 @@ impl FileTree {
                             let be = backend.clone();
                             let refresh_tree = refresh_tree.clone();
                             let delete_cb = delete_cb.clone();
+                            let parent_window = parent_window.clone();
                             del_btn.connect_clicked(move |btn| {
-                                tracing::info!(
-                                    "editor.ft: delete_file begin path={}",
-                                    p.display()
-                                );
-                                let del_result = be.delete_file(&p);
-                                tracing::info!(
-                                    "editor.ft: delete_file result ok={}",
-                                    del_result.is_ok()
-                                );
-                                if del_result.is_ok() {
-                                    if let Some(ref cb) = delete_cb {
-                                        cb(&p);
-                                    }
-                                    refresh_tree();
-                                    tracing::info!("editor.ft: delete_file refresh_tree scheduled");
-                                }
                                 if let Some(pop) = btn.ancestor(gtk4::Popover::static_type()) {
                                     pop.downcast_ref::<gtk4::Popover>().unwrap().popdown();
                                 }
-                                tracing::info!("editor.ft: delete_file popdown done");
+                                let p = p.clone();
+                                let be = be.clone();
+                                let refresh_tree = refresh_tree.clone();
+                                let delete_cb = delete_cb.clone();
+                                let parent_window = parent_window.clone();
+                                let name = p
+                                    .file_name()
+                                    .map(|n| n.to_string_lossy().to_string())
+                                    .unwrap_or_else(|| p.display().to_string());
+                                let message = format!("Delete file \"{}\"?", name);
+                                glib::idle_add_local_once(move || {
+                                    show_confirm_dialog(
+                                        parent_window.as_ref(),
+                                        "Delete File?",
+                                        &message,
+                                        "Delete",
+                                        Rc::new(move || {
+                                            tracing::info!(
+                                                "editor.ft: delete_file begin path={}",
+                                                p.display()
+                                            );
+                                            let del_result = be.delete_file(&p);
+                                            tracing::info!(
+                                                "editor.ft: delete_file result ok={}",
+                                                del_result.is_ok()
+                                            );
+                                            if del_result.is_ok() {
+                                                if let Some(ref cb) = delete_cb {
+                                                    cb(&p);
+                                                }
+                                                refresh_tree();
+                                                tracing::info!(
+                                                    "editor.ft: delete_file refresh_tree scheduled"
+                                                );
+                                            }
+                                        }),
+                                    );
+                                });
                             });
                         }
                         menu_box.append(&del_btn);
@@ -1516,6 +1563,66 @@ fn show_name_input_dialog(
     dialog.present();
     entry.grab_focus();
     entry.set_position(-1);
+}
+
+/// Show a modal confirm dialog with a destructive primary action. Used for
+/// delete operations so a stray click on the menu item can't erase a file
+/// without a second intentional confirmation.
+fn show_confirm_dialog(
+    transient_parent: Option<&gtk4::Window>,
+    title: &str,
+    message: &str,
+    confirm_label: &str,
+    on_confirm: Rc<dyn Fn()>,
+) {
+    let dialog = gtk4::Window::builder()
+        .title(title)
+        .modal(true)
+        .default_width(360)
+        .default_height(120)
+        .build();
+    if let Some(win) = transient_parent {
+        dialog.set_transient_for(Some(win));
+    }
+    dialog.set_destroy_with_parent(true);
+    crate::theme::configure_dialog_window(&dialog);
+
+    let vbox = gtk4::Box::new(gtk4::Orientation::Vertical, 12);
+    vbox.set_margin_top(16);
+    vbox.set_margin_bottom(16);
+    vbox.set_margin_start(16);
+    vbox.set_margin_end(16);
+
+    let msg_label = gtk4::Label::new(Some(message));
+    msg_label.set_halign(gtk4::Align::Start);
+    msg_label.set_wrap(true);
+    msg_label.set_xalign(0.0);
+    vbox.append(&msg_label);
+
+    let button_row = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
+    button_row.set_halign(gtk4::Align::End);
+    let cancel_btn = gtk4::Button::with_label("Cancel");
+    let confirm_btn = gtk4::Button::with_label(confirm_label);
+    confirm_btn.add_css_class("destructive-action");
+    button_row.append(&cancel_btn);
+    button_row.append(&confirm_btn);
+    vbox.append(&button_row);
+    dialog.set_child(Some(&vbox));
+
+    {
+        let dialog = dialog.clone();
+        cancel_btn.connect_clicked(move |_| dialog.close());
+    }
+    {
+        let dialog = dialog.clone();
+        confirm_btn.connect_clicked(move |_| {
+            on_confirm();
+            dialog.close();
+        });
+    }
+
+    dialog.present();
+    cancel_btn.grab_focus();
 }
 
 #[cfg(test)]
