@@ -360,6 +360,32 @@ toolbarview.app-toolbar-view .top-bar > * { background-color: @window_bg_color; 
 headerbar.app-headerbar { background-color: @window_bg_color; color: @window_fg_color; border: none; min-height: 28px; padding-top: 0; padding-bottom: 0; }
 headerbar.app-headerbar windowhandle { min-height: 28px; }
 headerbar.app-headerbar box, headerbar.app-headerbar label, headerbar.app-headerbar image, headerbar.app-headerbar button, headerbar.app-headerbar menubutton > button { color: @window_fg_color; }
+/* Native GTK dialogs (ColorDialog / FileDialog / FontDialog) open their
+ * own top-level window with a libadwaita-default headerbar. Those don't
+ * carry .app-headerbar, so explicitly align them with Pax's compact chrome
+ * by matching any headerbar that isn't one we built ourselves. */
+window:not(.app-dialog) headerbar:not(.app-headerbar) {
+  background-color: @window_bg_color;
+  color: @window_fg_color;
+  border: none;
+  min-height: 28px;
+  padding-top: 0;
+  padding-bottom: 0;
+  box-shadow: none;
+}
+window:not(.app-dialog) headerbar:not(.app-headerbar) label,
+window:not(.app-dialog) headerbar:not(.app-headerbar) image {
+  color: @window_fg_color;
+}
+window:not(.app-dialog) headerbar:not(.app-headerbar) button {
+  color: @window_fg_color;
+  background-color: transparent;
+  box-shadow: none;
+  border: none;
+}
+window:not(.app-dialog) headerbar:not(.app-headerbar) button:hover {
+  background-color: @hover_bg;
+}
 box.panel-title-bar, box.panel-footer-bar, .status-bar, .markdown-toolbar { background-color: @window_bg_color; color: @window_fg_color; }
 button,
 menubutton > button,
