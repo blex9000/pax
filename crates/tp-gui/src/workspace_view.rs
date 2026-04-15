@@ -332,8 +332,14 @@ impl WorkspaceView {
 
         self.dirty = true;
 
-        // Rebuild layout so tab labels reflect the new name
-        self.rebuild_layout();
+        // Refresh tab labels (name + type icon) in place on the existing
+        // Notebook widgets. No layout structure changed here: the backend
+        // widget was already swapped in-place by host.set_backend above, and
+        // host title + size request were already updated. A full
+        // rebuild_layout here would just cause a visible flicker and reset
+        // every Notebook's current page to 0 (dropping the user's tab
+        // selection and keyboard focus).
+        self.refresh_tab_labels();
     }
 
     /// Execute before_close script for a panel.
