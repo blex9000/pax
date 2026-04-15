@@ -12,6 +12,14 @@ use super::task::run_blocking;
 pub type OnFileOpen = Rc<dyn Fn(&Path)>;
 /// Callback for context menu actions: (action, file_path)
 pub type OnContextAction = Rc<dyn Fn(&str, &Path)>;
+/// Callback after a successful file/dir rename on disk: `(old_path, new_path)`.
+/// Used by the editor tabs to update open tab labels and stored paths so a
+/// renamed file doesn't appear as a duplicate tab on the next click.
+pub type OnFileRenamed = Rc<dyn Fn(&Path, &Path)>;
+/// Callback after a successful file or directory deletion. The receiver
+/// decides whether to close tabs for the exact path (file delete) or all
+/// tabs under the prefix (directory delete).
+pub type OnPathDeleted = Rc<dyn Fn(&Path)>;
 
 /// File tree widget with gitignore-aware traversal and expand/collapse.
 pub struct FileTree {
@@ -26,6 +34,10 @@ pub struct FileTree {
     entries: Rc<RefCell<Vec<FileEntry>>>,
     #[allow(dead_code)]
     on_context_action: Option<OnContextAction>,
+    #[allow(dead_code)]
+    on_file_renamed: Option<OnFileRenamed>,
+    #[allow(dead_code)]
+    on_path_deleted: Option<OnPathDeleted>,
     #[allow(dead_code)]
     backend: Arc<dyn FileBackend>,
     request_seq: Rc<Cell<u64>>,
@@ -49,13 +61,15 @@ struct TreeSnapshot {
 
 impl FileTree {
     pub fn new(root_dir: &Path, on_file_open: OnFileOpen, backend: Arc<dyn FileBackend>) -> Self {
-        Self::new_with_context(root_dir, on_file_open, None, backend)
+        Self::new_with_context(root_dir, on_file_open, None, None, None, backend)
     }
 
     pub fn new_with_context(
         root_dir: &Path,
         on_file_open: OnFileOpen,
         on_context_action: Option<OnContextAction>,
+        on_file_renamed: Option<OnFileRenamed>,
+        on_path_deleted: Option<OnPathDeleted>,
         backend: Arc<dyn FileBackend>,
     ) -> Self {
         let container = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
@@ -155,6 +169,8 @@ impl FileTree {
             let request_seq_for_refresh = request_seq.clone();
             let root = root_dir.to_path_buf();
             let ctx_cb = on_context_action.clone();
+            let rename_cb = on_file_renamed.clone();
+            let delete_cb = on_path_deleted.clone();
             let backend = backend.clone();
             let on_open = on_file_open.clone();
             let gesture = gtk4::GestureClick::new();
@@ -384,6 +400,7 @@ impl FileTree {
                         let be = backend.clone();
                         let refresh_tree = refresh_tree.clone();
                         let parent_window = parent_window.clone();
+                        let rename_cb_for_btn = rename_cb.clone();
                         rename_btn.connect_clicked(move |btn| {
                             if let Some(pop) = btn.ancestor(gtk4::Popover::static_type()) {
                                 pop.downcast_ref::<gtk4::Popover>().unwrap().popdown();
@@ -398,6 +415,7 @@ impl FileTree {
                             let p = p.clone();
                             let be = be.clone();
                             let refresh_tree = refresh_tree.clone();
+                            let rename_cb = rename_cb_for_btn.clone();
                             glib::idle_add_local_once(move || {
                                 show_name_input_dialog(
                                     parent_window.as_ref(),
@@ -426,6 +444,9 @@ impl FileTree {
                                                 rename_result.is_ok()
                                             );
                                             if rename_result.is_ok() {
+                                                if let Some(ref cb) = rename_cb {
+                                                    cb(&p, &dest);
+                                                }
                                                 refresh_tree();
                                                 tracing::info!(
                                                     "editor.ft: rename refresh_tree scheduled"
@@ -445,6 +466,7 @@ impl FileTree {
                             let p = path.clone();
                             let be = backend.clone();
                             let refresh_tree = refresh_tree.clone();
+                            let delete_cb = delete_cb.clone();
                             del_btn.connect_clicked(move |btn| {
                                 tracing::info!(
                                     "editor.ft: delete_dir begin path={}",
@@ -456,6 +478,9 @@ impl FileTree {
                                     del_result.is_ok()
                                 );
                                 if del_result.is_ok() {
+                                    if let Some(ref cb) = delete_cb {
+                                        cb(&p);
+                                    }
                                     refresh_tree();
                                     tracing::info!("editor.ft: delete_dir refresh_tree scheduled");
                                 }
@@ -499,6 +524,7 @@ impl FileTree {
                             let p = path.clone();
                             let be = backend.clone();
                             let refresh_tree = refresh_tree.clone();
+                            let delete_cb = delete_cb.clone();
                             del_btn.connect_clicked(move |btn| {
                                 tracing::info!(
                                     "editor.ft: delete_file begin path={}",
@@ -510,6 +536,9 @@ impl FileTree {
                                     del_result.is_ok()
                                 );
                                 if del_result.is_ok() {
+                                    if let Some(ref cb) = delete_cb {
+                                        cb(&p);
+                                    }
                                     refresh_tree();
                                     tracing::info!("editor.ft: delete_file refresh_tree scheduled");
                                 }
@@ -589,6 +618,8 @@ impl FileTree {
             file_index,
             entries,
             on_context_action,
+            on_file_renamed,
+            on_path_deleted,
             backend,
             request_seq,
         };

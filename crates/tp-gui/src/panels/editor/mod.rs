@@ -68,12 +68,20 @@ pub struct EditorState {
 #[cfg(feature = "sourceview")]
 #[derive(Debug)]
 pub struct OpenFile {
+    /// Stable identifier for this tab, independent of `path` so that
+    /// long-lived closures (dirty-tracking, close button, external rename
+    /// propagation) keep matching the right tab after a rename.
+    pub tab_id: u64,
     pub path: PathBuf,
     pub buffer: sourceview5::Buffer,
     pub modified: bool,
     pub last_disk_mtime: u64,
     /// Original content for accurate dirty detection (content on disk at open/save time).
     pub saved_content: Rc<RefCell<String>>,
+    /// The label widget inside the tab bar that shows the file name. Kept as
+    /// a direct reference so rename propagation can update it in O(1) without
+    /// traversing the notebook's tab widget tree.
+    pub name_label: gtk4::Label,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -258,6 +266,10 @@ impl CodeEditorPanel {
         let root_for_ctx = PathBuf::from(root_dir);
         let glv_for_ctx = git_log_view.clone();
         let history_btn_for_ctx = history_btn.clone();
+        let state_for_rename = state.clone();
+        let tabs_for_rename = tabs_rc.clone();
+        let state_for_delete = state.clone();
+        let tabs_for_delete = tabs_rc.clone();
         let file_tree = Rc::new(file_tree::FileTree::new_with_context(
             &PathBuf::from(root_dir),
             Rc::new(move |path| {
@@ -269,6 +281,16 @@ impl CodeEditorPanel {
                     glv_for_ctx.filter_by_file(&rel.to_string_lossy());
                     history_btn_for_ctx.set_active(true); // switches sidebar to history
                 }
+            })),
+            Some(Rc::new(move |old_path, new_path| {
+                tabs_for_rename.rename_open_file(old_path, new_path, &state_for_rename);
+            })),
+            Some(Rc::new(move |deleted_path| {
+                // A deleted path might be either a file (exact tab match) or a
+                // directory (prefix match for any tab under it). Close both to
+                // keep stale tabs from lingering.
+                tabs_for_delete.close_tab_for_path(deleted_path, &state_for_delete);
+                tabs_for_delete.close_tabs_under_dir(deleted_path, &state_for_delete);
             })),
             backend.clone(),
         ));

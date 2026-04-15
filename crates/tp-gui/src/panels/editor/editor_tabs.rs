@@ -3,9 +3,18 @@ use sourceview5::prelude::*;
 use std::cell::RefCell;
 use std::path::Path;
 use std::rc::Rc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
 use super::EditorState;
+
+/// Monotonic counter producing a fresh `tab_id` per opened file. Stable IDs
+/// let long-lived per-tab closures survive a rename of the underlying path.
+static NEXT_TAB_ID: AtomicU64 = AtomicU64::new(1);
+
+fn alloc_tab_id() -> u64 {
+    NEXT_TAB_ID.fetch_add(1, Ordering::Relaxed)
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum TextClipboardAction {
@@ -703,16 +712,22 @@ impl EditorTabs {
         self.notebook.set_show_tabs(true);
         self.content_stack.set_visible_child_name("editor");
 
+        // Stable id for this tab — all long-lived closures key off it so that
+        // a path change (rename) doesn't orphan dirty tracking or close button.
+        let tab_id = alloc_tab_id();
+
         // Add to state
         let idx = {
             let mut st = state.borrow_mut();
             let saved_content = Rc::new(RefCell::new(content.clone()));
             st.open_files.push(super::OpenFile {
+                tab_id,
                 path: path.to_path_buf(),
                 buffer: buf.clone(),
                 modified: false,
                 last_disk_mtime: mtime,
                 saved_content: saved_content.clone(),
+                name_label: label.clone(),
             });
             st.active_tab = Some(st.open_files.len() - 1);
             st.open_files.len() - 1
@@ -723,7 +738,6 @@ impl EditorTabs {
             let state_c = state.clone();
             let dot_c = dot.clone();
             let mod_label = self.status_modified.clone();
-            let path_for_dirty = path.to_path_buf();
             // Compare buffer content against saved content for accurate dirty detection
             let saved_for_changed = state.borrow().open_files[idx].saved_content.clone();
             buf.connect_changed(move |buf| {
@@ -735,7 +749,7 @@ impl EditorTabs {
                 mod_label.set_text(if is_dirty { "\u{25CF} Modified" } else { "" });
                 if let Ok(mut st) = state_c.try_borrow_mut() {
                     if let Some(file_idx) =
-                        st.open_files.iter().position(|f| f.path == path_for_dirty)
+                        st.open_files.iter().position(|f| f.tab_id == tab_id)
                     {
                         st.open_files[file_idx].modified = is_dirty;
                     }
@@ -748,18 +762,16 @@ impl EditorTabs {
             let state_c = state.clone();
             let nb = self.notebook.clone();
             let cs = self.content_stack.clone();
-            let path_for_close = path.to_path_buf();
             let close_do_it = {
                 let state_c = state_c.clone();
                 let nb = nb.clone();
                 let cs = cs.clone();
-                let path_for_close = path_for_close.clone();
                 Rc::new(move || {
                     let (empty_after, new_idx);
                     {
                         let mut st = state_c.borrow_mut();
                         if let Some(idx) =
-                            st.open_files.iter().position(|f| f.path == path_for_close)
+                            st.open_files.iter().position(|f| f.tab_id == tab_id)
                         {
                             st.open_files.remove(idx);
                             empty_after = st.open_files.is_empty();
@@ -786,13 +798,14 @@ impl EditorTabs {
                 })
             };
             close_btn.connect_clicked(move |btn| {
-                let is_modified = {
+                let (is_modified, current_name) = {
                     let st = state_c.borrow();
-                    st.open_files
-                        .iter()
-                        .find(|f| f.path == path_for_close)
-                        .map(|f| f.modified)
-                        .unwrap_or(false)
+                    let entry = st.open_files.iter().find(|f| f.tab_id == tab_id);
+                    let modified = entry.map(|f| f.modified).unwrap_or(false);
+                    let name = entry
+                        .and_then(|f| f.path.file_name().map(|n| n.to_string_lossy().to_string()))
+                        .unwrap_or_else(|| "file".to_string());
+                    (modified, name)
                 };
                 if is_modified {
                     // Show save/discard dialog
@@ -811,12 +824,10 @@ impl EditorTabs {
                     vbox.set_margin_start(16);
                     vbox.set_margin_end(16);
 
-                    let file_name = path_for_close
-                        .file_name()
-                        .map(|n| n.to_string_lossy().to_string())
-                        .unwrap_or_else(|| "file".to_string());
-                    let msg =
-                        gtk4::Label::new(Some(&format!("\"{}\" has unsaved changes.", file_name)));
+                    let msg = gtk4::Label::new(Some(&format!(
+                        "\"{}\" has unsaved changes.",
+                        current_name
+                    )));
                     vbox.append(&msg);
 
                     let btn_row = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
@@ -842,11 +853,12 @@ impl EditorTabs {
                     {
                         let d = dialog.clone();
                         let sc = state_c.clone();
-                        let pfc = path_for_close.clone();
                         let close = close_do_it.clone();
                         discard_btn.connect_clicked(move |_| {
                             if let Ok(mut st) = sc.try_borrow_mut() {
-                                if let Some(f) = st.open_files.iter_mut().find(|f| f.path == pfc) {
+                                if let Some(f) =
+                                    st.open_files.iter_mut().find(|f| f.tab_id == tab_id)
+                                {
                                     f.modified = false;
                                 }
                             }
@@ -858,29 +870,28 @@ impl EditorTabs {
                     {
                         let d = dialog.clone();
                         let sc = state_c.clone();
-                        let pfc = path_for_close.clone();
                         let close = close_do_it.clone();
                         save_btn.connect_clicked(move |_| {
                             let save_result = {
                                 let st = sc.borrow();
                                 let backend = st.backend.clone();
-                                if let Some(f) = st.open_files.iter().find(|f| f.path == pfc) {
+                                if let Some(f) =
+                                    st.open_files.iter().find(|f| f.tab_id == tab_id)
+                                {
                                     let text = f
                                         .buffer
                                         .text(&f.buffer.start_iter(), &f.buffer.end_iter(), false)
                                         .to_string();
-                                    backend
-                                        .write_file(&f.path, &text)
-                                        .map(|_| (f.path.clone(), text))
+                                    backend.write_file(&f.path, &text).map(|_| text)
                                 } else {
                                     Err("File not found".to_string())
                                 }
                             };
                             match save_result {
-                                Ok((fpath, text)) => {
+                                Ok(text) => {
                                     if let Ok(mut st) = sc.try_borrow_mut() {
                                         if let Some(f) =
-                                            st.open_files.iter_mut().find(|f| f.path == fpath)
+                                            st.open_files.iter_mut().find(|f| f.tab_id == tab_id)
                                         {
                                             f.modified = false;
                                             f.last_disk_mtime = get_mtime(&f.path);
@@ -1350,6 +1361,88 @@ impl EditorTabs {
         } else {
             self.notebook.set_current_page(Some(new_idx as u32));
             self.switch_to_buffer(new_idx, state);
+        }
+    }
+
+    /// Propagate an on-disk rename to any tab currently showing `old_path`.
+    /// Updates the stored path, refreshes the tab label widget, and re-guesses
+    /// the sourceview language from the new filename so syntax highlighting
+    /// tracks the extension change.
+    pub fn rename_open_file(
+        &self,
+        old_path: &Path,
+        new_path: &Path,
+        state: &Rc<RefCell<EditorState>>,
+    ) {
+        let mut st = state.borrow_mut();
+        let Some(open_file) = st.open_files.iter_mut().find(|f| f.path == old_path) else {
+            return;
+        };
+        open_file.path = new_path.to_path_buf();
+        let new_name = new_path
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_default();
+        open_file.name_label.set_text(&new_name);
+
+        // Re-detect language against the new filename so the buffer switches
+        // schemes when, e.g., `foo` is renamed to `foo.rs`.
+        let lang_manager = sourceview5::LanguageManager::default();
+        let new_lang = lang_manager
+            .guess_language(Some(new_path), None::<&str>)
+            .or_else(|| fallback_language_for(&lang_manager, new_path));
+        open_file.buffer.set_language(new_lang.as_ref());
+        tracing::info!(
+            "editor.tabs: rename_open_file old={} new={}",
+            old_path.display(),
+            new_path.display()
+        );
+    }
+
+    /// Close any tab showing `path`. No-op if no tab is open for that path.
+    /// Does NOT prompt on unsaved changes — callers that want a prompt should
+    /// surface one before invoking this (used for file-deleted-on-disk flows
+    /// where the file is already gone and prompting would be pointless).
+    pub fn close_tab_for_path(&self, path: &Path, state: &Rc<RefCell<EditorState>>) {
+        let idx = state
+            .borrow()
+            .open_files
+            .iter()
+            .position(|f| f.path == path);
+        if let Some(idx) = idx {
+            tracing::info!(
+                "editor.tabs: close_tab_for_path idx={} path={}",
+                idx,
+                path.display()
+            );
+            self.remove_tab(idx, state);
+        }
+    }
+
+    /// Close every tab whose path lives under `dir` (inclusive). Used after a
+    /// directory is deleted so orphaned tabs don't linger pointing at paths
+    /// that no longer exist on disk. Iterates in reverse index so removals
+    /// don't shift unprocessed indices.
+    pub fn close_tabs_under_dir(&self, dir: &Path, state: &Rc<RefCell<EditorState>>) {
+        let indices: Vec<usize> = {
+            let st = state.borrow();
+            st.open_files
+                .iter()
+                .enumerate()
+                .filter(|(_, f)| f.path.starts_with(dir))
+                .map(|(i, _)| i)
+                .collect()
+        };
+        if indices.is_empty() {
+            return;
+        }
+        tracing::info!(
+            "editor.tabs: close_tabs_under_dir dir={} count={}",
+            dir.display(),
+            indices.len()
+        );
+        for idx in indices.into_iter().rev() {
+            self.remove_tab(idx, state);
         }
     }
 
