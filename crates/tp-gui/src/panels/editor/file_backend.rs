@@ -117,24 +117,28 @@ impl LocalFileBackend {
 
 impl FileBackend for LocalFileBackend {
     fn list_dir(&self, path: &Path) -> Result<Vec<DirEntry>, String> {
-        let entries = std::fs::read_dir(path).map_err(|e| e.to_string())?;
-        let mut raw_entries = Vec::new();
-        for entry in entries.flatten() {
+        // Collect all entries from the directory.
+        let fs_entries = std::fs::read_dir(path).map_err(|e| e.to_string())?;
+        let mut all_names: Vec<(String, bool)> = Vec::new();
+        for entry in fs_entries.flatten() {
             let name = entry.file_name().to_string_lossy().to_string();
             let is_dir = entry.file_type().map(|t| t.is_dir()).unwrap_or(false);
-            raw_entries.push((name, is_dir));
+            all_names.push((name, is_dir));
         }
-        let ignored = git_ignored_names_local(&self.root_dir, path, &raw_entries)?;
-        let mut result = Vec::new();
-        for (name, is_dir) in raw_entries {
+
+        // Use the `ignore` crate to determine which entries are gitignored
+        // (in-process, no subprocess spawn).
+        let non_ignored = git_non_ignored_names(&self.root_dir, path);
+
+        let mut result = Vec::with_capacity(all_names.len());
+        for (name, is_dir) in all_names {
             result.push(DirEntry {
-                is_ignored: ignored.contains(&name),
+                is_ignored: !non_ignored.contains(&name),
                 name,
                 is_dir,
             });
         }
         result.sort_by(|a, b| {
-            // Directories first, then alphabetical
             b.is_dir
                 .cmp(&a.is_dir)
                 .then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase()))
@@ -543,43 +547,27 @@ fn parse_ignored_names_from_git_output(output: &str) -> std::collections::HashSe
         .collect()
 }
 
-fn git_ignored_names_local(
-    root: &Path,
-    dir: &Path,
-    entries: &[(String, bool)],
-) -> Result<std::collections::HashSet<String>, String> {
-    let relative_paths: Vec<String> = entries
-        .iter()
-        .filter_map(|(name, _)| relative_git_path(root, dir, name))
-        .collect();
-    if relative_paths.is_empty() {
-        return Ok(std::collections::HashSet::new());
-    }
+/// Collect non-ignored file/dir names in `dir` using the `ignore` crate
+/// (in-process gitignore matching, no subprocess).
+fn git_non_ignored_names(_root: &Path, dir: &Path) -> std::collections::HashSet<String> {
+    let walker = ignore::WalkBuilder::new(dir)
+        .max_depth(Some(1))
+        .hidden(false)
+        .git_ignore(true)
+        .git_global(true)
+        .git_exclude(true)
+        .build();
 
-    use std::io::Write;
-    let mut cmd = std::process::Command::new("git");
-    cmd.args(["check-ignore", "--stdin", "-z"])
-        .current_dir(root)
-        .stdin(std::process::Stdio::piped())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::null());
-
-    let mut child = cmd.spawn().map_err(|e| e.to_string())?;
-    if let Some(stdin) = child.stdin.as_mut() {
-        for relative_path in &relative_paths {
-            stdin
-                .write_all(relative_path.as_bytes())
-                .and_then(|_| stdin.write_all(&[0]))
-                .map_err(|e| e.to_string())?;
+    let mut names = std::collections::HashSet::new();
+    for entry in walker.flatten() {
+        if entry.path() == dir {
+            continue;
+        }
+        if let Some(name) = entry.path().file_name() {
+            names.insert(name.to_string_lossy().to_string());
         }
     }
-    let output = child.wait_with_output().map_err(|e| e.to_string())?;
-    if output.status.code() == Some(128) {
-        return Ok(std::collections::HashSet::new());
-    }
-    Ok(parse_ignored_names_from_git_output(
-        &String::from_utf8_lossy(&output.stdout),
-    ))
+    names
 }
 
 fn git_ignored_names_remote(

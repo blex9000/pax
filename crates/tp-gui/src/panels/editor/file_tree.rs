@@ -124,12 +124,20 @@ impl FileTree {
                     depth = entry.depth;
                 }
                 if is_dir {
-                    // Save scroll position before rebuilding
                     let vadj = sw.vadjustment();
                     let scroll_pos = vadj.value();
+                    let count_before = entries_c.borrow().len();
                     toggle_dir(&entries_c, &fi, idx, depth, expanded, &path, &*be);
-                    populate_list_box(lb, &entries_c.borrow(), &root);
-                    // Restore scroll position after rebuild
+                    let entries = entries_c.borrow();
+                    let count_after = entries.len();
+                    if expanded {
+                        let removed = count_before - count_after;
+                        incremental_collapse(lb, &entries, &root, idx, removed);
+                    } else {
+                        let added = count_after - count_before;
+                        incremental_expand(lb, &entries, &root, idx, added);
+                    }
+                    drop(entries);
                     vadj.set_value(scroll_pos);
                 } else {
                     on_open(&path);
@@ -769,69 +777,127 @@ fn entry_icon_name(entry: &FileEntry) -> &'static str {
     }
 }
 
-/// Check if entry at `idx` has a following sibling at the same depth
-/// (i.e., there's a later entry at the same depth before we go back to a shallower depth).
-fn has_next_sibling(entries: &[FileEntry], idx: usize) -> bool {
-    let depth = entries[idx].depth;
-    for e in &entries[idx + 1..] {
-        if e.depth == depth {
-            return true;
+/// Pre-compute `is_last` (no next sibling) for every entry in O(n).
+fn precompute_is_last(entries: &[FileEntry]) -> Vec<bool> {
+    let n = entries.len();
+    let mut is_last = vec![true; n];
+    let max_depth = entries.iter().map(|e| e.depth as usize).max().unwrap_or(0);
+    let mut seen_at_depth = vec![false; max_depth + 2];
+
+    for i in (0..n).rev() {
+        let d = entries[i].depth as usize;
+        for level in (d + 1)..seen_at_depth.len() {
+            seen_at_depth[level] = false;
         }
-        if e.depth < depth {
-            return false;
-        }
+        is_last[i] = !seen_at_depth[d];
+        seen_at_depth[d] = true;
     }
-    false
+    is_last
 }
 
-/// Populate the ListBox from entries.
-fn populate_list_box(list_box: &gtk4::ListBox, entries: &[FileEntry], root: &Path) {
-    // Remove all existing rows
-    while let Some(child) = list_box.first_child() {
-        list_box.remove(&child);
-    }
+/// Pre-computed guide data for a single row.
+struct RowGuides {
+    guides: Vec<bool>,
+    is_last: bool,
+}
 
-    // For each entry, compute guide lines and is_last status.
-    // `active_guides[d]` = true means there's a continuation line at depth d
-    // (i.e., the parent at that depth still has more siblings below).
+/// Pre-compute guide arrays and is_last for all entries in O(n).
+fn precompute_all_guides(entries: &[FileEntry]) -> Vec<RowGuides> {
+    let is_last = precompute_is_last(entries);
+    let mut result = Vec::with_capacity(entries.len());
     let mut active_guides: Vec<bool> = Vec::new();
 
     for (i, entry) in entries.iter().enumerate() {
         let depth = entry.depth as usize;
-
-        // Ensure active_guides has enough levels
         active_guides.resize(depth, false);
         active_guides.truncate(depth);
 
-        let is_last = !has_next_sibling(entries, i);
-
-        // Guides for this row: for levels 0..depth-1, use the active state.
-        // The last level (depth-1) is drawn as the connector (├ or └), not as
-        // a continuation guide — so we pass active_guides[0..depth-1] and let
-        // build_row_widget draw the connector separately.
-        let guides: Vec<bool> = if depth > 0 {
+        let guides = if depth > 0 {
             active_guides[..depth - 1].to_vec()
         } else {
             vec![]
         };
 
-        let row_widget = build_row_widget(entry, root, &guides, is_last);
-        let list_row = gtk4::ListBoxRow::new();
-        list_row.add_css_class("editor-file-tree-row");
-        list_row.set_selectable(true);
-        list_row.set_activatable(true);
-        list_row.set_child(Some(&row_widget));
-        list_box.append(&list_row);
+        result.push(RowGuides { guides, is_last: is_last[i] });
 
-        // Update active_guides: if this entry has a next sibling at its depth,
-        // mark its depth level as active (for children to draw │).
         if depth > 0 {
-            // Set the parent guide for this depth
-            if active_guides.len() < depth {
-                active_guides.resize(depth, false);
-            }
-            active_guides[depth - 1] = !is_last;
+            active_guides.resize(depth, false);
+            active_guides[depth - 1] = !is_last[i];
         }
+    }
+    result
+}
+
+/// Build a ListBoxRow from an entry and its guide data.
+fn make_list_row(entry: &FileEntry, root: &Path, guide: &RowGuides) -> gtk4::ListBoxRow {
+    let row_widget = build_row_widget(entry, root, &guide.guides, guide.is_last);
+    let list_row = gtk4::ListBoxRow::new();
+    list_row.add_css_class("editor-file-tree-row");
+    list_row.set_selectable(true);
+    list_row.set_activatable(true);
+    list_row.set_child(Some(&row_widget));
+    list_row
+}
+
+/// Populate the ListBox from entries (full rebuild, used for initial load and refresh).
+fn populate_list_box(list_box: &gtk4::ListBox, entries: &[FileEntry], root: &Path) {
+    while let Some(child) = list_box.first_child() {
+        list_box.remove(&child);
+    }
+    let guide_data = precompute_all_guides(entries);
+    for (i, entry) in entries.iter().enumerate() {
+        list_box.append(&make_list_row(entry, root, &guide_data[i]));
+    }
+}
+
+/// Incremental expand: update toggled row and insert new child rows.
+fn incremental_expand(
+    list_box: &gtk4::ListBox,
+    entries: &[FileEntry],
+    root: &Path,
+    toggle_idx: usize,
+    added_count: usize,
+) {
+    let guide_data = precompute_all_guides(entries);
+
+    // Update the toggled row (folder icon → folder-open, + → −)
+    if let Some(row) = list_box.row_at_index(toggle_idx as i32) {
+        row.set_child(Some(&build_row_widget(
+            &entries[toggle_idx], root,
+            &guide_data[toggle_idx].guides, guide_data[toggle_idx].is_last,
+        )));
+    }
+
+    // Insert new child rows
+    for i in 0..added_count {
+        let entry_idx = toggle_idx + 1 + i;
+        let list_row = make_list_row(&entries[entry_idx], root, &guide_data[entry_idx]);
+        list_box.insert(&list_row, entry_idx as i32);
+    }
+}
+
+/// Incremental collapse: remove child rows and update toggled row.
+fn incremental_collapse(
+    list_box: &gtk4::ListBox,
+    entries: &[FileEntry],
+    root: &Path,
+    toggle_idx: usize,
+    removed_count: usize,
+) {
+    // Remove child rows (always remove at toggle_idx+1, rows shift up)
+    for _ in 0..removed_count {
+        if let Some(row) = list_box.row_at_index((toggle_idx + 1) as i32) {
+            list_box.remove(&row);
+        }
+    }
+
+    // Update the toggled row (folder-open → folder, − → +)
+    let guide_data = precompute_all_guides(entries);
+    if let Some(row) = list_box.row_at_index(toggle_idx as i32) {
+        row.set_child(Some(&build_row_widget(
+            &entries[toggle_idx], root,
+            &guide_data[toggle_idx].guides, guide_data[toggle_idx].is_last,
+        )));
     }
 }
 
