@@ -621,8 +621,14 @@ fn setup_notebook_menu_widget(notebook: &gtk4::Notebook, action_cb: Option<Panel
     notebook.set_tab_reorderable(&add_page_widget, false);
     notebook.set_tab_detachable(&add_page_widget, false);
     let add_page_meta = notebook.page(&add_page_widget);
-    add_page_meta.set_tab_expand(false);
-    add_page_meta.set_tab_fill(false);
+    // Let the "+" tab claim the leftover horizontal space in the tab bar and
+    // have its label widget fill that space. Without this, the tab label
+    // (add_wrap) shrinks to the literal "+" glyph and the padding around it
+    // is dead space where GTK's default tab-selection kicks in — clicking
+    // beside the plus would switch to the empty add-page instead of
+    // triggering the add-tab gesture.
+    add_page_meta.set_tab_expand(true);
+    add_page_meta.set_tab_fill(true);
 
     if notebook.has_css_class("pax-tab-edit-gesture") {
         return;
@@ -687,10 +693,15 @@ fn build_workspace_tab_add_label(
     add_label.add_css_class("workspace-tab-add-label");
     add_label.set_halign(gtk4::Align::Center);
     add_label.set_valign(gtk4::Align::Center);
+    add_label.set_hexpand(true);
+    // Full-width clickable wrapper. Together with `set_tab_fill(true)` on
+    // the notebook's add-page, this makes the entire leftover region of the
+    // tab bar act as the "new tab" hit target — not just the "+" glyph.
     let add_wrap = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
     add_wrap.add_css_class("workspace-tab-add-wrap");
-    add_wrap.set_halign(gtk4::Align::Center);
-    add_wrap.set_valign(gtk4::Align::Center);
+    add_wrap.set_halign(gtk4::Align::Fill);
+    add_wrap.set_valign(gtk4::Align::Fill);
+    add_wrap.set_hexpand(true);
     add_wrap.append(&add_label);
     let nb = notebook.clone();
     let cb = action_cb.clone();
