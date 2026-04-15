@@ -18,6 +18,7 @@ pub struct GitStatusView {
     list_container: gtk4::Box,
     commit_entry: gtk4::Entry,
     commit_btn: gtk4::Button,
+    unstage_all_btn: gtk4::Button,
     /// Tracks whether at least one file is currently staged. Drives Commit
     /// button sensitivity together with the message field.
     has_staged: Rc<Cell<bool>>,
@@ -79,6 +80,13 @@ impl GitStatusView {
         stage_all_btn.set_tooltip_text(Some("Stage all changes — equivalent to `git add -A`"));
         action_row.append(&stage_all_btn);
 
+        // Hidden until at least one file is staged; toggled in `update()`.
+        let unstage_all_btn = gtk4::Button::with_label("Unstage All");
+        unstage_all_btn
+            .set_tooltip_text(Some("Unstage every staged file — equivalent to `git reset`"));
+        unstage_all_btn.set_visible(false);
+        action_row.append(&unstage_all_btn);
+
         let commit_btn = gtk4::Button::with_label("Commit");
         commit_btn.add_css_class("suggested-action");
         commit_btn.set_sensitive(false);
@@ -117,6 +125,23 @@ impl GitStatusView {
             });
         }
 
+        // Unstage All action: `git reset` (no args unstages everything) then refresh
+        {
+            let be = backend.clone();
+            let action_cb = on_git_action.clone();
+            unstage_all_btn.connect_clicked(move |_| {
+                match be.git_command(&["reset"]) {
+                    Ok(_) => {
+                        tracing::info!("Unstaged all changes");
+                        action_cb();
+                    }
+                    Err(e) => {
+                        tracing::warn!("git reset failed: {}", e);
+                    }
+                }
+            });
+        }
+
         // Commit action
         {
             let be = backend.clone();
@@ -145,6 +170,7 @@ impl GitStatusView {
             list_container,
             commit_entry,
             commit_btn,
+            unstage_all_btn,
             has_staged,
             root_dir: root_dir.to_path_buf(),
             on_diff_open,
@@ -165,10 +191,13 @@ impl GitStatusView {
         let entries = parse_porcelain(porcelain_output, &self.root_dir);
 
         // Refresh Commit sensitivity: needs both a message AND a staged file.
+        // Unstage All is only meaningful when something is staged, so we hide
+        // it entirely otherwise to keep the action row uncluttered.
         let any_staged = entries.iter().any(|e| e.staged);
         self.has_staged.set(any_staged);
         self.commit_btn
             .set_sensitive(any_staged && !self.commit_entry.text().is_empty());
+        self.unstage_all_btn.set_visible(any_staged);
 
         if entries.is_empty() {
             let label = gtk4::Label::new(Some("No changes"));
