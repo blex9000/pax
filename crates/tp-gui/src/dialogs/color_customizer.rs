@@ -184,29 +184,26 @@ pub fn show_color_customizer_dialog(parent: &impl IsA<gtk4::Window>) {
             let swatch_for_click = swatch.clone();
             let dialog_ref = dialog.clone();
             let vlabel = value_label.clone();
+            let token_label = token.label;
             btn.connect_clicked(move |_| {
-                let color_dialog = gtk4::ColorDialog::new();
-                color_dialog.set_with_alpha(true);
                 let rgba_now = *current_for_click.borrow();
                 let overrides_c = overrides_ref.clone();
                 let token_c = token_name.clone();
                 let current_c = current_for_click.clone();
                 let swatch_c = swatch_for_click.clone();
                 let vlabel_c = vlabel.clone();
-                color_dialog.choose_rgba(
-                    Some(&dialog_ref),
-                    Some(&rgba_now),
-                    gtk4::gio::Cancellable::NONE,
-                    move |result| {
-                        if let Ok(rgba) = result {
-                            *current_c.borrow_mut() = rgba;
-                            swatch_c.queue_draw();
-                            let css_val = rgba_to_css(&rgba);
-                            vlabel_c.set_text(&css_val);
-                            overrides_c.borrow_mut().insert(token_c.clone(), css_val);
-                            crate::app::apply_theme_with_overrides(theme_copy, &overrides_c.borrow());
-                        }
-                    },
+                show_pax_color_dialog(
+                    &dialog_ref,
+                    &format!("Pick a Color — {}", token_label),
+                    rgba_now,
+                    Rc::new(move |rgba| {
+                        *current_c.borrow_mut() = rgba;
+                        swatch_c.queue_draw();
+                        let css_val = rgba_to_css(&rgba);
+                        vlabel_c.set_text(&css_val);
+                        overrides_c.borrow_mut().insert(token_c.clone(), css_val);
+                        crate::app::apply_theme_with_overrides(theme_copy, &overrides_c.borrow());
+                    }),
                 );
             });
 
@@ -319,4 +316,91 @@ fn clear_custom_colors() {
         return;
     };
     let _ = db.set_app_preference("custom-theme-colors", "");
+}
+
+/// Pax-styled color picker. GTK's native ColorDialog opens a window with a
+/// libadwaita-default header bar that ignores our custom chrome, so we
+/// embed `ColorChooserWidget` inside a window built with
+/// `configure_dialog_window` and supply our own Cancel/Select buttons.
+/// `on_picked` fires with the chosen RGBA when the user clicks Select (or
+/// double-clicks / Enter-activates a palette entry).
+fn show_pax_color_dialog(
+    parent: &gtk4::Window,
+    title: &str,
+    initial: gtk4::gdk::RGBA,
+    on_picked: Rc<dyn Fn(gtk4::gdk::RGBA)>,
+) {
+    let dialog = gtk4::Window::builder()
+        .title(title)
+        .transient_for(parent)
+        .modal(true)
+        .default_width(560)
+        .default_height(520)
+        .build();
+    dialog.set_destroy_with_parent(true);
+    crate::theme::configure_dialog_window(&dialog);
+
+    let vbox = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
+
+    // ColorChooserWidget is the internal widget of the deprecated
+    // GtkColorChooserDialog — still the simplest way to expose GTK's full
+    // color picker (swatches + custom RGBA + hex entry) without shipping a
+    // from-scratch color picker. The deprecation is silenced because the
+    // new ColorDialog API (which replaces it) doesn't expose a standalone
+    // widget we can embed in our own styled window.
+    #[allow(deprecated)]
+    let chooser = gtk4::ColorChooserWidget::new();
+    #[allow(deprecated)]
+    chooser.set_use_alpha(true);
+    #[allow(deprecated)]
+    chooser.set_rgba(&initial);
+    chooser.set_hexpand(true);
+    chooser.set_vexpand(true);
+    chooser.set_margin_top(12);
+    chooser.set_margin_start(16);
+    chooser.set_margin_end(16);
+    vbox.append(&chooser);
+
+    let btn_row = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
+    btn_row.set_halign(gtk4::Align::End);
+    btn_row.set_margin_top(12);
+    btn_row.set_margin_bottom(12);
+    btn_row.set_margin_end(16);
+
+    let cancel_btn = gtk4::Button::with_label("Cancel");
+    let select_btn = gtk4::Button::with_label("Select");
+    select_btn.add_css_class("suggested-action");
+    btn_row.append(&cancel_btn);
+    btn_row.append(&select_btn);
+    vbox.append(&btn_row);
+
+    dialog.set_child(Some(&vbox));
+
+    {
+        let d = dialog.clone();
+        cancel_btn.connect_clicked(move |_| d.close());
+    }
+    {
+        let d = dialog.clone();
+        let chooser_c = chooser.clone();
+        let cb = on_picked.clone();
+        select_btn.connect_clicked(move |_| {
+            #[allow(deprecated)]
+            let rgba = chooser_c.rgba();
+            cb(rgba);
+            d.close();
+        });
+    }
+    // Double-click / Enter on a palette swatch acts like Select → close.
+    #[allow(deprecated)]
+    {
+        let d = dialog.clone();
+        let cb = on_picked.clone();
+        chooser.connect_color_activated(move |_, rgba| {
+            cb(*rgba);
+            d.close();
+        });
+    }
+
+    dialog.present();
 }
