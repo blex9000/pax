@@ -33,7 +33,7 @@ fn text_clipboard_action(
     key: gtk4::gdk::Key,
     modifiers: gtk4::gdk::ModifierType,
 ) -> Option<TextClipboardAction> {
-    if !modifiers.contains(gtk4::gdk::ModifierType::CONTROL_MASK) {
+    if !crate::shortcuts::has_primary(modifiers) {
         return None;
     }
 
@@ -49,10 +49,10 @@ fn text_history_action(
     key: gtk4::gdk::Key,
     modifiers: gtk4::gdk::ModifierType,
 ) -> Option<TextHistoryAction> {
-    let ctrl = modifiers.contains(gtk4::gdk::ModifierType::CONTROL_MASK);
+    let primary = crate::shortcuts::has_primary(modifiers);
     let shift = modifiers.contains(gtk4::gdk::ModifierType::SHIFT_MASK);
 
-    if !ctrl {
+    if !primary {
         return None;
     }
 
@@ -1211,9 +1211,7 @@ impl EditorTabs {
             let be = backend.clone();
             let key_ctrl = gtk4::EventControllerKey::new();
             key_ctrl.connect_key_pressed(move |_, key, _, modifier| {
-                if modifier.contains(gtk4::gdk::ModifierType::CONTROL_MASK)
-                    && key == gtk4::gdk::Key::s
-                {
+                if crate::shortcuts::has_primary(modifier) && key == gtk4::gdk::Key::s {
                     let text = nb.text(&nb.start_iter(), &nb.end_iter(), false).to_string();
                     let _ = be.write_file(&fp, &text);
                     tracing::info!("Diff: saved working copy");
@@ -2159,16 +2157,17 @@ mod tests {
 
     #[test]
     fn recognizes_text_clipboard_shortcuts() {
+        let primary = crate::shortcuts::PRIMARY_MODIFIER;
         assert_eq!(
-            text_clipboard_action(gtk4::gdk::Key::c, gtk4::gdk::ModifierType::CONTROL_MASK,),
+            text_clipboard_action(gtk4::gdk::Key::c, primary),
             Some(TextClipboardAction::Copy)
         );
         assert_eq!(
-            text_clipboard_action(gtk4::gdk::Key::X, gtk4::gdk::ModifierType::CONTROL_MASK,),
+            text_clipboard_action(gtk4::gdk::Key::X, primary),
             Some(TextClipboardAction::Cut)
         );
         assert_eq!(
-            text_clipboard_action(gtk4::gdk::Key::v, gtk4::gdk::ModifierType::CONTROL_MASK,),
+            text_clipboard_action(gtk4::gdk::Key::v, primary),
             Some(TextClipboardAction::Paste)
         );
         assert_eq!(
@@ -2179,18 +2178,19 @@ mod tests {
 
     #[test]
     fn recognizes_text_history_shortcuts() {
+        let primary = crate::shortcuts::PRIMARY_MODIFIER;
         assert_eq!(
-            text_history_action(gtk4::gdk::Key::z, gtk4::gdk::ModifierType::CONTROL_MASK),
+            text_history_action(gtk4::gdk::Key::z, primary),
             Some(TextHistoryAction::Undo)
         );
         assert_eq!(
-            text_history_action(gtk4::gdk::Key::y, gtk4::gdk::ModifierType::CONTROL_MASK),
+            text_history_action(gtk4::gdk::Key::y, primary),
             Some(TextHistoryAction::Redo)
         );
         assert_eq!(
             text_history_action(
                 gtk4::gdk::Key::Z,
-                gtk4::gdk::ModifierType::CONTROL_MASK | gtk4::gdk::ModifierType::SHIFT_MASK,
+                primary | gtk4::gdk::ModifierType::SHIFT_MASK,
             ),
             Some(TextHistoryAction::Redo)
         );

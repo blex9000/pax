@@ -1249,7 +1249,7 @@ fn setup_workspace_ui(
         let win = window_rc.clone();
         let sa = save_action.clone();
         controller.connect_key_pressed(move |_ctrl, key, _code, modifiers| {
-            let ctrl = modifiers.contains(gdk::ModifierType::CONTROL_MASK);
+            let ctrl = crate::shortcuts::has_primary(modifiers);
             let shift = modifiers.contains(gdk::ModifierType::SHIFT_MASK);
 
             if ctrl && shift {

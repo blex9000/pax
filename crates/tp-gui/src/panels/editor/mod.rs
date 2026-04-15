@@ -543,7 +543,7 @@ impl CodeEditorPanel {
             let save_git_changed = on_git_changed.clone();
             let sidebar_open_btn_ref = sidebar_open_btn.clone();
             key_ctrl.connect_key_pressed(move |_, key, _, modifier| {
-                if modifier.contains(gtk4::gdk::ModifierType::CONTROL_MASK) {
+                if crate::shortcuts::has_primary(modifier) {
                     match key {
                         gtk4::gdk::Key::s => {
                             let root = state_c.borrow().root_dir.clone();

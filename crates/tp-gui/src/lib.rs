@@ -8,6 +8,7 @@ mod icons;
 pub mod layout_ops;
 pub mod panel_host;
 pub mod panels;
+pub mod shortcuts;
 pub mod theme;
 pub mod widget_builder;
 pub mod widgets;

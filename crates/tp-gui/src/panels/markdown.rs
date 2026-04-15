@@ -24,9 +24,9 @@ fn text_history_action(
     key: gtk4::gdk::Key,
     modifiers: gtk4::gdk::ModifierType,
 ) -> Option<TextHistoryAction> {
-    let ctrl = modifiers.contains(gtk4::gdk::ModifierType::CONTROL_MASK);
+    let primary = crate::shortcuts::has_primary(modifiers);
     let shift = modifiers.contains(gtk4::gdk::ModifierType::SHIFT_MASK);
-    if !ctrl {
+    if !primary {
         return None;
     }
 
@@ -424,9 +424,7 @@ impl MarkdownPanel {
                 let key_ctrl = gtk4::EventControllerKey::new();
                 key_ctrl.set_propagation_phase(gtk4::PropagationPhase::Capture);
                 key_ctrl.connect_key_pressed(move |_, key, _, modifiers| {
-                    if modifiers.contains(gtk4::gdk::ModifierType::CONTROL_MASK)
-                        && key == gtk4::gdk::Key::s
-                    {
+                    if crate::shortcuts::has_primary(modifiers) && key == gtk4::gdk::Key::s {
                         save_current();
                         return gtk4::glib::Propagation::Stop;
                     }
