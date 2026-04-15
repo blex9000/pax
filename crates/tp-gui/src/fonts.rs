@@ -29,6 +29,11 @@ fn font_search_paths() -> Vec<PathBuf> {
         if let Some(flat) = exe.parent().and_then(|p| p.parent()).map(|p| p.join("resources/fonts")) {
             paths.push(flat);
         }
+        // AppImage / Linux FHS-style install: <dir>/../share/fonts/pax
+        // (bundled by scripts/build-appimage.sh into $APPDIR/usr/share/fonts/pax)
+        if let Some(fhs) = exe.parent().and_then(|p| p.parent()).map(|p| p.join("share/fonts/pax")) {
+            paths.push(fhs);
+        }
     }
 
     paths

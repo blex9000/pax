@@ -34,6 +34,15 @@ cp "$ROOT_DIR/resources/icons/code-symbolic.svg" "$APPDIR/usr/resources/icons/co
 # Icons — hicolor theme (for GTK icon theme + desktop integration)
 cp "$ROOT_DIR/resources/icons/pax.svg" "$APPDIR/usr/share/icons/hicolor/scalable/apps/pax.svg"
 
+# Bundled fonts — JetBrains Mono (used by terminal + editor, matches local dev build)
+# Location <APPDIR>/usr/share/fonts/pax/ is resolved at runtime relative to the
+# binary by fonts::register_bundled_fonts().
+if [ -d "$ROOT_DIR/resources/fonts" ]; then
+    echo "    Bundling Pax fonts..."
+    mkdir -p "$APPDIR/usr/share/fonts/pax"
+    cp "$ROOT_DIR"/resources/fonts/*.ttf "$APPDIR/usr/share/fonts/pax/" 2>/dev/null || true
+fi
+
 # GtkSourceView5 styles + language specs (not bundled by linuxdeploy-plugin-gtk)
 if [ -d "/usr/share/gtksourceview-5" ]; then
     echo "    Bundling GtkSourceView5 data..."
