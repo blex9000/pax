@@ -261,9 +261,23 @@ impl FileTree {
                                     else {
                                         return;
                                     };
-                                    if be.write_file(&dest, "").is_ok() {
+                                    tracing::info!(
+                                        "editor.ft: create_file begin path={}",
+                                        dest.display()
+                                    );
+                                    let write_result = be.write_file(&dest, "");
+                                    tracing::info!(
+                                        "editor.ft: create_file write result ok={}",
+                                        write_result.is_ok()
+                                    );
+                                    if write_result.is_ok() {
                                         refresh_tree();
+                                        tracing::info!("editor.ft: create_file refresh_tree scheduled");
                                         on_open(&dest);
+                                        tracing::info!(
+                                            "editor.ft: create_file on_open done path={}",
+                                            dest.display()
+                                        );
                                     }
                                 }),
                             );
@@ -298,8 +312,18 @@ impl FileTree {
                                     else {
                                         return;
                                     };
-                                    if be.create_dir(&dest).is_ok() {
+                                    tracing::info!(
+                                        "editor.ft: create_dir begin path={}",
+                                        dest.display()
+                                    );
+                                    let mkdir_result = be.create_dir(&dest);
+                                    tracing::info!(
+                                        "editor.ft: create_dir result ok={}",
+                                        mkdir_result.is_ok()
+                                    );
+                                    if mkdir_result.is_ok() {
                                         refresh_tree();
+                                        tracing::info!("editor.ft: create_dir refresh_tree scheduled");
                                     }
                                 }),
                             );
@@ -391,8 +415,21 @@ impl FileTree {
                                         if let Some(dest) =
                                             rename_destination_for_path(&p, &new_name)
                                         {
-                                            if be.rename_file(&p, &dest).is_ok() {
+                                            tracing::info!(
+                                                "editor.ft: rename begin from={} to={}",
+                                                p.display(),
+                                                dest.display()
+                                            );
+                                            let rename_result = be.rename_file(&p, &dest);
+                                            tracing::info!(
+                                                "editor.ft: rename result ok={}",
+                                                rename_result.is_ok()
+                                            );
+                                            if rename_result.is_ok() {
                                                 refresh_tree();
+                                                tracing::info!(
+                                                    "editor.ft: rename refresh_tree scheduled"
+                                                );
                                             }
                                         }
                                     }),
@@ -409,12 +446,23 @@ impl FileTree {
                             let be = backend.clone();
                             let refresh_tree = refresh_tree.clone();
                             del_btn.connect_clicked(move |btn| {
-                                if be.delete_dir(&p).is_ok() {
+                                tracing::info!(
+                                    "editor.ft: delete_dir begin path={}",
+                                    p.display()
+                                );
+                                let del_result = be.delete_dir(&p);
+                                tracing::info!(
+                                    "editor.ft: delete_dir result ok={}",
+                                    del_result.is_ok()
+                                );
+                                if del_result.is_ok() {
                                     refresh_tree();
+                                    tracing::info!("editor.ft: delete_dir refresh_tree scheduled");
                                 }
                                 if let Some(pop) = btn.ancestor(gtk4::Popover::static_type()) {
                                     pop.downcast_ref::<gtk4::Popover>().unwrap().popdown();
                                 }
+                                tracing::info!("editor.ft: delete_dir popdown done");
                             });
                         }
                         menu_box.append(&del_btn);
@@ -452,12 +500,23 @@ impl FileTree {
                             let be = backend.clone();
                             let refresh_tree = refresh_tree.clone();
                             del_btn.connect_clicked(move |btn| {
-                                if be.delete_file(&p).is_ok() {
+                                tracing::info!(
+                                    "editor.ft: delete_file begin path={}",
+                                    p.display()
+                                );
+                                let del_result = be.delete_file(&p);
+                                tracing::info!(
+                                    "editor.ft: delete_file result ok={}",
+                                    del_result.is_ok()
+                                );
+                                if del_result.is_ok() {
                                     refresh_tree();
+                                    tracing::info!("editor.ft: delete_file refresh_tree scheduled");
                                 }
                                 if let Some(pop) = btn.ancestor(gtk4::Popover::static_type()) {
                                     pop.downcast_ref::<gtk4::Popover>().unwrap().popdown();
                                 }
+                                tracing::info!("editor.ft: delete_file popdown done");
                             });
                         }
                         menu_box.append(&del_btn);
@@ -963,6 +1022,12 @@ fn request_tree_reload(
     let request_id = request_seq.get().wrapping_add(1);
     request_seq.set(request_id);
     populate_message(list_box, loading_message);
+    tracing::info!(
+        "editor.ft: request_tree_reload req={} root={} expanded_dirs={}",
+        request_id,
+        root.display(),
+        expanded_dirs.len()
+    );
 
     let root_c = root.to_path_buf();
     let build_root = root_c.clone();
@@ -984,27 +1049,48 @@ fn request_tree_reload(
 
     run_blocking(
         move || {
-            build_tree_snapshot(
+            tracing::info!("editor.ft: build_tree_snapshot thread begin req={}", request_id);
+            let result = build_tree_snapshot(
                 &build_root,
                 &expanded_dirs,
                 &*backend_for_task,
                 expand_root_dirs,
-            )
+            );
+            tracing::info!(
+                "editor.ft: build_tree_snapshot thread end req={} ok={}",
+                request_id,
+                result.is_ok()
+            );
+            result
         },
         move |result| {
             if request_seq_c.get() != request_id {
+                tracing::info!(
+                    "editor.ft: request_tree_reload req={} superseded",
+                    request_id
+                );
                 return;
             }
 
             match result {
                 Ok(snapshot) if snapshot.entries.is_empty() => {
                     populate_message(&list_box_c, empty_message);
+                    tracing::info!(
+                        "editor.ft: request_tree_reload req={} done (empty)",
+                        request_id
+                    );
                 }
                 Ok(snapshot) => {
+                    let n = snapshot.entries.len();
                     *entries_c.borrow_mut() = snapshot.entries;
                     *file_index_c.borrow_mut() = snapshot.file_index;
                     populate_list_box(&list_box_c, &entries_c.borrow(), &root_c);
                     scroll_c.vadjustment().set_value(scroll_pos);
+                    tracing::info!(
+                        "editor.ft: request_tree_reload req={} done entries={}",
+                        request_id,
+                        n
+                    );
                 }
                 Err(_) if backend.is_remote() => {
                     populate_message(&list_box_c, "SSH not connected — retrying...");

@@ -177,13 +177,27 @@ fn start_tree_watcher(
         let last_hash_c = last_hash.clone();
         let on_changed_c = on_changed.clone();
         let in_flight_c = in_flight.clone();
+        let root_for_trace = root.clone();
         run_blocking(
-            move || dir_hash(&root, is_remote),
+            move || {
+                tracing::debug!(
+                    "editor.watcher: tree dir_hash begin root={}",
+                    root_for_trace.display()
+                );
+                let h = dir_hash(&root, is_remote);
+                tracing::debug!(
+                    "editor.watcher: tree dir_hash end root={} hash={:x}",
+                    root_for_trace.display(),
+                    h
+                );
+                h
+            },
             move |hash| {
                 in_flight_c.set(false);
                 let previous = *last_hash_c.borrow();
                 *last_hash_c.borrow_mut() = Some(hash);
                 if previous.is_some() && previous != Some(hash) {
+                    tracing::info!("editor.watcher: tree changed → refresh");
                     on_changed_c();
                 }
             },
