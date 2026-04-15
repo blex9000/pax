@@ -47,8 +47,17 @@ use backend::TerminalInner;
 
 // ── Shared terminal font configuration ──────────────────────────────────────
 
-/// Default terminal font family (matches `.editor-code-view` CSS).
-const DEFAULT_TERMINAL_FONT: &str = "JetBrains Mono";
+/// Default terminal font family list. Pango's
+/// `FontDescription::set_family` accepts a comma-separated list and resolves
+/// families left-to-right, just like CSS `font-family`. The list below is
+/// kept identical to the `.editor-code-view` CSS rule so the terminal and
+/// the editor always agree on which concrete font is used — in particular
+/// on macOS, where "JetBrains Mono" may not resolve through Pango's font
+/// map even when CoreText has it, and the editor's CSS and the terminal's
+/// standalone Pango lookup would otherwise fall back to different system
+/// monospaces (SF Mono vs Menlo).
+const DEFAULT_TERMINAL_FONT: &str =
+    "JetBrains Mono, SF Mono, Cascadia Code, IBM Plex Mono, Fira Code, monospace";
 
 /// Default terminal font size in pixels. Matches `font-size: 11px` on
 /// `.editor-code-view` so the terminal and the editor render at the same
@@ -72,11 +81,12 @@ pub(crate) const TERMINAL_PADDING_PX: i32 = 6;
 
 /// Pango `FontDescription` for the terminal.
 ///
-/// When a `PAX_TERMINAL_FONT` env var is set, its value is passed verbatim to
-/// `FontDescription::from_string` (user-supplied overrides keep whatever size
-/// unit the user wrote). With no override, we anchor the size to pixels so
-/// the terminal always renders at the same physical size as the editor —
-/// see the `DEFAULT_TERMINAL_FONT_PX` comment.
+/// When `PAX_TERMINAL_FONT` is set, its value is passed verbatim to
+/// `FontDescription::from_string` so user overrides keep their exact spec.
+/// The built-in default sets the family list via `set_family` (which accepts
+/// a comma-separated list and resolves it left-to-right, same as CSS
+/// font-family) and uses an absolute pixel size so the terminal matches the
+/// editor at any DPI — see `DEFAULT_TERMINAL_FONT_PX`.
 pub(crate) fn terminal_font_description() -> gtk4::pango::FontDescription {
     use gtk4::pango;
     if let Ok(user_spec) = std::env::var("PAX_TERMINAL_FONT") {
@@ -85,7 +95,8 @@ pub(crate) fn terminal_font_description() -> gtk4::pango::FontDescription {
             return pango::FontDescription::from_string(trimmed);
         }
     }
-    let mut desc = pango::FontDescription::from_string(DEFAULT_TERMINAL_FONT);
+    let mut desc = pango::FontDescription::new();
+    desc.set_family(DEFAULT_TERMINAL_FONT);
     desc.set_absolute_size(DEFAULT_TERMINAL_FONT_PX * pango::SCALE as f64);
     desc
 }
