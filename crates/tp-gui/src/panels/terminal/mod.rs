@@ -47,9 +47,16 @@ use backend::TerminalInner;
 
 // ── Shared terminal font configuration ──────────────────────────────────────
 
-/// Default terminal font (matches `.editor-code-view` CSS).
-/// 8.25pt ≈ 11px at standard 96 DPI (11 × 72/96 = 8.25).
-const DEFAULT_TERMINAL_FONT: &str = "JetBrains Mono 8.25";
+/// Default terminal font family (matches `.editor-code-view` CSS).
+const DEFAULT_TERMINAL_FONT: &str = "JetBrains Mono";
+
+/// Default terminal font size in pixels. Matches `font-size: 11px` on
+/// `.editor-code-view` so the terminal and the editor render at the same
+/// physical size regardless of the platform's default DPI (macOS defaults to
+/// 72 DPI while Linux defaults to 96 DPI, which would make a points-based
+/// Pango spec like `"JetBrains Mono 8.25"` render visibly smaller on macOS
+/// than the CSS-based editor font).
+const DEFAULT_TERMINAL_FONT_PX: f64 = 11.0;
 
 /// Padding (in pixels) between the terminal content and the widget edges.
 ///
@@ -64,13 +71,23 @@ const DEFAULT_TERMINAL_FONT: &str = "JetBrains Mono 8.25";
 pub(crate) const TERMINAL_PADDING_PX: i32 = 6;
 
 /// Pango `FontDescription` for the terminal.
+///
+/// When a `PAX_TERMINAL_FONT` env var is set, its value is passed verbatim to
+/// `FontDescription::from_string` (user-supplied overrides keep whatever size
+/// unit the user wrote). With no override, we anchor the size to pixels so
+/// the terminal always renders at the same physical size as the editor —
+/// see the `DEFAULT_TERMINAL_FONT_PX` comment.
 pub(crate) fn terminal_font_description() -> gtk4::pango::FontDescription {
-    let spec = std::env::var("PAX_TERMINAL_FONT")
-        .ok()
-        .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty())
-        .unwrap_or_else(|| DEFAULT_TERMINAL_FONT.to_string());
-    gtk4::pango::FontDescription::from_string(&spec)
+    use gtk4::pango;
+    if let Ok(user_spec) = std::env::var("PAX_TERMINAL_FONT") {
+        let trimmed = user_spec.trim();
+        if !trimmed.is_empty() {
+            return pango::FontDescription::from_string(trimmed);
+        }
+    }
+    let mut desc = pango::FontDescription::from_string(DEFAULT_TERMINAL_FONT);
+    desc.set_absolute_size(DEFAULT_TERMINAL_FONT_PX * pango::SCALE as f64);
+    desc
 }
 
 /// Terminal panel — uses VTE4 on Linux, PTY+cell renderer fallback on macOS.
