@@ -1,4 +1,5 @@
 use gtk4::prelude::*;
+use std::cell::Cell;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::Arc;
@@ -15,10 +16,11 @@ pub type OnGitAction = Rc<dyn Fn()>;
 pub struct GitStatusView {
     pub widget: gtk4::Box,
     list_container: gtk4::Box,
-    #[allow(dead_code)]
     commit_entry: gtk4::Entry,
-    #[allow(dead_code)]
     commit_btn: gtk4::Button,
+    /// Tracks whether at least one file is currently staged. Drives Commit
+    /// button sensitivity together with the message field.
+    has_staged: Rc<Cell<bool>>,
     root_dir: PathBuf,
     on_diff_open: OnDiffOpen,
     backend: Arc<dyn FileBackend>,
@@ -86,11 +88,15 @@ impl GitStatusView {
 
         container.append(&commit_box);
 
-        // Enable commit button when message is non-empty
+        // Commit requires both a non-empty message AND at least one staged
+        // file. The staged-file half is recomputed in `update()` whenever the
+        // git status changes; this closure handles the message-text half.
+        let has_staged = Rc::new(Cell::new(false));
         {
             let btn = commit_btn.clone();
+            let has_staged = has_staged.clone();
             commit_entry.connect_changed(move |entry| {
-                btn.set_sensitive(!entry.text().is_empty());
+                btn.set_sensitive(!entry.text().is_empty() && has_staged.get());
             });
         }
 
@@ -139,6 +145,7 @@ impl GitStatusView {
             list_container,
             commit_entry,
             commit_btn,
+            has_staged,
             root_dir: root_dir.to_path_buf(),
             on_diff_open,
             backend,
@@ -156,6 +163,12 @@ impl GitStatusView {
         }
 
         let entries = parse_porcelain(porcelain_output, &self.root_dir);
+
+        // Refresh Commit sensitivity: needs both a message AND a staged file.
+        let any_staged = entries.iter().any(|e| e.staged);
+        self.has_staged.set(any_staged);
+        self.commit_btn
+            .set_sensitive(any_staged && !self.commit_entry.text().is_empty());
 
         if entries.is_empty() {
             let label = gtk4::Label::new(Some("No changes"));
