@@ -159,11 +159,36 @@ impl FileBackend for LocalFileBackend {
     }
 
     fn delete_file(&self, path: &Path) -> Result<(), String> {
-        std::fs::remove_file(path).map_err(|e| e.to_string())
+        // Move to XDG trash rather than unlinking, so a mistaken click is
+        // recoverable via the system file manager. Fall back to hard-delete
+        // only if the trash move fails (e.g. file on a filesystem without a
+        // writable trash home) — better to complete the action than to leave
+        // the UI in a half-deleted state.
+        match trash::delete(path) {
+            Ok(()) => Ok(()),
+            Err(e) => {
+                tracing::warn!(
+                    "trash move failed for file {}: {} — falling back to unlink",
+                    path.display(),
+                    e
+                );
+                std::fs::remove_file(path).map_err(|e| e.to_string())
+            }
+        }
     }
 
     fn delete_dir(&self, path: &Path) -> Result<(), String> {
-        std::fs::remove_dir_all(path).map_err(|e| e.to_string())
+        match trash::delete(path) {
+            Ok(()) => Ok(()),
+            Err(e) => {
+                tracing::warn!(
+                    "trash move failed for dir {}: {} — falling back to remove_dir_all",
+                    path.display(),
+                    e
+                );
+                std::fs::remove_dir_all(path).map_err(|e| e.to_string())
+            }
+        }
     }
 
     fn rename_file(&self, from: &Path, to: &Path) -> Result<(), String> {
