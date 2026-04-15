@@ -59,13 +59,20 @@ use backend::TerminalInner;
 const DEFAULT_TERMINAL_FONT: &str =
     "JetBrains Mono, SF Mono, Cascadia Code, IBM Plex Mono, Fira Code, monospace";
 
-/// Default terminal font size in pixels. Matches `font-size: 11px` on
-/// `.editor-code-view` so the terminal and the editor render at the same
-/// physical size regardless of the platform's default DPI (macOS defaults to
-/// 72 DPI while Linux defaults to 96 DPI, which would make a points-based
+/// Default terminal font size in pixels. Meant to match `font-size: 11px`
+/// on `.editor-code-view` so the terminal and the editor render at the same
+/// physical size regardless of the platform's default DPI (macOS defaults
+/// to 72 DPI while Linux defaults to 96 DPI, which would make a points-based
 /// Pango spec like `"JetBrains Mono 8.25"` render visibly smaller on macOS
 /// than the CSS-based editor font).
-const DEFAULT_TERMINAL_FONT_PX: f64 = 11.0;
+///
+/// An empirical note: Pango's `set_absolute_size` is documented as "device
+/// units (pixels)", but on macOS Retina the renderer applies a subtle extra
+/// scale factor that made 11 absolute units look slightly bigger than the
+/// CSS 11px editor font. Nudging down to 10 closes that gap without
+/// noticeably affecting the Linux path (11 vs 10 px is within a pixel of
+/// rendering slack at this size).
+const DEFAULT_TERMINAL_FONT_PX: f64 = 10.0;
 
 /// Padding (in pixels) between the terminal content and the widget edges.
 ///
