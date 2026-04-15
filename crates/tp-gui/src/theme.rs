@@ -829,7 +829,18 @@ menubutton.panel-menu-btn > button {
 .zoom-active { opacity: 1.0; color: #5588ff; }
 .panel-focused { border: none; }
 .panel-unfocused { border: none; }
-.panel-type-btn { min-width: 120px; }
+/* Empty-pane Set Panel Type cards. Override the .flat transparent default
+ * and route to @bg_elevated so the customizer Cards token drives them. */
+button.panel-type-btn,
+button.panel-type-btn.flat {
+  min-width: 120px;
+  background-color: @bg_elevated;
+  background-image: none;
+}
+button.panel-type-btn:hover,
+button.panel-type-btn.flat:hover {
+  background-color: @hover_bg;
+}
 .panel-footer-bar { padding: 0 5px 0 8px; min-height: 13px; border-top: 1px solid alpha(@border_soft, 0.4); }
 .panel-footer { font-size: 10px; }
 box.panel-footer-bar.terminal-panel-footer {
@@ -1157,7 +1168,7 @@ const GRAPHITE_CSS: &str = "\
 @define-color card_fg_color @fg_ui;\n\
 @define-color dialog_bg_color @bg_elevated;\n\
 @define-color dialog_fg_color @fg_ui;\n\
-@define-color popover_bg_color @bg_elevated;\n\
+@define-color popover_bg_color @bg_popover;\n\
 @define-color popover_fg_color @fg_ui;\n\
 @define-color popover_shade_color alpha(black, 0.28);\n\
 @define-color sidebar_bg_color @bg_elevated;\n\
@@ -1201,7 +1212,7 @@ const DRACULA_CSS: &str = "\
 @define-color card_fg_color @fg_ui;\n\
 @define-color dialog_bg_color @bg_elevated;\n\
 @define-color dialog_fg_color @fg_ui;\n\
-@define-color popover_bg_color @bg_elevated;\n\
+@define-color popover_bg_color @bg_popover;\n\
 @define-color popover_fg_color @fg_ui;\n\
 @define-color popover_shade_color alpha(black, 0.25);\n\
 @define-color sidebar_bg_color @bg_elevated;\n\
@@ -1228,7 +1239,7 @@ const AURORA_CSS: &str = "\
 @define-color accent_bg @accent;\n\
 @define-color accent_fg #ffffff;\n\
 @define-color hover_bg #e8f0fa;\n\
-@define-color bg_popover @bg_elevated;\n\
+@define-color bg_popover @bg_chrome;\n\
 @define-color border_soft alpha(#5b8def, 0.35);\n\
 @define-color border_hard alpha(#7e6aff, 0.30);\n\
 @define-color window_bg_color @bg_window;\n\
@@ -1245,7 +1256,7 @@ const AURORA_CSS: &str = "\
 @define-color card_fg_color @fg_ui;\n\
 @define-color dialog_bg_color @bg_elevated;\n\
 @define-color dialog_fg_color @fg_ui;\n\
-@define-color popover_bg_color @bg_chrome;\n\
+@define-color popover_bg_color @bg_popover;\n\
 @define-color popover_fg_color @fg_ui;\n\
 @define-color popover_shade_color alpha(#1a2740, 0.10);\n\
 @define-color sidebar_bg_color @bg_elevated;\n\
@@ -1272,7 +1283,7 @@ const QUANTUM_CSS: &str = "\
 @define-color accent_bg @accent;\n\
 @define-color accent_fg #ffffff;\n\
 @define-color hover_bg #dde8f5;\n\
-@define-color bg_popover @bg_elevated;\n\
+@define-color bg_popover @bg_chrome;\n\
 @define-color border_soft alpha(#0044cc, 0.45);\n\
 @define-color border_hard alpha(#003a99, 0.55);\n\
 @define-color window_bg_color @bg_window;\n\
@@ -1289,7 +1300,7 @@ const QUANTUM_CSS: &str = "\
 @define-color card_fg_color @fg_ui;\n\
 @define-color dialog_bg_color @bg_elevated;\n\
 @define-color dialog_fg_color @fg_ui;\n\
-@define-color popover_bg_color @bg_chrome;\n\
+@define-color popover_bg_color @bg_popover;\n\
 @define-color popover_fg_color @fg_ui;\n\
 @define-color popover_shade_color alpha(#0a1a33, 0.18);\n\
 @define-color sidebar_bg_color @bg_elevated;\n\
