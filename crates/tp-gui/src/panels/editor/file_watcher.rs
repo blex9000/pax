@@ -449,6 +449,10 @@ mod tests {
             unreachable!()
         }
 
+        fn copy_dir(&self, _from: &Path, _to: &Path) -> Result<(), String> {
+            unreachable!()
+        }
+
         fn create_dir(&self, _path: &Path) -> Result<(), String> {
             unreachable!()
         }

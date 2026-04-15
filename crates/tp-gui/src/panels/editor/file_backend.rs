@@ -51,6 +51,10 @@ pub trait FileBackend: std::fmt::Debug + Send + Sync {
     /// Copy a file.
     fn copy_file(&self, from: &Path, to: &Path) -> Result<(), String>;
 
+    /// Recursively copy a directory tree to a new location. `to` must not
+    /// already exist; the implementation creates it and every subdirectory.
+    fn copy_dir(&self, from: &Path, to: &Path) -> Result<(), String>;
+
     /// Create a directory (and parents).
     fn create_dir(&self, path: &Path) -> Result<(), String>;
 
@@ -199,6 +203,37 @@ impl FileBackend for LocalFileBackend {
         std::fs::copy(from, to)
             .map(|_| ())
             .map_err(|e| e.to_string())
+    }
+
+    fn copy_dir(&self, from: &Path, to: &Path) -> Result<(), String> {
+        fn copy_recursive(from: &Path, to: &Path) -> std::io::Result<()> {
+            std::fs::create_dir_all(to)?;
+            for entry in std::fs::read_dir(from)? {
+                let entry = entry?;
+                let file_type = entry.file_type()?;
+                let src = entry.path();
+                let dst = to.join(entry.file_name());
+                if file_type.is_dir() {
+                    copy_recursive(&src, &dst)?;
+                } else if file_type.is_symlink() {
+                    // Re-create the symlink pointing at whatever the source
+                    // pointed at; don't follow it, so dangling links stay
+                    // dangling and don't balloon into large data copies.
+                    let target = std::fs::read_link(&src)?;
+                    #[cfg(unix)]
+                    std::os::unix::fs::symlink(target, &dst)?;
+                    #[cfg(not(unix))]
+                    {
+                        let _ = target;
+                        std::fs::copy(&src, &dst)?;
+                    }
+                } else {
+                    std::fs::copy(&src, &dst)?;
+                }
+            }
+            Ok(())
+        }
+        copy_recursive(from, to).map_err(|e| e.to_string())
     }
 
     fn create_dir(&self, path: &Path) -> Result<(), String> {
@@ -496,6 +531,17 @@ impl FileBackend for SshFileBackend {
         .map(|_| ())
     }
 
+    fn copy_dir(&self, from: &Path, to: &Path) -> Result<(), String> {
+        // -a preserves symlinks, perms and timestamps so the paste mirrors
+        // the original tree faithfully on the remote host.
+        self.ssh_exec(&format!(
+            "cp -a {} {}",
+            shell_quote(&from.to_string_lossy()),
+            shell_quote(&to.to_string_lossy()),
+        ))
+        .map(|_| ())
+    }
+
     fn create_dir(&self, path: &Path) -> Result<(), String> {
         self.ssh_exec(&format!(
             "mkdir -p {}",
@@ -663,6 +709,9 @@ mod tests {
             unreachable!()
         }
         fn copy_file(&self, _from: &Path, _to: &Path) -> Result<(), String> {
+            unreachable!()
+        }
+        fn copy_dir(&self, _from: &Path, _to: &Path) -> Result<(), String> {
             unreachable!()
         }
         fn create_dir(&self, _path: &Path) -> Result<(), String> {

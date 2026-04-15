@@ -93,6 +93,10 @@ impl FileTree {
         let entries: Rc<RefCell<Vec<FileEntry>>> = Rc::new(RefCell::new(Vec::new()));
         let is_remote = backend.is_remote();
         let request_seq = Rc::new(Cell::new(0u64));
+        // Internal clipboard for Copy/Paste within the file tree. Stores the
+        // source path plus whether it's a directory so Paste can pick the
+        // right backend operation (copy_file vs copy_dir).
+        let clipboard: Rc<RefCell<Option<(PathBuf, bool)>>> = Rc::new(RefCell::new(None));
 
         let list_box = gtk4::ListBox::new();
         list_box.set_selection_mode(gtk4::SelectionMode::Single);
@@ -171,6 +175,7 @@ impl FileTree {
             let ctx_cb = on_context_action.clone();
             let rename_cb = on_file_renamed.clone();
             let delete_cb = on_path_deleted.clone();
+            let clipboard_for_menu = clipboard.clone();
             let backend = backend.clone();
             let on_open = on_file_open.clone();
             let gesture = gtk4::GestureClick::new();
@@ -348,6 +353,59 @@ impl FileTree {
                 }
                 menu_box.append(&create_folder_btn);
 
+                // ── Paste (only when clipboard is non-empty) ──
+                if let Some((source_path, source_is_dir)) =
+                    clipboard_for_menu.borrow().clone()
+                {
+                    let label = if source_is_dir {
+                        "Paste Folder"
+                    } else {
+                        "Paste File"
+                    };
+                    let paste_btn = make_item("edit-paste-symbolic", label);
+                    {
+                        let be = backend.clone();
+                        let refresh_tree = refresh_tree.clone();
+                        let target_dir = target_dir.clone();
+                        paste_btn.connect_clicked(move |btn| {
+                            let source_name = source_path
+                                .file_name()
+                                .map(|n| n.to_string_lossy().to_string())
+                                .unwrap_or_default();
+                            if source_name.is_empty() {
+                                return;
+                            }
+                            let dest = unique_paste_destination(
+                                &target_dir,
+                                &source_name,
+                                &*be,
+                            );
+                            tracing::info!(
+                                "editor.ft: paste begin source={} dest={} is_dir={}",
+                                source_path.display(),
+                                dest.display(),
+                                source_is_dir
+                            );
+                            let copy_result = if source_is_dir {
+                                be.copy_dir(&source_path, &dest)
+                            } else {
+                                be.copy_file(&source_path, &dest)
+                            };
+                            tracing::info!(
+                                "editor.ft: paste result ok={}",
+                                copy_result.is_ok()
+                            );
+                            if copy_result.is_ok() {
+                                refresh_tree();
+                            }
+                            if let Some(pop) = btn.ancestor(gtk4::Popover::static_type()) {
+                                pop.downcast_ref::<gtk4::Popover>().unwrap().popdown();
+                            }
+                        });
+                    }
+                    menu_box.append(&paste_btn);
+                }
+
                 menu_box.append(&gtk4::Separator::new(gtk4::Orientation::Horizontal));
 
                 // ── Clipboard ──
@@ -459,6 +517,31 @@ impl FileTree {
                         });
                     }
                     menu_box.append(&rename_btn);
+
+                    // ── Copy the file/folder itself into the internal
+                    // clipboard; Paste (above) will duplicate it into the
+                    // target directory with a unique name. ──
+                    let copy_btn = make_item(
+                        "edit-copy-symbolic",
+                        if is_dir { "Copy Folder" } else { "Copy File" },
+                    );
+                    {
+                        let p = path.clone();
+                        let copy_is_dir = is_dir;
+                        let clipboard_for_copy = clipboard_for_menu.clone();
+                        copy_btn.connect_clicked(move |btn| {
+                            *clipboard_for_copy.borrow_mut() = Some((p.clone(), copy_is_dir));
+                            tracing::info!(
+                                "editor.ft: clipboard set path={} is_dir={}",
+                                p.display(),
+                                copy_is_dir
+                            );
+                            if let Some(pop) = btn.ancestor(gtk4::Popover::static_type()) {
+                                pop.downcast_ref::<gtk4::Popover>().unwrap().popdown();
+                            }
+                        });
+                    }
+                    menu_box.append(&copy_btn);
 
                     if is_dir {
                         let del_btn = make_item("user-trash-symbolic", "Delete Folder");
@@ -1546,6 +1629,47 @@ fn rename_destination_for_path(path: &Path, new_name: &str) -> Option<PathBuf> {
         std::path::Component::Normal(name) => Some(path.with_file_name(name)),
         _ => None,
     }
+}
+
+/// Pick a destination path for a paste of `source_name` into `target_dir`
+/// that doesn't collide with an existing entry. If the base name is free it
+/// is used as-is; otherwise suffix it with `_copy`, then `_copy_2`,
+/// `_copy_3`, … until a free slot is found. Preserves the extension so
+/// `foo.rs` pastes to `foo_copy.rs`, matching the existing Duplicate File
+/// convention.
+fn unique_paste_destination(target_dir: &Path, source_name: &str, backend: &dyn FileBackend) -> PathBuf {
+    let base = target_dir.join(source_name);
+    if !backend.file_exists(&base) {
+        return base;
+    }
+    let (stem, ext) = match source_name.rfind('.') {
+        Some(idx) if idx > 0 => (&source_name[..idx], Some(&source_name[idx + 1..])),
+        _ => (source_name, None),
+    };
+    let build_name = |suffix: &str| match ext {
+        Some(e) => format!("{}_copy{}.{}", stem, suffix, e),
+        None => format!("{}_copy{}", stem, suffix),
+    };
+    // First attempt: "_copy" with no counter.
+    let first = target_dir.join(build_name(""));
+    if !backend.file_exists(&first) {
+        return first;
+    }
+    // Subsequent attempts: "_copy_2", "_copy_3", …
+    const MAX_ATTEMPTS: u32 = 1000;
+    for i in 2..=MAX_ATTEMPTS {
+        let candidate = target_dir.join(build_name(&format!("_{}", i)));
+        if !backend.file_exists(&candidate) {
+            return candidate;
+        }
+    }
+    // Fallback: timestamp suffix keeps us from returning a known-collision
+    // path even in pathological cases.
+    let ts = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    target_dir.join(build_name(&format!("_{}", ts)))
 }
 
 fn creation_destination_for_dir(dir: &Path, name: &str) -> Option<PathBuf> {
