@@ -911,6 +911,16 @@ impl PanelBackend for CodeEditorPanel {
             })
         })
     }
+
+    fn footer_text(&self) -> Option<String> {
+        let st = self.state.borrow();
+        let p = st.root_dir.to_string_lossy();
+        if p.is_empty() {
+            None
+        } else {
+            Some(p.into_owned())
+        }
+    }
 }
 
 /// Placeholder panel shown when sourceview feature is not enabled.

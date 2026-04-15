@@ -115,6 +115,82 @@ impl PanelRegistry {
     }
 }
 
+/// Default markdown file name used when the user doesn't specify one.
+const DEFAULT_MARKDOWN_FILE_NAME: &str = "README.md";
+
+/// Resolve `path` against `workspace_dir` when `path` is relative.
+/// Returns `path` unchanged when it is absolute, or when `workspace_dir` is
+/// `None` (e.g. an unsaved workspace), preserving the pre-existing behavior.
+fn resolve_against_workspace(path: &str, workspace_dir: Option<&str>) -> String {
+    let p = std::path::Path::new(path);
+    if p.is_absolute() {
+        return path.to_string();
+    }
+    match workspace_dir {
+        Some(dir) => std::path::Path::new(dir)
+            .join(path)
+            .to_string_lossy()
+            .to_string(),
+        None => path.to_string(),
+    }
+}
+
+/// Like `resolve_against_workspace`, but when no workspace directory is set
+/// (unsaved workspace) it anchors relative paths to `$HOME` instead of leaving
+/// them relative to the process cwd. Used for files we auto-create on behalf
+/// of the user (markdown README) so the result is predictable regardless of
+/// where the app binary was launched from.
+fn resolve_path_predictable(path: &str, workspace_dir: Option<&str>) -> String {
+    let p = std::path::Path::new(path);
+    if p.is_absolute() {
+        return path.to_string();
+    }
+    if let Some(dir) = workspace_dir {
+        return std::path::Path::new(dir)
+            .join(path)
+            .to_string_lossy()
+            .to_string();
+    }
+    if let Ok(home) = std::env::var("HOME") {
+        if !home.is_empty() {
+            return std::path::Path::new(&home)
+                .join(path)
+                .to_string_lossy()
+                .to_string();
+        }
+    }
+    path.to_string()
+}
+
+/// Ensure `path` exists as a file. Creates parent directories and an empty
+/// file if missing. Logs and swallows errors so the panel still opens (the
+/// markdown viewer will surface the load failure to the user).
+fn ensure_markdown_file_exists(path: &str) {
+    let p = std::path::Path::new(path);
+    if p.exists() {
+        return;
+    }
+    if let Some(parent) = p.parent() {
+        if !parent.as_os_str().is_empty() {
+            if let Err(e) = std::fs::create_dir_all(parent) {
+                tracing::warn!(
+                    "ensure_markdown_file_exists: could not create parent {}: {}",
+                    parent.display(),
+                    e
+                );
+                return;
+            }
+        }
+    }
+    if let Err(e) = std::fs::write(p, b"") {
+        tracing::warn!(
+            "ensure_markdown_file_exists: could not create {}: {}",
+            p.display(),
+            e
+        );
+    }
+}
+
 /// Build the default registry with all built-in panel types.
 pub fn build_default_registry() -> PanelRegistry {
     let mut reg = PanelRegistry::new();
@@ -142,9 +218,24 @@ pub fn build_default_registry() -> PanelRegistry {
             if let Some(pw) = config.extra.get("ssh_password") {
                 env.push(("SSHPASS".to_string(), pw.clone()));
             }
+            // Default cwd: $HOME if the user didn't specify one. We
+            // deliberately do NOT fall through ws_dir here — that would make
+            // the same PanelConfig open in different directories depending on
+            // whether the workspace has been saved (ws_dir is only known for
+            // saved workspaces). Anchoring the default to $HOME keeps shell
+            // behavior identical across sessions and across saves. An explicit
+            // empty string in cwd is treated as "unspecified".
+            let home_owned = std::env::var("HOME")
+                .ok()
+                .filter(|s| !s.is_empty());
+            let effective_cwd = config
+                .cwd
+                .as_deref()
+                .filter(|s| !s.trim().is_empty())
+                .or(home_owned.as_deref());
             let mut panel = super::terminal::TerminalPanel::new(
                 shell,
-                config.cwd.as_deref(),
+                effective_cwd,
                 &env,
                 ws_dir,
             );
@@ -228,12 +319,26 @@ pub fn build_default_registry() -> PanelRegistry {
         "text-x-generic-symbolic",
         false,
         |config| {
-            let file = config
+            let ws_dir = config.extra.get("__workspace_dir__").map(|s| s.as_str());
+            // Fall back to the default name when the user didn't specify a file,
+            // then anchor relative names to the workspace directory so "notes.md"
+            // means "inside this workspace".
+            let raw_file = config
                 .extra
                 .get("file")
                 .map(|s| s.as_str())
-                .unwrap_or("README.md");
-            Box::new(super::markdown::MarkdownPanel::new(file))
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .unwrap_or(DEFAULT_MARKDOWN_FILE_NAME);
+            // Use the predictable variant: for unsaved workspaces we prefer
+            // $HOME/README.md over a path relative to the process cwd, so the
+            // file doesn't silently land in the directory the binary was
+            // launched from.
+            let resolved = resolve_path_predictable(raw_file, ws_dir);
+            // If the file doesn't exist yet, create it (empty) so the viewer
+            // opens successfully instead of showing a load error.
+            ensure_markdown_file_exists(&resolved);
+            Box::new(super::markdown::MarkdownPanel::new(&resolved))
         },
     );
 
@@ -245,11 +350,20 @@ pub fn build_default_registry() -> PanelRegistry {
         "accessories-text-editor-symbolic",
         true,
         |config| {
-            let root_dir = config
+            let ws_dir = config.extra.get("__workspace_dir__").map(|s| s.as_str());
+            // Treat an unset, empty, or "." root_dir as "use the workspace dir"
+            // — that's what the user means when they leave it blank.
+            let raw_root = config
                 .extra
                 .get("root_dir")
                 .map(|s| s.as_str())
-                .unwrap_or(".");
+                .map(str::trim)
+                .filter(|s| !s.is_empty() && *s != ".")
+                .map(|s| s.to_string());
+            let root_dir: String = match raw_root {
+                Some(ref r) => resolve_against_workspace(r, ws_dir),
+                None => ws_dir.map(|s| s.to_string()).unwrap_or_else(|| ".".to_string()),
+            };
             let ssh_host = config.extra.get("ssh_host").cloned();
             let ssh_user = config.extra.get("ssh_user").cloned();
             let ssh_password = config.extra.get("ssh_password").cloned();
@@ -264,7 +378,7 @@ pub fn build_default_registry() -> PanelRegistry {
             if let Some(host) = ssh_host {
                 // Remote code editor: mount via SSHFS
                 let user = ssh_user.as_deref().unwrap_or("root");
-                let rpath = remote_path.as_deref().unwrap_or(root_dir);
+                let rpath = remote_path.as_deref().unwrap_or(root_dir.as_str());
                 Box::new(super::editor::CodeEditorPanel::new_remote(
                     &host,
                     ssh_port,
@@ -274,7 +388,7 @@ pub fn build_default_registry() -> PanelRegistry {
                     rpath,
                 ))
             } else {
-                Box::new(super::editor::CodeEditorPanel::new(root_dir))
+                Box::new(super::editor::CodeEditorPanel::new(&root_dir))
             }
         },
     );

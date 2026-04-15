@@ -552,7 +552,10 @@ fn setup_workspace_ui(
                 // For panels that need a file/directory, show config FIRST
                 let default_type = match type_id {
                     "markdown" => pax_core::workspace::PanelType::Markdown {
-                        file: String::new(),
+                        // Prefill with the same default the registry factory
+                        // would otherwise use, so the dialog shows the user
+                        // exactly what file will be opened/created.
+                        file: "README.md".to_string(),
                     },
                     "code_editor" => pax_core::workspace::PanelType::CodeEditor {
                         root_dir: String::new(),
@@ -563,7 +566,16 @@ fn setup_workspace_ui(
                     _ => pax_core::workspace::PanelType::Terminal,
                 };
                 let pid = panel_id.to_string();
-                let tid = type_id.to_string();
+                // Human-readable default name in the config dialog, instead of
+                // the raw type id ("markdown", "code_editor") — users saw it
+                // prefilled in the Name field and had to retype. For markdown
+                // we match the default file stem so Name and File agree.
+                let default_name: &str = match type_id {
+                    "terminal" => "Terminal",
+                    "markdown" => "README",
+                    "code_editor" => "Code Editor",
+                    _ => type_id,
+                };
                 let ws2 = ws.clone();
                 let win2 = win.clone();
                 let sa2 = sa.clone();
@@ -575,7 +587,7 @@ fn setup_workspace_ui(
                 };
                 crate::dialogs::panel_config::show_panel_config_dialog(
                     &*win,
-                    &tid,
+                    default_name,
                     &default_type,
                     None,
                     None,

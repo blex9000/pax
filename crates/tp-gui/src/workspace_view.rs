@@ -658,11 +658,25 @@ impl WorkspaceView {
     /// Returns true if the panel needs immediate configuration (markdown, code_editor).
     pub fn set_panel_type(&mut self, panel_id: &str, type_id: &str) -> bool {
         tracing::info!("Setting panel {} type to {}", panel_id, type_id);
+        // Pass __workspace_dir__ the same way apply_panel_config does (via
+        // panel_type_to_create_config), so factories that anchor their cwd /
+        // paths to the workspace directory actually receive it. Without this,
+        // a terminal created from the chooser would always open in the
+        // process cwd, even on a saved workspace.
+        let ws_dir = self
+            .config_path
+            .as_ref()
+            .and_then(|p| p.parent())
+            .map(|p| p.to_string_lossy().to_string());
+        let mut extra = HashMap::new();
+        if let Some(dir) = ws_dir {
+            extra.insert("__workspace_dir__".to_string(), dir);
+        }
         let config = PanelCreateConfig {
             shell: self.workspace.settings.default_shell.clone(),
             cwd: None,
             env: vec![],
-            extra: HashMap::new(),
+            extra,
         };
 
         if let Some(backend) = self.registry.create(type_id, &config) {

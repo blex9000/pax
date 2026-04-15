@@ -45,4 +45,13 @@ pub trait PanelBackend: std::fmt::Debug {
     fn ssh_label(&self) -> Option<String> {
         None
     }
+
+    /// Optional footer text shown at the bottom of the panel frame (e.g. file
+    /// path for document panels, cwd for terminals). Returns `None` to keep
+    /// the footer hidden. Called once from `PanelHost::set_backend`; panels
+    /// that need live updates (like VTE with OSC 7) should still drive the
+    /// footer via `host.set_footer()` from their own signal handlers.
+    fn footer_text(&self) -> Option<String> {
+        None
+    }
 }

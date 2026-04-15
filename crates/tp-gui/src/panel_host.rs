@@ -476,6 +476,15 @@ impl PanelHost {
             self.set_ssh_indicator(None);
         }
 
+        // Static footer (file path for document panels, project dir for code
+        // editor). Terminals drive their footer dynamically via OSC 7 and
+        // return None here, so we skip them.
+        if let Some(footer) = backend.footer_text() {
+            if !footer.is_empty() {
+                self.set_footer(&footer);
+            }
+        }
+
         if let Ok(borrowed) = self.sync_input_cb_ref.try_borrow() {
             backend.set_input_callback(borrowed.clone());
         }

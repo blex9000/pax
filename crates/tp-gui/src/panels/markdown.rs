@@ -507,6 +507,9 @@ impl PanelBackend for MarkdownPanel {
     fn on_focus(&self) {
         self.source_view.grab_focus();
     }
+    fn footer_text(&self) -> Option<String> {
+        Some(self.file_path.clone())
+    }
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────

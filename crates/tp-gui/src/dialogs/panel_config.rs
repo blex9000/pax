@@ -933,6 +933,43 @@ fn show_markdown_config(
     let name_entry = add_field(&vbox, "Name:", panel_name, "Markdown");
     let file_entry = add_field(&vbox, "File:", file, "path/to/file.md");
 
+    // Keep the panel name in sync with the file stem: if the user picks
+    // "notes.md" as the file, the tab should read "notes" — unless they've
+    // manually typed a custom name, in which case we stop touching it. We
+    // detect manual edits via a flag that's suppressed while we're the ones
+    // writing to the name entry.
+    let name_user_edited = std::rc::Rc::new(std::cell::Cell::new(false));
+    let suppress_name_signal = std::rc::Rc::new(std::cell::Cell::new(false));
+    {
+        let suppress = suppress_name_signal.clone();
+        let edited = name_user_edited.clone();
+        name_entry.connect_changed(move |_| {
+            if !suppress.get() {
+                edited.set(true);
+            }
+        });
+    }
+    {
+        let name = name_entry.clone();
+        let suppress = suppress_name_signal.clone();
+        let edited = name_user_edited.clone();
+        file_entry.connect_changed(move |fe| {
+            if edited.get() {
+                return;
+            }
+            let text = fe.text().to_string();
+            let stem = std::path::Path::new(&text)
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or("");
+            if !stem.is_empty() && name.text() != stem {
+                suppress.set(true);
+                name.set_text(stem);
+                suppress.set(false);
+            }
+        });
+    }
+
     let browse_btn = gtk4::Button::with_label("Browse...");
     browse_btn.add_css_class("flat");
     browse_btn.set_halign(gtk4::Align::Start);
