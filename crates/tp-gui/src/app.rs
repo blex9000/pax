@@ -262,6 +262,15 @@ fn build_app_menu_popover(
 
 /// Single entry point — shows welcome if no workspace, or workspace directly.
 pub fn run_app(workspace: Option<Workspace>, config_path: Option<&Path>) -> Result<()> {
+    // Register bundled fonts BEFORE the Adwaita/GTK application is created.
+    // On macOS, Pango builds its CoreText-backed font map eagerly during GTK
+    // initialization; fonts registered after that point are ignored by the
+    // already-built font map, which means Pango would fall back to a system
+    // font for "JetBrains Mono" / "Inter" even though CoreText has them. The
+    // fontconfig path (Linux) is less sensitive to ordering but putting the
+    // call here doesn't hurt — it still runs before any widget is created.
+    crate::fonts::register_bundled_fonts();
+
     let app = adw::Application::builder()
         .application_id("com.sinelec.pax")
         .build();
@@ -270,7 +279,6 @@ pub fn run_app(workspace: Option<Workspace>, config_path: Option<&Path>) -> Resu
     let cp = config_path.map(|p| p.to_path_buf());
 
     app.connect_activate(move |app| {
-        crate::fonts::register_bundled_fonts();
         load_css();
 
         // Register custom icons from resources/icons/

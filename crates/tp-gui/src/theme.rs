@@ -999,8 +999,30 @@ paned > separator {
   box-shadow: none;
 }
 .dirty-indicator { color: #ff8c00; }
-.editor-tabs { background-color: @view_bg_color; color: @view_fg_color; }
-.editor-tabs > header { min-height: 0; padding: 0; }
+.editor-tabs,
+.editor-tabs:focus,
+.editor-tabs:focus-within,
+.editor-tabs:not(:backdrop),
+.editor-tabs:backdrop {
+  background-color: @view_bg_color;
+  background-image: none;
+  color: @view_fg_color;
+}
+.editor-tabs > header,
+.editor-tabs > header:focus-within,
+.editor-tabs > header:not(:backdrop),
+.editor-tabs > header:backdrop {
+  background-color: @view_bg_color;
+  background-image: none;
+  min-height: 0;
+  padding: 0;
+}
+.editor-tabs > header > tabs,
+.editor-tabs > header > tabs:focus-within,
+.editor-tabs > header > tabs:not(:backdrop) {
+  background-color: @view_bg_color;
+  background-image: none;
+}
 .editor-tabs > header > tabs > tab { min-height: 0; padding: 0 2px; }
 .editor-tabs > header > tabs > tab button.tab-close-btn { margin-left: 4px; margin-right: 0; }
 .editor-welcome { background-color: @view_bg_color; color: @view_fg_color; }
