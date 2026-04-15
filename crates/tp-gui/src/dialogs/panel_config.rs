@@ -96,10 +96,35 @@ fn add_field(vbox: &gtk4::Box, label: &str, value: &str, placeholder: &str) -> g
     entry
 }
 
-fn add_buttons(vbox: &gtk4::Box, dialog: &gtk4::Window, on_apply: impl Fn() + 'static) {
+/// Finalize a config dialog: wrap `content` in a scrollable region that fills
+/// the dialog vertically, append a bottom-aligned Cancel/Apply row, set the
+/// outer layout as the dialog's child, and present it.
+///
+/// Callers build up their `content` box with fields and pass it here; they do
+/// not set the dialog's child or call `present()` themselves. This guarantees
+/// the buttons are always pinned to the bottom regardless of how much content
+/// the dialog holds.
+fn finalize_dialog(
+    dialog: &gtk4::Window,
+    content: &gtk4::Box,
+    on_apply: impl Fn() + 'static,
+) {
+    // Scrollable content region — grows to fill available vertical space so
+    // the button row below stays pinned at the bottom of the window.
+    let scroll = gtk4::ScrolledWindow::new();
+    scroll.set_child(Some(content));
+    scroll.set_vexpand(true);
+    scroll.set_hexpand(true);
+    scroll.set_hscrollbar_policy(gtk4::PolicyType::Never);
+    scroll.set_vscrollbar_policy(gtk4::PolicyType::Automatic);
+
+    // Bottom action row.
     let btn_box = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
     btn_box.set_halign(gtk4::Align::End);
-    btn_box.set_margin_top(12);
+    btn_box.set_margin_top(10);
+    btn_box.set_margin_bottom(14);
+    btn_box.set_margin_start(16);
+    btn_box.set_margin_end(16);
 
     let cancel_btn = gtk4::Button::with_label("Cancel");
     cancel_btn.add_css_class("flat");
@@ -117,7 +142,15 @@ fn add_buttons(vbox: &gtk4::Box, dialog: &gtk4::Window, on_apply: impl Fn() + 's
 
     btn_box.append(&cancel_btn);
     btn_box.append(&apply_btn);
-    vbox.append(&btn_box);
+
+    // Outer: scroll fills vertically, thin separator, action row at the bottom.
+    let outer = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
+    outer.append(&scroll);
+    outer.append(&gtk4::Separator::new(gtk4::Orientation::Horizontal));
+    outer.append(&btn_box);
+
+    dialog.set_child(Some(&outer));
+    dialog.present();
 }
 
 /// Add min width/height spin buttons. Returns (min_width_spin, min_height_spin).
@@ -728,7 +761,7 @@ fn show_terminal_config(
     let ssh_id = ssh_id_entry.clone();
     let ssh_tmux = ssh_tmux_entry.clone();
     let rcwd = remote_cwd_entry.clone();
-    add_buttons(&vbox, &dialog, move || {
+    finalize_dialog(&dialog, &vbox, move || {
         let name = ne.text().to_string();
         let cwd_text = ce.text().to_string();
         let remote_cwd_text = rcwd.text().to_string();
@@ -871,12 +904,6 @@ fn show_terminal_config(
         }
     });
 
-    let scroll = gtk4::ScrolledWindow::new();
-    scroll.set_child(Some(&vbox));
-    scroll.set_propagate_natural_height(true);
-    scroll.set_max_content_height(600);
-    dialog.set_child(Some(&scroll));
-    dialog.present();
 }
 
 fn show_markdown_config(
@@ -937,7 +964,7 @@ fn show_markdown_config(
 
     let (mw_spin, mh_spin) = add_min_size_fields(&vbox, min_width, min_height);
 
-    add_buttons(&vbox, &dialog, move || {
+    finalize_dialog(&dialog, &vbox, move || {
         let name = name_entry.text().to_string();
         let file = file_entry.text().to_string();
         on_done(
@@ -951,9 +978,6 @@ fn show_markdown_config(
             mh_spin.value() as u32,
         );
     });
-
-    dialog.set_child(Some(&vbox));
-    dialog.present();
 }
 
 fn show_code_editor_config(
@@ -1199,7 +1223,7 @@ fn show_code_editor_config(
 
     let (mw_spin, mh_spin) = add_min_size_fields(&vbox, min_width, min_height);
 
-    add_buttons(&vbox, &dialog, move || {
+    finalize_dialog(&dialog, &vbox, move || {
         let name = name_entry.text().to_string();
         let root_dir = dir_entry.text().to_string();
         let root_dir = if root_dir.is_empty() {
@@ -1275,9 +1299,6 @@ fn show_code_editor_config(
             mh_spin.value() as u32,
         );
     });
-
-    dialog.set_child(Some(&vbox));
-    dialog.present();
 }
 
 /// Show a dialog to browse remote directories via SSH.

@@ -427,6 +427,22 @@ togglebutton:hover image,
 menubutton > button:hover image {
   color: @accent_color;
 }
+/* Suggested-action (primary) buttons: the libadwaita default darkens the
+ * accent bg on hover, which reads as \"already pressed\" against Pax's
+ * saturated accent palette. Instead, mix the accent with the foreground
+ * tone so it becomes more contrasted on hover (lighter on dark themes,
+ * darker on light ones) and slightly recedes on :active. */
+button.suggested-action:hover {
+  background-color: mix(@accent_color, @window_fg_color, 0.14);
+  background-image: none;
+  color: @accent_fg_color;
+}
+button.suggested-action:active,
+button.suggested-action:checked {
+  background-color: mix(@accent_color, @window_bg_color, 0.18);
+  background-image: none;
+  color: @accent_fg_color;
+}
 button.flat:checked,
 togglebutton.flat:checked,
 menubutton.flat > button:checked {
