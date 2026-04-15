@@ -142,6 +142,15 @@ impl CodeEditorPanel {
 
     fn new_with_backend(root_dir: &str, backend: Arc<dyn file_backend::FileBackend>) -> Self {
         let poll_secs = if backend.is_remote() { 5 } else { 2 };
+
+        // Detect whether the project root is a git repository. We check both
+        // .git/ (regular repo) and .git as a file (worktree / submodule
+        // pointer). For SSHFS-mounted remote roots this still works because
+        // the mount surfaces .git through the local filesystem path. When the
+        // root is not a git project we hide the Git activity-bar buttons and
+        // the file-tree's "Git History" context entry — there's nothing
+        // useful behind them and showing them is misleading.
+        let is_git_repo = std::path::Path::new(root_dir).join(".git").exists();
         let state = Rc::new(RefCell::new(EditorState {
             root_dir: PathBuf::from(root_dir),
             open_files: Vec::new(),
@@ -204,6 +213,11 @@ impl CodeEditorPanel {
         history_btn.set_tooltip_text(Some("Git History"));
         history_btn.set_group(Some(&files_btn));
 
+        if !is_git_repo {
+            git_btn.set_visible(false);
+            history_btn.set_visible(false);
+        }
+
         // Spacer to push nav buttons to the right
         let bar_spacer = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
         bar_spacer.set_hexpand(true);
@@ -263,25 +277,34 @@ impl CodeEditorPanel {
         // File tree with context menu
         let state_for_open = state.clone();
         let tabs_for_open = tabs_rc.clone();
-        let root_for_ctx = PathBuf::from(root_dir);
-        let glv_for_ctx = git_log_view.clone();
-        let history_btn_for_ctx = history_btn.clone();
         let state_for_rename = state.clone();
         let tabs_for_rename = tabs_rc.clone();
         let state_for_delete = state.clone();
         let tabs_for_delete = tabs_rc.clone();
-        let file_tree = Rc::new(file_tree::FileTree::new_with_context(
-            &PathBuf::from(root_dir),
-            Rc::new(move |path| {
-                tabs_for_open.open_file(path, &state_for_open);
-            }),
+        // Only wire the "git-history" context action when the root is a git
+        // repo. Passing None makes file_tree skip the "Git History" menu
+        // entry entirely (see file_tree.rs around the `if let Some(ref ctx)`
+        // check) — which is what we want for non-git projects.
+        let on_ctx_action: Option<file_tree::OnContextAction> = if is_git_repo {
+            let root_for_ctx = PathBuf::from(root_dir);
+            let glv_for_ctx = git_log_view.clone();
+            let history_btn_for_ctx = history_btn.clone();
             Some(Rc::new(move |action, path| {
                 if action == "git-history" {
                     let rel = path.strip_prefix(&root_for_ctx).unwrap_or(path);
                     glv_for_ctx.filter_by_file(&rel.to_string_lossy());
                     history_btn_for_ctx.set_active(true); // switches sidebar to history
                 }
-            })),
+            }))
+        } else {
+            None
+        };
+        let file_tree = Rc::new(file_tree::FileTree::new_with_context(
+            &PathBuf::from(root_dir),
+            Rc::new(move |path| {
+                tabs_for_open.open_file(path, &state_for_open);
+            }),
+            on_ctx_action,
             Some(Rc::new(move |old_path, new_path| {
                 tabs_for_rename.rename_open_file(old_path, new_path, &state_for_rename);
             })),
