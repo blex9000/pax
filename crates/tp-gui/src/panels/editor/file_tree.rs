@@ -1998,8 +1998,7 @@ fn show_name_input_dialog(
 /// Restore a single item from the XDG trash back to its original path.
 /// Matches on `original_path == path` and picks the most recently deleted
 /// candidate so "delete X, create X, delete X, undo, undo" restores the
-/// most recently trashed X first. Linux-only because the `trash` crate's
-/// `os_limited` restore API is limited to the freedesktop trash spec.
+/// most recently trashed X first.
 #[cfg(target_os = "linux")]
 fn restore_from_trash(path: &Path) -> Result<(), String> {
     use trash::os_limited;
@@ -2017,9 +2016,72 @@ fn restore_from_trash(path: &Path) -> Result<(), String> {
         .map_err(|e| format!("trash restore failed: {:?}", e))
 }
 
-#[cfg(not(target_os = "linux"))]
+/// macOS restore: ask Finder via AppleScript to walk its Trash and put the
+/// matching item back. Matches on the full path reconstructed from Finder's
+/// `original location of t` (parent folder) plus the item's current name —
+/// this is the same pair Finder itself uses for "Put Back" from the Trash
+/// menu, so when it works it lands at the exact same path.
+///
+/// Caveats:
+/// - The first time Pax runs this macOS shows a one-time "Pax wants to
+///   control Finder" prompt; declining leaves undo-delete non-functional.
+///   The user can re-grant from System Settings → Privacy & Security →
+///   Automation.
+/// - Rare edge case: if the user deletes "foo.txt", then creates and
+///   deletes a NEW "foo.txt", the second one is renamed "foo 2.txt" inside
+///   Trash; our name-based match misses it. The linear undo flow doesn't
+///   hit this case in practice (delete → undo restores what you just
+///   deleted), so we accept the limitation instead of adding xattr
+///   metadata scanning.
+/// - The `try` inside the inner loop is load-bearing: `original location
+///   of t` raises when the original parent has been deleted, which
+///   shouldn't abort the whole walk.
+#[cfg(target_os = "macos")]
+fn restore_from_trash(path: &Path) -> Result<(), String> {
+    let posix = path.to_string_lossy().to_string();
+    // AppleScript strings use `\` and `"` as escapes just like Rust; escape
+    // both so the embedded path literal parses correctly.
+    let escaped = posix.replace('\\', "\\\\").replace('"', "\\\"");
+    let script = format!(
+        r#"tell application "Finder"
+    repeat with t in (every item of trash)
+        try
+            set origLoc to original location of t
+            set origLocPath to POSIX path of (origLoc as alias)
+            if origLocPath ends with "/" then
+                set origLocPath to text 1 thru -2 of origLocPath
+            end if
+            set fullOrig to origLocPath & "/" & (name of t)
+            if fullOrig is equal to "{}" then
+                move t to origLoc
+                return "ok"
+            end if
+        end try
+    end repeat
+    return "not_found"
+end tell"#,
+        escaped
+    );
+    let output = std::process::Command::new("osascript")
+        .arg("-e")
+        .arg(&script)
+        .output()
+        .map_err(|e| format!("osascript spawn failed: {}", e))?;
+    if !output.status.success() {
+        return Err(format!(
+            "osascript restore failed: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        ));
+    }
+    match String::from_utf8_lossy(&output.stdout).trim() {
+        "ok" => Ok(()),
+        _ => Err(format!("no trash item found for {}", path.display())),
+    }
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "macos")))]
 fn restore_from_trash(_path: &Path) -> Result<(), String> {
-    Err("restore from trash is only supported on Linux (XDG trash)".to_string())
+    Err("restore from trash is only supported on Linux (XDG) and macOS (Finder)".to_string())
 }
 
 /// Pop the top of the undo stack, run the inverse mutation, and push the
