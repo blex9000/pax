@@ -357,9 +357,38 @@ window.app-dialog > * {
 toolbarview.app-toolbar-view { background-color: @window_bg_color; color: @window_fg_color; }
 toolbarview.app-toolbar-view .top-bar { background-color: @window_bg_color; color: @window_fg_color; border-bottom: none; min-height: 28px; padding-top: 0; padding-bottom: 0; }
 toolbarview.app-toolbar-view .top-bar > * { background-color: @window_bg_color; color: @window_fg_color; }
-headerbar.app-headerbar { background-color: @window_bg_color; color: @window_fg_color; border: none; min-height: 28px; padding-top: 0; padding-bottom: 0; }
-headerbar.app-headerbar windowhandle { min-height: 28px; }
+headerbar.app-headerbar,
+headerbar.app-headerbar:backdrop,
+headerbar.app-headerbar:focus,
+headerbar.app-headerbar:focus-within,
+headerbar.app-headerbar:not(:backdrop),
+headerbar.app-headerbar:active {
+  background-color: @window_bg_color;
+  background-image: none;
+  color: @window_fg_color;
+  border: none;
+  box-shadow: none;
+  min-height: 28px;
+  padding-top: 0;
+  padding-bottom: 0;
+}
+headerbar.app-headerbar windowhandle,
+headerbar.app-headerbar windowhandle:backdrop,
+headerbar.app-headerbar > windowhandle {
+  background-color: @window_bg_color;
+  background-image: none;
+  min-height: 28px;
+}
 headerbar.app-headerbar box, headerbar.app-headerbar label, headerbar.app-headerbar image, headerbar.app-headerbar button, headerbar.app-headerbar menubutton > button { color: @window_fg_color; }
+/* Belt-and-suspenders for the main window on macOS: the ToolbarView itself
+ * gains a focus-within state when the window becomes key; override it so
+ * the top-bar surface can't fall back to libadwaita's default accent/tint. */
+toolbarview.app-toolbar-view:focus-within > .top-bar,
+toolbarview.app-toolbar-view > .top-bar,
+toolbarview.app-toolbar-view > .top-bar:backdrop {
+  background-color: @window_bg_color;
+  background-image: none;
+}
 /* Native GTK dialogs (ColorDialog / FileDialog / FontDialog) open their
  * own top-level window with a libadwaita-default headerbar. Those don't
  * carry .app-headerbar, so explicitly align them with Pax's compact chrome

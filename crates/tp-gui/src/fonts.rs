@@ -112,7 +112,22 @@ mod macos {
     }
 
     pub fn register_dir_via_core_text(dir: &Path) {
-        let Ok(entries) = std::fs::read_dir(dir) else {
+        // CoreText's CFURL needs a filesystem path; relative paths work in
+        // principle but depend on the current process cwd, which varies
+        // between cargo run (repo root) and a .app bundle launch (/). Make
+        // the path absolute so the registration is unambiguous.
+        let canonical = match dir.canonicalize() {
+            Ok(p) => p,
+            Err(err) => {
+                tracing::warn!(
+                    "core-text font registration: cannot canonicalize {}: {}",
+                    dir.display(),
+                    err
+                );
+                return;
+            }
+        };
+        let Ok(entries) = std::fs::read_dir(&canonical) else {
             return;
         };
         for entry in entries.flatten() {
@@ -134,6 +149,7 @@ mod macos {
     fn register_one_file(path: &Path) {
         let path_str = path.to_string_lossy();
         let bytes = path_str.as_bytes();
+        tracing::debug!("core-text: registering font {}", path.display());
         unsafe {
             let cf_path = CFStringCreateWithBytes(
                 KCF_ALLOCATOR_DEFAULT,
@@ -156,15 +172,23 @@ mod macos {
                 return;
             }
             let mut error: CFErrorRef = std::ptr::null();
-            // Ignore the return value and any error: the font may already be
-            // registered (e.g. on a re-launch within the same login session)
-            // and that's fine, the existing registration still works.
-            let _ = CTFontManagerRegisterFontsForURL(
+            let ok = CTFontManagerRegisterFontsForURL(
                 cf_url,
                 KCT_FONT_MANAGER_SCOPE_PROCESS,
                 &mut error,
             );
             CFRelease(cf_url);
+            // ok == 0 with a non-null error can mean "font already registered"
+            // from a previous run in the same login session, which is fine —
+            // the existing registration still satisfies Pango lookups. We log
+            // at debug level so users don't see spurious warnings on every
+            // relaunch, but the message is available via RUST_LOG=debug.
+            if ok == 0 {
+                tracing::debug!(
+                    "core-text: CTFontManagerRegisterFontsForURL returned false for {} (likely already registered)",
+                    path.display()
+                );
+            }
             if !error.is_null() {
                 CFRelease(error);
             }
