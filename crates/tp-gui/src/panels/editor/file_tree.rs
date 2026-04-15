@@ -987,6 +987,86 @@ fn populate_list_box(list_box: &gtk4::ListBox, entries: &[FileEntry], root: &Pat
     }
 }
 
+/// Returns true if two entries + their guide data represent the same visible
+/// row. Used by the diff-based ListBox updater to identify rows that do not
+/// need to be rebuilt.
+fn row_identity_matches(
+    a_entry: &FileEntry,
+    a_guide: &RowGuides,
+    b_entry: &FileEntry,
+    b_guide: &RowGuides,
+) -> bool {
+    a_entry.path == b_entry.path
+        && a_entry.is_dir == b_entry.is_dir
+        && a_entry.is_ignored == b_entry.is_ignored
+        && a_entry.expanded == b_entry.expanded
+        && a_entry.depth == b_entry.depth
+        && a_guide.guides == b_guide.guides
+        && a_guide.is_last == b_guide.is_last
+}
+
+/// Update the ListBox in-place by diffing old vs new entries instead of the
+/// clear-and-rebuild that `populate_list_box` does. Finds the common prefix
+/// and suffix (rows that stay put) and only removes/inserts the diverging
+/// middle range, so a refresh after a create/delete/rename doesn't flash the
+/// entire tree and doesn't lose scroll position to a reset rebuild.
+fn update_list_box_diff(
+    list_box: &gtk4::ListBox,
+    old_entries: &[FileEntry],
+    new_entries: &[FileEntry],
+    root: &Path,
+) {
+    let old_guides = precompute_all_guides(old_entries);
+    let new_guides = precompute_all_guides(new_entries);
+
+    let max_prefix = old_entries.len().min(new_entries.len());
+    let mut prefix_len = 0;
+    while prefix_len < max_prefix
+        && row_identity_matches(
+            &old_entries[prefix_len],
+            &old_guides[prefix_len],
+            &new_entries[prefix_len],
+            &new_guides[prefix_len],
+        )
+    {
+        prefix_len += 1;
+    }
+
+    // Common suffix length, bounded so it doesn't overlap the prefix either
+    // side.
+    let max_suffix = (old_entries.len() - prefix_len).min(new_entries.len() - prefix_len);
+    let mut suffix_len = 0;
+    while suffix_len < max_suffix {
+        let old_idx = old_entries.len() - 1 - suffix_len;
+        let new_idx = new_entries.len() - 1 - suffix_len;
+        if !row_identity_matches(
+            &old_entries[old_idx],
+            &old_guides[old_idx],
+            &new_entries[new_idx],
+            &new_guides[new_idx],
+        ) {
+            break;
+        }
+        suffix_len += 1;
+    }
+
+    // Remove the dirty range from the old list (high-index first so earlier
+    // indices stay stable as rows shift up).
+    let old_dirty_end = old_entries.len() - suffix_len;
+    for i in (prefix_len..old_dirty_end).rev() {
+        if let Some(row) = list_box.row_at_index(i as i32) {
+            list_box.remove(&row);
+        }
+    }
+
+    // Insert the dirty range from the new list at the prefix boundary.
+    let new_dirty_end = new_entries.len() - suffix_len;
+    for i in prefix_len..new_dirty_end {
+        let new_row = make_list_row(&new_entries[i], root, &new_guides[i]);
+        list_box.insert(&new_row, i as i32);
+    }
+}
+
 /// Incremental expand: update toggled row and insert new child rows.
 fn incremental_expand(
     list_box: &gtk4::ListBox,
@@ -1099,12 +1179,21 @@ fn request_tree_reload(
 ) {
     let request_id = request_seq.get().wrapping_add(1);
     request_seq.set(request_id);
-    populate_message(list_box, loading_message);
+
+    // Snapshot the entries we're currently displaying. On a refresh (non-empty
+    // tree), diffing against this snapshot lets us patch the ListBox in place
+    // instead of flashing the "Loading…" placeholder between rebuilds.
+    let old_entries_snapshot = entries.borrow().clone();
+    let is_initial_load = old_entries_snapshot.is_empty();
+    if is_initial_load {
+        populate_message(list_box, loading_message);
+    }
     tracing::info!(
-        "editor.ft: request_tree_reload req={} root={} expanded_dirs={}",
+        "editor.ft: request_tree_reload req={} root={} expanded_dirs={} initial={}",
         request_id,
         root.display(),
-        expanded_dirs.len()
+        expanded_dirs.len(),
+        is_initial_load
     );
 
     let root_c = root.to_path_buf();
@@ -1162,7 +1251,22 @@ fn request_tree_reload(
                     let n = snapshot.entries.len();
                     *entries_c.borrow_mut() = snapshot.entries;
                     *file_index_c.borrow_mut() = snapshot.file_index;
-                    populate_list_box(&list_box_c, &entries_c.borrow(), &root_c);
+                    if old_entries_snapshot.is_empty() {
+                        // First paint for this tree (or the tree was emptied to
+                        // a "No files found" placeholder). A full build is the
+                        // only option that lays out from scratch.
+                        populate_list_box(&list_box_c, &entries_c.borrow(), &root_c);
+                    } else {
+                        // Patch in place. Keeps scroll anchored to rows that
+                        // survive the refresh and avoids the "Loading…" flash
+                        // that used to mark every create/delete/rename.
+                        update_list_box_diff(
+                            &list_box_c,
+                            &old_entries_snapshot,
+                            &entries_c.borrow(),
+                            &root_c,
+                        );
+                    }
                     scroll_c.vadjustment().set_value(scroll_pos);
                     tracing::info!(
                         "editor.ft: request_tree_reload req={} done entries={}",
