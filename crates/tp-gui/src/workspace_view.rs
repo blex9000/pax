@@ -496,19 +496,17 @@ impl WorkspaceView {
         let trimmed_name = state.draft_name.trim();
         let mut changed = state.pending_offset != 0;
         if !trimmed_name.is_empty() && state.draft_name != state.original_name {
-            if state.is_layout {
-                changed |= rename_tab_label_model_by_id(
-                    &mut self.workspace.layout,
-                    &state.tab_id,
-                    &state.draft_name,
-                );
-            } else {
-                changed |=
-                    rename_panel_model(&mut self.workspace, &state.panel_id, &state.draft_name);
-                if let Some(host) = self.hosts.get(&state.panel_id) {
-                    host.set_title(&state.draft_name);
-                }
-            }
+            // Only rename the tab label in the layout model — never the panel
+            // name. Tab labels and panel names are independent: a tab called
+            // "servers" might contain a terminal whose panel name is
+            // "web-server-freeflow". The old code called rename_panel_model
+            // for single-panel tabs, which silently overwrote the panel name
+            // with the tab label on every edit+save cycle.
+            changed |= rename_tab_label_model_by_id(
+                &mut self.workspace.layout,
+                &state.tab_id,
+                &state.draft_name,
+            );
         }
 
         self.rebuild_layout();
