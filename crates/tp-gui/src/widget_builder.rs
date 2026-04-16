@@ -617,7 +617,10 @@ fn setup_notebook_menu_widget(notebook: &gtk4::Notebook, action_cb: Option<Panel
     // background and the right edge — matching the 6px padding-left that
     // the tabs container has on the opposite side. CSS margin-end on the
     // action widget is ignored by GTK's Notebook layout.
-    notebook.set_action_widget(&add_btn, gtk4::PackType::End);
+    let add_wrapper = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
+    add_wrapper.set_margin_end(6);
+    add_wrapper.append(&add_btn);
+    notebook.set_action_widget(&add_wrapper, gtk4::PackType::End);
 
     if notebook.has_css_class("pax-tab-edit-gesture") {
         return;
