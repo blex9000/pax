@@ -707,7 +707,7 @@ box.workspace-tab-add-wrap {
   box-shadow: none;
   margin-top: 0;
   margin-bottom: 0;
-  margin-start: 0;
+  margin-start: -4px;
   margin-end: 0;
   padding-top: 0;
   padding-bottom: 0;
