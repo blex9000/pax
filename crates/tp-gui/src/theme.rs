@@ -612,6 +612,15 @@ notebook.workspace-tabs > header > tabs > tab label {
   font-weight: 600;
   color: alpha(@window_fg_color, 0.46);
 }
+notebook.workspace-tabs > header > tabs > tab entry {
+  min-height: 0;
+  padding: 0 4px;
+  font-size: 10px;
+}
+notebook.workspace-tabs > header > tabs > tab entry > text {
+  min-height: 0;
+  padding: 0;
+}
 notebook.workspace-tabs > header > tabs > tab image {
   -gtk-icon-size: 13px;
   color: alpha(@window_fg_color, 0.44);
