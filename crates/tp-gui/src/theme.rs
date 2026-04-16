@@ -617,10 +617,10 @@ notebook.workspace-tabs > header > tabs > tab image {
   color: alpha(@window_fg_color, 0.44);
 }
 image.workspace-tab-type-icon {
-  -gtk-icon-size: 13px;
-  min-height: 13px;
-  min-width: 13px;
-  margin-top: 1px;
+  -gtk-icon-size: 11px;
+  min-height: 11px;
+  min-width: 11px;
+  margin-top: 0;
   margin-left: 2px;
   color: alpha(@window_fg_color, 0.56);
 }
@@ -987,7 +987,7 @@ box.editor-file-preview-footer.panel-footer {
   margin-left: 1px;
   margin-right: 1px;
 }
-.tab-close-btn { min-height: 15px; min-width: 15px; padding: 0; }
+.tab-close-btn { min-height: 11px; min-width: 11px; padding: 0; }
 .tab-close-btn image {
   -gtk-icon-size: 14px;
 }
