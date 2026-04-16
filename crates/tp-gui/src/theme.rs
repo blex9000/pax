@@ -578,28 +578,6 @@ notebook.workspace-tabs > header {
   padding: 0;
   min-height: 14px;
 }
-/* Scroll arrow buttons — tagged programmatically with .pax-scroll-arrow
- * because GTK4's internal CSS node names vary across versions. */
-.pax-scroll-arrow,
-.pax-scroll-arrow:hover,
-.pax-scroll-arrow:active {
-  color: @accent_color;
-  background-color: transparent;
-  background-image: none;
-  box-shadow: none;
-  border-top: none;
-  border-left: none;
-  border-right: none;
-  border-bottom: 1px solid @border_hard;
-  border-radius: 0;
-  margin: 0;
-  padding: 0 4px;
-  min-width: 14px;
-  min-height: 0;
-}
-.pax-scroll-arrow image {
-  color: @accent_color;
-}
 notebook.workspace-tabs > header > tabs {
   background-color: transparent;
   box-shadow: none;
