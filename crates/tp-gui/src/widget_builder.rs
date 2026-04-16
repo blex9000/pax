@@ -451,6 +451,12 @@ mod tests {
     }
 }
 
+/// CSS class placed on a Notebook while a programmatic reorder is in flight.
+/// The `connect_switch_page` handler that redirects add-page activation to
+/// the add-tab action checks for this class and skips the redirect, so a
+/// tab move doesn't accidentally fire "new tab".
+const SUPPRESS_ADD_REDIRECT_CLASS: &str = "pax-suppress-add-redirect";
+
 fn preview_move_workspace_tab(child_widget: &gtk4::Widget, step: i32) -> bool {
     let Some(notebook) = find_notebook_ancestor(child_widget) else {
         return false;
@@ -462,8 +468,13 @@ fn preview_move_workspace_tab(child_widget: &gtk4::Widget, step: i32) -> bool {
     if !(0..workspace_tab_real_page_count(&notebook) as i32).contains(&target) {
         return false;
     }
+    // Suppress the add-page redirect while reordering: reorder_child +
+    // set_current_page can trigger switch_page transiently, and the handler
+    // would interpret it as a click on the "+" tab.
+    notebook.add_css_class(SUPPRESS_ADD_REDIRECT_CLASS);
     notebook.reorder_child(child_widget, Some(target as u32));
     notebook.set_current_page(Some(target as u32));
+    notebook.remove_css_class(SUPPRESS_ADD_REDIRECT_CLASS);
     true
 }
 
@@ -642,6 +653,11 @@ fn setup_notebook_menu_widget(notebook: &gtk4::Notebook, action_cb: Option<Panel
         let cb_for_switch = action_cb.clone();
         notebook.connect_switch_page(move |_nb, page, _num| {
             if !is_workspace_tab_add_page(page) {
+                return;
+            }
+            // A programmatic reorder (tab move) can trigger a transient
+            // switch-page through the add-page. Don't redirect in that case.
+            if nb_for_switch.has_css_class(SUPPRESS_ADD_REDIRECT_CLASS) {
                 return;
             }
             let nb = nb_for_switch.clone();
