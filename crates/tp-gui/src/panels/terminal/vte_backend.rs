@@ -72,6 +72,11 @@ impl TerminalInner {
         vte.set_allow_hyperlink(true);
         vte.set_font(Some(&super::terminal_font_description()));
 
+        // Hide terminal content during bootstrap while keeping layout space.
+        // opacity(0) is invisible but the widget still participates in sizing
+        // (unlike set_visible(false) which collapses it to zero height).
+        vte.set_opacity(0.0);
+
 
         let pending_commands: Rc<RefCell<Vec<String>>> = Rc::new(RefCell::new(Vec::new()));
         let spawned: Rc<RefCell<bool>> = Rc::new(RefCell::new(false));
@@ -108,15 +113,13 @@ impl TerminalInner {
             move |result| {
                 if result.is_ok() && !*spawned_for_cb.borrow() {
                     *spawned_for_cb.borrow_mut() = true;
-                    // Suppress echo so bootstrap commands and the default
-                    // bash prompt are invisible. stty -echo stops the PTY
-                    // from echoing input back to the terminal display.
-                    vte_for_cb.feed_child(b" stty -echo\n");
                     // Override PS1 and set PROMPT_COMMAND for OSC 7 directory tracking
                     // (after .bashrc has run, so it sticks)
                     vte_for_cb.feed_child(b" export PS1='\\[\\033[32m\\]$:\\[\\033[0m\\] '\n");
                     vte_for_cb.feed_child(b" export PROMPT_COMMAND='printf \"\\033]7;file://%s%s\\033\\\\\" \"$HOSTNAME\" \"$PWD\"'\n");
                     vte_for_cb.feed_child(b" export LS_COLORS='di=38;2;85;136;255:ln=36:so=35:pi=33:ex=32:bd=34;46:cd=34;43:su=30;41:sg=30;46:tw=30;42:ow=34;42'\n");
+                    // Clear screen to hide setup commands
+                    vte_for_cb.feed_child(b" clear\n");
                     // Run pending startup commands (SSH, scripts, etc.)
                     let cmds = pending_for_cb.borrow().clone();
                     for cmd in &cmds {
@@ -124,9 +127,20 @@ impl TerminalInner {
                         vte_for_cb.feed_child(silent.as_bytes());
                     }
                     pending_for_cb.borrow_mut().clear();
-                    // Clear screen and restore echo — the user sees only
-                    // the clean custom prompt from this point on.
-                    vte_for_cb.feed_child(b" clear; stty echo\n");
+
+                    // Wipe the terminal buffer and show after init completes.
+                    // reset(true,true) clears screen + scrollback so the
+                    // default prompt and init commands are gone. The shell
+                    // then prints a fresh prompt with our custom PS1.
+                    let vte_show = vte_for_cb.clone();
+                    glib::timeout_add_local_once(std::time::Duration::from_millis(800), move || {
+                        // Wipe screen + scrollback so nothing from bootstrap
+                        // remains, then reveal. Send Enter so the shell
+                        // prints a fresh prompt with custom PS1.
+                        vte_show.reset(true, true);
+                        vte_show.feed_child(b"\n");
+                        vte_show.set_opacity(1.0);
+                    });
                 }
             },
         );
