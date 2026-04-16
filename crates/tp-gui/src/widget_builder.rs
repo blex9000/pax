@@ -140,6 +140,10 @@ pub fn build_tab_label(
     let stack = gtk4::Stack::new();
     stack.set_halign(gtk4::Align::Start);
     stack.set_hexpand(true);
+    // Without this the Stack sizes to its tallest child (the Entry in
+    // edit mode, ~28px), making tabs permanently tall even when only the
+    // compact Label is visible.
+    stack.set_vhomogeneous(false);
     let label = gtk4::Label::new(Some(name));
     label.add_css_class("workspace-tab-text");
     label.set_halign(gtk4::Align::Start);
