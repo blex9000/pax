@@ -599,7 +599,7 @@ notebook.workspace-tabs > header > tabs > tab {
   border-radius: 0;
   margin: 0;
   border-spacing: 0;
-  min-height: 14px;
+  min-height: 10px;
   background-color: transparent;
   padding-top: 0;
   padding-bottom: 0;
