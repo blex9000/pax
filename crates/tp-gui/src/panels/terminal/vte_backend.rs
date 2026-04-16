@@ -129,10 +129,12 @@ impl TerminalInner {
                         vte_for_cb.feed_child(silent.as_bytes());
                     }
                     pending_for_cb.borrow_mut().clear();
+                    // Second clear after startup commands so nothing is visible.
+                    vte_for_cb.feed_child(b" clear\n");
 
-                    // Show the terminal after clear has had time to render.
+                    // Show the terminal after clears have had time to render.
                     let vte_show = vte_for_cb.clone();
-                    glib::timeout_add_local_once(std::time::Duration::from_millis(200), move || {
+                    glib::timeout_add_local_once(std::time::Duration::from_millis(500), move || {
                         vte_show.set_visible(true);
                     });
                 }
