@@ -27,9 +27,13 @@ pub(crate) fn encode_key_input(key: gdk::Key, modifiers: gdk::ModifierType) -> O
     let alt = modifiers.contains(gdk::ModifierType::ALT_MASK);
     let control = modifiers.contains(gdk::ModifierType::CONTROL_MASK);
 
+    let shift = modifiers.contains(gdk::ModifierType::SHIFT_MASK);
+
     let mut bytes = match key {
         gdk::Key::Return => vec![b'\r'],
         gdk::Key::BackSpace => vec![0x7f],
+        gdk::Key::Tab if shift => b"\x1b[Z".to_vec(),
+        gdk::Key::ISO_Left_Tab => b"\x1b[Z".to_vec(),
         gdk::Key::Tab => vec![b'\t'],
         gdk::Key::Escape => vec![0x1b],
         gdk::Key::Up => b"\x1b[A".to_vec(),
