@@ -583,7 +583,9 @@ notebook.workspace-tabs > header > tabs {
   min-height: 14px;
   /* Match the panel-frame margin (6px) on both sides so the tab strip
      aligns with the panels below it. */
-  padding-left: 6px;
+  /* Left padding sized to roughly match the '+' action widget width on the
+   * right, so the tab strip looks centered between the two. */
+  padding-left: 20px;
   padding-right: 0;
   /* Force tabs flush against each other so the per-tab bottom borders
      join into a single continuous line (no inherited GTK tab spacing). */
