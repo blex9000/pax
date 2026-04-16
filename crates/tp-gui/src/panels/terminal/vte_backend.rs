@@ -73,12 +73,33 @@ impl TerminalInner {
         vte.set_font(Some(&super::terminal_font_description()));
 
         // Hide the terminal while bootstrap commands (PS1, LS_COLORS, clear)
-        // execute so the user never sees the setup noise. We restore
-        // visibility after a short delay in the spawn callback, once clear
-        // has had time to take effect. Using set_visible instead of
-        // set_opacity because VTE renders directly via Cairo and may bypass
-        // GTK's opacity compositing.
+        // execute so the user never sees the setup noise or the default bash
+        // prompt. We show it when the custom PROMPT_COMMAND fires its first
+        // OSC 7 (current-directory-uri-changed signal), which proves that
+        // PS1 is active and clear has run. Fallback: a 2s timer in case OSC 7
+        // never fires (e.g. non-bash shell, SSH).
         vte.set_visible(false);
+        {
+            let vte_for_show = vte.clone();
+            let shown = Rc::new(std::cell::Cell::new(false));
+            let shown_for_signal = shown.clone();
+            let shown_for_timer = shown.clone();
+            // Signal-based: show on first OSC 7
+            vte.connect_current_directory_uri_notify(move |v| {
+                if !shown_for_signal.get() {
+                    shown_for_signal.set(true);
+                    v.set_visible(true);
+                }
+            });
+            // Timer fallback
+            let vte_for_timer = vte.clone();
+            glib::timeout_add_local_once(std::time::Duration::from_secs(2), move || {
+                if !shown_for_timer.get() {
+                    shown_for_timer.set(true);
+                    vte_for_timer.set_visible(true);
+                }
+            });
+        }
 
         let pending_commands: Rc<RefCell<Vec<String>>> = Rc::new(RefCell::new(Vec::new()));
         let spawned: Rc<RefCell<bool>> = Rc::new(RefCell::new(false));
@@ -131,12 +152,6 @@ impl TerminalInner {
                     pending_for_cb.borrow_mut().clear();
                     // Second clear after startup commands so nothing is visible.
                     vte_for_cb.feed_child(b" clear\n");
-
-                    // Show the terminal after clears have had time to render.
-                    let vte_show = vte_for_cb.clone();
-                    glib::timeout_add_local_once(std::time::Duration::from_millis(500), move || {
-                        vte_show.set_visible(true);
-                    });
                 }
             },
         );
