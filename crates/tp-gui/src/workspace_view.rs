@@ -259,6 +259,11 @@ impl WorkspaceView {
             startup_commands.len(),
             before_close.is_some()
         );
+
+        // Run before_close script on the old backend before replacing it
+        // (only fires if a script is configured for this panel).
+        self.run_before_close(panel_id);
+
         // Update model
         if let Some(panel_cfg) = self.workspace.panels.iter_mut().find(|p| p.id == panel_id) {
             panel_cfg.name = new_name.clone();
@@ -369,6 +374,14 @@ impl WorkspaceView {
             if let Some(ref script) = panel_cfg.before_close {
                 self.execute_close_script(&panel_cfg.id, script);
             }
+        }
+    }
+
+    /// Shut down all panel backends (terminate child processes).
+    /// Called on app/window close alongside `run_all_before_close`.
+    pub fn shutdown_all_backends(&self) {
+        for host in self.hosts.values() {
+            host.shutdown_backend();
         }
     }
 
@@ -1288,8 +1301,9 @@ impl WorkspaceView {
 
         self.workspace.panels.retain(|p| p.id != focused_id);
 
-        // 2. Detach the closing panel's widget and drop the host
+        // 2. Shut down the backend (terminate child process), detach widget, drop the host
         if let Some(host) = self.hosts.remove(&focused_id) {
+            host.shutdown_backend();
             detach_widget(host.widget());
         }
 

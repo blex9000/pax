@@ -380,4 +380,20 @@ impl TerminalInner {
     pub fn grab_focus(&self) {
         self.vte.grab_focus();
     }
+
+    /// Terminate the child process and release resources.
+    /// Sends Ctrl+C (SIGINT to foreground process group), unregisters
+    /// from theme tracking, and detaches the PTY (triggers SIGHUP).
+    pub fn shutdown(&self) {
+        // 1. Unregister from theme tracking to break the strong reference
+        //    that prevents the VTE widget from being finalized.
+        crate::theme::unregister_vte_terminal(&self.vte);
+
+        // 2. Send Ctrl+C to gracefully stop the foreground process.
+        self.vte.feed_child(b"\x03");
+
+        // 3. Detach the PTY. VTE unrefs its Pty object, closing the fd,
+        //    which sends SIGHUP to the child process group.
+        self.vte.set_pty(None::<&vte4::Pty>);
+    }
 }

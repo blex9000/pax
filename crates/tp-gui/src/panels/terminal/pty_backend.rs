@@ -416,6 +416,14 @@ impl TerminalInner {
     pub fn grab_focus(&self) {
         self.drawing_area.grab_focus();
     }
+
+    /// Flush the writer. Actual cleanup happens via Arc refcount
+    /// reaching zero on drop (closing the master fd, sending SIGHUP).
+    pub fn shutdown(&self) {
+        if let Ok(mut writer) = self.writer.lock() {
+            let _ = writer.flush();
+        }
+    }
 }
 
 struct TermState {

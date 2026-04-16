@@ -1251,10 +1251,12 @@ fn setup_workspace_ui(
         window.connect_close_request(move |_| {
             if bypass.get() {
                 ws.borrow().run_all_before_close();
+                ws.borrow().shutdown_all_backends();
                 return glib::Propagation::Proceed;
             }
             if !ws.borrow().is_dirty() {
                 ws.borrow().run_all_before_close();
+                ws.borrow().shutdown_all_backends();
                 return glib::Propagation::Proceed;
             }
             let win2 = win.clone();
@@ -1373,6 +1375,7 @@ fn setup_workspace_ui(
                 match key {
                     gdk::Key::q => {
                         ws.borrow().run_all_before_close();
+                        ws.borrow().shutdown_all_backends();
                         std::process::exit(0);
                     }
                     gdk::Key::n => {

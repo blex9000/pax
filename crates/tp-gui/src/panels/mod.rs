@@ -22,6 +22,11 @@ pub trait PanelBackend: std::fmt::Debug {
     /// Called when the panel loses focus.
     fn on_blur(&self) {}
 
+    /// Clean up resources before this backend is replaced or removed.
+    /// Called before the backend's widget is removed from the container.
+    /// Terminal implementations use this to terminate child processes.
+    fn shutdown(&self) {}
+
     /// Write input to the panel (for terminal-like panels).
     fn write_input(&self, _data: &[u8]) -> bool {
         false

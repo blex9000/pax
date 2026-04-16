@@ -76,6 +76,18 @@ pub fn register_vte_terminal(vte: &vte4::Terminal) {
     });
 }
 
+/// Remove a VTE terminal from the theme tracking list.
+/// Call this before destroying/replacing a VTE terminal to break
+/// the strong reference that would otherwise keep the widget (and
+/// its PTY) alive, preventing the child process from receiving SIGHUP.
+#[cfg(feature = "vte")]
+pub fn unregister_vte_terminal(vte: &vte4::Terminal) {
+    VTE_TERMINALS.with(|cell| {
+        let mut terminals = cell.borrow_mut();
+        terminals.retain(|t| t != vte);
+    });
+}
+
 /// Apply theme colors to all registered VTE terminals, pruning dead ones.
 #[cfg(feature = "vte")]
 fn apply_theme_to_all_terminals(theme: Theme) {

@@ -178,4 +178,8 @@ impl PanelBackend for TerminalPanel {
     fn accepts_input(&self) -> bool {
         true
     }
+
+    fn shutdown(&self) {
+        self.inner.shutdown();
+    }
 }

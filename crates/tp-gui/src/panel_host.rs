@@ -443,13 +443,24 @@ impl PanelHost {
         self.menu_button.set_popover(Some(&popover));
     }
 
+    /// Shut down the current backend (terminate child processes).
+    /// Call before dropping the host or when explicit cleanup is needed.
+    pub fn shutdown_backend(&self) {
+        if let Ok(current) = self.backend.try_borrow() {
+            if let Some(ref backend) = *current {
+                backend.shutdown();
+            }
+        }
+    }
+
     /// Set the panel backend, placing its widget inside this host.
-    /// If a backend is already set, removes the old widget first.
+    /// If a backend is already set, shuts it down and removes the old widget first.
     pub fn set_backend(&self, backend: Box<dyn PanelBackend>) {
-        // Remove old backend widget if present
+        // Shut down and remove old backend widget if present
         {
             if let Ok(current) = self.backend.try_borrow() {
                 if let Some(ref old) = *current {
+                    old.shutdown();
                     let old_widget = old.widget().clone();
                     drop(current); // Release borrow before remove
                     self.container.remove(&old_widget);
