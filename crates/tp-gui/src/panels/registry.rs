@@ -233,11 +233,16 @@ pub fn build_default_registry() -> PanelRegistry {
                 .as_deref()
                 .filter(|s| !s.trim().is_empty())
                 .or(home_owned.as_deref());
+            let show_startup_output = config
+                .extra
+                .get("__show_startup_output__")
+                .is_some();
             let mut panel = super::terminal::TerminalPanel::new(
                 shell,
                 effective_cwd,
                 &env,
                 ws_dir,
+                show_startup_output,
             );
             let is_ssh = config.extra.contains_key("ssh_host");
 

@@ -125,9 +125,10 @@ impl TerminalPanel {
         cwd: Option<&str>,
         env: &[(String, String)],
         workspace_dir: Option<&str>,
+        show_startup_output: bool,
     ) -> Self {
         Self {
-            inner: TerminalInner::new(shell, cwd, env, workspace_dir),
+            inner: TerminalInner::new(shell, cwd, env, workspace_dir, show_startup_output),
             ssh_info: None,
         }
     }

@@ -62,6 +62,7 @@ impl TerminalInner {
         cwd: Option<&str>,
         env: &[(String, String)],
         _workspace_dir: Option<&str>,
+        _show_startup_output: bool,
     ) -> Self {
         let drawing_area = gtk4::DrawingArea::new();
         drawing_area.set_focusable(true);

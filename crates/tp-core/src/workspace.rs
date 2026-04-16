@@ -95,6 +95,11 @@ pub struct PanelConfig {
     /// Script executed before closing the panel (cleanup, kill processes, etc.)
     #[serde(default)]
     pub before_close: Option<String>,
+    /// When true, startup command output is visible in the terminal. When
+    /// false (default), the terminal hides all bootstrap output and shows
+    /// only the clean prompt after init completes.
+    #[serde(default)]
+    pub show_startup_output: bool,
     /// Minimum width in pixels (0 = no minimum, panel shrinks freely).
     #[serde(default)]
     pub min_width: u32,

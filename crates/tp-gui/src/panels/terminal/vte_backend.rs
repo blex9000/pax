@@ -63,6 +63,7 @@ impl TerminalInner {
         cwd: Option<&str>,
         env: &[(String, String)],
         workspace_dir: Option<&str>,
+        show_startup_output: bool,
     ) -> Self {
         let vte = vte4::Terminal::new();
 
@@ -72,10 +73,12 @@ impl TerminalInner {
         vte.set_allow_hyperlink(true);
         vte.set_font(Some(&super::terminal_font_description()));
 
-        // Hide terminal content during bootstrap while keeping layout space.
-        // opacity(0) is invisible but the widget still participates in sizing
-        // (unlike set_visible(false) which collapses it to zero height).
-        vte.set_opacity(0.0);
+        // When show_startup_output is false (default), hide the terminal
+        // during bootstrap so the user sees only the clean custom prompt.
+        // opacity(0) keeps layout space while hiding content.
+        if !show_startup_output {
+            vte.set_opacity(0.0);
+        }
 
 
         let pending_commands: Rc<RefCell<Vec<String>>> = Rc::new(RefCell::new(Vec::new()));
@@ -132,15 +135,14 @@ impl TerminalInner {
                     // reset(true,true) clears screen + scrollback so the
                     // default prompt and init commands are gone. The shell
                     // then prints a fresh prompt with our custom PS1.
-                    let vte_show = vte_for_cb.clone();
-                    glib::timeout_add_local_once(std::time::Duration::from_millis(800), move || {
-                        // Wipe screen + scrollback so nothing from bootstrap
-                        // remains, then reveal. Send Enter so the shell
-                        // prints a fresh prompt with custom PS1.
-                        vte_show.reset(true, true);
-                        vte_show.feed_child(b"\n");
-                        vte_show.set_opacity(1.0);
-                    });
+                    if !show_startup_output {
+                        let vte_show = vte_for_cb.clone();
+                        glib::timeout_add_local_once(std::time::Duration::from_millis(800), move || {
+                            vte_show.reset(true, true);
+                            vte_show.feed_child(b"\n");
+                            vte_show.set_opacity(1.0);
+                        });
+                    }
                 }
             },
         );

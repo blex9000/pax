@@ -247,6 +247,7 @@ impl WorkspaceView {
         before_close: Option<String>,
         min_width: u32,
         min_height: u32,
+        show_startup_output: bool,
     ) {
         tracing::info!(
             "Configuring panel {}: name={}, type={:?}, cwd={:?}, ssh={}, cmds={}, before_close={}",
@@ -268,6 +269,7 @@ impl WorkspaceView {
             panel_cfg.before_close = before_close;
             panel_cfg.min_width = min_width;
             panel_cfg.min_height = min_height;
+            panel_cfg.show_startup_output = show_startup_output;
         }
 
         // Update title + tab label
@@ -312,6 +314,14 @@ impl WorkspaceView {
                 "__startup_commands__".to_string(),
                 startup_commands.join("\n"),
             );
+        }
+        // Forward show_startup_output flag
+        if let Some(panel_cfg) = self.workspace.panels.iter().find(|p| p.id == panel_id) {
+            if panel_cfg.show_startup_output {
+                config
+                    .extra
+                    .insert("__show_startup_output__".to_string(), "1".to_string());
+            }
         }
         if let Some(backend) = self.registry.create(panel_type_to_id(&new_type), &config) {
             if let Some(host) = self.hosts.get(panel_id) {
@@ -1065,6 +1075,7 @@ impl WorkspaceView {
             before_close: None,
             min_width: 0,
             min_height: 0,
+            show_startup_output: false,
             ssh: None,
         };
         let host = PanelHost::new(&new_id, &new_name, self.action_cb.clone());
@@ -1202,7 +1213,7 @@ impl WorkspaceView {
         PanelConfig {
             id: id.to_string(),
             name: name.to_string(),
-            panel_type: PanelType::Empty, // Chooser — user picks the type
+            panel_type: PanelType::Empty,
             target: Default::default(),
             startup_commands: vec![],
             groups: vec![],
@@ -1214,6 +1225,7 @@ impl WorkspaceView {
             before_close: None,
             min_width: 0,
             min_height: 0,
+            show_startup_output: false,
             ssh: None,
         }
     }

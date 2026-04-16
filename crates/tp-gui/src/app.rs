@@ -603,6 +603,7 @@ fn setup_workspace_ui(
                     None,
                     0,
                     0,
+                    false,
                     saved_ssh,
                     move |new_name,
                           new_type,
@@ -611,11 +612,11 @@ fn setup_workspace_ui(
                           new_cmds,
                           new_close,
                           new_mw,
-                          new_mh| {
-                        // apply_panel_config handles everything: sets type, creates backend, rebuilds layout
+                          new_mh,
+                          new_show_out| {
                         ws2.borrow_mut().apply_panel_config(
                             &pid, new_name, new_type, new_cwd, new_ssh, new_cmds, new_close,
-                            new_mw, new_mh,
+                            new_mw, new_mh, new_show_out,
                         );
                         actions::update_dirty_ui(&ws2, &win2, &sa2);
                     },
@@ -822,7 +823,7 @@ fn setup_workspace_ui(
                     }
                 }
                 PanelAction::Configure => {
-                    let (pname, ptype, pcwd, pssh, pcmds, pclose, pmw, pmh) = {
+                    let (pname, ptype, pcwd, pssh, pcmds, pclose, pmw, pmh, p_show_out) = {
                         let view = ws_for_cb.borrow();
                         let ws = view.workspace();
                         let pcfg = ws.panel(panel_id);
@@ -836,6 +837,7 @@ fn setup_workspace_ui(
                             pcfg.and_then(|p| p.before_close.clone()),
                             pcfg.map(|p| p.min_width).unwrap_or(0),
                             pcfg.map(|p| p.min_height).unwrap_or(0),
+                            pcfg.map(|p| p.show_startup_output).unwrap_or(false),
                         )
                     };
                     let pid = panel_id.to_string();
@@ -884,6 +886,7 @@ fn setup_workspace_ui(
                         pclose.as_deref(),
                         pmw,
                         pmh,
+                        p_show_out,
                         saved_ssh,
                         move |new_name,
                               new_type,
@@ -892,11 +895,12 @@ fn setup_workspace_ui(
                               new_cmds,
                               new_close,
                               new_mw,
-                              new_mh| {
-                            sync_stop.set(false); // Stop polling
+                              new_mh,
+                              new_show_out| {
+                            sync_stop.set(false);
                             ws2.borrow_mut().apply_panel_config(
                                 &pid, new_name, new_type, new_cwd, new_ssh, new_cmds, new_close,
-                                new_mw, new_mh,
+                                new_mw, new_mh, new_show_out,
                             );
                             actions::update_dirty_ui(&ws2, &win2, &sa2);
                         },
