@@ -134,7 +134,10 @@ impl TerminalInner {
                         let cmds_to_run = cmds;
                         glib::timeout_add_local_once(std::time::Duration::from_millis(800), move || {
                             vte_show.reset(true, true);
-                            vte_show.feed_child(b"\n");
+                            // Ctrl+L: bash redraws the prompt on the current
+                            // line without executing an empty command (no
+                            // extra blank line like \n would produce).
+                            vte_show.feed_child(b"\x0c");
                             vte_show.set_opacity(1.0);
                             for cmd in &cmds_to_run {
                                 let line = format!(" {}\n", cmd);
@@ -150,7 +153,7 @@ impl TerminalInner {
                         let vte_show = vte_for_cb.clone();
                         glib::timeout_add_local_once(std::time::Duration::from_millis(800), move || {
                             vte_show.reset(true, true);
-                            vte_show.feed_child(b"\n");
+                            vte_show.feed_child(b"\x0c");
                             vte_show.set_opacity(1.0);
                         });
                     }
