@@ -433,6 +433,33 @@ mod tests {
     }
 }
 
+/// Walk the notebook's internal widget tree and add CSS class
+/// `pax-scroll-arrow` to any GtkButton that isn't one of our custom tab
+/// widgets. Called on size-allocate so we catch arrows that GTK creates
+/// lazily when tabs start to overflow.
+fn tag_notebook_scroll_buttons(notebook: &gtk4::Notebook) {
+    fn visit(widget: &gtk4::Widget) {
+        // A GtkButton without our custom classes is an internal scroll arrow.
+        if widget.type_().name() == "GtkButton"
+            && !widget.has_css_class("flat")
+            && !widget.has_css_class("workspace-tab-add-wrap")
+            && !widget.has_css_class("workspace-tab-close-btn")
+            && !widget.has_css_class("pax-scroll-arrow")
+        {
+            widget.add_css_class("pax-scroll-arrow");
+        }
+        let mut child = widget.first_child();
+        while let Some(c) = child {
+            visit(&c);
+            child = c.next_sibling();
+        }
+    }
+    // Only scan the header area (first child), not the tab content.
+    if let Some(header) = notebook.first_child() {
+        visit(&header);
+    }
+}
+
 fn preview_move_workspace_tab(child_widget: &gtk4::Widget, step: i32) -> bool {
     let Some(notebook) = find_notebook_ancestor(child_widget) else {
         return false;
@@ -606,6 +633,20 @@ fn setup_notebook_menu_widget(notebook: &gtk4::Notebook, action_cb: Option<Panel
     remove_existing_workspace_tab_add_page(notebook);
     let add_btn = build_workspace_tab_add_label(notebook, action_cb.clone());
     notebook.set_action_widget(&add_btn, gtk4::PackType::End);
+
+    // Tag the internal scroll arrow buttons with a known CSS class so we
+    // can style them (bottom border, accent color, etc.). GTK creates these
+    // lazily when tabs overflow, so re-tag on every size-allocate.
+    {
+        let nb = notebook.clone();
+        notebook.connect_notify_local(Some("pages"), move |_, _| {
+            tag_notebook_scroll_buttons(&nb);
+        });
+        let nb2 = notebook.clone();
+        notebook.connect_map(move |_| {
+            tag_notebook_scroll_buttons(&nb2);
+        });
+    }
 
     if notebook.has_css_class("pax-tab-edit-gesture") {
         return;

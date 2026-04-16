@@ -578,12 +578,12 @@ notebook.workspace-tabs > header {
   padding: 0;
   min-height: 14px;
 }
-/* Scroll arrow buttons: stretch to full header height so their bottom
- * edge sits on the same baseline as the tabs. Same treatment as the
- * '+' action widget. */
-notebook.workspace-tabs > header > button,
-notebook.workspace-tabs > header > button.arrow,
-notebook.workspace-tabs > header button.arrow {
+/* Scroll arrow buttons — tagged programmatically with .pax-scroll-arrow
+ * because GTK4's internal CSS node names vary across versions. */
+.pax-scroll-arrow,
+.pax-scroll-arrow:hover,
+.pax-scroll-arrow:active {
+  color: @accent_color;
   background-color: transparent;
   background-image: none;
   box-shadow: none;
@@ -596,6 +596,9 @@ notebook.workspace-tabs > header button.arrow {
   padding: 0 4px;
   min-width: 14px;
   min-height: 0;
+}
+.pax-scroll-arrow image {
+  color: @accent_color;
 }
 notebook.workspace-tabs > header > tabs {
   background-color: transparent;
