@@ -565,18 +565,17 @@ notebook.workspace-tabs {
   box-shadow: none;
 }
 notebook.workspace-tabs > header {
-  /* Set accent as the inherited color for the ENTIRE header — the scroll
-   * arrow buttons inherit it regardless of which internal CSS node name
-   * GTK uses. Tab labels explicitly set their own color (see below), so
-   * they are unaffected by this rule.
-   * min-height matches the tabs (14px) so the action widget and scroll
-   * arrows land on the same baseline as the tab bottom borders. */
+  /* The bottom border lives on the HEADER, not on individual tabs. This
+   * way scroll arrows, the '+' action widget, and any dead space between
+   * elements all sit on the same continuous baseline — no per-widget
+   * border hacks needed. The active tab (:checked) covers this line
+   * with margin-bottom: -1px so it appears open at the bottom. */
   color: @accent_color;
   background-color: transparent;
   border-bottom: none;
   box-shadow: none;
   padding: 0;
-  min-height: 14px;
+  min-height: 0;
 }
 notebook.workspace-tabs > header > tabs {
   background-color: transparent;
@@ -591,8 +590,6 @@ notebook.workspace-tabs > header > tabs {
   border-spacing: 0;
 }
 notebook.workspace-tabs > header > tabs > tab {
-  /* Inactive tabs: only a bottom border. Margin/border-spacing zeroed so
-     the borders of adjacent tabs touch and form one continuous baseline. */
   border-top: none;
   border-left: none;
   border-right: none;
@@ -641,9 +638,11 @@ notebook.workspace-tabs > header > tabs > tab:hover {
   border-bottom-right-radius: 0;
 }
 notebook.workspace-tabs > header > tabs > tab:checked {
-  /* Active tab: arch chrome (top-left + top-right rounded), three-sided
-     outline in the same gray used by unfocused panel borders. No bg fill
-     so the baseline reads as the bottom edge. */
+  /* Active tab: three-sided border (top + left + right) with rounded top
+     corners. margin-bottom: -1px pushes the tab 1px below, covering the
+     header border-bottom line, creating the open-tab illusion.
+     Background must match the content area so the covered border
+     is invisible. */
   border-top: 1px solid @border_hard;
   border-left: 1px solid @border_hard;
   border-right: 1px solid @border_hard;
@@ -699,19 +698,13 @@ notebook.workspace-tabs > header > tabs > tab:hover button.workspace-tab-close-b
 notebook.workspace-tabs > header > tabs > tab button.workspace-tab-close-btn:hover {
   opacity: 1.0;
 }
-/* The '+' is now an action widget (not a tab page). Style it to blend
- * seamlessly with the last real tab: same bottom border, no gap, and
- * same hover treatment. */
+/* The '+' is an action widget. No border needed — the header's own
+ * border-bottom provides the baseline. */
 box.workspace-tab-add-wrap {
   background-color: transparent;
-  border-top: none;
-  border-left: none;
-  border-right: none;
-  border-bottom: 1px solid @border_hard;
+  border: none;
   border-radius: 0;
   box-shadow: none;
-  /* Negative start margin eats the tabs container's padding-right (6px)
-   * so the '+' sits flush against the last tab with no gap. */
   margin-top: 0;
   margin-bottom: 0;
   margin-start: -6px;
