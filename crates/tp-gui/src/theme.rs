@@ -696,23 +696,40 @@ notebook.workspace-tabs > header > tabs > tab:hover button.workspace-tab-close-b
 notebook.workspace-tabs > header > tabs > tab button.workspace-tab-close-btn:hover {
   opacity: 1.0;
 }
+/* The '+' is now an action widget (not a tab page). Style it to blend
+ * seamlessly with the last real tab: same bottom border, no gap, and
+ * same hover treatment. */
 box.workspace-tab-add-wrap {
   background-color: transparent;
-  border: none;
+  border-top: none;
+  border-left: none;
+  border-right: none;
+  border-bottom: 1px solid @border_hard;
+  border-radius: 0;
   box-shadow: none;
+  margin: 0;
+  padding: 0 8px;
   min-width: 16px;
-  min-height: 16px;
+  min-height: 14px;
+}
+box.workspace-tab-add-wrap:hover {
+  background-color: @hover_bg;
+  border-top-left-radius: 12px;
+  border-top-right-radius: 12px;
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
 }
 box.workspace-tab-add-wrap > label.workspace-tab-add-label {
-  min-height: 16px;
-  min-width: 16px;
+  min-height: 14px;
+  min-width: 14px;
   font-size: 15px;
   font-weight: 800;
   opacity: 0.65;
   color: alpha(@window_fg_color, 0.74);
 }
-notebook.workspace-tabs > header > tabs > tab:hover box.workspace-tab-add-wrap > label.workspace-tab-add-label {
+box.workspace-tab-add-wrap:hover > label.workspace-tab-add-label {
   color: @accent_color;
+  opacity: 1.0;
 }
 checkbutton.app-popover-check {
   min-height: 22px;
