@@ -47,6 +47,10 @@ pub enum PanelAction {
     SplitH,
     SplitV,
     AddTab,
+    /// Insert a new panel before this one in the parent split.
+    InsertBefore,
+    /// Insert a new panel after this one in the parent split.
+    InsertAfter,
     Close,
     /// Configure panel settings
     Configure,
@@ -745,6 +749,16 @@ fn build_panel_menu(panel_id: &str, action_cb: Option<PanelActionCallback>) -> g
             PanelAction::SplitV,
         ),
         ("Add Tab", "New panel as tab", PanelAction::AddTab),
+        (
+            "Add Panel Before",
+            "Insert panel before this one in parent split",
+            PanelAction::InsertBefore,
+        ),
+        (
+            "Add Panel After",
+            "Insert panel after this one in parent split",
+            PanelAction::InsertAfter,
+        ),
         ("Reset Panel", "Reset to type chooser", PanelAction::Reset),
         ("Close Panel", "Close this panel", PanelAction::Close),
     ];
@@ -764,6 +778,8 @@ fn build_panel_menu(panel_id: &str, action_cb: Option<PanelActionCallback>) -> g
             PanelAction::SplitH => "view-dual-symbolic",
             PanelAction::SplitV => "view-dual-symbolic",
             PanelAction::AddTab => "tab-new-symbolic",
+            PanelAction::InsertBefore => "go-up-symbolic",
+            PanelAction::InsertAfter => "go-down-symbolic",
             PanelAction::Reset => "edit-clear-symbolic",
             PanelAction::Close => "window-close-symbolic",
             PanelAction::AddTabToNotebook => "tab-new-symbolic",
@@ -792,6 +808,8 @@ fn build_panel_menu(panel_id: &str, action_cb: Option<PanelActionCallback>) -> g
             PanelAction::SplitH => "Ctrl+Shift+H",
             PanelAction::SplitV => "Ctrl+Shift+J",
             PanelAction::AddTab => "Ctrl+Shift+T",
+            PanelAction::InsertBefore => "",
+            PanelAction::InsertAfter => "",
             PanelAction::Reset => "",
             PanelAction::Close => "Ctrl+Shift+W",
             PanelAction::AddTabToNotebook => "",

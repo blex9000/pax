@@ -787,6 +787,26 @@ fn setup_workspace_ui(
                             .set_message(&format!("TabSplit → {}", new_id));
                     }
                 }
+                PanelAction::InsertBefore => {
+                    if let Some(new_id) = ws_for_cb
+                        .borrow_mut()
+                        .insert_sibling_focused(crate::layout_ops::InsertPosition::Before)
+                    {
+                        sb_for_cb
+                            .borrow()
+                            .set_message(&format!("Insert Before → {}", new_id));
+                    }
+                }
+                PanelAction::InsertAfter => {
+                    if let Some(new_id) = ws_for_cb
+                        .borrow_mut()
+                        .insert_sibling_focused(crate::layout_ops::InsertPosition::After)
+                    {
+                        sb_for_cb
+                            .borrow()
+                            .set_message(&format!("Insert After → {}", new_id));
+                    }
+                }
                 PanelAction::Reset => {
                     ws_for_cb.borrow_mut().reset_panel(panel_id);
                     sb_for_cb.borrow().set_message("Panel reset");

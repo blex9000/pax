@@ -1051,3 +1051,102 @@ mod tests {
         }
     }
 }
+
+// ── Insert sibling in parent split ─────────────────────────────────────────
+
+/// Where to insert the new panel relative to the current one.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum InsertPosition {
+    Before,
+    After,
+}
+
+/// Insert a new panel as a sibling of `panel_id` in the nearest ancestor
+/// split (Hsplit or Vsplit).
+///
+/// If `panel_id` is a direct child of a split, the new panel is inserted
+/// before or after it in that split's `children`/`ratios` vectors.
+///
+/// If `panel_id` lives inside a Tabs node, the function climbs to the Tabs'
+/// parent split and inserts relative to the Tabs branch (not inside it).
+///
+/// Returns `true` if the insertion happened.
+pub fn insert_sibling_in_layout(
+    layout: &mut LayoutNode,
+    panel_id: &str,
+    new_panel_id: &str,
+    position: InsertPosition,
+) -> bool {
+    // The strategy: recursively walk the tree. At each split node, check if
+    // any DIRECT child contains the target panel_id. If yes, insert next to
+    // that child. For Tabs parents, the recursion naturally means we find
+    // the split above the Tabs.
+    match layout {
+        LayoutNode::Panel { .. } => false,
+
+        LayoutNode::Hsplit { children, ratios }
+        | LayoutNode::Vsplit { children, ratios } => {
+            // Check each direct child: does it contain the target panel?
+            if let Some(idx) = children
+                .iter()
+                .position(|child| subtree_contains_panel(child, panel_id))
+            {
+                // If the child IS the panel directly, insert here.
+                // If the child is a Tabs that contains the panel, also insert
+                // here (at the split level, next to the Tabs node) — this is
+                // the "climb past Tabs" behavior the user requested.
+                let child_is_panel = matches!(&children[idx], LayoutNode::Panel { id } if id == panel_id);
+                let child_is_tabs = matches!(&children[idx], LayoutNode::Tabs { .. });
+
+                if child_is_panel || child_is_tabs {
+                    let insert_idx = match position {
+                        InsertPosition::Before => idx,
+                        InsertPosition::After => idx + 1,
+                    };
+                    children.insert(
+                        insert_idx,
+                        LayoutNode::Panel {
+                            id: new_panel_id.to_string(),
+                        },
+                    );
+                    // Redistribute ratios evenly.
+                    let n = children.len();
+                    *ratios = (0..n).map(|_| 1.0 / n as f64).collect();
+                    return true;
+                }
+
+                // Child is a nested split or other container — recurse into it.
+                return insert_sibling_in_layout(
+                    &mut children[idx],
+                    panel_id,
+                    new_panel_id,
+                    position,
+                );
+            }
+            false
+        }
+
+        LayoutNode::Tabs { children, .. } => {
+            // Don't insert inside Tabs — recurse so the caller (a split) can
+            // handle it. This just passes the search through.
+            for child in children.iter_mut() {
+                if insert_sibling_in_layout(child, panel_id, new_panel_id, position) {
+                    return true;
+                }
+            }
+            false
+        }
+    }
+}
+
+/// Check whether `node` (or any descendant) contains a panel with the given id.
+fn subtree_contains_panel(node: &LayoutNode, panel_id: &str) -> bool {
+    match node {
+        LayoutNode::Panel { id } => id == panel_id,
+        LayoutNode::Hsplit { children, .. }
+        | LayoutNode::Vsplit { children, .. }
+        | LayoutNode::Tabs { children, .. } => {
+            children.iter().any(|c| subtree_contains_panel(c, panel_id))
+        }
+    }
+}

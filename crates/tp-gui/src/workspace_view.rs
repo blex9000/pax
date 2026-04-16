@@ -1087,6 +1087,43 @@ impl WorkspaceView {
         Some(new_id)
     }
 
+    /// Insert a new panel as a sibling in the nearest ancestor split.
+    pub fn insert_sibling_focused(
+        &mut self,
+        position: crate::layout_ops::InsertPosition,
+    ) -> Option<String> {
+        let focused_id = self.focused_panel_id()?.to_string();
+        let new_id = self.alloc_panel_id();
+        let new_name = format!("New Panel {}", &new_id[1..]);
+
+        let new_cfg = self.make_empty_config(&new_id, &new_name);
+        let host = PanelHost::new(&new_id, &new_name, self.action_cb.clone());
+        let backend = self.create_chooser_backend(&new_id);
+        host.set_backend(backend);
+
+        if !crate::layout_ops::insert_sibling_in_layout(
+            &mut self.workspace.layout,
+            &focused_id,
+            &new_id,
+            position,
+        ) {
+            tracing::warn!(
+                "insert_sibling: could not find a parent split for {}",
+                focused_id
+            );
+            return None;
+        }
+
+        self.workspace.panels.push(new_cfg);
+        self.hosts.insert(new_id.clone(), host);
+
+        self.rebuild_layout();
+        self.rebuild_focus_order();
+        self.focus_panel_after_rebuild(&new_id);
+
+        Some(new_id)
+    }
+
     /// Wrap the focused panel in a new TabSplit (Notebook) with a second tab.
     pub fn add_tab_focused(&mut self) -> Option<String> {
         let focused_id = self.focused_panel_id()?.to_string();
