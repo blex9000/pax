@@ -707,12 +707,12 @@ box.workspace-tab-add-wrap {
   box-shadow: none;
   margin-top: 0;
   margin-bottom: 0;
-  margin-start: -6px;
+  margin-start: 0;
   margin-end: 0;
   padding-top: 0;
   padding-bottom: 0;
-  padding-left: 8px;
-  padding-right: 8px;
+  padding-left: 4px;
+  padding-right: 4px;
   min-width: 16px;
   min-height: 0;
 }
