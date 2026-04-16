@@ -378,7 +378,7 @@ mod tests {
     }
 
     #[test]
-    fn notebook_add_button_uses_plus_label() {
+    fn notebook_add_button_is_action_widget() {
         if gtk4::init().is_err() {
             return;
         }
@@ -390,35 +390,17 @@ mod tests {
 
         setup_notebook_menu_widget(&notebook, None);
 
-        let add_page = notebook
-            .nth_page(Some(notebook.n_pages() - 1))
-            .expect("workspace notebook should contain add page");
-        assert!(is_workspace_tab_add_page(&add_page));
-        let add_wrap = notebook
-            .tab_label(&add_page)
-            .expect("workspace add page should have tab label");
-        assert_eq!(add_wrap.halign(), gtk4::Align::Center);
-
-        let add_label =
-            find_first_label(add_wrap.upcast_ref()).expect("workspace add widget should contain label");
-        assert_eq!(add_label.text().as_str(), "+");
-    }
-
-    #[test]
-    fn workspace_tab_real_page_count_ignores_add_page() {
-        if gtk4::init().is_err() {
-            return;
-        }
-
-        let notebook = gtk4::Notebook::new();
-        notebook.add_css_class("workspace-tabs");
-        let child = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
-        notebook.append_page(&child, Some(&gtk4::Label::new(Some("Tab"))));
-
-        setup_notebook_menu_widget(&notebook, None);
-
-        assert_eq!(notebook.n_pages(), 2);
+        // The "+" is now an action widget at the end, not a tab page.
+        // n_pages stays 1 (only the real tab).
+        assert_eq!(notebook.n_pages(), 1);
         assert_eq!(workspace_tab_real_page_count(&notebook), 1);
+
+        let action = notebook
+            .action_widget(gtk4::PackType::End)
+            .expect("notebook should have an action widget at end");
+        let add_label =
+            find_first_label(action.upcast_ref()).expect("action widget should contain label");
+        assert_eq!(add_label.text().as_str(), "+");
     }
 
     #[test]
@@ -471,19 +453,6 @@ fn preview_move_workspace_tab(child_widget: &gtk4::Widget, step: i32) -> bool {
 /// Walks up the ancestor chain looking for the `workspace-tab-add-wrap` or
 /// `workspace-tab-add-label` CSS class. Used by the Notebook-level click
 /// gesture to detect dead-zone clicks on the "+" tab.
-fn widget_is_in_add_tab_area(widget: &gtk4::Widget) -> bool {
-    let mut current = Some(widget.clone());
-    while let Some(w) = current {
-        if w.has_css_class("workspace-tab-add-wrap")
-            || w.has_css_class("workspace-tab-add-label")
-        {
-            return true;
-        }
-        current = w.parent();
-    }
-    false
-}
-
 /// Rebuild tab labels on existing Notebooks from the layout model.
 /// Walks the widget tree and layout tree in parallel so each Notebook
 /// gets labels from its corresponding Tabs node — no ambiguous matching.
@@ -629,65 +598,19 @@ fn update_labels_with_layout(
 }
 
 fn setup_notebook_menu_widget(notebook: &gtk4::Notebook, action_cb: Option<PanelActionCallback>) {
-    // Add tab button only — collapse is handled by drag resize
+    // "+" button as an action widget at the end of the tab header — NOT a
+    // tab page. This way GTK's scroll/overflow calculation doesn't count it,
+    // so scroll arrows only appear when real tabs overflow. Previous approach
+    // (a dummy page with a "+" label) caused scroll arrows to show even when
+    // all real tabs fitted, dead-zone click issues, and reorder conflicts.
     remove_existing_workspace_tab_add_page(notebook);
-    let add_page = build_workspace_tab_add_page(notebook, action_cb.clone());
-    let add_page_widget = add_page.upcast::<gtk4::Widget>();
-    let add_label = build_workspace_tab_add_label(notebook, action_cb.clone());
-    notebook.append_page(&add_page_widget, Some(&add_label));
-    notebook.set_tab_reorderable(&add_page_widget, false);
-    notebook.set_tab_detachable(&add_page_widget, false);
-    let add_page_meta = notebook.page(&add_page_widget);
-    add_page_meta.set_tab_expand(false);
-    add_page_meta.set_tab_fill(false);
+    let add_btn = build_workspace_tab_add_label(notebook, action_cb.clone());
+    notebook.set_action_widget(&add_btn, gtk4::PackType::End);
 
     if notebook.has_css_class("pax-tab-edit-gesture") {
         return;
     }
     notebook.add_css_class("pax-tab-edit-gesture");
-
-    // Catch clicks that land on the add-page's tab label area but OUTSIDE the
-    // small add_wrap gesture target (the "dead zone" around the "+" glyph).
-    // We use a Capture-phase click gesture on the notebook and hit-test the
-    // click coordinates: if the widget under the pointer is (or descends from)
-    // the add-page's tab label, we claim the event (preventing GTK's default
-    // page-switch) and fire the add-tab action instead.
-    //
-    // This is narrower than the previous connect_switch_page approach, which
-    // also fired on scroll-arrow clicks, keyboard tab switches, and
-    // programmatic reorders — none of which should create a new tab.
-    {
-        let nb_for_add = notebook.clone();
-        let cb_for_add = action_cb.clone();
-        let add_click = gtk4::GestureClick::new();
-        add_click.set_button(1);
-        add_click.set_propagation_phase(gtk4::PropagationPhase::Capture);
-        add_click.connect_pressed(move |g, n_press, x, y| {
-            if n_press != 1 {
-                return;
-            }
-            let Some(picked) = nb_for_add.pick(x, y, gtk4::PickFlags::DEFAULT) else {
-                return;
-            };
-            if !widget_is_in_add_tab_area(&picked) {
-                return;
-            }
-            // Claim so GTK doesn't switch to the empty add-page.
-            g.set_state(gtk4::EventSequenceState::Claimed);
-            let nb = nb_for_add.clone();
-            let cb = cb_for_add.clone();
-            gtk4::glib::idle_add_local_once(move || {
-                let tab_path = decode_tabs_widget_name(&nb.widget_name());
-                if let (Some(cb), Some(tab_path)) = (cb.as_ref(), tab_path.as_ref()) {
-                    cb(
-                        &format!("nb-tabs:{}", encode_tab_path(tab_path)),
-                        PanelAction::AddTabToNotebook,
-                    );
-                }
-            });
-        });
-        notebook.add_controller(add_click);
-    }
 
     let nb = notebook.clone();
     let cb = action_cb;
@@ -777,36 +700,18 @@ fn build_workspace_tab_add_label(
     add_wrap
 }
 
-fn build_workspace_tab_add_page(
-    _notebook: &gtk4::Notebook,
-    _action_cb: Option<PanelActionCallback>,
-) -> gtk4::Box {
-    let page = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
-    page.add_css_class("workspace-tab-add-page");
-    page.set_can_focus(false);
-    page.set_focusable(false);
-    page.set_sensitive(false);
-    page
-}
-
 fn is_workspace_tab_add_page(widget: &gtk4::Widget) -> bool {
     widget.has_css_class("workspace-tab-add-page")
 }
 
 fn workspace_tab_real_page_count(notebook: &gtk4::Notebook) -> u32 {
-    let count = notebook.n_pages();
-    if count == 0 {
-        return 0;
-    }
-    if let Some(last_page) = notebook.nth_page(Some(count - 1)) {
-        if is_workspace_tab_add_page(&last_page) {
-            return count - 1;
-        }
-    }
-    count
+    // All pages are real now — the "+" is an action widget, not a page.
+    notebook.n_pages()
 }
 
 fn remove_existing_workspace_tab_add_page(notebook: &gtk4::Notebook) {
+    // Legacy cleanup: remove the old add-page (if present from a previous
+    // rebuild that still used the page-based approach).
     let count = notebook.n_pages();
     if count == 0 {
         return;
