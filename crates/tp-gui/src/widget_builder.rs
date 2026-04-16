@@ -621,19 +621,48 @@ fn setup_notebook_menu_widget(notebook: &gtk4::Notebook, action_cb: Option<Panel
     notebook.set_tab_reorderable(&add_page_widget, false);
     notebook.set_tab_detachable(&add_page_widget, false);
     let add_page_meta = notebook.page(&add_page_widget);
-    // Let the "+" tab claim the leftover horizontal space in the tab bar and
-    // have its label widget fill that space. Without this, the tab label
-    // (add_wrap) shrinks to the literal "+" glyph and the padding around it
-    // is dead space where GTK's default tab-selection kicks in — clicking
-    // beside the plus would switch to the empty add-page instead of
-    // triggering the add-tab gesture.
-    add_page_meta.set_tab_expand(true);
-    add_page_meta.set_tab_fill(true);
+    add_page_meta.set_tab_expand(false);
+    add_page_meta.set_tab_fill(false);
 
     if notebook.has_css_class("pax-tab-edit-gesture") {
         return;
     }
     notebook.add_css_class("pax-tab-edit-gesture");
+
+    // Catch clicks that land on the add-page's tab label but OUTSIDE the
+    // add_wrap gesture target (the "dead zone" around the "+" glyph). GTK's
+    // default handler switches to the add-page, which shows an empty chooser
+    // — not what the user expects. On idle we bounce back to the previous
+    // page and fire the add-tab action instead. Direct clicks on the "+"
+    // itself are already handled by add_wrap's Capture-phase gesture, which
+    // claims the event before GTK's page-switch handler runs, so there is
+    // no double-fire.
+    {
+        let nb_for_switch = notebook.clone();
+        let cb_for_switch = action_cb.clone();
+        notebook.connect_switch_page(move |_nb, page, _num| {
+            if !is_workspace_tab_add_page(page) {
+                return;
+            }
+            let nb = nb_for_switch.clone();
+            let cb = cb_for_switch.clone();
+            gtk4::glib::idle_add_local_once(move || {
+                // Jump back to the last real tab.
+                let real_count = workspace_tab_real_page_count(&nb);
+                if real_count > 0 {
+                    nb.set_current_page(Some(real_count - 1));
+                }
+                // Fire the add-tab action (same as a direct click on "+").
+                let tab_path = decode_tabs_widget_name(&nb.widget_name());
+                if let (Some(cb), Some(tab_path)) = (cb.as_ref(), tab_path.as_ref()) {
+                    cb(
+                        &format!("nb-tabs:{}", encode_tab_path(tab_path)),
+                        PanelAction::AddTabToNotebook,
+                    );
+                }
+            });
+        });
+    }
 
     let nb = notebook.clone();
     let cb = action_cb;
@@ -693,15 +722,10 @@ fn build_workspace_tab_add_label(
     add_label.add_css_class("workspace-tab-add-label");
     add_label.set_halign(gtk4::Align::Center);
     add_label.set_valign(gtk4::Align::Center);
-    add_label.set_hexpand(true);
-    // Full-width clickable wrapper. Together with `set_tab_fill(true)` on
-    // the notebook's add-page, this makes the entire leftover region of the
-    // tab bar act as the "new tab" hit target — not just the "+" glyph.
     let add_wrap = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
     add_wrap.add_css_class("workspace-tab-add-wrap");
-    add_wrap.set_halign(gtk4::Align::Fill);
-    add_wrap.set_valign(gtk4::Align::Fill);
-    add_wrap.set_hexpand(true);
+    add_wrap.set_halign(gtk4::Align::Center);
+    add_wrap.set_valign(gtk4::Align::Center);
     add_wrap.append(&add_label);
     let nb = notebook.clone();
     let cb = action_cb.clone();
