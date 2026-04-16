@@ -324,14 +324,7 @@ impl TerminalInner {
             return;
         }
 
-        // Inline script mode: heredoc via stdin (no temp file needed).
-        let interpreter = full_text
-            .lines()
-            .next()
-            .filter(|l| l.starts_with("#!"))
-            .map(|l| l.trim_start_matches("#!").trim().to_string())
-            .unwrap_or_else(|| "/bin/bash".to_string());
-
+        // Inline script mode.
         let script_body: String = full_text
             .lines()
             .filter(|l| !l.starts_with("#!"))
@@ -342,9 +335,30 @@ impl TerminalInner {
             return;
         }
 
+        // Single-command scripts (shebang + one line): send the command
+        // directly so it inherits the real PTY stdin. Heredoc would
+        // redirect stdin and break interactive commands like SSH.
+        let body_lines: Vec<&str> = script_body
+            .lines()
+            .filter(|l| !l.trim().is_empty())
+            .collect();
+        if body_lines.len() == 1 {
+            self.pending_commands
+                .borrow_mut()
+                .push(body_lines[0].to_string());
+            return;
+        }
+
+        // Multi-line script: heredoc via stdin (no temp file needed).
+        let interpreter = full_text
+            .lines()
+            .next()
+            .filter(|l| l.starts_with("#!"))
+            .map(|l| l.trim_start_matches("#!").trim().to_string())
+            .unwrap_or_else(|| "/bin/bash".to_string());
+
         let is_bash = interpreter.contains("bash") || interpreter.contains("sh");
         let cmd = if is_bash {
-            // `source /dev/stdin` keeps env changes in the current shell.
             format!(
                 "source /dev/stdin << 'PAX_SCRIPT_EOF'\n{}\nPAX_SCRIPT_EOF",
                 script_body
