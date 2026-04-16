@@ -104,7 +104,6 @@ pub fn build_tab_label(
         if is_root_label { 4 } else { 3 },
     );
     hbox.set_halign(gtk4::Align::Fill);
-    hbox.set_valign(gtk4::Align::Center);
     hbox.set_hexpand(true);
     hbox.add_css_class("workspace-tab-label");
     hbox.add_css_class(if is_root_label {
