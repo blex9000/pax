@@ -134,10 +134,7 @@ impl TerminalInner {
                         let cmds_to_run = cmds;
                         glib::timeout_add_local_once(std::time::Duration::from_millis(800), move || {
                             vte_show.reset(true, true);
-                            // Ctrl+L: bash redraws the prompt on the current
-                            // line without executing an empty command (no
-                            // extra blank line like \n would produce).
-                            vte_show.feed_child(b"\x0c");
+                            vte_show.feed_child(b"\n");
                             vte_show.set_opacity(1.0);
                             for cmd in &cmds_to_run {
                                 let line = format!(" {}\n", cmd);
@@ -382,18 +379,12 @@ impl TerminalInner {
     }
 
     /// Terminate the child process and release resources.
-    /// Sends Ctrl+C (SIGINT to foreground process group), unregisters
-    /// from theme tracking, and detaches the PTY (triggers SIGHUP).
+    /// Unregisters from theme tracking (breaks the strong reference that
+    /// prevented GObject finalization) and sends Ctrl+C to gracefully
+    /// stop the foreground process. When the VTE widget is finalized,
+    /// the PTY closes and the child receives SIGHUP.
     pub fn shutdown(&self) {
-        // 1. Unregister from theme tracking to break the strong reference
-        //    that prevents the VTE widget from being finalized.
         crate::theme::unregister_vte_terminal(&self.vte);
-
-        // 2. Send Ctrl+C to gracefully stop the foreground process.
         self.vte.feed_child(b"\x03");
-
-        // 3. Detach the PTY. VTE unrefs its Pty object, closing the fd,
-        //    which sends SIGHUP to the child process group.
-        self.vte.set_pty(None::<&vte4::Pty>);
     }
 }
