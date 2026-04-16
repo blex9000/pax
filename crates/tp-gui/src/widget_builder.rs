@@ -451,12 +451,6 @@ mod tests {
     }
 }
 
-/// CSS class placed on a Notebook while a programmatic reorder is in flight.
-/// The `connect_switch_page` handler that redirects add-page activation to
-/// the add-tab action checks for this class and skips the redirect, so a
-/// tab move doesn't accidentally fire "new tab".
-const SUPPRESS_ADD_REDIRECT_CLASS: &str = "pax-suppress-add-redirect";
-
 fn preview_move_workspace_tab(child_widget: &gtk4::Widget, step: i32) -> bool {
     let Some(notebook) = find_notebook_ancestor(child_widget) else {
         return false;
@@ -468,14 +462,26 @@ fn preview_move_workspace_tab(child_widget: &gtk4::Widget, step: i32) -> bool {
     if !(0..workspace_tab_real_page_count(&notebook) as i32).contains(&target) {
         return false;
     }
-    // Suppress the add-page redirect while reordering: reorder_child +
-    // set_current_page can trigger switch_page transiently, and the handler
-    // would interpret it as a click on the "+" tab.
-    notebook.add_css_class(SUPPRESS_ADD_REDIRECT_CLASS);
     notebook.reorder_child(child_widget, Some(target as u32));
     notebook.set_current_page(Some(target as u32));
-    notebook.remove_css_class(SUPPRESS_ADD_REDIRECT_CLASS);
     true
+}
+
+/// Check whether `widget` is inside the add-page's tab label area.
+/// Walks up the ancestor chain looking for the `workspace-tab-add-wrap` or
+/// `workspace-tab-add-label` CSS class. Used by the Notebook-level click
+/// gesture to detect dead-zone clicks on the "+" tab.
+fn widget_is_in_add_tab_area(widget: &gtk4::Widget) -> bool {
+    let mut current = Some(widget.clone());
+    while let Some(w) = current {
+        if w.has_css_class("workspace-tab-add-wrap")
+            || w.has_css_class("workspace-tab-add-label")
+        {
+            return true;
+        }
+        current = w.parent();
+    }
+    false
 }
 
 /// Rebuild tab labels on existing Notebooks from the layout model.
@@ -640,35 +646,37 @@ fn setup_notebook_menu_widget(notebook: &gtk4::Notebook, action_cb: Option<Panel
     }
     notebook.add_css_class("pax-tab-edit-gesture");
 
-    // Catch clicks that land on the add-page's tab label but OUTSIDE the
-    // add_wrap gesture target (the "dead zone" around the "+" glyph). GTK's
-    // default handler switches to the add-page, which shows an empty chooser
-    // — not what the user expects. On idle we bounce back to the previous
-    // page and fire the add-tab action instead. Direct clicks on the "+"
-    // itself are already handled by add_wrap's Capture-phase gesture, which
-    // claims the event before GTK's page-switch handler runs, so there is
-    // no double-fire.
+    // Catch clicks that land on the add-page's tab label area but OUTSIDE the
+    // small add_wrap gesture target (the "dead zone" around the "+" glyph).
+    // We use a Capture-phase click gesture on the notebook and hit-test the
+    // click coordinates: if the widget under the pointer is (or descends from)
+    // the add-page's tab label, we claim the event (preventing GTK's default
+    // page-switch) and fire the add-tab action instead.
+    //
+    // This is narrower than the previous connect_switch_page approach, which
+    // also fired on scroll-arrow clicks, keyboard tab switches, and
+    // programmatic reorders — none of which should create a new tab.
     {
-        let nb_for_switch = notebook.clone();
-        let cb_for_switch = action_cb.clone();
-        notebook.connect_switch_page(move |_nb, page, _num| {
-            if !is_workspace_tab_add_page(page) {
+        let nb_for_add = notebook.clone();
+        let cb_for_add = action_cb.clone();
+        let add_click = gtk4::GestureClick::new();
+        add_click.set_button(1);
+        add_click.set_propagation_phase(gtk4::PropagationPhase::Capture);
+        add_click.connect_pressed(move |g, n_press, x, y| {
+            if n_press != 1 {
                 return;
             }
-            // A programmatic reorder (tab move) can trigger a transient
-            // switch-page through the add-page. Don't redirect in that case.
-            if nb_for_switch.has_css_class(SUPPRESS_ADD_REDIRECT_CLASS) {
+            let Some(picked) = nb_for_add.pick(x, y, gtk4::PickFlags::DEFAULT) else {
+                return;
+            };
+            if !widget_is_in_add_tab_area(&picked) {
                 return;
             }
-            let nb = nb_for_switch.clone();
-            let cb = cb_for_switch.clone();
+            // Claim so GTK doesn't switch to the empty add-page.
+            g.set_state(gtk4::EventSequenceState::Claimed);
+            let nb = nb_for_add.clone();
+            let cb = cb_for_add.clone();
             gtk4::glib::idle_add_local_once(move || {
-                // Jump back to the last real tab.
-                let real_count = workspace_tab_real_page_count(&nb);
-                if real_count > 0 {
-                    nb.set_current_page(Some(real_count - 1));
-                }
-                // Fire the add-tab action (same as a direct click on "+").
                 let tab_path = decode_tabs_widget_name(&nb.widget_name());
                 if let (Some(cb), Some(tab_path)) = (cb.as_ref(), tab_path.as_ref()) {
                     cb(
@@ -678,6 +686,7 @@ fn setup_notebook_menu_widget(notebook: &gtk4::Notebook, action_cb: Option<Panel
                 }
             });
         });
+        notebook.add_controller(add_click);
     }
 
     let nb = notebook.clone();
