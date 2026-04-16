@@ -570,6 +570,17 @@ notebook.workspace-tabs > header {
   box-shadow: none;
   min-height: 16px;
 }
+/* Scroll arrows that appear when tabs overflow the header width. */
+notebook.workspace-tabs > header > button {
+  color: @accent_color;
+  background-color: transparent;
+  background-image: none;
+  box-shadow: none;
+  border: none;
+  min-width: 14px;
+  min-height: 14px;
+  padding: 0 2px;
+}
 notebook.workspace-tabs > header > tabs {
   background-color: transparent;
   box-shadow: none;
