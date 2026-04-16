@@ -437,10 +437,50 @@ mod tests {
 /// `pax-scroll-arrow` to any GtkButton that isn't one of our custom tab
 /// widgets. Called on size-allocate so we catch arrows that GTK creates
 /// lazily when tabs start to overflow.
+/// Walk the notebook's header to find internal scroll arrow buttons and
+/// apply styling directly via an inline CssProvider per-widget. CSS class
+/// selectors on these internal GtkButtons don't reliably override GTK's
+/// built-in styles, so we bypass the global stylesheet entirely.
+/// One-time flag: have we registered the USER-priority provider for
+/// `.pax-scroll-arrow` yet? Using `std::sync::Once` to avoid adding the
+/// same provider every time a notebook's scroll buttons are tagged.
+static SCROLL_ARROW_CSS_REGISTERED: std::sync::Once = std::sync::Once::new();
+
+fn ensure_scroll_arrow_css(display: &gtk4::gdk::Display) {
+    SCROLL_ARROW_CSS_REGISTERED.call_once(|| {
+        let provider = gtk4::CssProvider::new();
+        provider.load_from_data(
+            "button.pax-scroll-arrow, \
+             button.pax-scroll-arrow:hover, \
+             button.pax-scroll-arrow:active { \
+               color: @accent_color; \
+               background: transparent; \
+               background-image: none; \
+               box-shadow: none; \
+               border-top: none; \
+               border-left: none; \
+               border-right: none; \
+               border-bottom: 1px solid @border_hard; \
+               border-radius: 0; \
+               margin: 0; \
+               padding: 0 4px; \
+               min-width: 14px; \
+               min-height: 0; \
+             } \
+             button.pax-scroll-arrow image { color: @accent_color; }",
+        );
+        gtk4::style_context_add_provider_for_display(
+            display,
+            &provider,
+            gtk4::STYLE_PROVIDER_PRIORITY_USER,
+        );
+    });
+}
+
 fn tag_notebook_scroll_buttons(notebook: &gtk4::Notebook) {
     fn visit(widget: &gtk4::Widget) {
-        // A GtkButton without our custom classes is an internal scroll arrow.
-        if widget.type_().name() == "GtkButton"
+        let type_name = widget.type_().name();
+        if type_name == "GtkButton"
             && !widget.has_css_class("flat")
             && !widget.has_css_class("workspace-tab-add-wrap")
             && !widget.has_css_class("workspace-tab-close-btn")
@@ -454,9 +494,11 @@ fn tag_notebook_scroll_buttons(notebook: &gtk4::Notebook) {
             child = c.next_sibling();
         }
     }
-    // Only scan the header area (first child), not the tab content.
-    if let Some(header) = notebook.first_child() {
-        visit(&header);
+    ensure_scroll_arrow_css(&notebook.display());
+    let mut child = notebook.first_child();
+    while let Some(c) = child {
+        visit(&c);
+        child = c.next_sibling();
     }
 }
 
