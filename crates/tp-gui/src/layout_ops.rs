@@ -101,6 +101,54 @@ fn has_panels(node: &LayoutNode) -> bool {
     }
 }
 
+/// Find the panel that should receive focus when `panel_id` is closed.
+/// Returns the first panel of the PREVIOUS sibling in the innermost Tabs
+/// that contains `panel_id`; if `panel_id` is at index 0, returns the first
+/// panel of the NEXT sibling instead. Returns `None` when no Tabs ancestor
+/// exists or the Tabs has only one child.
+pub fn adjacent_tab_sibling_panel(node: &LayoutNode, panel_id: &str) -> Option<String> {
+    match node {
+        LayoutNode::Tabs { children, .. } => {
+            // Which child contains (or is) the target panel?
+            let idx = children
+                .iter()
+                .position(|c| subtree_contains_panel(c, panel_id))?;
+            // Pick the previous sibling; if first, pick next.
+            let sibling_idx = if idx > 0 {
+                idx - 1
+            } else if idx + 1 < children.len() {
+                idx + 1
+            } else {
+                return None; // only child
+            };
+            first_panel_in_subtree(&children[sibling_idx])
+        }
+        LayoutNode::Hsplit { children, .. }
+        | LayoutNode::Vsplit { children, .. } => {
+            // Recurse into the branch that contains the panel.
+            for child in children {
+                if let Some(id) = adjacent_tab_sibling_panel(child, panel_id) {
+                    return Some(id);
+                }
+            }
+            None
+        }
+        LayoutNode::Panel { .. } => None,
+    }
+}
+
+/// Return the first Panel id found in a depth-first walk of `node`.
+fn first_panel_in_subtree(node: &LayoutNode) -> Option<String> {
+    match node {
+        LayoutNode::Panel { id } => Some(id.clone()),
+        LayoutNode::Hsplit { children, .. }
+        | LayoutNode::Vsplit { children, .. }
+        | LayoutNode::Tabs { children, .. } => {
+            children.iter().find_map(first_panel_in_subtree)
+        }
+    }
+}
+
 /// Remove a panel from the layout tree, collapsing containers that become
 /// empty or have only one child. Works correctly for deeply nested panels.
 pub fn remove_from_layout(node: &LayoutNode, panel_id: &str) -> LayoutNode {

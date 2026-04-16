@@ -1237,6 +1237,15 @@ impl WorkspaceView {
             None => return false,
         };
 
+        // Determine the best panel to focus after closing: the previous tab
+        // sibling in the same Tabs node (or the next one if we're at index 0).
+        // Falls back to the generic focus-order approach when the panel isn't
+        // inside a Tabs or is the only child.
+        let focus_after_close = crate::layout_ops::adjacent_tab_sibling_panel(
+            &self.workspace.layout,
+            &focused_id,
+        );
+
         // Run before_close script
         self.run_before_close(&focused_id);
 
@@ -1276,12 +1285,17 @@ impl WorkspaceView {
         self.rebuild_layout();
         self.rebuild_focus_order();
 
-        // 4. Focus the next panel in focus order (stay near closed position)
-        if self.focus.index >= self.focus.order.len() {
-            self.focus.index = self.focus.order.len().saturating_sub(1);
-        }
-        if let Some(target_id) = self.focus.focused_panel_id().map(|id| id.to_string()) {
-            self.focus_panel_after_rebuild(&target_id);
+        // 4. Focus the previous tab sibling if we found one; otherwise fall
+        //    back to the nearest panel in the flat focus order.
+        if let Some(ref target_id) = focus_after_close {
+            self.focus_panel_after_rebuild(target_id);
+        } else {
+            if self.focus.index >= self.focus.order.len() {
+                self.focus.index = self.focus.order.len().saturating_sub(1);
+            }
+            if let Some(target_id) = self.focus.focused_panel_id().map(|id| id.to_string()) {
+                self.focus_panel_after_rebuild(&target_id);
+            }
         }
 
         true
