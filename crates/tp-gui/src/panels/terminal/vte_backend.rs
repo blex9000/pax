@@ -324,32 +324,15 @@ impl TerminalInner {
             return;
         }
 
-        // Inline script mode.
-        let script_body: String = full_text
-            .lines()
-            .filter(|l| !l.starts_with("#!"))
-            .collect::<Vec<_>>()
-            .join("\n");
+        // Inline script mode: write to temp file, source it, clean up
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static COUNTER: AtomicU64 = AtomicU64::new(0);
+        let tmp = std::env::temp_dir().join(format!(
+            "pax_startup_{}_{}.sh",
+            std::process::id(),
+            COUNTER.fetch_add(1, Ordering::Relaxed),
+        ));
 
-        if script_body.trim().is_empty() {
-            return;
-        }
-
-        // Single-command scripts (shebang + one line): send the command
-        // directly so it inherits the real PTY stdin. Heredoc would
-        // redirect stdin and break interactive commands like SSH.
-        let body_lines: Vec<&str> = script_body
-            .lines()
-            .filter(|l| !l.trim().is_empty())
-            .collect();
-        if body_lines.len() == 1 {
-            self.pending_commands
-                .borrow_mut()
-                .push(body_lines[0].to_string());
-            return;
-        }
-
-        // Multi-line script: heredoc via stdin (no temp file needed).
         let interpreter = full_text
             .lines()
             .next()
@@ -357,19 +340,24 @@ impl TerminalInner {
             .map(|l| l.trim_start_matches("#!").trim().to_string())
             .unwrap_or_else(|| "/bin/bash".to_string());
 
-        let is_bash = interpreter.contains("bash") || interpreter.contains("sh");
-        let cmd = if is_bash {
-            format!(
-                "source /dev/stdin << 'PAX_SCRIPT_EOF'\n{}\nPAX_SCRIPT_EOF",
-                script_body
-            )
+        let script = if full_text.starts_with("#!") {
+            full_text.clone()
         } else {
-            format!(
-                "{} /dev/stdin << 'PAX_SCRIPT_EOF'\n{}\nPAX_SCRIPT_EOF",
-                interpreter, script_body
-            )
+            format!("#!{}\n{}", interpreter, full_text)
         };
-        self.pending_commands.borrow_mut().push(cmd);
+
+        if std::fs::write(&tmp, &script).is_ok() {
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                let _ = std::fs::set_permissions(&tmp, std::fs::Permissions::from_mode(0o755));
+            }
+            self.pending_commands.borrow_mut().push(format!(
+                "source {} ; rm -f {}",
+                tmp.display(),
+                tmp.display()
+            ));
+        }
     }
 
     pub fn queue_raw(&self, text: &str) {
