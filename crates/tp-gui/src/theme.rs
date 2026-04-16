@@ -571,7 +571,9 @@ notebook.workspace-tabs > header {
   min-height: 16px;
 }
 /* Scroll arrows that appear when tabs overflow the header width. */
-notebook.workspace-tabs > header > button {
+notebook.workspace-tabs > header > button,
+notebook.workspace-tabs > header > button:hover,
+notebook.workspace-tabs > header > button:active {
   color: @accent_color;
   background-color: transparent;
   background-image: none;
@@ -580,6 +582,13 @@ notebook.workspace-tabs > header > button {
   min-width: 14px;
   min-height: 14px;
   padding: 0 2px;
+  -gtk-icon-filter: none;
+}
+notebook.workspace-tabs > header > button image,
+notebook.workspace-tabs > header > button:hover image,
+notebook.workspace-tabs > header > button:active image {
+  color: @accent_color;
+  -gtk-icon-filter: none;
 }
 notebook.workspace-tabs > header > tabs {
   background-color: transparent;
