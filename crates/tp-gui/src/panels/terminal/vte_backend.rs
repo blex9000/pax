@@ -72,6 +72,12 @@ impl TerminalInner {
         vte.set_allow_hyperlink(true);
         vte.set_font(Some(&super::terminal_font_description()));
 
+        // Hide the terminal while bootstrap commands (PS1, LS_COLORS, clear)
+        // execute so the user never sees the setup noise. We restore opacity
+        // after a short delay in the spawn callback, once clear has had time
+        // to take effect.
+        vte.set_opacity(0.0);
+
         let pending_commands: Rc<RefCell<Vec<String>>> = Rc::new(RefCell::new(Vec::new()));
         let spawned: Rc<RefCell<bool>> = Rc::new(RefCell::new(false));
         let input_cb: Rc<RefCell<Option<crate::panels::PanelInputCallback>>> =
@@ -121,6 +127,14 @@ impl TerminalInner {
                         vte_for_cb.feed_child(silent.as_bytes());
                     }
                     pending_for_cb.borrow_mut().clear();
+
+                    // Fade in after the clear has had time to render. The
+                    // terminal was hidden (opacity 0) since construction so
+                    // the user never sees the bootstrap commands.
+                    let vte_show = vte_for_cb.clone();
+                    glib::timeout_add_local_once(std::time::Duration::from_millis(150), move || {
+                        vte_show.set_opacity(1.0);
+                    });
                 }
             },
         );
