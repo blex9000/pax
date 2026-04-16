@@ -707,13 +707,18 @@ box.workspace-tab-add-wrap {
   border-bottom: 1px solid @border_hard;
   border-radius: 0;
   box-shadow: none;
-  margin: 0;
+  /* Negative start margin eats the tabs container's padding-right (6px)
+   * so the '+' sits flush against the last tab with no gap. */
+  margin-top: 0;
+  margin-bottom: 0;
+  margin-start: -6px;
+  margin-end: 0;
   padding-top: 0;
   padding-bottom: 0;
   padding-left: 8px;
   padding-right: 8px;
   min-width: 16px;
-  min-height: 14px;
+  min-height: 0;
 }
 box.workspace-tab-add-wrap:hover {
   background-color: @hover_bg;

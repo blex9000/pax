@@ -673,7 +673,7 @@ fn build_workspace_tab_add_label(
     let add_wrap = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
     add_wrap.add_css_class("workspace-tab-add-wrap");
     add_wrap.set_halign(gtk4::Align::Start);
-    add_wrap.set_valign(gtk4::Align::End);
+    add_wrap.set_valign(gtk4::Align::Fill);
     add_wrap.append(&add_label);
     let nb = notebook.clone();
     let cb = action_cb.clone();
