@@ -4,8 +4,8 @@ use std::rc::Rc;
 
 use pax_core::workspace::{NamedSshConfig, PanelType, SshConfig};
 
-/// Callback: (name, panel_type, cwd, ssh, startup_commands, before_close, min_width, min_height, show_startup_output)
-pub type ConfigDoneCallback = dyn Fn(String, PanelType, Option<String>, Option<SshConfig>, Vec<String>, Option<String>, u32, u32, bool)
+/// Callback: (name, panel_type, cwd, ssh, startup_commands, before_close, min_width, min_height)
+pub type ConfigDoneCallback = dyn Fn(String, PanelType, Option<String>, Option<SshConfig>, Vec<String>, Option<String>, u32, u32)
     + 'static;
 
 /// Show a configuration dialog for the given panel type.
@@ -19,7 +19,6 @@ pub fn show_panel_config_dialog(
     before_close: Option<&str>,
     min_width: u32,
     min_height: u32,
-    show_startup_output: bool,
     saved_ssh: Rc<RefCell<Vec<NamedSshConfig>>>,
     on_done: impl Fn(
             String,
@@ -30,7 +29,6 @@ pub fn show_panel_config_dialog(
             Option<String>,
             u32,
             u32,
-            bool,
         ) + 'static,
 ) {
     match panel_type {
@@ -44,7 +42,6 @@ pub fn show_panel_config_dialog(
                 before_close,
                 min_width,
                 min_height,
-                show_startup_output,
                 saved_ssh,
                 on_done,
             )
@@ -374,7 +371,6 @@ fn show_terminal_config(
     before_close: Option<&str>,
     min_width: u32,
     min_height: u32,
-    show_startup_output: bool,
     saved_ssh: Rc<RefCell<Vec<NamedSshConfig>>>,
     on_done: impl Fn(
             String,
@@ -385,7 +381,6 @@ fn show_terminal_config(
             Option<String>,
             u32,
             u32,
-            bool,
         ) + 'static,
 ) {
     let dialog = make_dialog(parent, "Terminal Configuration");
@@ -629,22 +624,11 @@ fn show_terminal_config(
         }
     }
 
-    // ── Startup script (with enable checkbox + show output option) ─────
+    // ── Startup script (with enable checkbox) ──────────────────────────
     let startup_enabled = !startup_commands.is_empty();
     let startup_check = gtk4::CheckButton::with_label("Startup script");
     startup_check.set_active(startup_enabled);
-
-    let show_output_chk = gtk4::CheckButton::with_label("Show output");
-    show_output_chk.set_active(show_startup_output);
-    show_output_chk.set_tooltip_text(Some(
-        "Show startup script output in the terminal (hides init commands, shows only script)",
-    ));
-    show_output_chk.set_sensitive(startup_enabled);
-
-    let startup_row = gtk4::Box::new(gtk4::Orientation::Horizontal, 12);
-    startup_row.append(&startup_check);
-    startup_row.append(&show_output_chk);
-    vbox.append(&startup_row);
+    vbox.append(&startup_check);
 
     let startup_container = gtk4::Box::new(gtk4::Orientation::Vertical, 4);
     let script_editor = add_script_editor(&startup_container, &dialog, startup_commands);
@@ -653,14 +637,8 @@ fn show_terminal_config(
 
     {
         let sc = startup_container.clone();
-        let soc = show_output_chk.clone();
         startup_check.connect_toggled(move |btn| {
-            let active = btn.is_active();
-            sc.set_sensitive(active);
-            soc.set_sensitive(active);
-            if !active {
-                soc.set_active(false);
-            }
+            sc.set_sensitive(btn.is_active());
         });
     }
 
@@ -774,7 +752,6 @@ fn show_terminal_config(
     let cmf = close_mode_file.clone();
     let cfe = close_file_entry.clone();
     let sc = startup_check.clone();
-    let soc = show_output_chk.clone();
     let cc = close_check.clone();
     let ssh_chk = ssh_check.clone();
     let ssh_h = ssh_host_entry.clone();
@@ -864,15 +841,14 @@ fn show_terminal_config(
         };
 
         // Startup script (only if enabled)
-        let show_out = soc.is_active();
         if !sc.is_active() {
-            on_done(name, PanelType::Terminal, cwd, ssh_config, vec![], before_close, mw, mh, show_out);
+            on_done(name, PanelType::Terminal, cwd, ssh_config, vec![], before_close, mw, mh);
             return;
         }
 
         let cmds = script_editor.get_script();
         if cmds.is_empty() {
-            on_done(name, PanelType::Terminal, cwd, ssh_config, vec![], before_close, mw, mh, show_out);
+            on_done(name, PanelType::Terminal, cwd, ssh_config, vec![], before_close, mw, mh);
             return;
         }
 
@@ -880,7 +856,7 @@ fn show_terminal_config(
         let first = &cmds[0];
         if first.starts_with("file:") {
             let path = first.trim_start_matches("file:");
-            on_done(name, PanelType::Terminal, cwd, ssh_config, vec![format!("file:{}:{}", interpreter, path)], before_close, mw, mh, show_out);
+            on_done(name, PanelType::Terminal, cwd, ssh_config, vec![format!("file:{}:{}", interpreter, path)], before_close, mw, mh);
         } else {
             let script = if first.starts_with("#!") {
                 let rest = first.lines().skip(1).collect::<Vec<_>>().join("\n");
@@ -888,7 +864,7 @@ fn show_terminal_config(
             } else {
                 format!("#!{}\n{}", interpreter, first.clone())
             };
-            on_done(name, PanelType::Terminal, cwd, ssh_config, vec![script], before_close, mw, mh, show_out);
+            on_done(name, PanelType::Terminal, cwd, ssh_config, vec![script], before_close, mw, mh);
         }
     });
 
@@ -909,7 +885,6 @@ fn show_markdown_config(
             Option<String>,
             u32,
             u32,
-            bool,
         ) + 'static,
 ) {
     let dialog = make_dialog(parent, "Markdown Configuration");
@@ -1002,7 +977,6 @@ fn show_markdown_config(
             None,
             mw_spin.value() as u32,
             mh_spin.value() as u32,
-            false,
         );
     });
 }
@@ -1025,7 +999,6 @@ fn show_code_editor_config(
             Option<String>,
             u32,
             u32,
-            bool,
         ) + 'static,
 ) {
     let dialog = make_dialog(parent, "Code Editor Configuration");
@@ -1325,7 +1298,6 @@ fn show_code_editor_config(
             None,
             mw_spin.value() as u32,
             mh_spin.value() as u32,
-            false,
         );
     });
 }

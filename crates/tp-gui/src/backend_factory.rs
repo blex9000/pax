@@ -132,10 +132,6 @@ pub fn create_backend_from_registry(
     if let Some(dir) = workspace_dir {
         extra.insert("__workspace_dir__".to_string(), dir.to_string());
     }
-    if panel_cfg.show_startup_output {
-        extra.insert("__show_startup_output__".to_string(), "1".to_string());
-    }
-
     let config = PanelCreateConfig {
         shell: default_shell.to_string(),
         cwd: panel_cfg.cwd.clone(),
