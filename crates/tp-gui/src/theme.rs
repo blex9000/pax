@@ -568,12 +568,15 @@ notebook.workspace-tabs > header {
   /* Set accent as the inherited color for the ENTIRE header — the scroll
    * arrow buttons inherit it regardless of which internal CSS node name
    * GTK uses. Tab labels explicitly set their own color (see below), so
-   * they are unaffected by this rule. */
+   * they are unaffected by this rule.
+   * min-height matches the tabs (14px) so the action widget and scroll
+   * arrows land on the same baseline as the tab bottom borders. */
   color: @accent_color;
   background-color: transparent;
   border-bottom: none;
   box-shadow: none;
-  min-height: 16px;
+  padding: 0;
+  min-height: 14px;
 }
 /* Scroll arrow buttons: stretch to full header height so their bottom
  * edge sits on the same baseline as the tabs. Same treatment as the
