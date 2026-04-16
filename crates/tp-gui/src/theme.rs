@@ -575,6 +575,25 @@ notebook.workspace-tabs > header {
   box-shadow: none;
   min-height: 16px;
 }
+/* Scroll arrow buttons: stretch to full header height so their bottom
+ * edge sits on the same baseline as the tabs. Same treatment as the
+ * '+' action widget. */
+notebook.workspace-tabs > header > button,
+notebook.workspace-tabs > header > button.arrow,
+notebook.workspace-tabs > header button.arrow {
+  background-color: transparent;
+  background-image: none;
+  box-shadow: none;
+  border-top: none;
+  border-left: none;
+  border-right: none;
+  border-bottom: 1px solid @border_hard;
+  border-radius: 0;
+  margin: 0;
+  padding: 0 4px;
+  min-width: 14px;
+  min-height: 0;
+}
 notebook.workspace-tabs > header > tabs {
   background-color: transparent;
   box-shadow: none;
