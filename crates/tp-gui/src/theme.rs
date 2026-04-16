@@ -708,7 +708,10 @@ box.workspace-tab-add-wrap {
   border-radius: 0;
   box-shadow: none;
   margin: 0;
-  padding: 0 8px;
+  padding-top: 0;
+  padding-bottom: 0;
+  padding-left: 8px;
+  padding-right: 8px;
   min-width: 16px;
   min-height: 14px;
 }
