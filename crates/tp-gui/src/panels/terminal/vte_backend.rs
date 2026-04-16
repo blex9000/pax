@@ -73,12 +73,11 @@ impl TerminalInner {
         vte.set_allow_hyperlink(true);
         vte.set_font(Some(&super::terminal_font_description()));
 
-        // When show_startup_output is false (default), hide the terminal
-        // during bootstrap so the user sees only the clean custom prompt.
-        // opacity(0) keeps layout space while hiding content.
-        if !show_startup_output {
-            vte.set_opacity(0.0);
-        }
+        // Always hide the terminal during init commands (PS1, LS_COLORS,
+        // PROMPT_COMMAND). When show_startup_output is true, we reveal BEFORE
+        // the startup scripts so their output is visible. When false, we
+        // reveal after a full reset (clean prompt only).
+        vte.set_opacity(0.0);
 
 
         let pending_commands: Rc<RefCell<Vec<String>>> = Rc::new(RefCell::new(Vec::new()));
@@ -123,19 +122,31 @@ impl TerminalInner {
                     vte_for_cb.feed_child(b" export LS_COLORS='di=38;2;85;136;255:ln=36:so=35:pi=33:ex=32:bd=34;46:cd=34;43:su=30;41:sg=30;46:tw=30;42:ow=34;42'\n");
                     // Clear screen to hide setup commands
                     vte_for_cb.feed_child(b" clear\n");
-                    // Run pending startup commands (SSH, scripts, etc.)
+
                     let cmds = pending_for_cb.borrow().clone();
-                    for cmd in &cmds {
-                        let silent = format!(" {}\n", cmd);
-                        vte_for_cb.feed_child(silent.as_bytes());
-                    }
                     pending_for_cb.borrow_mut().clear();
 
-                    // Wipe the terminal buffer and show after init completes.
-                    // reset(true,true) clears screen + scrollback so the
-                    // default prompt and init commands are gone. The shell
-                    // then prints a fresh prompt with our custom PS1.
-                    if !show_startup_output {
+                    if show_startup_output && !cmds.is_empty() {
+                        // Show output mode: reset wipes init noise, reveal
+                        // the terminal, THEN run startup commands so their
+                        // output is visible.
+                        let vte_show = vte_for_cb.clone();
+                        let cmds_to_run = cmds;
+                        glib::timeout_add_local_once(std::time::Duration::from_millis(800), move || {
+                            vte_show.reset(true, true);
+                            vte_show.feed_child(b"\n");
+                            vte_show.set_opacity(1.0);
+                            for cmd in &cmds_to_run {
+                                let line = format!(" {}\n", cmd);
+                                vte_show.feed_child(line.as_bytes());
+                            }
+                        });
+                    } else {
+                        // Hidden mode (default): run commands hidden, then
+                        // reset + reveal with clean prompt only.
+                        for cmd in &cmds {
+                            vte_for_cb.feed_child(format!(" {}\n", cmd).as_bytes());
+                        }
                         let vte_show = vte_for_cb.clone();
                         glib::timeout_add_local_once(std::time::Duration::from_millis(800), move || {
                             vte_show.reset(true, true);

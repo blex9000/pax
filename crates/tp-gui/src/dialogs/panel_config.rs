@@ -629,11 +629,22 @@ fn show_terminal_config(
         }
     }
 
-    // ── Startup script (with enable checkbox) ────────────────────────────
+    // ── Startup script (with enable checkbox + show output option) ─────
     let startup_enabled = !startup_commands.is_empty();
     let startup_check = gtk4::CheckButton::with_label("Startup script");
     startup_check.set_active(startup_enabled);
-    vbox.append(&startup_check);
+
+    let show_output_chk = gtk4::CheckButton::with_label("Show output");
+    show_output_chk.set_active(show_startup_output);
+    show_output_chk.set_tooltip_text(Some(
+        "Show startup script output in the terminal (hides init commands, shows only script)",
+    ));
+    show_output_chk.set_sensitive(startup_enabled);
+
+    let startup_row = gtk4::Box::new(gtk4::Orientation::Horizontal, 12);
+    startup_row.append(&startup_check);
+    startup_row.append(&show_output_chk);
+    vbox.append(&startup_row);
 
     let startup_container = gtk4::Box::new(gtk4::Orientation::Vertical, 4);
     let script_editor = add_script_editor(&startup_container, &dialog, startup_commands);
@@ -642,8 +653,14 @@ fn show_terminal_config(
 
     {
         let sc = startup_container.clone();
+        let soc = show_output_chk.clone();
         startup_check.connect_toggled(move |btn| {
-            sc.set_sensitive(btn.is_active());
+            let active = btn.is_active();
+            sc.set_sensitive(active);
+            soc.set_sensitive(active);
+            if !active {
+                soc.set_active(false);
+            }
         });
     }
 
@@ -748,15 +765,6 @@ fn show_terminal_config(
     }
 
     let (mw_spin, mh_spin) = add_min_size_fields(&vbox, min_width, min_height);
-
-    // Show startup output checkbox
-    let show_output_chk = gtk4::CheckButton::with_label("Show startup script output");
-    show_output_chk.set_active(show_startup_output);
-    show_output_chk.set_tooltip_text(Some(
-        "When enabled, the terminal shows startup command output instead of hiding it behind a clean prompt",
-    ));
-    show_output_chk.set_margin_top(4);
-    vbox.append(&show_output_chk);
 
     let ne = name_entry.clone();
     let ce = cwd_entry.clone();
