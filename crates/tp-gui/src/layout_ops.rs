@@ -1092,13 +1092,24 @@ pub fn insert_sibling_in_layout(
                 .position(|child| subtree_contains_panel(child, panel_id))
             {
                 // If the child IS the panel directly, insert here.
-                // If the child is a Tabs that contains the panel, also insert
-                // here (at the split level, next to the Tabs node) — this is
-                // the "climb past Tabs" behavior the user requested.
                 let child_is_panel = matches!(&children[idx], LayoutNode::Panel { id } if id == panel_id);
-                let child_is_tabs = matches!(&children[idx], LayoutNode::Tabs { .. });
+                // If the child is a Tabs node whose DIRECT children include
+                // the target panel (no intermediate split), the panel has no
+                // split parent inside the Tabs → climb to this split and
+                // insert next to the Tabs branch. When the panel is deeper
+                // (Tabs > Split > Panel), we must recurse so the inner split
+                // handles the insertion instead of the outer one.
+                let child_is_tabs_with_direct_panel = match &children[idx] {
+                    LayoutNode::Tabs {
+                        children: tabs_children,
+                        ..
+                    } => tabs_children
+                        .iter()
+                        .any(|c| matches!(c, LayoutNode::Panel { id } if id == panel_id)),
+                    _ => false,
+                };
 
-                if child_is_panel || child_is_tabs {
+                if child_is_panel || child_is_tabs_with_direct_panel {
                     let insert_idx = match position {
                         InsertPosition::Before => idx,
                         InsertPosition::After => idx + 1,
