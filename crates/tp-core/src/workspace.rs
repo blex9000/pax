@@ -95,9 +95,6 @@ pub struct PanelConfig {
     /// Script executed before closing the panel (cleanup, kill processes, etc.)
     #[serde(default)]
     pub before_close: Option<String>,
-    /// Deprecated: startup output is always shown. Kept for JSON compat.
-    #[serde(default, skip_serializing)]
-    pub show_startup_output: bool,
     /// Minimum width in pixels (0 = no minimum, panel shrinks freely).
     #[serde(default)]
     pub min_width: u32,

@@ -1078,7 +1078,6 @@ impl WorkspaceView {
             before_close: None,
             min_width: 0,
             min_height: 0,
-            show_startup_output: true,
             ssh: None,
         };
         let host = PanelHost::new(&new_id, &new_name, self.action_cb.clone());
@@ -1228,7 +1227,6 @@ impl WorkspaceView {
             before_close: None,
             min_width: 0,
             min_height: 0,
-            show_startup_output: true,
             ssh: None,
         }
     }
