@@ -32,6 +32,8 @@
 //! ```
 
 mod input;
+mod script_runner;
+mod shell_bootstrap;
 
 #[cfg(feature = "vte")]
 #[path = "vte_backend.rs"]

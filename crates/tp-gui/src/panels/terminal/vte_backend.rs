@@ -27,6 +27,9 @@ use vte4::prelude::*;
 use std::cell::RefCell;
 use std::rc::Rc;
 
+use super::script_runner::prepare_startup_command;
+use super::shell_bootstrap::{bootstrap_lines, BootstrapConfig};
+
 /// Minimum VTE version exposing the `shell-precmd` / `shell-preexec`
 /// GObject signals used for OSC 133 shell integration.
 const VTE_SHELL_INTEGRATION_MINOR: u32 = 80;
@@ -38,19 +41,6 @@ const VTE_SHELL_INTEGRATION_MINOR: u32 = 80;
 fn vte_has_shell_integration_signals() -> bool {
     let minor = unsafe { vte4::ffi::vte_get_minor_version() };
     minor >= VTE_SHELL_INTEGRATION_MINOR
-}
-
-/// Resolve a script path: if relative, resolve against workspace_dir.
-fn resolve_script_path(path: &str, workspace_dir: &Option<String>) -> String {
-    let p = std::path::Path::new(path);
-    if p.is_absolute() {
-        return path.to_string();
-    }
-    if let Some(ref dir) = workspace_dir {
-        let resolved = std::path::Path::new(dir).join(path);
-        return resolved.to_string_lossy().to_string();
-    }
-    path.to_string()
 }
 
 pub struct TerminalInner {
@@ -131,39 +121,21 @@ impl TerminalInner {
             move |result| {
                 if result.is_ok() && !*spawned_for_cb.borrow() {
                     *spawned_for_cb.borrow_mut() = true;
-                    // Override PS1 with a minimal prompt. The replacement PS1
-                    // does not contain the distro-default OSC 0 title sequence,
-                    // so __pax_prompt emits OSC 0 (title) + OSC 7 (directory
-                    // URI) + OSC 133;A (shell integration: prompt start).
-                    // __pax_preexec emits OSC 133;C on the first command after
-                    // each prompt, using a flag reset by __pax_prompt so the
-                    // DEBUG trap stays quiet inside PROMPT_COMMAND itself.
-                    // `set +o history` suppresses appending to .bash_history
-                    // for the whole bootstrap block; restored at the end.
-                    vte_for_cb.feed_child(b" set +o history\n");
-                    vte_for_cb.feed_child(b" export PS1='\\[\\033[32m\\]$:\\[\\033[0m\\] '\n");
-                    vte_for_cb.feed_child(
-                        b" __pax_prompt() { \
-                             local d=\"${PWD/#$HOME/~}\"; \
-                             printf '\\033]0;%s@%s: %s\\007' \"$USER\" \"$HOSTNAME\" \"$d\"; \
-                             printf '\\033]7;file://%s%s\\033\\\\' \"$HOSTNAME\" \"$PWD\"; \
-                             printf '\\033]133;A\\007'; \
-                             __pax_preexec_fired=; \
-                         }\n",
-                    );
-                    vte_for_cb.feed_child(
-                        b" __pax_preexec() { \
-                             [[ -n \"$__pax_preexec_fired\" ]] && return; \
-                             __pax_preexec_fired=1; \
-                             printf '\\033]133;C\\007'; \
-                         }\n",
-                    );
-                    vte_for_cb.feed_child(b" PROMPT_COMMAND=\"${PROMPT_COMMAND:+$PROMPT_COMMAND; }__pax_prompt\"\n");
-                    vte_for_cb.feed_child(b" trap '__pax_preexec' DEBUG\n");
-                    vte_for_cb.feed_child(b" set -o history\n");
-                    vte_for_cb.feed_child(b" export LS_COLORS='di=38;2;85;136;255:ln=36:so=35:pi=33:ex=32:bd=34;46:cd=34;43:su=30;41:sg=30;46:tw=30;42:ow=34;42'\n");
-                    // Clear screen to hide setup commands
-                    vte_for_cb.feed_child(b" clear\n");
+                    // Feed pax's standard bootstrap (see `shell_bootstrap` for
+                    // the full rationale). Same payload used by the PTY
+                    // backend modulo two switches:
+                    //   - override_ps1: VTE replaces the distro PS1 with the
+                    //     minimal green prompt ("$: ").
+                    //   - emit_osc7: only VTE consumes OSC 7 to drive the
+                    //     footer via `current-directory-uri-changed`.
+                    for line in bootstrap_lines(&BootstrapConfig {
+                        override_ps1: true,
+                        emit_osc7: true,
+                    }) {
+                        let mut bytes = line.into_bytes();
+                        bytes.push(b'\n');
+                        vte_for_cb.feed_child(&bytes);
+                    }
 
                     let cmds = pending_for_cb.borrow().clone();
                     pending_for_cb.borrow_mut().clear();
@@ -353,77 +325,10 @@ impl TerminalInner {
     /// - `"file:<interpreter>:<path>"` → run an existing script file
     /// - Multi-line or shebang text → written to temp file, sourced, then deleted
     pub fn send_commands(&self, commands: &[String]) {
-        if commands.is_empty() {
-            return;
-        }
-
-        let full_text = commands.join("\n");
-        if full_text.trim().is_empty() {
-            return;
-        }
-
-        // Simple command: single line without shebang → run directly
-        if !full_text.contains('\n')
-            && !full_text.starts_with("#!")
-            && !full_text.starts_with("file:")
+        if let Some(line) =
+            prepare_startup_command(commands, self.workspace_dir.as_deref())
         {
-            tracing::info!(
-                "send_commands: direct command: {}",
-                &full_text[..full_text.len().min(80)]
-            );
-            self.pending_commands.borrow_mut().push(full_text);
-            return;
-        }
-
-        // File mode: "file:/bin/bash:/path/to/script.sh"
-        if full_text.starts_with("file:") {
-            let rest = full_text.trim_start_matches("file:");
-            let (interpreter, path) = if let Some(idx) = rest[1..].find(':') {
-                let idx = idx + 1;
-                (&rest[..idx], &rest[idx + 1..])
-            } else {
-                ("/bin/bash", rest)
-            };
-            let resolved = resolve_script_path(path, &self.workspace_dir);
-            self.pending_commands
-                .borrow_mut()
-                .push(format!("{} {}", interpreter, resolved));
-            return;
-        }
-
-        // Inline script mode: write to temp file, source it, clean up
-        use std::sync::atomic::{AtomicU64, Ordering};
-        static COUNTER: AtomicU64 = AtomicU64::new(0);
-        let tmp = std::env::temp_dir().join(format!(
-            "pax_startup_{}_{}.sh",
-            std::process::id(),
-            COUNTER.fetch_add(1, Ordering::Relaxed),
-        ));
-
-        let interpreter = full_text
-            .lines()
-            .next()
-            .filter(|l| l.starts_with("#!"))
-            .map(|l| l.trim_start_matches("#!").trim().to_string())
-            .unwrap_or_else(|| "/bin/bash".to_string());
-
-        let script = if full_text.starts_with("#!") {
-            full_text.clone()
-        } else {
-            format!("#!{}\n{}", interpreter, full_text)
-        };
-
-        if std::fs::write(&tmp, &script).is_ok() {
-            #[cfg(unix)]
-            {
-                use std::os::unix::fs::PermissionsExt;
-                let _ = std::fs::set_permissions(&tmp, std::fs::Permissions::from_mode(0o755));
-            }
-            self.pending_commands.borrow_mut().push(format!(
-                "source {} ; rm -f {}",
-                tmp.display(),
-                tmp.display()
-            ));
+            self.pending_commands.borrow_mut().push(line);
         }
     }
 

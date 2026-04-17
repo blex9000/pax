@@ -16,6 +16,8 @@
 //! much closer terminal experience than the old `vt100 + TextView` fallback
 //! while keeping the same PTY and panel architecture.
 
+use super::script_runner::prepare_startup_command;
+use super::shell_bootstrap::{bootstrap_lines, BootstrapConfig};
 use super::TERMINAL_PADDING_PX;
 use alacritty_terminal::event::{Event, EventListener, WindowSize};
 use alacritty_terminal::grid::{Dimensions, Scroll};
@@ -483,75 +485,11 @@ impl TerminalInner {
         }
     }
 
-    /// Send startup commands to the running shell.
-    ///
-    /// Mirrors the VTE backend: single-line commands are fed directly,
-    /// multi-line scripts and shebang scripts are written to a temp file
-    /// and `source`d in a single line, so users do not see each script
-    /// line echoed at the prompt during bootstrap.
+    /// Send startup commands to the running shell using the shared
+    /// `script_runner` — identical semantics to the VTE backend.
     pub fn send_commands(&self, commands: &[String]) {
-        if commands.is_empty() {
-            return;
-        }
-        let full_text = commands.join("\n");
-        if full_text.trim().is_empty() {
-            return;
-        }
-
-        // Simple command: single line without shebang → run directly.
-        if !full_text.contains('\n')
-            && !full_text.starts_with("#!")
-            && !full_text.starts_with("file:")
-        {
-            self.feed_line(&full_text);
-            return;
-        }
-
-        // File mode: "file:/bin/bash:/path/to/script.sh" → run via interpreter.
-        if full_text.starts_with("file:") {
-            let rest = full_text.trim_start_matches("file:");
-            let (interpreter, path) = if let Some(idx) = rest[1..].find(':') {
-                let idx = idx + 1;
-                (&rest[..idx], &rest[idx + 1..])
-            } else {
-                ("/bin/bash", rest)
-            };
-            self.feed_line(&format!("{} {}", interpreter, path));
-            return;
-        }
-
-        // Inline script: write to temp file, `source` it, then remove.
-        use std::sync::atomic::{AtomicU64, Ordering};
-        static COUNTER: AtomicU64 = AtomicU64::new(0);
-        let tmp = std::env::temp_dir().join(format!(
-            "pax_startup_{}_{}.sh",
-            std::process::id(),
-            COUNTER.fetch_add(1, Ordering::Relaxed),
-        ));
-
-        let interpreter = full_text
-            .lines()
-            .next()
-            .filter(|l| l.starts_with("#!"))
-            .map(|l| l.trim_start_matches("#!").trim().to_string())
-            .unwrap_or_else(|| "/bin/bash".to_string());
-        let script = if full_text.starts_with("#!") {
-            full_text.clone()
-        } else {
-            format!("#!{}\n{}", interpreter, full_text)
-        };
-
-        if std::fs::write(&tmp, &script).is_ok() {
-            #[cfg(unix)]
-            {
-                use std::os::unix::fs::PermissionsExt;
-                let _ = std::fs::set_permissions(&tmp, std::fs::Permissions::from_mode(0o755));
-            }
-            self.feed_line(&format!(
-                "source {} ; rm -f {}",
-                tmp.display(),
-                tmp.display()
-            ));
+        if let Some(line) = prepare_startup_command(commands, None) {
+            self.feed_line(&line);
         }
     }
 
@@ -1103,43 +1041,18 @@ fn measure_cell_metrics<W: IsA<gtk4::Widget>>(widget: &W) -> Option<CellMetrics>
 }
 
 fn install_shell_bootstrap(writer: &Arc<Mutex<Box<dyn Write + Send>>>) {
-    for command in shell_bootstrap_commands() {
+    // Shared payload with the VTE backend. PTY passes `override_ps1: false`
+    // (keeps the user's prompt) and `emit_osc7: false` (directory URI is
+    // not tracked on this backend).
+    let cfg = BootstrapConfig {
+        override_ps1: false,
+        emit_osc7: false,
+    };
+    for command in bootstrap_lines(&cfg) {
         let mut line = command;
         line.push('\n');
         let _ = write_bytes(writer, line.as_bytes());
     }
-}
-
-fn shell_bootstrap_commands() -> Vec<String> {
-    // `set +o history` disables appending to .bash_history for the bootstrap
-    // block; `set -o history` restores it before handing the shell to the
-    // user. Keeps pax's internal setup out of the user's command history.
-    vec![
-        "set +o history".to_string(),
-        "export LS_COLORS='di=38;2;85;136;255:ln=36:so=35:pi=33:ex=32:bd=34;46:cd=34;43:su=30;41:sg=30;46:tw=30;42:ow=34;42'".to_string(),
-        "export CLICOLOR=1".to_string(),
-        "export LSCOLORS='ExFxCxDxBxegedabagacad'".to_string(),
-        "if command -v dircolors >/dev/null 2>&1; then eval \"$(dircolors -b 2>/dev/null)\"; fi".to_string(),
-        "if command ls --color=auto . >/dev/null 2>&1; then alias ls='ls --color=auto'; else alias ls='ls -G'; fi".to_string(),
-        // OSC 0 (window title) + OSC 133;A (shell integration: prompt start)
-        // emitted every prompt. Append to PROMPT_COMMAND rather than replacing
-        // so existing user hooks (git prompt, etc.) keep working.
-        "__pax_prompt() { local d=\"${PWD/#$HOME/~}\"; \
-          printf '\\033]0;%s@%s: %s\\007' \"$USER\" \"$HOSTNAME\" \"$d\"; \
-          printf '\\033]133;A\\007'; \
-          __pax_preexec_fired=; }".to_string(),
-        // OSC 133;C on the first command after each prompt; flag is reset by
-        // __pax_prompt so bursts inside PROMPT_COMMAND itself stay silent.
-        "__pax_preexec() { [[ -n \"$__pax_preexec_fired\" ]] && return; \
-          __pax_preexec_fired=1; \
-          printf '\\033]133;C\\007'; }".to_string(),
-        "PROMPT_COMMAND=\"${PROMPT_COMMAND:+$PROMPT_COMMAND; }__pax_prompt\"".to_string(),
-        "trap '__pax_preexec' DEBUG".to_string(),
-        "set -o history".to_string(),
-        // `clear` is the last bootstrap line so the viewport is empty when
-        // the terminal reveals itself (see `booted` flag in TerminalInner::new).
-        "clear".to_string(),
-    ]
 }
 
 fn point_from_coords<T: EventListener>(
