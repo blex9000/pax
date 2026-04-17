@@ -938,6 +938,15 @@ headerbar.app-headerbar button image,
 headerbar.app-headerbar menubutton > button image {
   -gtk-icon-size: 12px;
 }
+/* Shared sizing for header-end action buttons (save, theme, and any future
+ * action we pack on the right side of the header). The global rule above
+ * renders symbolic icons at 12px; these glyphs have more internal whitespace
+ * than the left-side hamburger menu, so we bump them to 16px for consistent
+ * visual weight. */
+headerbar.app-headerbar button.app-header-btn image,
+headerbar.app-headerbar menubutton.app-header-btn > button image {
+  -gtk-icon-size: 16px;
+}
 button.panel-action-btn,
 menubutton.panel-menu-btn > button {
   min-height: 10px;
@@ -1048,6 +1057,23 @@ paned > separator {
   box-shadow: none;
 }
 .dirty-indicator { color: #ff8c00; }
+/* Higher-specificity override: the `.app-headerbar` global rule sets
+ * `color: @window_fg_color` on every descendant image/button with specificity
+ * (0,1,2), which would beat the bare `.dirty-indicator` rule above. Re-assert
+ * orange with a matching-specificity selector so the header save button
+ * keeps its orange attention color. */
+headerbar.app-headerbar button.dirty-indicator,
+headerbar.app-headerbar button.dirty-indicator image {
+  color: #ff8c00;
+}
+/* On hover, match the other header action buttons and switch to accent. The
+ * base orange rule above has enough specificity to beat the generic header
+ * hover selector (0,2,3), so we need an equally specific :hover selector to
+ * re-apply accent on top. */
+headerbar.app-headerbar button.dirty-indicator:hover,
+headerbar.app-headerbar button.dirty-indicator:hover image {
+  color: @accent_color;
+}
 .editor-tabs,
 .editor-tabs:focus,
 .editor-tabs:focus-within,

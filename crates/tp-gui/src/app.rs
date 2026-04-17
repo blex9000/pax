@@ -516,35 +516,54 @@ fn setup_workspace_ui(
     menu_btn.add_css_class("app-menu-btn");
     header.pack_start(&menu_btn);
 
-    // Dirty indicator (orange floppy) — packed at end (right side, near window buttons)
-    let dirty_sep = gtk4::Separator::new(gtk4::Orientation::Vertical);
-    dirty_sep.set_margin_start(4);
-    dirty_sep.set_margin_end(4);
-    dirty_sep.set_visible(false);
-    header.pack_end(&dirty_sep);
+    // Save action lives here (instead of below with other shared state) so the
+    // clickable dirty indicator in the header can bind to it directly.
+    let save_action = gtk4::gio::SimpleAction::new("save", None);
 
-    let dirty_icon = gtk4::Image::from_icon_name("media-floppy-symbolic");
-    dirty_icon.add_css_class("dirty-indicator");
-    dirty_icon.set_tooltip_text(Some("Unsaved changes"));
-    dirty_icon.set_visible(false);
-    header.pack_end(&dirty_icon);
-    DIRTY_INDICATOR.with(|cell| {
-        cell.borrow_mut().replace((dirty_icon, dirty_sep));
-    });
+    // Pack end order (GTK renders right-to-left for pack_end, so the FIRST
+    // pack_end call is rightmost). We want, left→right:
+    //   [dirty_btn] [theme_btn] [window_controls_sep] [win chrome]
+    // so we pack in the reverse of that visual order. Only one separator
+    // in the header: the one between our action buttons and the system
+    // min/maximize/close chrome on the right.
+    let window_controls_sep = gtk4::Separator::new(gtk4::Orientation::Vertical);
+    window_controls_sep.set_margin_start(6);
+    window_controls_sep.set_margin_end(6);
+    window_controls_sep.add_css_class("app-header-sep");
+    header.pack_end(&window_controls_sep);
 
-    // Theme picker button (right side of header)
+    // Theme picker button
     let theme_btn = gtk4::MenuButton::new();
     theme_btn.set_icon_name("applications-graphics-symbolic");
     theme_btn.set_tooltip_text(Some("Theme"));
     theme_btn.add_css_class("flat");
+    theme_btn.add_css_class("app-header-btn");
     let theme_popover = build_theme_popover(window);
     theme_btn.set_popover(Some(&theme_popover));
     header.pack_end(&theme_btn);
 
+    // Dirty indicator: clickable floppy button that fires the save action
+    // (same code path as Menu → Save). Hidden when the workspace is clean.
+    let dirty_btn = gtk4::Button::from_icon_name("media-floppy-symbolic");
+    dirty_btn.add_css_class("flat");
+    dirty_btn.add_css_class("app-header-btn");
+    dirty_btn.add_css_class("dirty-indicator");
+    dirty_btn.set_tooltip_text(Some("Save changes"));
+    dirty_btn.set_visible(false);
+    {
+        let sa = save_action.clone();
+        dirty_btn.connect_clicked(move |_| {
+            sa.activate(None);
+        });
+    }
+    header.pack_end(&dirty_btn);
+    DIRTY_INDICATOR.with(|cell| {
+        cell.borrow_mut().replace(dirty_btn);
+    });
+
     // Shared state
     let ws_view = Rc::new(RefCell::new(WorkspaceView::build(&workspace, config_path)));
     let status_bar = Rc::new(RefCell::new(StatusBar::new()));
-    let save_action = gtk4::gio::SimpleAction::new("save", None);
     let window_rc = window.clone();
 
     // Wire up type chooser callback

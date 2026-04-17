@@ -7,7 +7,7 @@ use crate::workspace_view::WorkspaceView;
 use crate::widgets::status_bar::StatusBar;
 
 thread_local! {
-    pub static DIRTY_INDICATOR: RefCell<Option<(gtk4::Image, gtk4::Separator)>> = RefCell::new(None);
+    pub static DIRTY_INDICATOR: RefCell<Option<gtk4::Button>> = RefCell::new(None);
     pub static HEADER_WS_LABEL: RefCell<Option<gtk4::Label>> = RefCell::new(None);
 }
 
@@ -27,9 +27,8 @@ pub fn update_dirty_ui(
         }
     });
     DIRTY_INDICATOR.with(|cell| {
-        if let Some((ref icon, ref sep)) = *cell.borrow() {
-            icon.set_visible(dirty);
-            sep.set_visible(dirty);
+        if let Some(ref btn) = *cell.borrow() {
+            btn.set_visible(dirty);
         }
     });
 }
