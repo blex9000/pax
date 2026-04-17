@@ -257,7 +257,6 @@ impl CodeEditorPanel {
         let header_wrap = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
         header_wrap.add_css_class("editor-file-tree-header-wrap");
         header_wrap.append(&activity_bar);
-        header_wrap.append(&gtk4::Separator::new(gtk4::Orientation::Horizontal));
         sidebar.append(&header_wrap);
 
         // Git log (history) view — created early so file tree can reference it

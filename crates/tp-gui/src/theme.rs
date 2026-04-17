@@ -551,7 +551,7 @@ menubutton.flat > button image {
   color: @view_fg_color;
   border-top: none;
   border-right: none;
-  border-bottom: 1px solid @border_soft;
+  border-bottom: 1px solid alpha(@border_soft, 0.4);
   border-left: none;
 }
 .editor-file-tree-header {
@@ -920,8 +920,9 @@ box.panel-frame.panel-focused .panel-title-type-icon {
   margin-right: 3px;
   margin-top: 1px;
 }
-.panel-menu-btn { min-height: 10px; min-width: 10px; padding: 0; }
-.panel-action-btn { min-height: 10px; min-width: 10px; padding: 0; opacity: 0.5; }
+.panel-menu-btn { min-height: 9px; min-width: 9px; padding: 0; margin-left: 4px; margin-right: 4px; }
+button.panel-action-btn { min-height: 9px; min-width: 9px; padding: 0; opacity: 0.5; margin-left: 4px; margin-right: 4px; }
+menubutton.panel-menu-btn > button { margin-left: 0; margin-right: 0; }
 box.panel-frame.panel-unfocused .panel-action-btn,
 box.panel-frame.panel-unfocused menubutton.panel-menu-btn > button {
   opacity: 0.28;
@@ -930,9 +931,11 @@ box.panel-frame.panel-focused .panel-action-btn,
 box.panel-frame.panel-focused menubutton.panel-menu-btn > button {
   opacity: 0.74;
 }
-.panel-action-btn image,
+.panel-action-btn image {
+  -gtk-icon-size: 9px;
+}
 menubutton.panel-menu-btn > button image {
-  -gtk-icon-size: 10px;
+  -gtk-icon-size: 12px;
 }
 headerbar.app-headerbar button image,
 headerbar.app-headerbar menubutton > button image {
@@ -949,8 +952,8 @@ headerbar.app-headerbar menubutton.app-header-btn > button image {
 }
 button.panel-action-btn,
 menubutton.panel-menu-btn > button {
-  min-height: 10px;
-  min-width: 10px;
+  min-height: 9px;
+  min-width: 9px;
   padding: 0;
 }
 .panel-action-btn:hover { opacity: 1.0; }
@@ -1672,7 +1675,7 @@ mod tests {
         assert!(BASE_CSS.contains(".panel-title { font-size: 9px;"));
         assert!(BASE_CSS.contains(".panel-title-type-icon"));
         assert!(BASE_CSS.contains("margin-left: 14px;"));
-        assert!(BASE_CSS.contains(".panel-action-btn { min-height: 10px;"));
+        assert!(BASE_CSS.contains(".panel-action-btn { min-height: 9px;"));
         assert!(BASE_CSS.contains(".tab-close-btn { min-height: 15px;"));
         assert!(BASE_CSS.contains(".panel-collapsed-overlay {\n  background-color: @window_bg_color;"));
         assert!(BASE_CSS.contains(".panel-collapsed-chip"));
