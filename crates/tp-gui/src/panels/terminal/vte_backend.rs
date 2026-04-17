@@ -47,6 +47,7 @@ pub struct TerminalInner {
     _spawned: Rc<RefCell<bool>>,
     workspace_dir: Option<String>,
     input_cb: Rc<RefCell<Option<crate::panels::PanelInputCallback>>>,
+    title_cb: Rc<RefCell<Option<crate::panels::PanelTitleCallback>>>,
 }
 
 impl std::fmt::Debug for TerminalInner {
@@ -81,6 +82,8 @@ impl TerminalInner {
         let spawned: Rc<RefCell<bool>> = Rc::new(RefCell::new(false));
         let input_cb: Rc<RefCell<Option<crate::panels::PanelInputCallback>>> =
             Rc::new(RefCell::new(None));
+        let title_cb: Rc<RefCell<Option<crate::panels::PanelTitleCallback>>> =
+            Rc::new(RefCell::new(None));
 
         // Build environment: inherit current env + user overrides + TERM
         let mut spawn_env: Vec<String> = std::env::vars()
@@ -112,10 +115,20 @@ impl TerminalInner {
             move |result| {
                 if result.is_ok() && !*spawned_for_cb.borrow() {
                     *spawned_for_cb.borrow_mut() = true;
-                    // Override PS1 and set PROMPT_COMMAND for OSC 7 directory tracking
-                    // (after .bashrc has run, so it sticks)
+                    // Override PS1 with a minimal prompt. The replacement PS1
+                    // does not contain the distro-default OSC 0 title sequence,
+                    // so we emit both OSC 0 (title) and OSC 7 (directory URI)
+                    // from PROMPT_COMMAND on every prompt. We append rather
+                    // than replace so any user PROMPT_COMMAND survives.
                     vte_for_cb.feed_child(b" export PS1='\\[\\033[32m\\]$:\\[\\033[0m\\] '\n");
-                    vte_for_cb.feed_child(b" export PROMPT_COMMAND='printf \"\\033]7;file://%s%s\\033\\\\\" \"$HOSTNAME\" \"$PWD\"'\n");
+                    vte_for_cb.feed_child(
+                        b" __pax_prompt() { \
+                             local d=\"${PWD/#$HOME/~}\"; \
+                             printf '\\033]0;%s@%s: %s\\007' \"$USER\" \"$HOSTNAME\" \"$d\"; \
+                             printf '\\033]7;file://%s%s\\033\\\\' \"$HOSTNAME\" \"$PWD\"; \
+                         }\n",
+                    );
+                    vte_for_cb.feed_child(b" PROMPT_COMMAND=\"${PROMPT_COMMAND:+$PROMPT_COMMAND; }__pax_prompt\"\n");
                     vte_for_cb.feed_child(b" export LS_COLORS='di=38;2;85;136;255:ln=36:so=35:pi=33:ex=32:bd=34;46:cd=34;43:su=30;41:sg=30;46:tw=30;42:ow=34;42'\n");
                     // Clear screen to hide setup commands
                     vte_for_cb.feed_child(b" clear\n");
@@ -143,6 +156,24 @@ impl TerminalInner {
         Self::setup_context_menu(&vte);
         Self::setup_input_observer(&vte, input_cb.clone());
 
+        // Forward OSC 0/2 title changes to the registered callback. VTE
+        // emits this signal whenever the PTY sends ESC]0; or ESC]2; — we
+        // pass the raw string and let PanelHost sanitize and render.
+        {
+            let title_cb_ref = title_cb.clone();
+            vte.connect_window_title_changed(move |term| {
+                if let Ok(borrowed) = title_cb_ref.try_borrow() {
+                    if let Some(ref cb) = *borrowed {
+                        let title = term
+                            .window_title()
+                            .map(|s| s.to_string())
+                            .unwrap_or_default();
+                        cb(&title);
+                    }
+                }
+            });
+        }
+
         // Register VTE for theme color updates
         crate::theme::register_vte_terminal(&vte);
 
@@ -154,6 +185,7 @@ impl TerminalInner {
             _spawned: spawned,
             workspace_dir: workspace_dir.map(|s| s.to_string()),
             input_cb,
+            title_cb,
         }
     }
 
@@ -349,6 +381,10 @@ impl TerminalInner {
 
     pub fn set_input_callback(&self, callback: Option<crate::panels::PanelInputCallback>) {
         *self.input_cb.borrow_mut() = callback;
+    }
+
+    pub fn set_title_callback(&self, callback: Option<crate::panels::PanelTitleCallback>) {
+        *self.title_cb.borrow_mut() = callback;
     }
 
     pub fn widget(&self) -> &gtk4::Widget {

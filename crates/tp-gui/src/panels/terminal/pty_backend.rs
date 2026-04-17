@@ -46,6 +46,7 @@ pub struct TerminalInner {
     pub widget: gtk4::Widget,
     pub writer: Arc<Mutex<Box<dyn Write + Send>>>,
     input_cb: Rc<RefCell<Option<crate::panels::PanelInputCallback>>>,
+    title_cb: Rc<RefCell<Option<crate::panels::PanelTitleCallback>>>,
 }
 
 impl fmt::Debug for TerminalInner {
@@ -117,6 +118,8 @@ impl TerminalInner {
         let writer = Arc::new(Mutex::new(writer));
         let input_cb: Rc<RefCell<Option<crate::panels::PanelInputCallback>>> =
             Rc::new(RefCell::new(None));
+        let title_cb: Rc<RefCell<Option<crate::panels::PanelTitleCallback>>> =
+            Rc::new(RefCell::new(None));
         install_shell_bootstrap(&writer);
 
         let (ui_tx, ui_rx) = mpsc::channel::<TerminalUiEvent>();
@@ -152,10 +155,18 @@ impl TerminalInner {
         {
             let drawing_area = drawing_area.clone();
             let writer = writer.clone();
+            let title_cb_ref = title_cb.clone();
             glib::timeout_add_local(Duration::from_millis(16), move || {
                 loop {
                     match ui_rx.try_recv() {
                         Ok(TerminalUiEvent::Render) => drawing_area.queue_draw(),
+                        Ok(TerminalUiEvent::TitleChanged(title)) => {
+                            if let Ok(borrowed) = title_cb_ref.try_borrow() {
+                                if let Some(ref cb) = *borrowed {
+                                    cb(&title);
+                                }
+                            }
+                        }
                         Ok(TerminalUiEvent::ClipboardStore(text)) => {
                             drawing_area.clipboard().set_text(&text);
                         }
@@ -376,6 +387,7 @@ impl TerminalInner {
             widget,
             writer,
             input_cb,
+            title_cb,
         }
     }
 
@@ -406,6 +418,10 @@ impl TerminalInner {
 
     pub fn set_input_callback(&self, callback: Option<crate::panels::PanelInputCallback>) {
         *self.input_cb.borrow_mut() = callback;
+    }
+
+    pub fn set_title_callback(&self, callback: Option<crate::panels::PanelTitleCallback>) {
+        *self.title_cb.borrow_mut() = callback;
     }
 
     pub fn widget(&self) -> &gtk4::Widget {
@@ -475,12 +491,15 @@ impl EventListener for TerminalEventProxy {
             Event::Wakeup | Event::CursorBlinkingChange | Event::MouseCursorDirty => {
                 let _ = self.ui_tx.send(TerminalUiEvent::Render);
             }
-            Event::Title(_)
-            | Event::ResetTitle
-            | Event::ColorRequest(_, _)
-            | Event::Bell
-            | Event::Exit
-            | Event::ChildExit(_) => {}
+            Event::Title(title) => {
+                let _ = self.ui_tx.send(TerminalUiEvent::TitleChanged(title));
+            }
+            Event::ResetTitle => {
+                let _ = self
+                    .ui_tx
+                    .send(TerminalUiEvent::TitleChanged(String::new()));
+            }
+            Event::ColorRequest(_, _) | Event::Bell | Event::Exit | Event::ChildExit(_) => {}
         }
     }
 }
@@ -489,6 +508,8 @@ enum TerminalUiEvent {
     Render,
     ClipboardStore(String),
     ClipboardLoad(Arc<dyn Fn(&str) -> String + Sync + Send + 'static>),
+    /// OSC 0/2 title update; empty string = reset/clear (from Event::ResetTitle).
+    TitleChanged(String),
 }
 
 #[derive(Clone, Copy)]

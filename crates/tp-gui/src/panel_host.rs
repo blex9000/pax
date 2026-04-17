@@ -10,6 +10,10 @@ pub(crate) const COLLAPSED_PANEL_SIZE: i32 = 22;
 /// Visual collapsed chrome size. Does not affect drag-collapse threshold.
 pub(crate) const COLLAPSED_CHROME_SIZE: i32 = 22;
 pub(crate) const COLLAPSED_ICON_SIZE: i32 = 12;
+/// Max characters retained from an OSC title payload before truncation.
+pub(crate) const MAX_OSC_TITLE_LEN: usize = 256;
+/// Max characters to lay out in the centered OSC title label.
+pub(crate) const OSC_TITLE_MAX_WIDTH_CHARS: i32 = 60;
 
 // ── KNOWN LIMITATIONS: Drag Collapse/Expand ──────────────────────────────
 //
@@ -39,7 +43,17 @@ pub(crate) const COLLAPSED_ICON_SIZE: i32 = 12;
 //   intercepts motion events before GTK's built-in handler.
 // ─────────────────────────────────────────────────────────────────────────
 
-use crate::panels::PanelBackend;
+use crate::panels::{PanelBackend, PanelTitleCallback};
+
+/// Strip control characters (C0 except tab, and DEL) and truncate to
+/// `MAX_OSC_TITLE_LEN` characters. Used to render OSC 0/2 title payloads
+/// safely in the centered panel header label.
+pub(crate) fn sanitize_osc_title(raw: &str) -> String {
+    raw.chars()
+        .filter(|&c| c == '\t' || (c >= ' ' && c != '\u{7f}'))
+        .take(MAX_OSC_TITLE_LEN)
+        .collect()
+}
 
 /// Actions that can be triggered from panel/tab menus.
 #[derive(Debug, Clone, PartialEq)]
@@ -107,9 +121,10 @@ pub type PanelActionCallback = Rc<dyn Fn(&str, PanelAction)>;
 pub struct PanelHost {
     pub(crate) outer: gtk4::Box,
     pub(crate) container: gtk4::Box,
-    _title_bar: gtk4::Box,
+    _title_bar: gtk4::CenterBox,
     type_icon: gtk4::Image,
     title_label: gtk4::Label,
+    osc_title_label: gtk4::Label,
     sync_button: gtk4::Button,
     zoom_button: gtk4::Button,
     menu_button: gtk4::MenuButton,
@@ -142,8 +157,9 @@ impl PanelHost {
         let action_cb_ref: Rc<RefCell<Option<PanelActionCallback>>> =
             Rc::new(RefCell::new(action_cb.clone()));
 
-        // Title bar
-        let title_bar = gtk4::Box::new(gtk4::Orientation::Horizontal, 4);
+        // Title bar: CenterBox so the OSC title sits in the geometric center
+        // of the bar regardless of the widths of start/end content.
+        let title_bar = gtk4::CenterBox::new();
         title_bar.add_css_class("panel-title-bar");
 
         // Panel type icon
@@ -151,15 +167,23 @@ impl PanelHost {
         type_icon.add_css_class("panel-type-icon");
         type_icon.add_css_class("panel-title-type-icon");
 
-        // Title: stack with label (view) and entry (edit), double-click to rename
+        // Title: stack with label (view) and entry (edit), double-click to rename.
+        // No hexpand — CenterBox decides placement via start/center/end slots.
         let title_stack = gtk4::Stack::new();
         title_stack.set_halign(gtk4::Align::Start);
-        title_stack.set_hexpand(true);
 
         let title_label = gtk4::Label::new(Some(name));
         title_label.add_css_class("panel-title");
         title_label.set_halign(gtk4::Align::Start);
         title_stack.add_named(&title_label, Some("label"));
+
+        // Centered OSC title label (updated by terminal backends via callback).
+        // Placement handled by CenterBox — just style + ellipsize here.
+        let osc_title_label = gtk4::Label::new(None);
+        osc_title_label.add_css_class("panel-osc-title");
+        osc_title_label.set_ellipsize(gtk4::pango::EllipsizeMode::End);
+        osc_title_label.set_max_width_chars(OSC_TITLE_MAX_WIDTH_CHARS);
+        osc_title_label.set_visible(false);
 
         let title_entry = gtk4::Entry::new();
         title_entry.set_text(name);
@@ -285,16 +309,20 @@ impl PanelHost {
             ssh_indicator.append(&ssh_lbl);
         }
 
-        // Layout: [icon][ssh][title][spacer][sync][zoom][menu]
-        title_bar.append(&type_icon);
-        title_bar.append(&ssh_indicator);
-        title_bar.append(&title_stack);
-        let spacer = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
-        spacer.set_hexpand(true);
-        title_bar.append(&spacer);
-        title_bar.append(&sync_button);
-        title_bar.append(&zoom_button);
-        title_bar.append(&menu_button);
+        // Layout: start=[icon][ssh][title], center=osc_title, end=[sync][zoom][menu]
+        let start_box = gtk4::Box::new(gtk4::Orientation::Horizontal, 4);
+        start_box.append(&type_icon);
+        start_box.append(&ssh_indicator);
+        start_box.append(&title_stack);
+
+        let end_box = gtk4::Box::new(gtk4::Orientation::Horizontal, 4);
+        end_box.append(&sync_button);
+        end_box.append(&zoom_button);
+        end_box.append(&menu_button);
+
+        title_bar.set_start_widget(Some(&start_box));
+        title_bar.set_center_widget(Some(&osc_title_label));
+        title_bar.set_end_widget(Some(&end_box));
 
         // Click on title bar → focus this panel
         {
@@ -416,6 +444,7 @@ impl PanelHost {
             _title_bar: title_bar,
             type_icon,
             title_label,
+            osc_title_label,
             sync_button,
             zoom_button,
             menu_button,
@@ -504,6 +533,25 @@ impl PanelHost {
             backend.set_input_callback(borrowed.clone());
         }
 
+        // Reset any leftover OSC title from a previous backend and wire the
+        // new backend to push title updates into the centered label. The Label
+        // widget is a GObject — cloning bumps a refcount, no cycle with Self.
+        self.set_osc_title("");
+        let osc_label = self.osc_title_label.clone();
+        let title_cb: PanelTitleCallback = Rc::new(move |t: &str| {
+            let sanitized = sanitize_osc_title(t);
+            if sanitized.is_empty() {
+                osc_label.set_text("");
+                osc_label.set_tooltip_text(None);
+                osc_label.set_visible(false);
+            } else {
+                osc_label.set_text(&sanitized);
+                osc_label.set_tooltip_text(Some(&sanitized));
+                osc_label.set_visible(true);
+            }
+        });
+        backend.set_title_callback(Some(title_cb));
+
         *self.backend.borrow_mut() = Some(backend);
     }
 
@@ -549,6 +597,24 @@ impl PanelHost {
 
     pub fn set_title(&self, title: &str) {
         self.title_label.set_text(title);
+    }
+
+    /// Update the centered OSC title label.
+    ///
+    /// Control characters (C0 except tab, and DEL) are stripped and the
+    /// payload is truncated to `MAX_OSC_TITLE_LEN` chars. Empty input hides
+    /// the label so non-terminal panels keep a clean header.
+    pub fn set_osc_title(&self, raw: &str) {
+        let sanitized = sanitize_osc_title(raw);
+        if sanitized.is_empty() {
+            self.osc_title_label.set_text("");
+            self.osc_title_label.set_tooltip_text(None);
+            self.osc_title_label.set_visible(false);
+        } else {
+            self.osc_title_label.set_text(&sanitized);
+            self.osc_title_label.set_tooltip_text(Some(&sanitized));
+            self.osc_title_label.set_visible(true);
+        }
     }
 
     /// Hide/show the title name and icon (when panel is inside a tab — already shown there).

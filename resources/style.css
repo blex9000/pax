@@ -26,6 +26,12 @@
     font-weight: bold;
 }
 
+.panel-osc-title {
+    font-size: 11px;
+    font-style: italic;
+    opacity: 0.75;
+}
+
 .alert-red {
     border-color: red;
     border-width: 2px;
