@@ -1272,6 +1272,7 @@ dependencies = [
  "gtk4",
  "ignore",
  "libadwaita",
+ "libc",
  "pangocairo",
  "pax-core",
  "pax-db",

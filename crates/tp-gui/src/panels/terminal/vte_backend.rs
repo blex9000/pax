@@ -24,8 +24,10 @@ use gtk4::glib;
 use gtk4::prelude::*;
 use vte4::prelude::*;
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
+use std::os::fd::AsRawFd;
 use std::rc::Rc;
+use std::time::Duration;
 
 use super::script_runner::prepare_startup_command;
 use super::shell_bootstrap::{bootstrap_lines, BootstrapConfig};
@@ -34,6 +36,11 @@ use super::shell_bootstrap::{bootstrap_lines, BootstrapConfig};
 /// GObject signals used for OSC 133 shell integration.
 const VTE_SHELL_INTEGRATION_MINOR: u32 = 80;
 
+/// Polling interval for the `tcgetpgrp` fallback used when the linked
+/// VTE runtime does not emit OSC 133 signals. 200ms is imperceptible
+/// from the user's side and CPU-free.
+const TCGETPGRP_POLL_MS: u64 = 200;
+
 /// True when the linked libvte runtime exposes the OSC 133 shell
 /// integration signals. Older runtimes (e.g. VTE 0.76 on Debian stable)
 /// abort with `assertion failed: handle > 0` inside `glib::signal::connect_raw`
@@ -41,6 +48,49 @@ const VTE_SHELL_INTEGRATION_MINOR: u32 = 80;
 fn vte_has_shell_integration_signals() -> bool {
     let minor = unsafe { vte4::ffi::vte_get_minor_version() };
     minor >= VTE_SHELL_INTEGRATION_MINOR
+}
+
+/// OSC 133 fallback: poll `tcgetpgrp` on the PTY master every
+/// `TCGETPGRP_POLL_MS` and emit status transitions. The shell is
+/// "busy" whenever the foreground process group differs from the
+/// shell's own PID — i.e. a child command is in the foreground.
+/// Holds a weak ref to the terminal so the timer stops when the
+/// panel is dropped.
+fn spawn_tcgetpgrp_poller(
+    vte: &vte4::Terminal,
+    shell_pid: Rc<Cell<Option<i32>>>,
+    status_cb: Rc<RefCell<Option<crate::panels::PanelStatusCallback>>>,
+) {
+    let vte_weak = vte.downgrade();
+    let last_busy: Rc<Cell<Option<bool>>> = Rc::new(Cell::new(None));
+    glib::timeout_add_local(
+        Duration::from_millis(TCGETPGRP_POLL_MS),
+        move || {
+            let Some(term) = vte_weak.upgrade() else {
+                return glib::ControlFlow::Break;
+            };
+            let Some(pid) = shell_pid.get() else {
+                return glib::ControlFlow::Continue;
+            };
+            let Some(pty) = term.pty() else {
+                return glib::ControlFlow::Continue;
+            };
+            let pgrp = unsafe { libc::tcgetpgrp(pty.fd().as_raw_fd()) };
+            if pgrp < 0 {
+                return glib::ControlFlow::Continue;
+            }
+            let busy = pgrp != pid;
+            if last_busy.get() != Some(busy) {
+                last_busy.set(Some(busy));
+                if let Ok(borrowed) = status_cb.try_borrow() {
+                    if let Some(ref cb) = *borrowed {
+                        cb(busy);
+                    }
+                }
+            }
+            glib::ControlFlow::Continue
+        },
+    );
 }
 
 pub struct TerminalInner {
@@ -107,6 +157,11 @@ impl TerminalInner {
         let vte_for_cb = vte.clone();
         let pending_for_cb = pending_commands.clone();
         let spawned_for_cb = spawned.clone();
+        // PID captured on successful spawn and consumed by the tcgetpgrp
+        // fallback poller below. Stays None on spawn failure, which
+        // silently disables the fallback.
+        let shell_pid: Rc<Cell<Option<i32>>> = Rc::new(Cell::new(None));
+        let shell_pid_for_cb = shell_pid.clone();
 
         let argv = [shell];
         vte.spawn_async(
@@ -119,6 +174,9 @@ impl TerminalInner {
             -1,
             gtk4::gio::Cancellable::NONE,
             move |result| {
+                if let Ok(pid) = &result {
+                    shell_pid_for_cb.set(Some(pid.0));
+                }
                 if result.is_ok() && !*spawned_for_cb.borrow() {
                     *spawned_for_cb.borrow_mut() = true;
                     // Feed pax's standard bootstrap (see `shell_bootstrap` for
@@ -200,6 +258,13 @@ impl TerminalInner {
                     }
                 }
             });
+        } else {
+            // VTE < 0.80 does not ship shell-precmd / shell-preexec. Fall
+            // back to polling `tcgetpgrp` on the PTY master: the foreground
+            // process group equals the shell PID only while the shell is
+            // at its prompt. Independent of any OSC 133 cooperation from
+            // the shell, so it also works on zsh/fish/dash.
+            spawn_tcgetpgrp_poller(&vte, shell_pid.clone(), status_cb.clone());
         }
 
         // Register VTE for theme color updates
