@@ -6,6 +6,9 @@ pub mod terminal;
 
 pub type PanelInputCallback = std::rc::Rc<dyn Fn(&[u8])>;
 pub type PanelTitleCallback = std::rc::Rc<dyn Fn(&str)>;
+/// Invoked with `true` when the panel signals it is waiting for user input
+/// (shell at prompt, no command running) and `false` when a command starts.
+pub type PanelStatusCallback = std::rc::Rc<dyn Fn(bool)>;
 
 /// Trait implemented by all panel backends.
 /// Each panel type creates a GTK widget and handles its lifecycle.
@@ -39,6 +42,11 @@ pub trait PanelBackend: std::fmt::Debug {
     /// Observe OSC-driven title changes emitted by the app running inside this
     /// panel (terminal OSC 0/2). Empty string signals title reset/clear.
     fn set_title_callback(&self, _callback: Option<PanelTitleCallback>) {}
+
+    /// Observe "waiting for input" state transitions derived from OSC 133
+    /// shell integration: `true` = shell at prompt, `false` = command running.
+    /// Non-terminal panels leave this as no-op.
+    fn set_status_callback(&self, _callback: Option<PanelStatusCallback>) {}
 
     /// Get current text content for recording/alert scanning.
     fn get_text_content(&self) -> Option<String> {

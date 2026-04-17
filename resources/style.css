@@ -32,6 +32,11 @@
     opacity: 0.75;
 }
 
+.panel-status-icon {
+    color: #4ade80;
+    opacity: 0.9;
+}
+
 .alert-red {
     border-color: red;
     border-width: 2px;

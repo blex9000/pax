@@ -42,7 +42,7 @@ mod backend;
 mod backend;
 
 use super::PanelBackend;
-use crate::panels::{PanelInputCallback, PanelTitleCallback};
+use crate::panels::{PanelInputCallback, PanelStatusCallback, PanelTitleCallback};
 use backend::TerminalInner;
 
 // ── Shared terminal font configuration ──────────────────────────────────────
@@ -172,6 +172,10 @@ impl PanelBackend for TerminalPanel {
 
     fn set_title_callback(&self, callback: Option<PanelTitleCallback>) {
         self.inner.set_title_callback(callback);
+    }
+
+    fn set_status_callback(&self, callback: Option<PanelStatusCallback>) {
+        self.inner.set_status_callback(callback);
     }
 
     fn ssh_label(&self) -> Option<String> {

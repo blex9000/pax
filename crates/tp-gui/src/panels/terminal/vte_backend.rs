@@ -27,6 +27,19 @@ use vte4::prelude::*;
 use std::cell::RefCell;
 use std::rc::Rc;
 
+/// Minimum VTE version exposing the `shell-precmd` / `shell-preexec`
+/// GObject signals used for OSC 133 shell integration.
+const VTE_SHELL_INTEGRATION_MINOR: u32 = 80;
+
+/// True when the linked libvte runtime exposes the OSC 133 shell
+/// integration signals. Older runtimes (e.g. VTE 0.76 on Debian stable)
+/// abort with `assertion failed: handle > 0` inside `glib::signal::connect_raw`
+/// if we try to connect a signal the library does not ship.
+fn vte_has_shell_integration_signals() -> bool {
+    let minor = unsafe { vte4::ffi::vte_get_minor_version() };
+    minor >= VTE_SHELL_INTEGRATION_MINOR
+}
+
 /// Resolve a script path: if relative, resolve against workspace_dir.
 fn resolve_script_path(path: &str, workspace_dir: &Option<String>) -> String {
     let p = std::path::Path::new(path);
@@ -48,6 +61,7 @@ pub struct TerminalInner {
     workspace_dir: Option<String>,
     input_cb: Rc<RefCell<Option<crate::panels::PanelInputCallback>>>,
     title_cb: Rc<RefCell<Option<crate::panels::PanelTitleCallback>>>,
+    status_cb: Rc<RefCell<Option<crate::panels::PanelStatusCallback>>>,
 }
 
 impl std::fmt::Debug for TerminalInner {
@@ -84,6 +98,8 @@ impl TerminalInner {
             Rc::new(RefCell::new(None));
         let title_cb: Rc<RefCell<Option<crate::panels::PanelTitleCallback>>> =
             Rc::new(RefCell::new(None));
+        let status_cb: Rc<RefCell<Option<crate::panels::PanelStatusCallback>>> =
+            Rc::new(RefCell::new(None));
 
         // Build environment: inherit current env + user overrides + TERM
         let mut spawn_env: Vec<String> = std::env::vars()
@@ -117,18 +133,30 @@ impl TerminalInner {
                     *spawned_for_cb.borrow_mut() = true;
                     // Override PS1 with a minimal prompt. The replacement PS1
                     // does not contain the distro-default OSC 0 title sequence,
-                    // so we emit both OSC 0 (title) and OSC 7 (directory URI)
-                    // from PROMPT_COMMAND on every prompt. We append rather
-                    // than replace so any user PROMPT_COMMAND survives.
+                    // so __pax_prompt emits OSC 0 (title) + OSC 7 (directory
+                    // URI) + OSC 133;A (shell integration: prompt start).
+                    // __pax_preexec emits OSC 133;C on the first command after
+                    // each prompt, using a flag reset by __pax_prompt so the
+                    // DEBUG trap stays quiet inside PROMPT_COMMAND itself.
                     vte_for_cb.feed_child(b" export PS1='\\[\\033[32m\\]$:\\[\\033[0m\\] '\n");
                     vte_for_cb.feed_child(
                         b" __pax_prompt() { \
                              local d=\"${PWD/#$HOME/~}\"; \
                              printf '\\033]0;%s@%s: %s\\007' \"$USER\" \"$HOSTNAME\" \"$d\"; \
                              printf '\\033]7;file://%s%s\\033\\\\' \"$HOSTNAME\" \"$PWD\"; \
+                             printf '\\033]133;A\\007'; \
+                             __pax_preexec_fired=; \
+                         }\n",
+                    );
+                    vte_for_cb.feed_child(
+                        b" __pax_preexec() { \
+                             [[ -n \"$__pax_preexec_fired\" ]] && return; \
+                             __pax_preexec_fired=1; \
+                             printf '\\033]133;C\\007'; \
                          }\n",
                     );
                     vte_for_cb.feed_child(b" PROMPT_COMMAND=\"${PROMPT_COMMAND:+$PROMPT_COMMAND; }__pax_prompt\"\n");
+                    vte_for_cb.feed_child(b" trap '__pax_preexec' DEBUG\n");
                     vte_for_cb.feed_child(b" export LS_COLORS='di=38;2;85;136;255:ln=36:so=35:pi=33:ex=32:bd=34;46:cd=34;43:su=30;41:sg=30;46:tw=30;42:ow=34;42'\n");
                     // Clear screen to hide setup commands
                     vte_for_cb.feed_child(b" clear\n");
@@ -174,6 +202,30 @@ impl TerminalInner {
             });
         }
 
+        // Forward OSC 133 shell integration: precmd (A) = prompt starting =
+        // waiting for input; preexec (C) = command about to run = not waiting.
+        // These signals were added in VTE 0.80; skip the wiring on older
+        // runtimes (Debian/Ubuntu LTS ships 0.76) to avoid a
+        // `connect_raw: handle > 0` assertion on missing GObject signals.
+        if vte_has_shell_integration_signals() {
+            let status_cb_ref = status_cb.clone();
+            vte.connect_shell_precmd(move |_| {
+                if let Ok(borrowed) = status_cb_ref.try_borrow() {
+                    if let Some(ref cb) = *borrowed {
+                        cb(true);
+                    }
+                }
+            });
+            let status_cb_ref = status_cb.clone();
+            vte.connect_shell_preexec(move |_| {
+                if let Ok(borrowed) = status_cb_ref.try_borrow() {
+                    if let Some(ref cb) = *borrowed {
+                        cb(false);
+                    }
+                }
+            });
+        }
+
         // Register VTE for theme color updates
         crate::theme::register_vte_terminal(&vte);
 
@@ -186,6 +238,7 @@ impl TerminalInner {
             workspace_dir: workspace_dir.map(|s| s.to_string()),
             input_cb,
             title_cb,
+            status_cb,
         }
     }
 
@@ -385,6 +438,10 @@ impl TerminalInner {
 
     pub fn set_title_callback(&self, callback: Option<crate::panels::PanelTitleCallback>) {
         *self.title_cb.borrow_mut() = callback;
+    }
+
+    pub fn set_status_callback(&self, callback: Option<crate::panels::PanelStatusCallback>) {
+        *self.status_cb.borrow_mut() = callback;
     }
 
     pub fn widget(&self) -> &gtk4::Widget {

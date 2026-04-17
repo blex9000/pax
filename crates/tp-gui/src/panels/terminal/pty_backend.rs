@@ -41,12 +41,49 @@ const DEFAULT_COLS: u16 = 80;
 const DEFAULT_SCROLLBACK: usize = 10_000;
 const SCROLL_MULTIPLIER: f64 = 3.0;
 
+/// Length of the OSC 133 pattern `\x1b]133;X` plus 1-byte terminator.
+/// Used to size the carry buffer that bridges OSC scans across PTY reads.
+const OSC_133_PATTERN_LEN: usize = 8;
+
+/// Scan the concatenation of `carry` (leftover tail from the previous read)
+/// and `buf` (new PTY bytes) for OSC 133 A/C markers, sending `StatusChanged`
+/// events via `ui_tx`. vte 0.11 (alacritty's parser) does not dispatch OSC
+/// 133, so we detect the pattern here on the raw byte stream.
+fn scan_osc_133(carry: &[u8], buf: &[u8], ui_tx: &mpsc::Sender<TerminalUiEvent>) {
+    if buf.is_empty() {
+        return;
+    }
+    let mut joined: Vec<u8> = Vec::with_capacity(carry.len() + buf.len());
+    joined.extend_from_slice(carry);
+    joined.extend_from_slice(buf);
+    let needle: &[u8] = b"\x1b]133;";
+    let mut i = 0;
+    while i + needle.len() < joined.len() {
+        if &joined[i..i + needle.len()] == needle {
+            let letter = joined[i + needle.len()];
+            match letter {
+                b'A' => {
+                    let _ = ui_tx.send(TerminalUiEvent::StatusChanged(true));
+                }
+                b'C' => {
+                    let _ = ui_tx.send(TerminalUiEvent::StatusChanged(false));
+                }
+                _ => {}
+            }
+            i += needle.len() + 1;
+        } else {
+            i += 1;
+        }
+    }
+}
+
 pub struct TerminalInner {
     pub drawing_area: gtk4::DrawingArea,
     pub widget: gtk4::Widget,
     pub writer: Arc<Mutex<Box<dyn Write + Send>>>,
     input_cb: Rc<RefCell<Option<crate::panels::PanelInputCallback>>>,
     title_cb: Rc<RefCell<Option<crate::panels::PanelTitleCallback>>>,
+    status_cb: Rc<RefCell<Option<crate::panels::PanelStatusCallback>>>,
 }
 
 impl fmt::Debug for TerminalInner {
@@ -120,6 +157,8 @@ impl TerminalInner {
             Rc::new(RefCell::new(None));
         let title_cb: Rc<RefCell<Option<crate::panels::PanelTitleCallback>>> =
             Rc::new(RefCell::new(None));
+        let status_cb: Rc<RefCell<Option<crate::panels::PanelStatusCallback>>> =
+            Rc::new(RefCell::new(None));
         install_shell_bootstrap(&writer);
 
         let (ui_tx, ui_rx) = mpsc::channel::<TerminalUiEvent>();
@@ -136,10 +175,17 @@ impl TerminalInner {
             let ui_tx = ui_tx.clone();
             std::thread::spawn(move || {
                 let mut buf = [0u8; 4096];
+                let mut carry: Vec<u8> = Vec::with_capacity(OSC_133_PATTERN_LEN);
                 loop {
                     match reader.read(&mut buf) {
                         Ok(0) => break,
                         Ok(n) => {
+                            scan_osc_133(&carry, &buf[..n], &ui_tx);
+                            // Retain trailing bytes so a sequence split across
+                            // PTY reads is still detected on the next scan.
+                            carry.clear();
+                            let tail = n.saturating_sub(OSC_133_PATTERN_LEN - 1);
+                            carry.extend_from_slice(&buf[tail..n]);
                             if let Ok(mut state) = term_state.lock() {
                                 let TermState { term, parser } = &mut *state;
                                 parser.advance(term, &buf[..n]);
@@ -156,6 +202,7 @@ impl TerminalInner {
             let drawing_area = drawing_area.clone();
             let writer = writer.clone();
             let title_cb_ref = title_cb.clone();
+            let status_cb_ref = status_cb.clone();
             glib::timeout_add_local(Duration::from_millis(16), move || {
                 loop {
                     match ui_rx.try_recv() {
@@ -164,6 +211,13 @@ impl TerminalInner {
                             if let Ok(borrowed) = title_cb_ref.try_borrow() {
                                 if let Some(ref cb) = *borrowed {
                                     cb(&title);
+                                }
+                            }
+                        }
+                        Ok(TerminalUiEvent::StatusChanged(waiting)) => {
+                            if let Ok(borrowed) = status_cb_ref.try_borrow() {
+                                if let Some(ref cb) = *borrowed {
+                                    cb(waiting);
                                 }
                             }
                         }
@@ -388,6 +442,7 @@ impl TerminalInner {
             writer,
             input_cb,
             title_cb,
+            status_cb,
         }
     }
 
@@ -422,6 +477,10 @@ impl TerminalInner {
 
     pub fn set_title_callback(&self, callback: Option<crate::panels::PanelTitleCallback>) {
         *self.title_cb.borrow_mut() = callback;
+    }
+
+    pub fn set_status_callback(&self, callback: Option<crate::panels::PanelStatusCallback>) {
+        *self.status_cb.borrow_mut() = callback;
     }
 
     pub fn widget(&self) -> &gtk4::Widget {
@@ -510,6 +569,9 @@ enum TerminalUiEvent {
     ClipboardLoad(Arc<dyn Fn(&str) -> String + Sync + Send + 'static>),
     /// OSC 0/2 title update; empty string = reset/clear (from Event::ResetTitle).
     TitleChanged(String),
+    /// OSC 133 shell integration: `true` = waiting (prompt up, no command),
+    /// `false` = running (command started after prompt).
+    StatusChanged(bool),
 }
 
 #[derive(Clone, Copy)]

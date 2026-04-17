@@ -96,6 +96,7 @@ pub fn build_tab_label(
     edit_state: Option<&TabLabelEditState>,
     tab_id: &str,
     tab_path: &[usize],
+    status_host: Option<&PanelHost>,
 ) -> gtk4::Widget {
     let is_root_label = tab_label_is_root(tab_path);
     let is_layout = panel_type_id == "__layout__";
@@ -136,6 +137,24 @@ pub fn build_tab_label(
     type_icon.add_css_class("workspace-tab-type-icon");
     type_icon.set_margin_start(8);
     hbox.append(&type_icon);
+
+    // Tab-level "waiting for input" indicator, mirroring the panel header.
+    // Shown only when `status_host` registers it; layout tabs pass None.
+    let tab_status_icon = gtk4::Image::from_icon_name("media-record-symbolic");
+    tab_status_icon.add_css_class("panel-status-icon");
+    tab_status_icon.add_css_class("workspace-tab-status-icon");
+    tab_status_icon.set_pixel_size(8);
+    tab_status_icon.set_visible(false);
+    hbox.append(&tab_status_icon);
+
+    if let Some(host) = status_host {
+        let icon_weak = tab_status_icon.downgrade();
+        host.add_status_listener(Box::new(move |waiting| {
+            if let Some(img) = icon_weak.upgrade() {
+                img.set_visible(waiting);
+            }
+        }));
+    }
 
     let stack = gtk4::Stack::new();
     stack.set_halign(gtk4::Align::Start);
@@ -372,7 +391,16 @@ mod tests {
         }
 
         let child = gtk4::Box::new(gtk4::Orientation::Vertical, 0).upcast::<gtk4::Widget>();
-        let label = build_tab_label("layout", "__layout__", &None, &child, None, "tab-1", &[0]);
+        let label = build_tab_label(
+            "layout",
+            "__layout__",
+            &None,
+            &child,
+            None,
+            "tab-1",
+            &[0],
+            None,
+        );
         let image = find_first_image(&label).expect("layout tab should include fallback icon");
         let text = find_first_label(&label).expect("layout tab should include text label");
 
@@ -471,13 +499,14 @@ fn preview_move_workspace_tab(child_widget: &gtk4::Widget, step: i32) -> bool {
 pub fn update_notebook_labels_recursive(
     widget: &gtk4::Widget,
     action_cb: &PanelActionCallback,
-    _hosts: &HashMap<String, PanelHost>,
+    hosts: &HashMap<String, PanelHost>,
     workspace: &Workspace,
     edit_state: Option<&TabLabelEditState>,
 ) {
     update_labels_with_layout(
         widget,
         action_cb,
+        hosts,
         &workspace.layout,
         &workspace.panels,
         edit_state,
@@ -488,6 +517,7 @@ pub fn update_notebook_labels_recursive(
 fn update_labels_with_layout(
     widget: &gtk4::Widget,
     action_cb: &PanelActionCallback,
+    hosts: &HashMap<String, PanelHost>,
     layout_node: &LayoutNode,
     panels: &[PanelConfig],
     edit_state: Option<&TabLabelEditState>,
@@ -533,6 +563,12 @@ fn update_labels_with_layout(
                         .get(i as usize)
                         .cloned()
                         .unwrap_or_else(pax_core::workspace::new_tab_id);
+                    let status_host = children
+                        .get(i as usize)
+                        .and_then(|node| match node {
+                            LayoutNode::Panel { id } => hosts.get(id),
+                            _ => None,
+                        });
                     let label = build_tab_label(
                         &label_text,
                         type_id,
@@ -541,6 +577,7 @@ fn update_labels_with_layout(
                         edit_state,
                         &tab_id,
                         &child_path,
+                        status_host,
                     );
                     notebook.set_tab_label(&page_widget, Some(&label));
 
@@ -549,6 +586,7 @@ fn update_labels_with_layout(
                         update_labels_with_layout(
                             &page_widget,
                             action_cb,
+                            hosts,
                             child_node,
                             panels,
                             edit_state,
@@ -575,6 +613,7 @@ fn update_labels_with_layout(
                         update_labels_with_layout(
                             &w,
                             action_cb,
+                            hosts,
                             c,
                             panels,
                             edit_state,
@@ -592,6 +631,7 @@ fn update_labels_with_layout(
                             update_labels_with_layout(
                                 &w,
                                 action_cb,
+                                hosts,
                                 c,
                                 panels,
                                 edit_state,
@@ -1077,6 +1117,10 @@ pub fn build_layout_widget_inner(
                     .get(i)
                     .cloned()
                     .unwrap_or_else(pax_core::workspace::new_tab_id);
+                let status_host = match child {
+                    LayoutNode::Panel { id } => hosts.get(id),
+                    _ => None,
+                };
                 let label = build_tab_label(
                     &label_text,
                     panel_type_id,
@@ -1085,6 +1129,7 @@ pub fn build_layout_widget_inner(
                     edit_state,
                     &tab_id,
                     &child_path,
+                    status_host,
                 );
                 notebook.append_page(&page_widget, Some(&label));
                 let page_meta = notebook.page(&page_widget);

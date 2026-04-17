@@ -43,7 +43,7 @@ pub(crate) const OSC_TITLE_MAX_WIDTH_CHARS: i32 = 60;
 //   intercepts motion events before GTK's built-in handler.
 // ─────────────────────────────────────────────────────────────────────────
 
-use crate::panels::{PanelBackend, PanelTitleCallback};
+use crate::panels::{PanelBackend, PanelStatusCallback, PanelTitleCallback};
 
 /// Strip control characters (C0 except tab, and DEL) and truncate to
 /// `MAX_OSC_TITLE_LEN` characters. Used to render OSC 0/2 title payloads
@@ -125,6 +125,7 @@ pub struct PanelHost {
     type_icon: gtk4::Image,
     title_label: gtk4::Label,
     osc_title_label: gtk4::Label,
+    status_icon: gtk4::Image,
     sync_button: gtk4::Button,
     zoom_button: gtk4::Button,
     menu_button: gtk4::MenuButton,
@@ -141,6 +142,12 @@ pub struct PanelHost {
     action_cb_ref: Rc<RefCell<Option<PanelActionCallback>>>,
     /// Shared input callback used by terminal-like backends for sync propagation.
     sync_input_cb_ref: Rc<RefCell<Option<crate::panels::PanelInputCallback>>>,
+    /// External observers of OSC 133 waiting-state transitions. Used so
+    /// parent tab labels can mirror the header indicator.
+    status_listeners: Rc<RefCell<Vec<Box<dyn Fn(bool)>>>>,
+    /// Last known waiting state. Replayed to new listeners on registration
+    /// so mirrors added after a layout rebuild match the current shell state.
+    last_waiting: Rc<std::cell::Cell<bool>>,
 }
 
 impl std::fmt::Debug for PanelHost {
@@ -184,6 +191,14 @@ impl PanelHost {
         osc_title_label.set_ellipsize(gtk4::pango::EllipsizeMode::End);
         osc_title_label.set_max_width_chars(OSC_TITLE_MAX_WIDTH_CHARS);
         osc_title_label.set_visible(false);
+
+        // "Waiting for input" indicator driven by OSC 133;A/C shell integration.
+        // Hidden by default; shown while the panel's shell is at a prompt.
+        let status_icon = gtk4::Image::from_icon_name("media-record-symbolic");
+        status_icon.add_css_class("panel-status-icon");
+        status_icon.set_pixel_size(10);
+        status_icon.set_tooltip_text(Some("Waiting for input"));
+        status_icon.set_visible(false);
 
         let title_entry = gtk4::Entry::new();
         title_entry.set_text(name);
@@ -320,8 +335,15 @@ impl PanelHost {
         end_box.append(&zoom_button);
         end_box.append(&menu_button);
 
+        // Center slot holds [status_icon][osc_title_label] so the waiting
+        // indicator appears just before the OSC title, both centered as a
+        // group by CenterBox.
+        let center_box = gtk4::Box::new(gtk4::Orientation::Horizontal, 4);
+        center_box.append(&status_icon);
+        center_box.append(&osc_title_label);
+
         title_bar.set_start_widget(Some(&start_box));
-        title_bar.set_center_widget(Some(&osc_title_label));
+        title_bar.set_center_widget(Some(&center_box));
         title_bar.set_end_widget(Some(&end_box));
 
         // Click on title bar → focus this panel
@@ -445,6 +467,7 @@ impl PanelHost {
             type_icon,
             title_label,
             osc_title_label,
+            status_icon,
             sync_button,
             zoom_button,
             menu_button,
@@ -459,7 +482,17 @@ impl PanelHost {
             focused: RefCell::new(false),
             action_cb_ref,
             sync_input_cb_ref: Rc::new(RefCell::new(None)),
+            status_listeners: Rc::new(RefCell::new(Vec::new())),
+            last_waiting: Rc::new(std::cell::Cell::new(false)),
         }
+    }
+
+    /// Register an observer invoked when the panel's waiting state changes.
+    /// The observer is also invoked immediately with the current state so
+    /// late-registered mirrors (e.g. from a layout rebuild) stay in sync.
+    pub fn add_status_listener(&self, cb: Box<dyn Fn(bool)>) {
+        cb(self.last_waiting.get());
+        self.status_listeners.borrow_mut().push(cb);
     }
 
     /// Update the action callback (rebuilds the popover menu; buttons use shared ref automatically).
@@ -552,6 +585,21 @@ impl PanelHost {
         });
         backend.set_title_callback(Some(title_cb));
 
+        // Reset waiting state on backend swap; wire OSC 133 updates.
+        self.set_waiting(false);
+        self.last_waiting.set(false);
+        let status_icon = self.status_icon.clone();
+        let listeners = self.status_listeners.clone();
+        let last_waiting = self.last_waiting.clone();
+        let status_cb: PanelStatusCallback = Rc::new(move |waiting: bool| {
+            status_icon.set_visible(waiting);
+            last_waiting.set(waiting);
+            for l in listeners.borrow().iter() {
+                l(waiting);
+            }
+        });
+        backend.set_status_callback(Some(status_cb));
+
         *self.backend.borrow_mut() = Some(backend);
     }
 
@@ -597,6 +645,12 @@ impl PanelHost {
 
     pub fn set_title(&self, title: &str) {
         self.title_label.set_text(title);
+    }
+
+    /// Show or hide the "waiting for input" indicator. Driven by OSC 133
+    /// shell integration: true on prompt start (A), false on command start (C).
+    pub fn set_waiting(&self, waiting: bool) {
+        self.status_icon.set_visible(waiting);
     }
 
     /// Update the centered OSC title label.

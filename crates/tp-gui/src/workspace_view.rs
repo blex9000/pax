@@ -748,6 +748,7 @@ impl WorkspaceView {
                     edit_state.as_ref(),
                     &tab_id,
                     &[],
+                    Some(host),
                 );
                 notebook.set_tab_label(&widget, Some(&new_label));
             }
