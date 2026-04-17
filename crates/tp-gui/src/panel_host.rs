@@ -192,12 +192,13 @@ impl PanelHost {
         osc_title_label.set_max_width_chars(OSC_TITLE_MAX_WIDTH_CHARS);
         osc_title_label.set_visible(false);
 
-        // "Waiting for input" indicator driven by OSC 133;A/C shell integration.
-        // Hidden by default; shown while the panel's shell is at a prompt.
+        // "Command running" activity indicator driven by OSC 133;A/C shell
+        // integration. Hidden at the prompt; shown while a foreground command
+        // is executing in the panel's shell.
         let status_icon = gtk4::Image::from_icon_name("media-record-symbolic");
         status_icon.add_css_class("panel-status-icon");
         status_icon.set_pixel_size(10);
-        status_icon.set_tooltip_text(Some("Waiting for input"));
+        status_icon.set_tooltip_text(Some("Command running"));
         status_icon.set_visible(false);
 
         let title_entry = gtk4::Entry::new();

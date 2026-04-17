@@ -45,6 +45,10 @@ const SCROLL_MULTIPLIER: f64 = 3.0;
 /// Used to size the carry buffer that bridges OSC scans across PTY reads.
 const OSC_133_PATTERN_LEN: usize = 8;
 
+/// Safety timeout: reveal the viewport even if the first OSC 133;A never
+/// arrives (non-bash shell, user `.bashrc` errors, etc.).
+const REVEAL_FALLBACK_MS: u64 = 2000;
+
 /// Scan the concatenation of `carry` (leftover tail from the previous read)
 /// and `buf` (new PTY bytes) for OSC 133 A/C markers, sending `StatusChanged`
 /// events via `ui_tx`. vte 0.11 (alacritty's parser) does not dispatch OSC
@@ -62,11 +66,13 @@ fn scan_osc_133(carry: &[u8], buf: &[u8], ui_tx: &mpsc::Sender<TerminalUiEvent>)
         if &joined[i..i + needle.len()] == needle {
             let letter = joined[i + needle.len()];
             match letter {
+                // OSC 133;A = shell prompt → indicator OFF (idle).
                 b'A' => {
-                    let _ = ui_tx.send(TerminalUiEvent::StatusChanged(true));
-                }
-                b'C' => {
                     let _ = ui_tx.send(TerminalUiEvent::StatusChanged(false));
+                }
+                // OSC 133;C = command executing → indicator ON (busy).
+                b'C' => {
+                    let _ = ui_tx.send(TerminalUiEvent::StatusChanged(true));
                 }
                 _ => {}
             }
@@ -106,6 +112,11 @@ impl TerminalInner {
         drawing_area.set_vexpand(true);
         drawing_area.set_hexpand(true);
         drawing_area.add_css_class("terminal-fallback");
+        // Hide the terminal viewport while the bootstrap commands
+        // (exports, __pax_prompt/__pax_preexec defs, PROMPT_COMMAND, clear)
+        // echo to the PTY — mirrors the VTE backend's set_opacity(0.0) trick
+        // so the user never sees the setup scrolling by on Apply/reload.
+        drawing_area.set_opacity(0.0);
 
         let scrolled = gtk4::ScrolledWindow::new();
         scrolled.set_policy(gtk4::PolicyType::Never, gtk4::PolicyType::Never);
@@ -159,6 +170,9 @@ impl TerminalInner {
             Rc::new(RefCell::new(None));
         let status_cb: Rc<RefCell<Option<crate::panels::PanelStatusCallback>>> =
             Rc::new(RefCell::new(None));
+        // Flag flipped by the first OSC 133;A (first prompt ready) or by
+        // REVEAL_FALLBACK_MS safety timeout — whichever comes first.
+        let booted: Rc<std::cell::Cell<bool>> = Rc::new(std::cell::Cell::new(false));
         install_shell_bootstrap(&writer);
 
         let (ui_tx, ui_rx) = mpsc::channel::<TerminalUiEvent>();
@@ -203,6 +217,7 @@ impl TerminalInner {
             let writer = writer.clone();
             let title_cb_ref = title_cb.clone();
             let status_cb_ref = status_cb.clone();
+            let booted_loop = booted.clone();
             glib::timeout_add_local(Duration::from_millis(16), move || {
                 loop {
                     match ui_rx.try_recv() {
@@ -214,10 +229,16 @@ impl TerminalInner {
                                 }
                             }
                         }
-                        Ok(TerminalUiEvent::StatusChanged(waiting)) => {
+                        Ok(TerminalUiEvent::StatusChanged(busy)) => {
+                            // First `busy=false` (OSC 133;A) means the first
+                            // prompt has rendered post-bootstrap; safe to reveal.
+                            if !busy && !booted_loop.get() {
+                                booted_loop.set(true);
+                                drawing_area.set_opacity(1.0);
+                            }
                             if let Ok(borrowed) = status_cb_ref.try_borrow() {
                                 if let Some(ref cb) = *borrowed {
-                                    cb(waiting);
+                                    cb(busy);
                                 }
                             }
                         }
@@ -436,6 +457,22 @@ impl TerminalInner {
 
         setup_context_menu(&drawing_area, &term_state, &writer, &input_cb);
 
+        // Safety fallback: if we never see OSC 133;A (non-bash shell, broken
+        // .bashrc, PROMPT_COMMAND wiped, etc.) reveal the viewport anyway.
+        {
+            let drawing_area_fallback = drawing_area.clone();
+            let booted_fallback = booted.clone();
+            glib::timeout_add_local_once(
+                Duration::from_millis(REVEAL_FALLBACK_MS),
+                move || {
+                    if !booted_fallback.get() {
+                        booted_fallback.set(true);
+                        drawing_area_fallback.set_opacity(1.0);
+                    }
+                },
+            );
+        }
+
         Self {
             drawing_area,
             widget,
@@ -446,25 +483,92 @@ impl TerminalInner {
         }
     }
 
-    /// Send commands to the running shell.
+    /// Send startup commands to the running shell.
+    ///
+    /// Mirrors the VTE backend: single-line commands are fed directly,
+    /// multi-line scripts and shebang scripts are written to a temp file
+    /// and `source`d in a single line, so users do not see each script
+    /// line echoed at the prompt during bootstrap.
     pub fn send_commands(&self, commands: &[String]) {
-        if let Ok(mut w) = self.writer.lock() {
-            for cmd in commands {
-                let line = format!("{}\n", cmd);
-                let _ = w.write_all(line.as_bytes());
-                let _ = w.flush();
+        if commands.is_empty() {
+            return;
+        }
+        let full_text = commands.join("\n");
+        if full_text.trim().is_empty() {
+            return;
+        }
+
+        // Simple command: single line without shebang → run directly.
+        if !full_text.contains('\n')
+            && !full_text.starts_with("#!")
+            && !full_text.starts_with("file:")
+        {
+            self.feed_line(&full_text);
+            return;
+        }
+
+        // File mode: "file:/bin/bash:/path/to/script.sh" → run via interpreter.
+        if full_text.starts_with("file:") {
+            let rest = full_text.trim_start_matches("file:");
+            let (interpreter, path) = if let Some(idx) = rest[1..].find(':') {
+                let idx = idx + 1;
+                (&rest[..idx], &rest[idx + 1..])
+            } else {
+                ("/bin/bash", rest)
+            };
+            self.feed_line(&format!("{} {}", interpreter, path));
+            return;
+        }
+
+        // Inline script: write to temp file, `source` it, then remove.
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static COUNTER: AtomicU64 = AtomicU64::new(0);
+        let tmp = std::env::temp_dir().join(format!(
+            "pax_startup_{}_{}.sh",
+            std::process::id(),
+            COUNTER.fetch_add(1, Ordering::Relaxed),
+        ));
+
+        let interpreter = full_text
+            .lines()
+            .next()
+            .filter(|l| l.starts_with("#!"))
+            .map(|l| l.trim_start_matches("#!").trim().to_string())
+            .unwrap_or_else(|| "/bin/bash".to_string());
+        let script = if full_text.starts_with("#!") {
+            full_text.clone()
+        } else {
+            format!("#!{}\n{}", interpreter, full_text)
+        };
+
+        if std::fs::write(&tmp, &script).is_ok() {
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                let _ = std::fs::set_permissions(&tmp, std::fs::Permissions::from_mode(0o755));
             }
+            self.feed_line(&format!(
+                "source {} ; rm -f {}",
+                tmp.display(),
+                tmp.display()
+            ));
+        }
+    }
+
+    /// Write `line` + `\n` to the PTY master — shared helper for
+    /// `send_commands` / `queue_raw` so flushing logic is in one place.
+    fn feed_line(&self, line: &str) {
+        if let Ok(mut w) = self.writer.lock() {
+            let _ = w.write_all(line.as_bytes());
+            let _ = w.write_all(b"\n");
+            let _ = w.flush();
         }
     }
 
     /// Queue raw text (same as send_commands for PTY backend since there's
     /// no spawn callback — commands go directly to the shell).
     pub fn queue_raw(&self, text: &str) {
-        if let Ok(mut w) = self.writer.lock() {
-            let _ = w.write_all(text.as_bytes());
-            let _ = w.write_all(b"\n");
-            let _ = w.flush();
-        }
+        self.feed_line(text);
     }
 
     pub fn write_input(&self, data: &[u8]) -> bool {
@@ -1007,12 +1111,33 @@ fn install_shell_bootstrap(writer: &Arc<Mutex<Box<dyn Write + Send>>>) {
 }
 
 fn shell_bootstrap_commands() -> Vec<String> {
+    // `set +o history` disables appending to .bash_history for the bootstrap
+    // block; `set -o history` restores it before handing the shell to the
+    // user. Keeps pax's internal setup out of the user's command history.
     vec![
+        "set +o history".to_string(),
         "export LS_COLORS='di=38;2;85;136;255:ln=36:so=35:pi=33:ex=32:bd=34;46:cd=34;43:su=30;41:sg=30;46:tw=30;42:ow=34;42'".to_string(),
         "export CLICOLOR=1".to_string(),
         "export LSCOLORS='ExFxCxDxBxegedabagacad'".to_string(),
         "if command -v dircolors >/dev/null 2>&1; then eval \"$(dircolors -b 2>/dev/null)\"; fi".to_string(),
         "if command ls --color=auto . >/dev/null 2>&1; then alias ls='ls --color=auto'; else alias ls='ls -G'; fi".to_string(),
+        // OSC 0 (window title) + OSC 133;A (shell integration: prompt start)
+        // emitted every prompt. Append to PROMPT_COMMAND rather than replacing
+        // so existing user hooks (git prompt, etc.) keep working.
+        "__pax_prompt() { local d=\"${PWD/#$HOME/~}\"; \
+          printf '\\033]0;%s@%s: %s\\007' \"$USER\" \"$HOSTNAME\" \"$d\"; \
+          printf '\\033]133;A\\007'; \
+          __pax_preexec_fired=; }".to_string(),
+        // OSC 133;C on the first command after each prompt; flag is reset by
+        // __pax_prompt so bursts inside PROMPT_COMMAND itself stay silent.
+        "__pax_preexec() { [[ -n \"$__pax_preexec_fired\" ]] && return; \
+          __pax_preexec_fired=1; \
+          printf '\\033]133;C\\007'; }".to_string(),
+        "PROMPT_COMMAND=\"${PROMPT_COMMAND:+$PROMPT_COMMAND; }__pax_prompt\"".to_string(),
+        "trap '__pax_preexec' DEBUG".to_string(),
+        "set -o history".to_string(),
+        // `clear` is the last bootstrap line so the viewport is empty when
+        // the terminal reveals itself (see `booted` flag in TerminalInner::new).
         "clear".to_string(),
     ]
 }

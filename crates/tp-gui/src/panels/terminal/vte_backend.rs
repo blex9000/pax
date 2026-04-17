@@ -138,6 +138,9 @@ impl TerminalInner {
                     // __pax_preexec emits OSC 133;C on the first command after
                     // each prompt, using a flag reset by __pax_prompt so the
                     // DEBUG trap stays quiet inside PROMPT_COMMAND itself.
+                    // `set +o history` suppresses appending to .bash_history
+                    // for the whole bootstrap block; restored at the end.
+                    vte_for_cb.feed_child(b" set +o history\n");
                     vte_for_cb.feed_child(b" export PS1='\\[\\033[32m\\]$:\\[\\033[0m\\] '\n");
                     vte_for_cb.feed_child(
                         b" __pax_prompt() { \
@@ -157,6 +160,7 @@ impl TerminalInner {
                     );
                     vte_for_cb.feed_child(b" PROMPT_COMMAND=\"${PROMPT_COMMAND:+$PROMPT_COMMAND; }__pax_prompt\"\n");
                     vte_for_cb.feed_child(b" trap '__pax_preexec' DEBUG\n");
+                    vte_for_cb.feed_child(b" set -o history\n");
                     vte_for_cb.feed_child(b" export LS_COLORS='di=38;2;85;136;255:ln=36:so=35:pi=33:ex=32:bd=34;46:cd=34;43:su=30;41:sg=30;46:tw=30;42:ow=34;42'\n");
                     // Clear screen to hide setup commands
                     vte_for_cb.feed_child(b" clear\n");
@@ -202,8 +206,8 @@ impl TerminalInner {
             });
         }
 
-        // Forward OSC 133 shell integration: precmd (A) = prompt starting =
-        // waiting for input; preexec (C) = command about to run = not waiting.
+        // Forward OSC 133 shell integration: preexec (C) = command started
+        // → indicator ON (busy); precmd (A) = prompt back → indicator OFF.
         // These signals were added in VTE 0.80; skip the wiring on older
         // runtimes (Debian/Ubuntu LTS ships 0.76) to avoid a
         // `connect_raw: handle > 0` assertion on missing GObject signals.
@@ -212,7 +216,7 @@ impl TerminalInner {
             vte.connect_shell_precmd(move |_| {
                 if let Ok(borrowed) = status_cb_ref.try_borrow() {
                     if let Some(ref cb) = *borrowed {
-                        cb(true);
+                        cb(false);
                     }
                 }
             });
@@ -220,7 +224,7 @@ impl TerminalInner {
             vte.connect_shell_preexec(move |_| {
                 if let Ok(borrowed) = status_cb_ref.try_borrow() {
                     if let Some(ref cb) = *borrowed {
-                        cb(false);
+                        cb(true);
                     }
                 }
             });
