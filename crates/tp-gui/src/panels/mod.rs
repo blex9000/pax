@@ -9,6 +9,9 @@ pub type PanelTitleCallback = std::rc::Rc<dyn Fn(&str)>;
 /// Invoked with `true` when the panel signals it is waiting for user input
 /// (shell at prompt, no command running) and `false` when a command starts.
 pub type PanelStatusCallback = std::rc::Rc<dyn Fn(bool)>;
+/// Invoked with a `file://host/path` URI when the shell changes directory
+/// (OSC 7). Empty string signals reset. Used to drive the footer bar.
+pub type PanelCwdCallback = std::rc::Rc<dyn Fn(&str)>;
 
 /// Trait implemented by all panel backends.
 /// Each panel type creates a GTK widget and handles its lifecycle.
@@ -47,6 +50,10 @@ pub trait PanelBackend: std::fmt::Debug {
     /// shell integration: `true` = shell at prompt, `false` = command running.
     /// Non-terminal panels leave this as no-op.
     fn set_status_callback(&self, _callback: Option<PanelStatusCallback>) {}
+
+    /// Observe OSC 7 current-directory-URI updates so the host can render
+    /// `user@host:path` in the panel footer. Empty string = footer hidden.
+    fn set_cwd_callback(&self, _callback: Option<PanelCwdCallback>) {}
 
     /// Get current text content for recording/alert scanning.
     fn get_text_content(&self) -> Option<String> {

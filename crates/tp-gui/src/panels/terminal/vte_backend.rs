@@ -102,6 +102,7 @@ pub struct TerminalInner {
     input_cb: Rc<RefCell<Option<crate::panels::PanelInputCallback>>>,
     title_cb: Rc<RefCell<Option<crate::panels::PanelTitleCallback>>>,
     status_cb: Rc<RefCell<Option<crate::panels::PanelStatusCallback>>>,
+    cwd_cb: Rc<RefCell<Option<crate::panels::PanelCwdCallback>>>,
 }
 
 impl std::fmt::Debug for TerminalInner {
@@ -139,6 +140,8 @@ impl TerminalInner {
         let title_cb: Rc<RefCell<Option<crate::panels::PanelTitleCallback>>> =
             Rc::new(RefCell::new(None));
         let status_cb: Rc<RefCell<Option<crate::panels::PanelStatusCallback>>> =
+            Rc::new(RefCell::new(None));
+        let cwd_cb: Rc<RefCell<Option<crate::panels::PanelCwdCallback>>> =
             Rc::new(RefCell::new(None));
 
         // Build environment: inherit current env + user overrides + TERM
@@ -217,6 +220,25 @@ impl TerminalInner {
         // Right-click context menu for copy/paste
         Self::setup_context_menu(&vte);
         Self::setup_input_observer(&vte, input_cb.clone());
+        Self::setup_hyperlink_click(&vte);
+
+        // Forward OSC 7 (current-directory-uri) updates to the registered
+        // callback. The host formats the URI into the footer bar —
+        // identical path to the PTY backend's scanner-driven route.
+        {
+            let cwd_cb_ref = cwd_cb.clone();
+            vte.connect_current_directory_uri_changed(move |term| {
+                let uri = term
+                    .current_directory_uri()
+                    .map(|s| s.to_string())
+                    .unwrap_or_default();
+                if let Ok(borrowed) = cwd_cb_ref.try_borrow() {
+                    if let Some(ref cb) = *borrowed {
+                        cb(&uri);
+                    }
+                }
+            });
+        }
 
         // Forward OSC 0/2 title changes to the registered callback. VTE
         // emits this signal whenever the PTY sends ESC]0; or ESC]2; — we
@@ -280,6 +302,7 @@ impl TerminalInner {
             input_cb,
             title_cb,
             status_cb,
+            cwd_cb,
         }
     }
 
@@ -313,6 +336,40 @@ impl TerminalInner {
             glib::Propagation::Proceed
         });
         vte.add_controller(key_controller);
+    }
+
+    /// Open OSC 8 hyperlinks under the cursor on Ctrl+left-click.
+    /// VTE renders the underline/hover itself when `allow_hyperlink` is on;
+    /// we only wire the click → URI launch. Plain left-click without the
+    /// modifier is left to VTE for text selection.
+    fn setup_hyperlink_click(vte: &vte4::Terminal) {
+        let gesture = gtk4::GestureClick::new();
+        gesture.set_button(1);
+        gesture.set_propagation_phase(gtk4::PropagationPhase::Capture);
+        let vte_for_click = vte.clone();
+        gesture.connect_released(move |g, n_press, x, y| {
+            if n_press != 1 {
+                return;
+            }
+            if !g
+                .current_event_state()
+                .contains(gtk4::gdk::ModifierType::CONTROL_MASK)
+            {
+                return;
+            }
+            let Some(uri) = vte_for_click.check_hyperlink_at(x, y) else {
+                return;
+            };
+            let uri_str = uri.to_string();
+            if let Err(e) = gtk4::gio::AppInfo::launch_default_for_uri(
+                &uri_str,
+                None::<&gtk4::gio::AppLaunchContext>,
+            ) {
+                tracing::warn!("Failed to launch hyperlink {}: {}", uri_str, e);
+            }
+            g.set_state(gtk4::EventSequenceState::Claimed);
+        });
+        vte.add_controller(gesture);
     }
 
     /// Build the right-click copy/paste context menu.
@@ -416,6 +473,10 @@ impl TerminalInner {
 
     pub fn set_status_callback(&self, callback: Option<crate::panels::PanelStatusCallback>) {
         *self.status_cb.borrow_mut() = callback;
+    }
+
+    pub fn set_cwd_callback(&self, callback: Option<crate::panels::PanelCwdCallback>) {
+        *self.cwd_cb.borrow_mut() = callback;
     }
 
     pub fn widget(&self) -> &gtk4::Widget {

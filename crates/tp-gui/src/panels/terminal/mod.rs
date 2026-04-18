@@ -31,9 +31,12 @@
 //! └── pty_backend.rs   ← Cross-platform PTY fallback (#[cfg(not(feature = "vte"))])
 //! ```
 
+mod footer;
 mod input;
 mod script_runner;
 mod shell_bootstrap;
+
+pub(crate) use footer::{format_cwd_footer, FooterFormat};
 
 #[cfg(feature = "vte")]
 #[path = "vte_backend.rs"]
@@ -44,7 +47,9 @@ mod backend;
 mod backend;
 
 use super::PanelBackend;
-use crate::panels::{PanelInputCallback, PanelStatusCallback, PanelTitleCallback};
+use crate::panels::{
+    PanelCwdCallback, PanelInputCallback, PanelStatusCallback, PanelTitleCallback,
+};
 use backend::TerminalInner;
 
 // ── Shared terminal font configuration ──────────────────────────────────────
@@ -178,6 +183,10 @@ impl PanelBackend for TerminalPanel {
 
     fn set_status_callback(&self, callback: Option<PanelStatusCallback>) {
         self.inner.set_status_callback(callback);
+    }
+
+    fn set_cwd_callback(&self, callback: Option<PanelCwdCallback>) {
+        self.inner.set_cwd_callback(callback);
     }
 
     fn ssh_label(&self) -> Option<String> {

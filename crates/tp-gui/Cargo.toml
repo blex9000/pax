@@ -19,7 +19,7 @@ serde_json = { workspace = true }
 
 gtk4 = { version = "0.9", features = ["v4_10"] }
 libadwaita = { version = "0.7", features = ["v1_4"] }
-vte4 = { version = "0.8", optional = true }
+vte4 = { version = "0.8", features = ["v0_70"], optional = true }
 portable-pty = "0.8"
 alacritty_terminal = "0.26"
 pangocairo = "0.20"

@@ -43,7 +43,7 @@ pub(crate) const OSC_TITLE_MAX_WIDTH_CHARS: i32 = 60;
 //   intercepts motion events before GTK's built-in handler.
 // ─────────────────────────────────────────────────────────────────────────
 
-use crate::panels::{PanelBackend, PanelStatusCallback, PanelTitleCallback};
+use crate::panels::{PanelBackend, PanelCwdCallback, PanelStatusCallback, PanelTitleCallback};
 
 /// Strip control characters (C0 except tab, and DEL) and truncate to
 /// `MAX_OSC_TITLE_LEN` characters. Used to render OSC 0/2 title payloads
@@ -537,15 +537,8 @@ impl PanelHost {
         panel_widget.set_hexpand(true);
         self.container.append(&panel_widget);
 
-        // If this is a VTE terminal, connect directory tracking and show footer
-        #[cfg(feature = "vte")]
-        {
-            self.setup_vte_directory_tracking(&panel_widget);
-            // Show footer immediately with a placeholder — VTE will update it
-            if panel_widget.clone().downcast::<vte4::Terminal>().is_ok() {
-                self.footer_bar.set_visible(true);
-            }
-        }
+        // OSC 7 footer is now driven by `set_cwd_callback` (registered
+        // below) — backend-agnostic. Old VTE-only downcast helper removed.
 
         // Show SSH indicator if backend is remote
         if let Some(ssh_label) = backend.ssh_label() {
@@ -600,6 +593,30 @@ impl PanelHost {
             }
         });
         backend.set_status_callback(Some(status_cb));
+
+        // OSC 7 current-directory-uri → footer bar. Same formatter for VTE
+        // (signal-driven) and PTY (byte-scanner driven) backends.
+        let footer_label = self.footer_label.clone();
+        let footer_bar = self.footer_bar.clone();
+        let user = std::env::var("USER").unwrap_or_default();
+        let hostname = std::env::var("HOSTNAME")
+            .or_else(|_| std::fs::read_to_string("/etc/hostname").map(|s| s.trim().to_string()))
+            .unwrap_or_else(|_| "localhost".to_string());
+        let home = std::env::var("HOME").unwrap_or_default();
+        let cwd_cb: PanelCwdCallback = Rc::new(move |uri: &str| {
+            if uri.is_empty() {
+                footer_bar.set_visible(false);
+                return;
+            }
+            if let Some(fmt) =
+                crate::panels::terminal::format_cwd_footer(uri, &user, &hostname, &home)
+            {
+                footer_label.set_markup(&fmt.markup);
+                footer_label.set_tooltip_text(Some(&fmt.plain));
+                footer_bar.set_visible(true);
+            }
+        });
+        backend.set_cwd_callback(Some(cwd_cb));
 
         *self.backend.borrow_mut() = Some(backend);
     }
@@ -801,52 +818,6 @@ impl PanelHost {
         }
     }
 
-    /// Connect VTE current-directory-uri signal to update the footer.
-    #[cfg(feature = "vte")]
-    fn setup_vte_directory_tracking(&self, widget: &gtk4::Widget) {
-        use vte4::prelude::*;
-        if let Ok(vte) = widget.clone().downcast::<vte4::Terminal>() {
-            let footer = self.footer_label.clone();
-            let footer_bar = self.footer_bar.clone();
-            let user = std::env::var("USER").unwrap_or_default();
-            let hostname = std::env::var("HOSTNAME")
-                .or_else(|_| std::fs::read_to_string("/etc/hostname").map(|s| s.trim().to_string()))
-                .unwrap_or_else(|_| "localhost".to_string());
-            vte.connect_current_directory_uri_changed(move |vte| {
-                if let Some(uri) = vte.current_directory_uri() {
-                    // URI format: file://hostname/path/to/dir
-                    // Parse with url crate logic: strip scheme, then hostname
-                    let after_scheme = uri.strip_prefix("file://").unwrap_or(&uri);
-                    // Find the first '/' after hostname — that starts the absolute path
-                    let path = if let Some(slash_pos) = after_scheme.find('/') {
-                        &after_scheme[slash_pos..]
-                    } else {
-                        after_scheme
-                    };
-                    // URL-decode %XX sequences
-                    let path = percent_decode(path);
-                    // Abbreviate home dir
-                    let home = std::env::var("HOME").unwrap_or_default();
-                    let display_path = if !home.is_empty() && path.starts_with(&home) {
-                        format!("~{}", &path[home.len()..])
-                    } else {
-                        path
-                    };
-                    let plain = format!("{}@{}:{}", user, hostname, display_path);
-                    let markup = format!(
-                        "<span color='#33cc33'>{}@{}</span>:<span color='#5588ff'>{}</span>",
-                        glib::markup_escape_text(&user),
-                        glib::markup_escape_text(&hostname),
-                        glib::markup_escape_text(&display_path),
-                    );
-                    footer.set_markup(&markup);
-                    footer.set_tooltip_text(Some(&plain));
-                    footer_bar.set_visible(true);
-                }
-            });
-        }
-    }
-
     pub fn write_input(&self, data: &[u8]) -> bool {
         if let Some(ref backend) = *self.backend.borrow() {
             backend.write_input(data)
@@ -995,27 +966,6 @@ fn build_panel_menu(panel_id: &str, action_cb: Option<PanelActionCallback>) -> g
 }
 
 /// Decode percent-encoded URI path (e.g. %20 → space).
-#[cfg(feature = "vte")]
-fn percent_decode(s: &str) -> String {
-    let mut result = Vec::new();
-    let bytes = s.as_bytes();
-    let mut i = 0;
-    while i < bytes.len() {
-        if bytes[i] == b'%' && i + 2 < bytes.len() {
-            if let Ok(byte) =
-                u8::from_str_radix(std::str::from_utf8(&bytes[i + 1..i + 3]).unwrap_or(""), 16)
-            {
-                result.push(byte);
-                i += 3;
-                continue;
-            }
-        }
-        result.push(bytes[i]);
-        i += 1;
-    }
-    String::from_utf8(result).unwrap_or_else(|_| s.to_string())
-}
-
 fn wrap_panel_input_callback(
     panel_id: &str,
     cb: Rc<dyn Fn(&str, &[u8])>,

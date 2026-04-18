@@ -43,9 +43,10 @@ const DEFAULT_COLS: u16 = 80;
 const DEFAULT_SCROLLBACK: usize = 10_000;
 const SCROLL_MULTIPLIER: f64 = 3.0;
 
-/// Length of the OSC 133 pattern `\x1b]133;X` plus 1-byte terminator.
-/// Used to size the carry buffer that bridges OSC scans across PTY reads.
-const OSC_133_PATTERN_LEN: usize = 8;
+/// Carry buffer size spanning two PTY reads so OSC sequences split across
+/// reads (OSC 133 is ~8 bytes, OSC 7 can be ~200 bytes with long paths)
+/// are still detected on the next scan pass.
+const OSC_SCAN_CARRY_LEN: usize = 512;
 
 /// Safety timeout: reveal the viewport even if the first OSC 133;A never
 /// arrives (non-bash shell, user `.bashrc` errors, etc.).
@@ -55,33 +56,60 @@ const REVEAL_FALLBACK_MS: u64 = 2000;
 /// and `buf` (new PTY bytes) for OSC 133 A/C markers, sending `StatusChanged`
 /// events via `ui_tx`. vte 0.11 (alacritty's parser) does not dispatch OSC
 /// 133, so we detect the pattern here on the raw byte stream.
-fn scan_osc_133(carry: &[u8], buf: &[u8], ui_tx: &mpsc::Sender<TerminalUiEvent>) {
+/// Scan `carry + buf` for OSC 133 A/C (shell integration) and OSC 7
+/// (current-directory-uri) markers, emitting the corresponding
+/// `TerminalUiEvent`s. vte 0.11 (alacritty's parser) does not dispatch
+/// either OSC, so we watch the raw byte stream here.
+fn scan_osc_markers(carry: &[u8], buf: &[u8], ui_tx: &mpsc::Sender<TerminalUiEvent>) {
     if buf.is_empty() {
         return;
     }
     let mut joined: Vec<u8> = Vec::with_capacity(carry.len() + buf.len());
     joined.extend_from_slice(carry);
     joined.extend_from_slice(buf);
-    let needle: &[u8] = b"\x1b]133;";
+
+    let osc133: &[u8] = b"\x1b]133;";
+    let osc7: &[u8] = b"\x1b]7;";
     let mut i = 0;
-    while i + needle.len() < joined.len() {
-        if &joined[i..i + needle.len()] == needle {
-            let letter = joined[i + needle.len()];
-            match letter {
-                // OSC 133;A = shell prompt → indicator OFF (idle).
+    while i < joined.len() {
+        if i + osc133.len() < joined.len() && &joined[i..i + osc133.len()] == osc133 {
+            match joined[i + osc133.len()] {
                 b'A' => {
                     let _ = ui_tx.send(TerminalUiEvent::StatusChanged(false));
                 }
-                // OSC 133;C = command executing → indicator ON (busy).
                 b'C' => {
                     let _ = ui_tx.send(TerminalUiEvent::StatusChanged(true));
                 }
                 _ => {}
             }
-            i += needle.len() + 1;
-        } else {
-            i += 1;
+            i += osc133.len() + 1;
+            continue;
         }
+        if i + osc7.len() <= joined.len() && &joined[i..i + osc7.len()] == osc7 {
+            // URI runs until BEL (0x07) or ST (ESC \). If the terminator is
+            // not in our window yet, abort this pass — the carry will
+            // retain enough bytes for the next buffer to complete it.
+            let start = i + osc7.len();
+            let mut end = start;
+            while end < joined.len() {
+                if joined[end] == 0x07 {
+                    break;
+                }
+                if joined[end] == 0x1b && end + 1 < joined.len() && joined[end + 1] == b'\\' {
+                    break;
+                }
+                end += 1;
+            }
+            if end >= joined.len() {
+                break;
+            }
+            if let Ok(uri) = std::str::from_utf8(&joined[start..end]) {
+                let _ = ui_tx.send(TerminalUiEvent::CwdChanged(uri.to_string()));
+            }
+            i = end + 1;
+            continue;
+        }
+        i += 1;
     }
 }
 
@@ -92,6 +120,7 @@ pub struct TerminalInner {
     input_cb: Rc<RefCell<Option<crate::panels::PanelInputCallback>>>,
     title_cb: Rc<RefCell<Option<crate::panels::PanelTitleCallback>>>,
     status_cb: Rc<RefCell<Option<crate::panels::PanelStatusCallback>>>,
+    cwd_cb: Rc<RefCell<Option<crate::panels::PanelCwdCallback>>>,
 }
 
 impl fmt::Debug for TerminalInner {
@@ -172,6 +201,8 @@ impl TerminalInner {
             Rc::new(RefCell::new(None));
         let status_cb: Rc<RefCell<Option<crate::panels::PanelStatusCallback>>> =
             Rc::new(RefCell::new(None));
+        let cwd_cb: Rc<RefCell<Option<crate::panels::PanelCwdCallback>>> =
+            Rc::new(RefCell::new(None));
         // Flag flipped by the first OSC 133;A (first prompt ready) or by
         // REVEAL_FALLBACK_MS safety timeout — whichever comes first.
         let booted: Rc<std::cell::Cell<bool>> = Rc::new(std::cell::Cell::new(false));
@@ -191,16 +222,16 @@ impl TerminalInner {
             let ui_tx = ui_tx.clone();
             std::thread::spawn(move || {
                 let mut buf = [0u8; 4096];
-                let mut carry: Vec<u8> = Vec::with_capacity(OSC_133_PATTERN_LEN);
+                let mut carry: Vec<u8> = Vec::with_capacity(OSC_SCAN_CARRY_LEN);
                 loop {
                     match reader.read(&mut buf) {
                         Ok(0) => break,
                         Ok(n) => {
-                            scan_osc_133(&carry, &buf[..n], &ui_tx);
+                            scan_osc_markers(&carry, &buf[..n], &ui_tx);
                             // Retain trailing bytes so a sequence split across
                             // PTY reads is still detected on the next scan.
                             carry.clear();
-                            let tail = n.saturating_sub(OSC_133_PATTERN_LEN - 1);
+                            let tail = n.saturating_sub(OSC_SCAN_CARRY_LEN);
                             carry.extend_from_slice(&buf[tail..n]);
                             if let Ok(mut state) = term_state.lock() {
                                 let TermState { term, parser } = &mut *state;
@@ -219,6 +250,7 @@ impl TerminalInner {
             let writer = writer.clone();
             let title_cb_ref = title_cb.clone();
             let status_cb_ref = status_cb.clone();
+            let cwd_cb_ref = cwd_cb.clone();
             let booted_loop = booted.clone();
             glib::timeout_add_local(Duration::from_millis(16), move || {
                 loop {
@@ -241,6 +273,13 @@ impl TerminalInner {
                             if let Ok(borrowed) = status_cb_ref.try_borrow() {
                                 if let Some(ref cb) = *borrowed {
                                     cb(busy);
+                                }
+                            }
+                        }
+                        Ok(TerminalUiEvent::CwdChanged(uri)) => {
+                            if let Ok(borrowed) = cwd_cb_ref.try_borrow() {
+                                if let Some(ref cb) = *borrowed {
+                                    cb(&uri);
                                 }
                             }
                         }
@@ -482,6 +521,7 @@ impl TerminalInner {
             input_cb,
             title_cb,
             status_cb,
+            cwd_cb,
         }
     }
 
@@ -523,6 +563,10 @@ impl TerminalInner {
 
     pub fn set_status_callback(&self, callback: Option<crate::panels::PanelStatusCallback>) {
         *self.status_cb.borrow_mut() = callback;
+    }
+
+    pub fn set_cwd_callback(&self, callback: Option<crate::panels::PanelCwdCallback>) {
+        *self.cwd_cb.borrow_mut() = callback;
     }
 
     pub fn widget(&self) -> &gtk4::Widget {
@@ -614,6 +658,8 @@ enum TerminalUiEvent {
     /// OSC 133 shell integration: `true` = waiting (prompt up, no command),
     /// `false` = running (command started after prompt).
     StatusChanged(bool),
+    /// OSC 7 current-directory-uri update (`file://<host>/<path>`).
+    CwdChanged(String),
 }
 
 #[derive(Clone, Copy)]
@@ -1041,12 +1087,12 @@ fn measure_cell_metrics<W: IsA<gtk4::Widget>>(widget: &W) -> Option<CellMetrics>
 }
 
 fn install_shell_bootstrap(writer: &Arc<Mutex<Box<dyn Write + Send>>>) {
-    // Shared payload with the VTE backend. PTY passes `override_ps1: false`
-    // (keeps the user's prompt) and `emit_osc7: false` (directory URI is
-    // not tracked on this backend).
+    // Shared payload with the VTE backend. Both switches on: the PTY
+    // reader scans OSC 7 from the raw stream to drive the footer, and
+    // the minimal `$:` prompt matches what VTE shows.
     let cfg = BootstrapConfig {
-        override_ps1: false,
-        emit_osc7: false,
+        override_ps1: true,
+        emit_osc7: true,
     };
     for command in bootstrap_lines(&cfg) {
         let mut line = command;
