@@ -361,42 +361,53 @@ impl CodeEditorPanel {
         *git_status_view_slot.borrow_mut() = Some(git_status_view.clone());
 
         // Project-wide search view
-        let project_search = project_search::ProjectSearch::new(
+        let project_search = Rc::new(project_search::ProjectSearch::new(
             &PathBuf::from(root_dir),
             Rc::new({
                 let state_c = state.clone();
                 let tabs_c = tabs_rc.clone();
                 move |path, line_num, query| {
-                    // Open file and scroll to line
+                    // Open the file synchronously so the tab exists.
                     tabs_c.open_file(path, &state_c);
-                    let st = state_c.borrow();
-                    if let Some(idx) = st.active_tab {
-                        if let Some(open_file) = st.open_files.get(idx) {
-                            if let Some(iter) = open_file.buffer.iter_at_line((line_num as i32) - 1)
-                            {
-                                open_file.buffer.place_cursor(&iter);
-                                drop(st);
-                                tabs_c.source_view.scroll_to_iter(
-                                    &mut iter.clone(),
-                                    0.1,
-                                    false,
-                                    0.0,
-                                    0.0,
-                                );
 
-                                // Activate search highlight for the query in the opened file
-                                if !query.is_empty() {
-                                    tabs_c.search_entry.set_text(query);
-                                    tabs_c.search_bar.set_visible(true);
-                                    tabs_c.replace_row.set_visible(false);
-                                }
-                            }
-                        }
+                    // Prime the in-file search bar immediately so the user
+                    // sees the active query and the overview ruler.
+                    if !query.is_empty() {
+                        tabs_c.search_entry.set_text(query);
+                        tabs_c.search_bar.set_visible(true);
+                        tabs_c.replace_row.set_visible(false);
                     }
+                    tabs_c.update_match_ruler(query);
+
+                    // Defer the scroll: a freshly-opened SourceView hasn't
+                    // been laid out yet, so an immediate scroll_to_iter is a
+                    // no-op. idle_add_local_once runs after GTK finishes the
+                    // layout pass, mirroring what the nav-history code does.
+                    let state_c2 = state_c.clone();
+                    let tabs_c2 = tabs_c.clone();
+                    let line_zero_based = (line_num as i32).saturating_sub(1);
+                    gtk4::glib::idle_add_local_once(move || {
+                        let st = state_c2.borrow();
+                        let Some(idx) = st.active_tab else { return };
+                        let Some(open_file) = st.open_files.get(idx) else {
+                            return;
+                        };
+                        let Some(iter) = open_file.buffer.iter_at_line(line_zero_based) else {
+                            return;
+                        };
+                        open_file.buffer.place_cursor(&iter);
+                        tabs_c2.source_view.scroll_to_iter(
+                            &mut iter.clone(),
+                            0.1,
+                            true,
+                            0.5,
+                            0.3,
+                        );
+                    });
                 }
             }),
             backend.clone(),
-        );
+        ));
 
         // Sidebar stack to switch between file tree, git view, history, and search
         let sidebar_stack = gtk4::Stack::new();
@@ -437,7 +448,7 @@ impl CodeEditorPanel {
         }
         {
             let stack = sidebar_stack.clone();
-            let ps = project_search;
+            let ps = project_search.clone();
             search_btn.connect_toggled(move |btn| {
                 if btn.is_active() {
                     stack.set_visible_child_name("search");
@@ -564,6 +575,8 @@ impl CodeEditorPanel {
             let save_backend = backend.clone();
             let save_git_changed = on_git_changed.clone();
             let sidebar_open_btn_ref = sidebar_open_btn.clone();
+            let sidebar_stack_ref = sidebar_stack.clone();
+            let project_search_ref = project_search.clone();
             key_ctrl.connect_key_pressed(move |_, key, _, modifier| {
                 if crate::shortcuts::has_primary(modifier) {
                     match key {
@@ -600,11 +613,43 @@ impl CodeEditorPanel {
                             sidebar_open_btn_ref.set_visible(!st.sidebar_visible);
                             return gtk4::glib::Propagation::Stop;
                         }
-                        gtk4::gdk::Key::f
+                        gtk4::gdk::Key::f | gtk4::gdk::Key::F
                             if modifier.contains(gtk4::gdk::ModifierType::SHIFT_MASK) =>
                         {
-                            // Ctrl+Shift+F → search in project files
+                            // Ctrl+Shift+F → search in project files.
+                            // Drive the sidebar directly instead of leaning
+                            // on the toggle button's `toggled` signal: the
+                            // signal doesn't fire when the button is already
+                            // active.
+                            {
+                                let mut st = state_c.borrow_mut();
+                                if !st.sidebar_visible {
+                                    st.sidebar_visible = true;
+                                    sidebar_ref.set_visible(true);
+                                    sidebar_open_btn_ref.set_visible(false);
+                                }
+                            }
+                            sidebar_stack_ref.set_visible_child_name("search");
                             search_btn_ref.set_active(true);
+                            // If the editor has a selection, seed the search
+                            // entry with it so the user can hit Enter
+                            // immediately. Nothing is selected → leave the
+                            // existing entry text untouched.
+                            let selected = {
+                                let buf = tabs_ref.source_view.buffer();
+                                buf.selection_bounds().and_then(|(s, e)| {
+                                    let text = buf.text(&s, &e, false).to_string();
+                                    if text.is_empty() || text.contains('\n') {
+                                        None
+                                    } else {
+                                        Some(text)
+                                    }
+                                })
+                            };
+                            if let Some(text) = selected {
+                                project_search_ref.set_query(&text);
+                            }
+                            project_search_ref.focus_entry();
                             return gtk4::glib::Propagation::Stop;
                         }
                         gtk4::gdk::Key::f => {

@@ -151,6 +151,17 @@ pub struct EditorTabs {
     pub replace_row: gtk4::Box,
     #[allow(dead_code)]
     search_settings: sourceview5::SearchSettings,
+    /// Line numbers (0-based) of search matches in the currently-active
+    /// buffer. Repopulated on tab switch, in-file search change, or
+    /// project-search result click. Drives the gold overview ruler.
+    match_lines: Rc<RefCell<Vec<i32>>>,
+    /// The last non-empty search query entered in either the in-file search
+    /// bar or the project-wide search; used to recompute match_lines when
+    /// the user switches tabs so the ruler stays in sync with the new buffer.
+    last_search_query: Rc<RefCell<String>>,
+    /// Drawing area beside the editor that paints a gold mark at every line
+    /// in match_lines and scrolls to the nearest match on click.
+    match_ruler: gtk4::DrawingArea,
 }
 
 impl EditorTabs {
@@ -213,6 +224,24 @@ impl EditorTabs {
         source_scroll.set_child(Some(&source_view));
         source_scroll.set_vexpand(true);
         source_scroll.set_hexpand(true);
+
+        // Search-match overview ruler: thin gold strip to the right of the
+        // editor showing a marker at every line that matches the current
+        // search query. Hidden until a non-empty query is active.
+        let match_lines: Rc<RefCell<Vec<i32>>> = Rc::new(RefCell::new(Vec::new()));
+        let last_search_query: Rc<RefCell<String>> = Rc::new(RefCell::new(String::new()));
+        let match_ruler = build_match_overview_ruler(
+            match_lines.clone(),
+            OverviewRulerKind::Match,
+            source_view.clone(),
+        );
+        match_ruler.set_visible(false);
+
+        let editor_row = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
+        editor_row.set_vexpand(true);
+        editor_row.set_hexpand(true);
+        editor_row.append(&source_scroll);
+        editor_row.append(&match_ruler);
 
         // Right-click context menu on the main editor — extras factory looks
         // up the active file each time so the format action follows the
@@ -292,11 +321,22 @@ impl EditorTabs {
             let sv = source_view.clone();
             let lang_l = status_lang.clone();
             let mod_l = status_modified.clone();
+            let ml = match_lines.clone();
+            let mr = match_ruler.clone();
+            let lsq = last_search_query.clone();
             notebook.connect_switch_page(move |_nb, _page, page_num| {
                 let idx = page_num as usize;
                 if let Ok(mut st) = state_c.try_borrow_mut() {
                     if let Some(open_file) = st.open_files.get(idx) {
                         sv.set_buffer(Some(&open_file.buffer));
+                        // Recompute search match positions for the newly
+                        // active buffer so the overview ruler stays in sync.
+                        let query = lsq.borrow().clone();
+                        let lines = collect_match_lines(&open_file.buffer, &query);
+                        let has = !lines.is_empty();
+                        *ml.borrow_mut() = lines;
+                        mr.set_visible(has);
+                        mr.queue_draw();
                         if let Some(l) = open_file.buffer.language() {
                             lang_l.set_text(&l.name());
                         } else {
@@ -406,6 +446,10 @@ impl EditorTabs {
         {
             let get_ctx = ensure_ctx.clone();
             let count_l = match_count_label.clone();
+            let sv = source_view.clone();
+            let ml = match_lines.clone();
+            let mr = match_ruler.clone();
+            let lsq = last_search_query.clone();
             search_entry.connect_search_changed(move |entry| {
                 let text = entry.text().to_string();
                 let ctx = get_ctx();
@@ -428,6 +472,17 @@ impl EditorTabs {
                     count_l.set_text(&format!("{} found", n));
                 } else {
                     count_l.set_text("No results");
+                }
+
+                // Update the overview ruler. Any non-empty query becomes the
+                // "last query" used to refresh the ruler on tab switches.
+                *lsq.borrow_mut() = text.clone();
+                if let Some(buf) = sv.buffer().downcast_ref::<sourceview5::Buffer>() {
+                    let lines = collect_match_lines(buf, &text);
+                    let has = !lines.is_empty();
+                    *ml.borrow_mut() = lines;
+                    mr.set_visible(has);
+                    mr.queue_draw();
                 }
             });
         }
@@ -601,7 +656,7 @@ impl EditorTabs {
         welcome.set_valign(gtk4::Align::Center);
         welcome_wrap.append(&welcome);
         content_stack.add_named(&welcome_wrap, Some("welcome"));
-        content_stack.add_named(&source_scroll, Some("editor"));
+        content_stack.add_named(&editor_row, Some("editor"));
         content_stack.set_visible_child_name("welcome");
 
         Self {
@@ -620,6 +675,24 @@ impl EditorTabs {
             replace_entry,
             replace_row,
             search_settings,
+            match_lines,
+            last_search_query,
+            match_ruler,
+        }
+    }
+
+    /// Recompute the search-match overview ruler for the currently-active
+    /// buffer against `query`. Call this from the project-wide search result
+    /// click so the gold ruler shows up as soon as a file is opened from
+    /// outside the in-file search bar. An empty `query` hides the ruler.
+    pub fn update_match_ruler(&self, query: &str) {
+        *self.last_search_query.borrow_mut() = query.to_string();
+        if let Some(buf) = self.source_view.buffer().downcast_ref::<sourceview5::Buffer>() {
+            let lines = collect_match_lines(buf, query);
+            let has = !lines.is_empty();
+            *self.match_lines.borrow_mut() = lines;
+            self.match_ruler.set_visible(has);
+            self.match_ruler.queue_draw();
         }
     }
 
@@ -1121,9 +1194,15 @@ impl EditorTabs {
             OverviewRulerKind::Insert,
             &new_view,
         );
+        // Rulers on the outer edges of the diff so the Paned separator
+        // between old/new scrollviews stays grabable. A generous margin
+        // on the outer-left ruler keeps it clear of the *main* sidebar
+        // paned's separator, whose resize grab zone extends further into
+        // the editor surface than the visible handle suggests.
+        old_bar.set_margin_start(12);
         let old_column = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
-        old_column.append(&old_scroll);
         old_column.append(&old_bar);
+        old_column.append(&old_scroll);
         let new_column = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
         new_column.append(&new_scroll);
         new_column.append(&new_bar);
@@ -2152,6 +2231,8 @@ enum OverviewRulerKind {
     Delete,
     /// Green marks for inserted lines (on the CURRENT side).
     Insert,
+    /// Gold marks for search-match lines (main editor overview).
+    Match,
 }
 
 /// Pixel width of the overview ruler strip. Wide enough to be tappable
@@ -2173,6 +2254,8 @@ fn overview_ruler_color(kind: OverviewRulerKind) -> (f64, f64, f64) {
     match kind {
         OverviewRulerKind::Delete => (220.0 / 255.0, 50.0 / 255.0, 47.0 / 255.0),
         OverviewRulerKind::Insert => (40.0 / 255.0, 180.0 / 255.0, 60.0 / 255.0),
+        // Gold, matches the `#e5a50a` highlight used for search matches.
+        OverviewRulerKind::Match => (229.0 / 255.0, 165.0 / 255.0, 10.0 / 255.0),
     }
 }
 
@@ -2190,6 +2273,7 @@ fn build_overview_ruler(
     bar.set_vexpand(true);
     bar.add_css_class("diff-overview-ruler");
     bar.set_tooltip_text(Some("Click a marker to jump to that change"));
+    bar.set_cursor_from_name(Some("pointer"));
 
     let lines = Rc::new(change_lines);
     let total = total_lines.max(1);
@@ -2217,7 +2301,11 @@ fn build_overview_ruler(
         let lines = lines.clone();
         let bar_for_click = bar.clone();
         let gesture = gtk4::GestureClick::new();
-        gesture.connect_pressed(move |_, _n, _x, y| {
+        gesture.set_propagation_phase(gtk4::PropagationPhase::Capture);
+        gesture.connect_pressed(move |g, _n, _x, y| {
+            // Claim the event so the enclosing Paned doesn't start a
+            // drag-to-resize on the same press.
+            g.set_state(gtk4::EventSequenceState::Claimed);
             let h = bar_for_click.height().max(1) as f64;
             let proportion = (y / h).clamp(0.0, 1.0);
             let clicked = (proportion * total as f64) as i32;
@@ -2238,6 +2326,95 @@ fn build_overview_ruler(
     }
 
     bar
+}
+
+/// Like `build_overview_ruler` but the marked lines and total line count are
+/// re-read on every draw, so the ruler can follow the active buffer as the
+/// user edits, switches tabs, or changes the search query. `lines` is shared
+/// state the caller mutates; after mutating, call `queue_draw` on the returned
+/// widget to repaint.
+fn build_match_overview_ruler(
+    lines: Rc<RefCell<Vec<i32>>>,
+    kind: OverviewRulerKind,
+    view: sourceview5::View,
+) -> gtk4::DrawingArea {
+    let bar = gtk4::DrawingArea::new();
+    bar.set_width_request(OVERVIEW_RULER_WIDTH);
+    bar.set_vexpand(true);
+    bar.add_css_class("editor-match-ruler");
+    bar.set_tooltip_text(Some("Click a marker to jump to that match"));
+    bar.set_cursor_from_name(Some("pointer"));
+
+    {
+        let lines = lines.clone();
+        let view = view.clone();
+        bar.set_draw_func(move |_, cr, w, h| {
+            let total = view.buffer().line_count().max(1);
+            let (r, g, b) = overview_ruler_color(kind);
+            let h_f = h as f64;
+            let w_f = w as f64;
+            cr.set_source_rgba(0.5, 0.5, 0.5, OVERVIEW_RULER_BG_ALPHA);
+            let _ = cr.paint();
+            cr.set_source_rgba(r, g, b, 0.9);
+            let mark_h = (h_f / total as f64).max(OVERVIEW_RULER_MARK_MIN_HEIGHT);
+            let ls = lines.borrow();
+            for &line in ls.iter() {
+                let y = (line as f64 / total as f64) * h_f;
+                cr.rectangle(0.0, y, w_f, mark_h);
+            }
+            let _ = cr.fill();
+        });
+    }
+
+    {
+        let view = view.clone();
+        let lines = lines.clone();
+        let bar_for_click = bar.clone();
+        let gesture = gtk4::GestureClick::new();
+        gesture.connect_pressed(move |_, _n, _x, y| {
+            let total = view.buffer().line_count().max(1);
+            let h = bar_for_click.height().max(1) as f64;
+            let proportion = (y / h).clamp(0.0, 1.0);
+            let clicked = (proportion * total as f64) as i32;
+            let ls = lines.borrow();
+            if ls.is_empty() {
+                return;
+            }
+            let target = ls
+                .iter()
+                .copied()
+                .min_by_key(|l| (*l - clicked).abs())
+                .unwrap_or(clicked);
+            let buf = view.buffer();
+            if let Some(iter) = buf.iter_at_line(target) {
+                buf.place_cursor(&iter);
+                view.scroll_to_iter(&mut iter.clone(), 0.1, true, 0.5, 0.5);
+            }
+        });
+        bar.add_controller(gesture);
+    }
+
+    bar
+}
+
+/// Scan `buf` for `query` (case-insensitive, substring) and return the 0-based
+/// line numbers of every matching line. Used to populate the match overview
+/// ruler without depending on a `SearchContext`.
+fn collect_match_lines(buf: &sourceview5::Buffer, query: &str) -> Vec<i32> {
+    if query.is_empty() {
+        return Vec::new();
+    }
+    let start = buf.start_iter();
+    let end = buf.end_iter();
+    let text = buf.text(&start, &end, true).to_string();
+    let needle = query.to_lowercase();
+    let mut out = Vec::new();
+    for (idx, line) in text.split('\n').enumerate() {
+        if line.to_lowercase().contains(&needle) {
+            out.push(idx as i32);
+        }
+    }
+    out
 }
 
 fn get_mtime(path: &Path) -> u64 {

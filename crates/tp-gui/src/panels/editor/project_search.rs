@@ -88,6 +88,10 @@ impl ProjectSearch {
         let results_list = gtk4::ListBox::new();
         results_list.add_css_class("navigation-sidebar");
         results_list.add_css_class("editor-sidebar-pane-list");
+        // Without this, a single click only *selects* a row — the
+        // `row-activated` signal (which opens the file) would require a
+        // double-click or Enter. Users expect one click to jump.
+        results_list.set_activate_on_single_click(true);
         scroll.set_child(Some(&results_list));
         container.append(&scroll);
 
@@ -193,6 +197,15 @@ impl ProjectSearch {
 
     pub fn focus_entry(&self) {
         self.search_entry.grab_focus();
+    }
+
+    /// Pre-populate the search entry with `text` and select all its contents,
+    /// so the next keystroke overwrites it. Used when Ctrl+Shift+F is pressed
+    /// while the editor has a selection — the selected word becomes the
+    /// starting query.
+    pub fn set_query(&self, text: &str) {
+        self.search_entry.set_text(text);
+        self.search_entry.select_region(0, -1);
     }
 }
 

@@ -1,23 +1,6 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-fn main() {
-    let manifest_dir = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap());
-    println!("cargo:rerun-if-changed=build.rs");
-
-    if let Some(git_dir) = git_dir(&manifest_dir) {
-        emit_git_rerun_hints(&git_dir);
-    }
-
-    let git_commit = git_output(&manifest_dir, &["rev-parse", "--short=8", "HEAD"])
-        .unwrap_or_else(|| "unknown".to_string());
-    let git_date = git_output(&manifest_dir, &["show", "-s", "--format=%cs", "HEAD"])
-        .unwrap_or_else(|| "unknown-date".to_string());
-
-    println!("cargo:rustc-env=PAX_GIT_COMMIT={git_commit}");
-    println!("cargo:rustc-env=PAX_GIT_DATE={git_date}");
-}
-
 fn git_output(cwd: &Path, args: &[&str]) -> Option<String> {
     let output = Command::new("git")
         .args(args)
@@ -36,27 +19,40 @@ fn git_output(cwd: &Path, args: &[&str]) -> Option<String> {
     }
 }
 
-fn git_dir(cwd: &Path) -> Option<PathBuf> {
-    let output = git_output(cwd, &["rev-parse", "--git-dir"])?;
-    let path = PathBuf::from(output);
-    if path.is_absolute() {
-        Some(path)
+fn main() {
+    let manifest_dir = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap());
+    // No rerun-if-changed hints: we want build.rs to run on every cargo
+    // build so the dirty-flag below reflects the *current* working tree,
+    // not the state at the last commit. Cost is two git subprocesses
+    // (~tens of ms) per build, which is negligible for a dev workflow
+    // and invaluable when testing uncommitted fixes.
+
+    let base_commit = git_output(&manifest_dir, &["rev-parse", "--short=8", "HEAD"])
+        .unwrap_or_else(|| "unknown".to_string());
+    let is_dirty = git_output(&manifest_dir, &["status", "--porcelain"])
+        .map(|s| !s.trim().is_empty())
+        .unwrap_or(false);
+    let git_commit = if is_dirty {
+        format!("{base_commit}-dirty")
     } else {
-        Some(cwd.join(path))
-    }
-}
+        base_commit
+    };
+    let git_date = git_output(&manifest_dir, &["show", "-s", "--format=%cs", "HEAD"])
+        .unwrap_or_else(|| "unknown-date".to_string());
 
-fn emit_git_rerun_hints(git_dir: &Path) {
-    let head = git_dir.join("HEAD");
-    println!("cargo:rerun-if-changed={}", head.display());
+    // Wall-clock time of the build itself — lets a developer testing
+    // uncommitted fixes distinguish two "-dirty" builds on the same
+    // commit. `date` is available on both Linux and macOS.
+    let build_time = Command::new("date")
+        .arg("+%Y-%m-%d %H:%M:%S")
+        .output()
+        .ok()
+        .and_then(|o| String::from_utf8(o.stdout).ok())
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| "unknown-time".to_string());
 
-    let packed_refs = git_dir.join("packed-refs");
-    println!("cargo:rerun-if-changed={}", packed_refs.display());
-
-    if let Ok(head_contents) = std::fs::read_to_string(&head) {
-        if let Some(reference) = head_contents.strip_prefix("ref: ").map(str::trim) {
-            let ref_path = git_dir.join(reference);
-            println!("cargo:rerun-if-changed={}", ref_path.display());
-        }
-    }
+    println!("cargo:rustc-env=PAX_GIT_COMMIT={git_commit}");
+    println!("cargo:rustc-env=PAX_GIT_DATE={git_date}");
+    println!("cargo:rustc-env=PAX_BUILD_TIME={build_time}");
 }
