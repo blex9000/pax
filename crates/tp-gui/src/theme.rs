@@ -1085,7 +1085,6 @@ headerbar.app-headerbar button.dirty-indicator:hover image {
   background-color: @view_bg_color;
   background-image: none;
   color: @view_fg_color;
-  padding: 0;
 }
 .editor-tabs > header,
 .editor-tabs > header:focus-within,
@@ -1096,16 +1095,11 @@ headerbar.app-headerbar button.dirty-indicator:hover image {
   min-height: 0;
   padding: 0;
 }
-/* Flush the first tab against the notebook's left edge so the tab strip
- * lines up with the panel content area instead of sitting indented by
- * the default GTK tab-strip padding. */
 .editor-tabs > header > tabs,
 .editor-tabs > header > tabs:focus-within,
 .editor-tabs > header > tabs:not(:backdrop) {
   background-color: @view_bg_color;
   background-image: none;
-  padding: 0;
-  margin: 0;
 }
 .editor-tabs > header > tabs > tab { min-height: 0; padding: 0 2px; }
 .editor-tabs > header > tabs > tab button.tab-close-btn { margin-left: 4px; margin-right: 0; }
