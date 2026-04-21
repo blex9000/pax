@@ -204,7 +204,9 @@ impl CodeEditorPanel {
         let search_btn = gtk4::ToggleButton::new();
         search_btn.set_icon_name("edit-find-symbolic");
         search_btn.add_css_class("flat");
-        search_btn.set_tooltip_text(Some("Search in files (Ctrl+Shift+F)"));
+        search_btn.set_tooltip_text(Some(
+            "Search: content (Ctrl+Shift+F) or file name (Ctrl+Shift+P)",
+        ));
         search_btn.set_group(Some(&files_btn));
 
         let history_btn = gtk4::ToggleButton::new();
@@ -361,6 +363,7 @@ impl CodeEditorPanel {
         *git_status_view_slot.borrow_mut() = Some(git_status_view.clone());
 
         // Project-wide search view
+        let project_search_file_index = file_tree.file_index.clone();
         let project_search = Rc::new(project_search::ProjectSearch::new(
             &PathBuf::from(root_dir),
             Rc::new({
@@ -407,6 +410,7 @@ impl CodeEditorPanel {
                 }
             }),
             backend.clone(),
+            project_search_file_index,
         ));
 
         // Sidebar stack to switch between file tree, git view, history, and search
@@ -635,6 +639,40 @@ impl CodeEditorPanel {
                             // entry with it so the user can hit Enter
                             // immediately. Nothing is selected → leave the
                             // existing entry text untouched.
+                            let selected = {
+                                let buf = tabs_ref.source_view.buffer();
+                                buf.selection_bounds().and_then(|(s, e)| {
+                                    let text = buf.text(&s, &e, false).to_string();
+                                    if text.is_empty() || text.contains('\n') {
+                                        None
+                                    } else {
+                                        Some(text)
+                                    }
+                                })
+                            };
+                            if let Some(text) = selected {
+                                project_search_ref.set_query(&text);
+                            }
+                            project_search_ref.set_mode(project_search::SearchMode::Content);
+                            project_search_ref.focus_entry();
+                            return gtk4::glib::Propagation::Stop;
+                        }
+                        gtk4::gdk::Key::p | gtk4::gdk::Key::P
+                            if modifier.contains(gtk4::gdk::ModifierType::SHIFT_MASK) =>
+                        {
+                            // Ctrl+Shift+P → search files by name in the same
+                            // sidebar tab as Ctrl+Shift+F, but in Files mode.
+                            {
+                                let mut st = state_c.borrow_mut();
+                                if !st.sidebar_visible {
+                                    st.sidebar_visible = true;
+                                    sidebar_ref.set_visible(true);
+                                    sidebar_open_btn_ref.set_visible(false);
+                                }
+                            }
+                            sidebar_stack_ref.set_visible_child_name("search");
+                            search_btn_ref.set_active(true);
+                            project_search_ref.set_mode(project_search::SearchMode::Files);
                             let selected = {
                                 let buf = tabs_ref.source_view.buffer();
                                 buf.selection_bounds().and_then(|(s, e)| {

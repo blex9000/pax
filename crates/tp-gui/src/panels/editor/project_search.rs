@@ -1,3 +1,5 @@
+use fuzzy_matcher::skim::SkimMatcherV2;
+use fuzzy_matcher::FuzzyMatcher;
 use gtk4::prelude::*;
 use regex::RegexBuilder;
 use std::cell::{Cell, RefCell};
@@ -14,10 +16,25 @@ pub type OnResultClick = Rc<dyn Fn(&Path, u32, &str)>;
 /// Callback for replace in files: (root_dir, search_query, replace_text) → number replaced
 pub type OnReplaceInFiles = Rc<dyn Fn(&Path, &str, &str) -> usize>;
 
-/// Project-wide search sidebar panel with replace support.
+/// Which search flavor the panel is currently running.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SearchMode {
+    /// Grep-style search across file contents.
+    Content,
+    /// Fuzzy file-name match over the project's file index.
+    Files,
+}
+
+const FILE_SEARCH_RESULTS_CAP: usize = 200;
+const CONTENT_SEARCH_RESULTS_CAP: usize = 500;
+
+/// Project-wide search sidebar panel with content/filename modes.
 pub struct ProjectSearch {
     pub widget: gtk4::Box,
     search_entry: gtk4::SearchEntry,
+    content_btn: gtk4::ToggleButton,
+    files_btn: gtk4::ToggleButton,
+    mode: Rc<Cell<SearchMode>>,
     #[allow(dead_code)]
     root_dir: PathBuf,
 }
@@ -26,6 +43,7 @@ pub struct ProjectSearch {
 struct SearchResult {
     path: PathBuf,
     line_num: u32,
+    #[allow(dead_code)]
     line_text: String,
     #[allow(dead_code)]
     match_start: usize,
@@ -34,7 +52,12 @@ struct SearchResult {
 }
 
 impl ProjectSearch {
-    pub fn new(root_dir: &Path, on_click: OnResultClick, backend: Arc<dyn FileBackend>) -> Self {
+    pub fn new(
+        root_dir: &Path,
+        on_click: OnResultClick,
+        backend: Arc<dyn FileBackend>,
+        file_index: Rc<RefCell<Vec<PathBuf>>>,
+    ) -> Self {
         let container = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
         container.add_css_class("editor-sidebar-pane");
 
@@ -46,6 +69,27 @@ impl ProjectSearch {
         header.set_margin_bottom(4);
         container.append(&header);
 
+        // Mode switcher: Content | Files (linked toggle group)
+        let mode_row = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
+        mode_row.add_css_class("linked");
+        mode_row.set_margin_start(4);
+        mode_row.set_margin_end(4);
+        mode_row.set_margin_bottom(2);
+
+        let content_btn = gtk4::ToggleButton::with_label("Content");
+        content_btn.set_tooltip_text(Some("Search in files contents (Ctrl+Shift+F)"));
+        content_btn.set_hexpand(true);
+        content_btn.set_active(true);
+
+        let files_btn = gtk4::ToggleButton::with_label("Files");
+        files_btn.set_tooltip_text(Some("Search by file name (Ctrl+Shift+P)"));
+        files_btn.set_hexpand(true);
+        files_btn.set_group(Some(&content_btn));
+
+        mode_row.append(&content_btn);
+        mode_row.append(&files_btn);
+        container.append(&mode_row);
+
         // Search entry
         let search_entry = gtk4::SearchEntry::new();
         search_entry.set_placeholder_text(Some("Search in project..."));
@@ -53,7 +97,7 @@ impl ProjectSearch {
         search_entry.set_margin_end(4);
         container.append(&search_entry);
 
-        // Replace row
+        // Replace row (only meaningful in Content mode)
         let replace_row = gtk4::Box::new(gtk4::Orientation::Horizontal, 4);
         replace_row.set_margin_start(4);
         replace_row.set_margin_end(4);
@@ -99,8 +143,104 @@ impl ProjectSearch {
         let results_store: Rc<RefCell<Vec<SearchResult>>> = Rc::new(RefCell::new(Vec::new()));
         let last_query: Rc<RefCell<String>> = Rc::new(RefCell::new(String::new()));
         let request_seq = Rc::new(Cell::new(0u64));
+        let mode = Rc::new(Cell::new(SearchMode::Content));
 
-        // Search on Enter
+        // Apply mode-dependent UI state in one place so the toggle buttons
+        // and programmatic `set_mode` end up identical.
+        let apply_mode_ui: Rc<dyn Fn(SearchMode)> = {
+            let header = header.clone();
+            let search_entry = search_entry.clone();
+            let replace_row = replace_row.clone();
+            let status_label = status_label.clone();
+            let results_list = results_list.clone();
+            let results_store = results_store.clone();
+            Rc::new(move |m: SearchMode| match m {
+                SearchMode::Content => {
+                    header.set_text("Search in Files");
+                    search_entry.set_placeholder_text(Some("Search in project..."));
+                    replace_row.set_visible(true);
+                    status_label.set_text("");
+                    clear_results_list(&results_list);
+                    results_store.borrow_mut().clear();
+                }
+                SearchMode::Files => {
+                    header.set_text("Search Files");
+                    search_entry.set_placeholder_text(Some("Search file name..."));
+                    replace_row.set_visible(false);
+                    status_label.set_text("");
+                    clear_results_list(&results_list);
+                    results_store.borrow_mut().clear();
+                }
+            })
+        };
+
+        // Mode toggle wiring
+        {
+            let mode = mode.clone();
+            let apply = apply_mode_ui.clone();
+            let search_entry = search_entry.clone();
+            content_btn.connect_toggled(move |btn| {
+                if btn.is_active() {
+                    mode.set(SearchMode::Content);
+                    apply(SearchMode::Content);
+                    search_entry.grab_focus();
+                }
+            });
+        }
+        {
+            let mode = mode.clone();
+            let apply = apply_mode_ui.clone();
+            let search_entry = search_entry.clone();
+            let file_index = file_index.clone();
+            let root_c = root_dir.to_path_buf();
+            let results_list = results_list.clone();
+            let results_store = results_store.clone();
+            let status_label = status_label.clone();
+            files_btn.connect_toggled(move |btn| {
+                if btn.is_active() {
+                    mode.set(SearchMode::Files);
+                    apply(SearchMode::Files);
+                    // Immediately render matches for whatever is in the entry
+                    // so switching with an existing query feels live.
+                    let query = search_entry.text().to_string();
+                    refresh_files_results(
+                        &results_list,
+                        &status_label,
+                        &results_store,
+                        &root_c,
+                        &file_index,
+                        &query,
+                    );
+                    search_entry.grab_focus();
+                }
+            });
+        }
+
+        // Live filter while typing (Files mode only)
+        {
+            let mode = mode.clone();
+            let file_index = file_index.clone();
+            let root_c = root_dir.to_path_buf();
+            let results_list = results_list.clone();
+            let results_store = results_store.clone();
+            let status_label = status_label.clone();
+            search_entry.connect_search_changed(move |entry| {
+                if mode.get() != SearchMode::Files {
+                    return;
+                }
+                let query = entry.text().to_string();
+                refresh_files_results(
+                    &results_list,
+                    &status_label,
+                    &results_store,
+                    &root_c,
+                    &file_index,
+                    &query,
+                );
+            });
+        }
+
+        // Enter: Content → run grep; Files → open first result
         {
             let root = root_dir.to_path_buf();
             let be = backend.clone();
@@ -109,41 +249,62 @@ impl ProjectSearch {
             let status_l = status_label.clone();
             let lq = last_query.clone();
             let seq = request_seq.clone();
+            let mode = mode.clone();
+            let on_click_c = on_click.clone();
             search_entry.connect_activate(move |entry| {
                 let query = entry.text().to_string();
                 if query.is_empty() {
                     return;
                 }
-                *lq.borrow_mut() = query.clone();
-                request_search(
-                    &results_list_c,
-                    &status_l,
-                    &results_s,
-                    &root,
-                    be.clone(),
-                    query,
-                    seq.clone(),
-                );
+                match mode.get() {
+                    SearchMode::Content => {
+                        *lq.borrow_mut() = query.clone();
+                        request_search(
+                            &results_list_c,
+                            &status_l,
+                            &results_s,
+                            &root,
+                            be.clone(),
+                            query,
+                            seq.clone(),
+                        );
+                    }
+                    SearchMode::Files => {
+                        let results = results_s.borrow();
+                        if let Some(first) = results.first() {
+                            on_click_c(&first.path, first.line_num, "");
+                        }
+                    }
+                }
             });
         }
 
-        // Click result → open file at line with search highlight
+        // Click result → open file.
+        // Content mode: jump to first matching line with highlight query.
+        // Files mode: open at line 1 with no query.
         {
             let on_click_c = on_click.clone();
             let results_s = results_store.clone();
             let lq = last_query.clone();
+            let mode = mode.clone();
             results_list.connect_row_activated(move |_, row| {
                 let file_path_str = row.widget_name();
                 let file_path = PathBuf::from(file_path_str.as_str());
-                let query = lq.borrow().clone();
-                // Find first match in this file
-                let results = results_s.borrow();
-                let first_line = results
-                    .iter()
-                    .find(|r| r.path == file_path)
-                    .map(|r| r.line_num)
-                    .unwrap_or(1);
-                on_click_c(&file_path, first_line, &query);
+                match mode.get() {
+                    SearchMode::Content => {
+                        let query = lq.borrow().clone();
+                        let results = results_s.borrow();
+                        let first_line = results
+                            .iter()
+                            .find(|r| r.path == file_path)
+                            .map(|r| r.line_num)
+                            .unwrap_or(1);
+                        on_click_c(&file_path, first_line, &query);
+                    }
+                    SearchMode::Files => {
+                        on_click_c(&file_path, 1, "");
+                    }
+                }
             });
         }
 
@@ -157,7 +318,11 @@ impl ProjectSearch {
             let results_list_c = results_list.clone();
             let results_s = results_store.clone();
             let seq = request_seq.clone();
+            let mode = mode.clone();
             replace_all_btn.connect_clicked(move |_| {
+                if mode.get() != SearchMode::Content {
+                    return;
+                }
                 let query = se.text().to_string();
                 let replacement = re.text().to_string();
                 if query.is_empty() {
@@ -191,12 +356,16 @@ impl ProjectSearch {
         Self {
             widget: container,
             search_entry,
+            content_btn,
+            files_btn,
+            mode,
             root_dir: root_dir.to_path_buf(),
         }
     }
 
     pub fn focus_entry(&self) {
         self.search_entry.grab_focus();
+        self.search_entry.select_region(0, -1);
     }
 
     /// Pre-populate the search entry with `text` and select all its contents,
@@ -207,6 +376,110 @@ impl ProjectSearch {
         self.search_entry.set_text(text);
         self.search_entry.select_region(0, -1);
     }
+
+    /// Switch mode from the outside (e.g. Ctrl+Shift+P). Activating the
+    /// relevant toggle button triggers the full mode-change wiring.
+    pub fn set_mode(&self, m: SearchMode) {
+        if self.mode.get() == m {
+            return;
+        }
+        match m {
+            SearchMode::Content => self.content_btn.set_active(true),
+            SearchMode::Files => self.files_btn.set_active(true),
+        }
+    }
+}
+
+fn refresh_files_results(
+    results_list: &gtk4::ListBox,
+    status_label: &gtk4::Label,
+    results_store: &Rc<RefCell<Vec<SearchResult>>>,
+    root: &Path,
+    file_index: &Rc<RefCell<Vec<PathBuf>>>,
+    query: &str,
+) {
+    clear_results_list(results_list);
+    results_store.borrow_mut().clear();
+
+    let files = file_index.borrow();
+    if query.is_empty() {
+        status_label.set_text(&format!("{} files indexed", files.len()));
+        return;
+    }
+
+    let matcher = SkimMatcherV2::default();
+    let mut scored: Vec<(i64, PathBuf)> = files
+        .iter()
+        .filter_map(|p| {
+            let rel = p.strip_prefix(root).unwrap_or(p);
+            matcher
+                .fuzzy_match(&rel.to_string_lossy(), query)
+                .map(|s| (s, p.clone()))
+        })
+        .collect();
+    scored.sort_by(|a, b| b.0.cmp(&a.0));
+
+    let total = scored.len();
+    let shown = total.min(FILE_SEARCH_RESULTS_CAP);
+    if total > FILE_SEARCH_RESULTS_CAP {
+        status_label.set_text(&format!(
+            "{} matches (showing top {})",
+            total, FILE_SEARCH_RESULTS_CAP
+        ));
+    } else {
+        status_label.set_text(&format!("{} matches", total));
+    }
+
+    let mut new_store = Vec::with_capacity(shown);
+    for (_, path) in scored.into_iter().take(shown) {
+        let rel = path.strip_prefix(root).unwrap_or(&path).to_path_buf();
+        let row = gtk4::Box::new(gtk4::Orientation::Horizontal, 6);
+        row.set_margin_start(6);
+        row.set_margin_end(6);
+        row.set_margin_top(3);
+        row.set_margin_bottom(3);
+
+        let icon = gtk4::Image::from_icon_name("text-x-generic-symbolic");
+        icon.set_pixel_size(14);
+        row.append(&icon);
+
+        let name = rel
+            .file_name()
+            .map(|s| s.to_string_lossy().to_string())
+            .unwrap_or_default();
+        let name_label = gtk4::Label::new(Some(&name));
+        name_label.set_halign(gtk4::Align::Start);
+        row.append(&name_label);
+
+        let parent = rel
+            .parent()
+            .map(|p| p.to_string_lossy().to_string())
+            .unwrap_or_default();
+        if !parent.is_empty() {
+            let dir_label = gtk4::Label::new(Some(&parent));
+            dir_label.add_css_class("dim-label");
+            dir_label.add_css_class("caption");
+            dir_label.set_halign(gtk4::Align::Start);
+            dir_label.set_hexpand(true);
+            dir_label.set_ellipsize(gtk4::pango::EllipsizeMode::Start);
+            row.append(&dir_label);
+        }
+
+        let list_row = gtk4::ListBoxRow::new();
+        list_row.set_child(Some(&row));
+        list_row.set_widget_name(&path.to_string_lossy());
+        list_row.set_tooltip_text(Some(&rel.to_string_lossy()));
+        results_list.append(&list_row);
+
+        new_store.push(SearchResult {
+            path,
+            line_num: 1,
+            line_text: String::new(),
+            match_start: 0,
+            match_len: 0,
+        });
+    }
+    *results_store.borrow_mut() = new_store;
 }
 
 fn request_search(
@@ -338,7 +611,7 @@ fn search_in_files(root: &Path, query: &str, backend: &dyn FileBackend) -> Vec<S
         match backend.search_files(query) {
             Ok(hits) => hits
                 .into_iter()
-                .take(500)
+                .take(CONTENT_SEARCH_RESULTS_CAP)
                 .map(|(path_str, line_num, line_text)| {
                     let path = root.join(&path_str);
                     let match_start = regex.find(&line_text).map(|m| m.start()).unwrap_or(0);
@@ -384,7 +657,7 @@ fn search_in_files(root: &Path, query: &str, backend: &dyn FileBackend) -> Vec<S
                             match_start: mat.start(),
                             match_len: query.len(),
                         });
-                        if results.len() > 500 {
+                        if results.len() > CONTENT_SEARCH_RESULTS_CAP {
                             return results;
                         }
                     }
