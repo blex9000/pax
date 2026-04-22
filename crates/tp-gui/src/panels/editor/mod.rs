@@ -256,6 +256,12 @@ impl CodeEditorPanel {
         activity_bar.append(&reveal_btn);
         activity_bar.append(&bar_spacer);
         activity_bar.append(&recent_btn);
+
+        let sidebar_hide_btn = gtk4::Button::from_icon_name("go-previous-symbolic");
+        sidebar_hide_btn.add_css_class("flat");
+        sidebar_hide_btn.set_tooltip_text(Some("Hide sidebar (Ctrl+B)"));
+        activity_bar.append(&sidebar_hide_btn);
+
         let header_wrap = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
         header_wrap.add_css_class("editor-file-tree-header-wrap");
         header_wrap.append(&activity_bar);
@@ -479,8 +485,10 @@ impl CodeEditorPanel {
         sidebar_open_btn.add_css_class("flat");
         sidebar_open_btn.set_tooltip_text(Some("Show sidebar (Ctrl+B)"));
         sidebar_open_btn.set_visible(false);
+        sidebar_open_btn.set_halign(gtk4::Align::Start);
         sidebar_open_btn.set_valign(gtk4::Align::Start);
         sidebar_open_btn.set_margin_top(2);
+        sidebar_open_btn.set_margin_start(2);
         {
             let sc = state.clone();
             let sb = sidebar.clone();
@@ -493,6 +501,19 @@ impl CodeEditorPanel {
             });
         }
         editor_area.prepend(&sidebar_open_btn);
+
+        // Wire the in-sidebar hide button — mirror Ctrl+B / sidebar_open_btn.
+        {
+            let sc = state.clone();
+            let sb = sidebar.clone();
+            let open_btn = sidebar_open_btn.clone();
+            sidebar_hide_btn.connect_clicked(move |_| {
+                let mut st = sc.borrow_mut();
+                st.sidebar_visible = false;
+                sb.set_visible(false);
+                open_btn.set_visible(true);
+            });
+        }
 
         // Ctrl+B hides sidebar (handled in key event below)
 
