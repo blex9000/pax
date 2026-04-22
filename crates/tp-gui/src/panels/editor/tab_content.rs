@@ -39,9 +39,21 @@ pub struct MarkdownTab {
     pub outer: gtk4::Widget,
 }
 
-/// Data that's specific to an Image tab. Populated in Task 5.
-#[derive(Debug, Default)]
-pub struct ImageTab {}
+/// Data that's specific to an Image tab.
+#[derive(Debug, Clone)]
+pub struct ImageTab {
+    pub picture: gtk4::Picture,
+    /// Natural width in pixels (image's intrinsic size). 0 when unknown.
+    pub natural_width: i32,
+    /// Natural height in pixels. 0 when unknown.
+    pub natural_height: i32,
+    pub zoom: Rc<Cell<f64>>,
+    /// Reset-zoom button label — handle is kept so keyboard shortcuts (in
+    /// the editor's top-level key handler) can update the displayed "100%"
+    /// after zoom-in/out.
+    pub reset_button: gtk4::Button,
+    pub outer: gtk4::Widget,
+}
 
 #[derive(Debug)]
 pub enum TabContent {

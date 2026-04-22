@@ -13,6 +13,8 @@ pub mod fuzzy_finder;
 #[cfg(feature = "sourceview")]
 pub mod git_log;
 #[cfg(feature = "sourceview")]
+pub mod image_view;
+#[cfg(feature = "sourceview")]
 pub mod markdown_view;
 #[cfg(feature = "sourceview")]
 pub mod tab_content;

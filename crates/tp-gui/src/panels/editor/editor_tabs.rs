@@ -781,9 +781,9 @@ impl EditorTabs {
             }
         }
 
-        // Dispatch on extension: markdown files get a Rendered/Source viewer
-        // instead of the shared sourceview. Unknown/other extensions fall
-        // through to the source-code path below.
+        // Dispatch on extension: markdown files get a Rendered/Source viewer,
+        // image files get a Picture-based viewer, everything else falls
+        // through to the shared source-code path below.
         if let Some(ext) = path
             .extension()
             .and_then(|e| e.to_str())
@@ -791,6 +791,9 @@ impl EditorTabs {
         {
             if MARKDOWN_EXTS.contains(&ext.as_str()) {
                 return self.open_markdown_file(path, state);
+            }
+            if super::image_view::IMAGE_EXTS.contains(&ext.as_str()) {
+                return self.open_image_file(path, state);
             }
         }
 
@@ -1339,6 +1342,122 @@ impl EditorTabs {
                 }
                 close_do_it();
             });
+        }
+
+        // Middle-click to close tab.
+        {
+            let close_btn = close_btn.clone();
+            let gesture = gtk4::GestureClick::new();
+            gesture.set_button(2);
+            gesture.connect_released(move |_, _, _, _| {
+                close_btn.emit_clicked();
+            });
+            tab_box.add_controller(gesture);
+        }
+
+        self.switch_to_buffer(idx, state);
+        self.notebook.set_current_page(Some(idx as u32));
+
+        Some(idx)
+    }
+
+    /// Open an image file in an Image tab (metadata header + Picture + zoom).
+    /// Remote (SSH) backends decline gracefully — first pass is local-only.
+    fn open_image_file(
+        &self,
+        path: &Path,
+        state: &Rc<RefCell<EditorState>>,
+    ) -> Option<usize> {
+        if state.borrow().backend.is_remote() {
+            tracing::warn!(
+                "Image preview is local-only; skipping remote image {}",
+                path.display()
+            );
+            return None;
+        }
+
+        let img = super::image_view::build_image_tab(path);
+
+        let tab_id = alloc_tab_id();
+        let child_name = format!("tab-{}", tab_id);
+        self.content_stack.add_named(&img.outer, Some(&child_name));
+        self.content_stack.set_visible_child_name(&child_name);
+
+        let mtime = get_mtime(path);
+        let file_name = path
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_else(|| "untitled".to_string());
+
+        let tab_box = gtk4::Box::new(gtk4::Orientation::Horizontal, 4);
+        tab_box.add_css_class("editor-tab-label");
+        let dot = gtk4::Label::new(None);
+        dot.add_css_class("dirty-indicator");
+        let label = gtk4::Label::new(Some(&file_name));
+        let close_btn = gtk4::Button::from_icon_name("window-close-symbolic");
+        close_btn.add_css_class("flat");
+        close_btn.add_css_class("tab-close-btn");
+        tab_box.append(&dot);
+        tab_box.append(&label);
+        tab_box.append(&close_btn);
+
+        let page_widget = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
+        page_widget.set_height_request(0);
+        let _page_idx = self.notebook.append_page(&page_widget, Some(&tab_box));
+        self.notebook.set_show_tabs(true);
+
+        let idx = {
+            let mut st = state.borrow_mut();
+            st.open_files.push(super::OpenFile {
+                tab_id,
+                path: path.to_path_buf(),
+                last_disk_mtime: mtime,
+                name_label: label.clone(),
+                content: super::tab_content::TabContent::Image(img),
+            });
+            st.active_tab = Some(st.open_files.len() - 1);
+            st.open_files.len() - 1
+        };
+
+        // Close button — image tabs are read-only so no unsaved-changes path.
+        {
+            let state_c = state.clone();
+            let nb = self.notebook.clone();
+            let cs = self.content_stack.clone();
+            let close_do_it = Rc::new(move || {
+                let per_tab_child = format!("tab-{}", tab_id);
+                let (empty_after, new_idx);
+                let mut st = state_c.borrow_mut();
+                if let Some(idx) =
+                    st.open_files.iter().position(|f| f.tab_id == tab_id)
+                {
+                    st.open_files.remove(idx);
+                    empty_after = st.open_files.is_empty();
+                    new_idx = if empty_after {
+                        0
+                    } else {
+                        idx.min(st.open_files.len() - 1)
+                    };
+                    if empty_after {
+                        st.active_tab = None;
+                    } else {
+                        st.active_tab = Some(new_idx);
+                    }
+                    drop(st);
+                    nb.remove_page(Some(idx as u32));
+                    if let Some(w) = cs.child_by_name(&per_tab_child) {
+                        cs.remove(&w);
+                    }
+                    if empty_after {
+                        nb.set_show_tabs(false);
+                        cs.set_visible_child_name("welcome");
+                    } else {
+                        nb.set_current_page(Some(new_idx as u32));
+                    }
+                    super::fire_nav_state_changed(&state_c);
+                }
+            });
+            close_btn.connect_clicked(move |_| close_do_it());
         }
 
         // Middle-click to close tab.
