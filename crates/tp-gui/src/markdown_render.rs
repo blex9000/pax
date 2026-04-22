@@ -6,10 +6,11 @@
 
 use gtk4::prelude::*;
 
-const CODE_BG_DARK: &str = "#2a2a2a";
-const CODE_FG_DARK: &str = "#e6e6e6";
+// Code block backgrounds — slight contrast against each theme family's main
+// surface, without overriding the default text foreground (so GTK keeps
+// contrast for us as the theme changes).
+const CODE_BG_DARK: &str = "#1a1a1a";
 const CODE_BG_LIGHT: &str = "#ececec";
-const CODE_FG_LIGHT: &str = "#1a1a1a";
 
 pub(crate) fn render_markdown_to_view(tv: &gtk4::TextView, content: &str) {
     let buf = tv.buffer();
@@ -24,7 +25,6 @@ pub(crate) fn render_markdown_to_view(tv: &gtk4::TextView, content: &str) {
         libadwaita::ColorScheme::ForceLight
     );
     let code_bg = if is_light { CODE_BG_LIGHT } else { CODE_BG_DARK };
-    let code_fg = if is_light { CODE_FG_LIGHT } else { CODE_FG_DARK };
 
     // `ensure` re-applies the callback every time so theme-reactive tags
     // (code, code_block) update when the renderer runs again after a theme
@@ -62,13 +62,14 @@ pub(crate) fn render_markdown_to_view(tv: &gtk4::TextView, content: &str) {
     });
     ensure("code", &|t| {
         t.set_family(Some("monospace"));
-        t.set_background(Some(code_bg));
-        t.set_foreground(Some(code_fg));
+        // No background — inline code stays as-is to avoid visually heavy
+        // spans; only the code_block (fenced) paragraph gets a background.
     });
     ensure("code_block", &|t| {
         t.set_family(Some("monospace"));
         t.set_paragraph_background(Some(code_bg));
-        t.set_foreground(Some(code_fg));
+        // Foreground intentionally unset: inheriting the theme's default
+        // text color keeps readability on light and dark themes alike.
         t.set_left_margin(20);
     });
     ensure("link", &|t| {
