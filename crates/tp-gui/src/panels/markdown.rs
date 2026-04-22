@@ -192,6 +192,11 @@ impl MarkdownPanel {
             ("view-list-symbolic", "List", "- "),
             ("mail-attachment-symbolic", "Link", "[text](url)"),
             ("utilities-terminal-symbolic", "Code block", "```\n\n```"),
+            (
+                "view-grid-symbolic",
+                "Table",
+                "| Column 1 | Column 2 | Column 3 |\n|----------|----------|----------|\n| cell     | cell     | cell     |\n",
+            ),
         ] {
             let btn = gtk4::Button::new();
             btn.set_icon_name(icon);

@@ -88,10 +88,22 @@ pub(crate) fn render_markdown_to_view(tv: &gtk4::TextView, content: &str) {
         t.set_foreground(Some("#666666"));
         t.set_size_points(6.0);
     });
+    ensure("table", &|t| {
+        t.set_family(Some("monospace"));
+        t.set_paragraph_background(Some(code_bg));
+    });
+    ensure("table_header", &|t| {
+        t.set_family(Some("monospace"));
+        t.set_paragraph_background(Some(code_bg));
+        t.set_weight(700);
+    });
 
+    let lines: Vec<&str> = content.lines().collect();
     let mut it = buf.end_iter();
     let mut in_code = false;
-    for line in content.lines() {
+    let mut i = 0;
+    while i < lines.len() {
+        let line = lines[i];
         if line.starts_with("```") {
             in_code = !in_code;
             let hint = line.trim_start_matches('`').trim();
@@ -100,10 +112,21 @@ pub(crate) fn render_markdown_to_view(tv: &gtk4::TextView, content: &str) {
             } else if !in_code {
                 buf.insert_with_tags_by_name(&mut it, "───────\n", &["sep"]);
             }
+            i += 1;
             continue;
         }
         if in_code {
             buf.insert_with_tags_by_name(&mut it, &format!("{}\n", line), &["code_block"]);
+            i += 1;
+            continue;
+        }
+        // GFM table: header line with pipes, followed by a separator line.
+        if line.contains('|')
+            && i + 1 < lines.len()
+            && is_table_separator(lines[i + 1])
+        {
+            let consumed = render_table(&buf, &mut it, &lines, i);
+            i += consumed;
             continue;
         }
         if line.starts_with("### ") {
@@ -122,7 +145,97 @@ pub(crate) fn render_markdown_to_view(tv: &gtk4::TextView, content: &str) {
             render_inline(&buf, &mut it, line);
             buf.insert(&mut it, "\n");
         }
+        i += 1;
     }
+}
+
+fn is_table_separator(line: &str) -> bool {
+    let trimmed = line.trim();
+    if trimmed.is_empty() || !trimmed.contains('|') {
+        return false;
+    }
+    let mut saw_dash = false;
+    for c in trimmed.chars() {
+        match c {
+            '|' | ' ' | '\t' | ':' => {}
+            '-' => saw_dash = true,
+            _ => return false,
+        }
+    }
+    saw_dash
+}
+
+fn parse_table_row(line: &str) -> Vec<String> {
+    let trimmed = line.trim();
+    let stripped = trimmed.trim_start_matches('|').trim_end_matches('|');
+    stripped.split('|').map(|s| s.trim().to_string()).collect()
+}
+
+/// Render a GFM table starting at `lines[start]` (header row). Returns how
+/// many lines were consumed (at minimum 2: header + separator).
+fn render_table(
+    buf: &gtk4::TextBuffer,
+    it: &mut gtk4::TextIter,
+    lines: &[&str],
+    start: usize,
+) -> usize {
+    let header = parse_table_row(lines[start]);
+    // start+1 is the separator, already verified by caller.
+    let mut rows: Vec<Vec<String>> = vec![header];
+    let mut j = start + 2;
+    while j < lines.len() {
+        let l = lines[j];
+        if l.trim().is_empty() || !l.contains('|') {
+            break;
+        }
+        rows.push(parse_table_row(l));
+        j += 1;
+    }
+    let consumed = j - start;
+
+    let n_cols = rows.iter().map(|r| r.len()).max().unwrap_or(0);
+    if n_cols == 0 {
+        return consumed;
+    }
+    let mut widths = vec![0_usize; n_cols];
+    for row in &rows {
+        for (c, cell) in row.iter().enumerate() {
+            widths[c] = widths[c].max(cell.chars().count());
+        }
+    }
+
+    let format_row = |row: &[String]| -> String {
+        let mut out = String::from("│ ");
+        for c in 0..n_cols {
+            let cell = row.get(c).map(String::as_str).unwrap_or("");
+            let pad = widths[c].saturating_sub(cell.chars().count());
+            out.push_str(cell);
+            out.push_str(&" ".repeat(pad));
+            out.push_str(if c + 1 == n_cols { " │" } else { " │ " });
+        }
+        out.push('\n');
+        out
+    };
+    let border_row = |left: char, mid: char, right: char| -> String {
+        let mut s = String::new();
+        s.push(left);
+        for (c, w) in widths.iter().enumerate() {
+            s.push_str(&"─".repeat(w + 2));
+            s.push(if c + 1 == n_cols { right } else { mid });
+        }
+        s.push('\n');
+        s
+    };
+
+    buf.insert_with_tags_by_name(it, &border_row('┌', '┬', '┐'), &["table"]);
+    buf.insert_with_tags_by_name(it, &format_row(&rows[0]), &["table_header"]);
+    buf.insert_with_tags_by_name(it, &border_row('├', '┼', '┤'), &["table"]);
+    for row in &rows[1..] {
+        buf.insert_with_tags_by_name(it, &format_row(row), &["table"]);
+    }
+    buf.insert_with_tags_by_name(it, &border_row('└', '┴', '┘'), &["table"]);
+
+    consumed
 }
 
 fn render_inline(buf: &gtk4::TextBuffer, it: &mut gtk4::TextIter, text: &str) {
