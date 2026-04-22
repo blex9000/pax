@@ -161,6 +161,18 @@ pub fn build_markdown_tab(content: &str) -> MarkdownTab {
         modified: false,
         saved_content,
         outer: outer.upcast::<gtk4::Widget>(),
+        rendered_btn,
+        source_btn,
+    }
+}
+
+/// Flip the tab between Rendered and Source modes. Drives the toggle
+/// buttons directly so all the wired side effects (re-rendering, toolbar
+/// visibility, mode cell update) fire through the existing handlers.
+pub fn toggle_mode(tab: &MarkdownTab) {
+    match tab.mode.get() {
+        MarkdownMode::Rendered => tab.source_btn.set_active(true),
+        MarkdownMode::Source => tab.rendered_btn.set_active(true),
     }
 }
 

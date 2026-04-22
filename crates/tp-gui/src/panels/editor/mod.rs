@@ -673,6 +673,53 @@ impl CodeEditorPanel {
             let project_search_ref = project_search.clone();
             key_ctrl.connect_key_pressed(move |_, key, _, modifier| {
                 if crate::shortcuts::has_primary(modifier) {
+                    let shift = modifier.contains(gtk4::gdk::ModifierType::SHIFT_MASK);
+                    // Ctrl+Shift+V → toggle Rendered/Source on Markdown tab.
+                    if shift && matches!(key, gtk4::gdk::Key::v | gtk4::gdk::Key::V) {
+                        let md = {
+                            let st = state_c.borrow();
+                            st.active_tab
+                                .and_then(|i| st.open_files.get(i))
+                                .and_then(|f| match &f.content {
+                                    tab_content::TabContent::Markdown(m) => Some(m.clone()),
+                                    _ => None,
+                                })
+                        };
+                        if let Some(md) = md {
+                            markdown_view::toggle_mode(&md);
+                            return gtk4::glib::Propagation::Stop;
+                        }
+                    }
+                    // Ctrl+= / Ctrl++ / Ctrl+- / Ctrl+0 → image zoom.
+                    if !shift {
+                        let img_op = match key {
+                            gtk4::gdk::Key::equal | gtk4::gdk::Key::plus => Some(0),
+                            gtk4::gdk::Key::minus => Some(1),
+                            gtk4::gdk::Key::_0 => Some(2),
+                            _ => None,
+                        };
+                        if let Some(op) = img_op {
+                            let img = {
+                                let st = state_c.borrow();
+                                st.active_tab
+                                    .and_then(|i| st.open_files.get(i))
+                                    .and_then(|f| match &f.content {
+                                        tab_content::TabContent::Image(img) => {
+                                            Some(img.clone())
+                                        }
+                                        _ => None,
+                                    })
+                            };
+                            if let Some(img) = img {
+                                match op {
+                                    0 => image_view::zoom_in(&img),
+                                    1 => image_view::zoom_out(&img),
+                                    _ => image_view::zoom_reset(&img),
+                                }
+                                return gtk4::glib::Propagation::Stop;
+                            }
+                        }
+                    }
                     match key {
                         gtk4::gdk::Key::s => {
                             let root = state_c.borrow().root_dir.clone();

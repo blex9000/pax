@@ -37,6 +37,10 @@ pub struct MarkdownTab {
     pub saved_content: Rc<RefCell<String>>,
     /// Outer widget that lives in the editor's content_stack under `tab-{id}`.
     pub outer: gtk4::Widget,
+    /// Toggle buttons in the mode bar — kept for programmatic toggling
+    /// (e.g. Ctrl+Shift+V) so button state stays in sync with the stack.
+    pub rendered_btn: gtk4::ToggleButton,
+    pub source_btn: gtk4::ToggleButton,
 }
 
 /// Data that's specific to an Image tab.
