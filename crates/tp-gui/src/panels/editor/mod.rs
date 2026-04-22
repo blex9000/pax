@@ -13,6 +13,8 @@ pub mod fuzzy_finder;
 #[cfg(feature = "sourceview")]
 pub mod git_log;
 #[cfg(feature = "sourceview")]
+pub mod markdown_view;
+#[cfg(feature = "sourceview")]
 pub mod tab_content;
 #[cfg(feature = "sourceview")]
 pub mod git_status;
@@ -101,13 +103,16 @@ pub struct OpenFile {
 
 #[cfg(feature = "sourceview")]
 impl OpenFile {
-    /// Source buffer of this tab. Panics on non-source tabs — call sites
-    /// established as source-only are fine to use this; generic code should go
-    /// through `content.source_buffer()` which returns an `Option`.
-    pub fn buffer(&self) -> &sourceview5::Buffer {
-        self.content
-            .source_buffer()
-            .expect("OpenFile::buffer() called on a non-source tab")
+    /// Source-code buffer, or `None` for non-source tabs. Markdown tabs have
+    /// a writable buffer too but not a *source-code* one — use
+    /// `writable_buffer()` for save/dirty tracking that applies to both.
+    pub fn source_buffer(&self) -> Option<&sourceview5::Buffer> {
+        self.content.source_buffer()
+    }
+
+    /// Writable buffer (source or markdown-source mode). `None` for image tabs.
+    pub fn writable_buffer(&self) -> Option<&sourceview5::Buffer> {
+        self.content.writable_buffer()
     }
 
     pub fn modified(&self) -> bool {
@@ -118,11 +123,9 @@ impl OpenFile {
         self.content.set_modified(v);
     }
 
-    /// Dirty-tracking cell. Panics on tabs without a writable buffer (image).
-    pub fn saved_content(&self) -> &Rc<RefCell<String>> {
-        self.content
-            .saved_content()
-            .expect("OpenFile::saved_content() called on a tab without a buffer")
+    /// Dirty-tracking cell. `None` for tabs without a writable buffer (image).
+    pub fn saved_content(&self) -> Option<&Rc<RefCell<String>>> {
+        self.content.saved_content()
     }
 }
 
@@ -464,10 +467,11 @@ impl CodeEditorPanel {
                         let Some(open_file) = st.open_files.get(idx) else {
                             return;
                         };
-                        let Some(iter) = open_file.buffer().iter_at_line(line_zero_based) else {
+                        let Some(buf) = open_file.source_buffer() else { return };
+                        let Some(iter) = buf.iter_at_line(line_zero_based) else {
                             return;
                         };
-                        open_file.buffer().place_cursor(&iter);
+                        buf.place_cursor(&iter);
                         tabs_c2.source_view.scroll_to_iter(
                             &mut iter.clone(),
                             0.1,
@@ -883,20 +887,16 @@ impl CodeEditorPanel {
 fn push_nav_position(state: &Rc<RefCell<EditorState>>) {
     let pos = {
         let st = state.borrow();
-        if let Some(idx) = st.active_tab {
-            if let Some(f) = st.open_files.get(idx) {
-                let buf = f.buffer();
+        st.active_tab
+            .and_then(|idx| st.open_files.get(idx))
+            .and_then(|f| {
+                let buf = f.source_buffer()?;
                 let iter = buf.iter_at_mark(&buf.get_insert());
                 Some(FilePosition {
                     path: f.path.clone(),
                     line: iter.line(),
                 })
-            } else {
-                None
-            }
-        } else {
-            None
-        }
+            })
     };
     if let Some(pos) = pos {
         {
@@ -922,15 +922,16 @@ fn navigate_history(
     // Get current position to save on the opposite stack
     let current_pos = {
         let st = state.borrow();
-        st.active_tab.and_then(|idx| {
-            st.open_files.get(idx).map(|f| {
-                let iter = f.buffer().iter_at_mark(&f.buffer().get_insert());
-                FilePosition {
+        st.active_tab
+            .and_then(|idx| st.open_files.get(idx))
+            .and_then(|f| {
+                let buf = f.source_buffer()?;
+                let iter = buf.iter_at_mark(&buf.get_insert());
+                Some(FilePosition {
                     path: f.path.clone(),
                     line: iter.line(),
-                }
+                })
             })
-        })
     };
 
     let target = {
@@ -995,15 +996,16 @@ fn navigate_history(
             let st = state_c.borrow();
             if let Some(idx) = st.active_tab {
                 if let Some(f) = st.open_files.get(idx) {
-                    let buf = f.buffer();
-                    let target_line = if line < buf.line_count() {
-                        line
-                    } else {
-                        buf.line_count() - 1
-                    };
-                    if let Some(iter) = buf.iter_at_line(target_line) {
-                        buf.place_cursor(&iter);
-                        sv.scroll_to_iter(&mut iter.clone(), 0.1, false, 0.0, 0.0);
+                    if let Some(buf) = f.source_buffer() {
+                        let target_line = if line < buf.line_count() {
+                            line
+                        } else {
+                            buf.line_count() - 1
+                        };
+                        if let Some(iter) = buf.iter_at_line(target_line) {
+                            buf.place_cursor(&iter);
+                            sv.scroll_to_iter(&mut iter.clone(), 0.1, false, 0.0, 0.0);
+                        }
                     }
                 }
             }

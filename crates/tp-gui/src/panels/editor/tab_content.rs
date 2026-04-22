@@ -1,10 +1,12 @@
 //! Per-tab content in the Code Editor.
 //!
-//! Each open tab owns one `TabContent`. Source tabs hold a SourceView buffer,
-//! Markdown tabs a rendered/source toggle (wired in Task 4), Image tabs a
-//! picture + zoom state (wired in Task 5).
+//! Each open tab owns one `TabContent`. Source tabs hold a SourceView buffer
+//! (the editor's shared source_view swaps to it on activation, matching the
+//! pre-refactor behavior). Markdown tabs own their own widget tree
+//! (rendered view + source view inside an inner stack) that lives as a child
+//! of the editor's content_stack. Image tabs (Task 5) are analogous.
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
 /// Data that's specific to a source-code tab.
@@ -16,9 +18,26 @@ pub struct SourceTab {
     pub saved_content: Rc<RefCell<String>>,
 }
 
-/// Data that's specific to a Markdown tab. Populated in Task 4.
-#[derive(Debug, Default)]
-pub struct MarkdownTab {}
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum MarkdownMode {
+    Rendered,
+    Source,
+}
+
+/// Data that's specific to a Markdown tab.
+#[derive(Debug, Clone)]
+pub struct MarkdownTab {
+    pub buffer: sourceview5::Buffer,
+    pub source_view: sourceview5::View,
+    pub rendered_view: gtk4::TextView,
+    /// Stack switching between rendered and source children.
+    pub inner_stack: gtk4::Stack,
+    pub mode: Rc<Cell<MarkdownMode>>,
+    pub modified: bool,
+    pub saved_content: Rc<RefCell<String>>,
+    /// Outer widget that lives in the editor's content_stack under `tab-{id}`.
+    pub outer: gtk4::Widget,
+}
 
 /// Data that's specific to an Image tab. Populated in Task 5.
 #[derive(Debug, Default)]
@@ -32,7 +51,7 @@ pub enum TabContent {
 }
 
 impl TabContent {
-    /// Borrow the source buffer, or `None` for non-source tabs.
+    /// Borrow the source-code buffer, or `None` for non-source tabs.
     pub fn source_buffer(&self) -> Option<&sourceview5::Buffer> {
         match self {
             TabContent::Source(s) => Some(&s.buffer),
@@ -40,25 +59,48 @@ impl TabContent {
         }
     }
 
+    /// Borrow a writable buffer (source or markdown source), or `None` for
+    /// read-only tabs (image). Callers that need to save / track dirty state
+    /// use this.
+    pub fn writable_buffer(&self) -> Option<&sourceview5::Buffer> {
+        match self {
+            TabContent::Source(s) => Some(&s.buffer),
+            TabContent::Markdown(m) => Some(&m.buffer),
+            TabContent::Image(_) => None,
+        }
+    }
+
     pub fn is_modified(&self) -> bool {
         match self {
             TabContent::Source(s) => s.modified,
-            _ => false,
+            TabContent::Markdown(m) => m.modified,
+            TabContent::Image(_) => false,
         }
     }
 
     pub fn set_modified(&mut self, v: bool) {
-        if let TabContent::Source(s) = self {
-            s.modified = v;
+        match self {
+            TabContent::Source(s) => s.modified = v,
+            TabContent::Markdown(m) => m.modified = v,
+            TabContent::Image(_) => {}
         }
     }
 
-    /// Borrow the dirty-tracking saved-content cell, or `None` for non-writable
-    /// tabs (image tabs). Markdown tabs get their own cell in Task 4.
     pub fn saved_content(&self) -> Option<&Rc<RefCell<String>>> {
         match self {
             TabContent::Source(s) => Some(&s.saved_content),
-            _ => None,
+            TabContent::Markdown(m) => Some(&m.saved_content),
+            TabContent::Image(_) => None,
+        }
+    }
+
+    /// Name used as the child key under `content_stack` for this tab. Source
+    /// tabs reuse the shared `"editor"` child; non-source tabs have their own
+    /// per-tab widget keyed by `tab-{id}`.
+    pub fn content_stack_child_name(&self, tab_id: u64) -> String {
+        match self {
+            TabContent::Source(_) => "editor".to_string(),
+            _ => format!("tab-{}", tab_id),
         }
     }
 }

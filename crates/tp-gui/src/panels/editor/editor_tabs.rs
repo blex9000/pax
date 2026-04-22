@@ -8,6 +8,10 @@ use std::sync::Arc;
 
 use super::EditorState;
 
+/// Extensions that dispatch to the Markdown viewer instead of the shared
+/// source-code view.
+const MARKDOWN_EXTS: &[&str] = &["md", "markdown"];
+
 /// Monotonic counter producing a fresh `tab_id` per opened file. Stable IDs
 /// let long-lived per-tab closures survive a rename of the underlying path.
 static NEXT_TAB_ID: AtomicU64 = AtomicU64::new(1);
@@ -247,6 +251,14 @@ impl EditorTabs {
         editor_row.append(&source_scroll);
         editor_row.append(&match_ruler);
 
+        // Content stack. Welcome and editor children are added here; per-tab
+        // Markdown/Image children are inserted in open_*_file on demand.
+        // Created up front so closures (e.g. the switch-page handler) can
+        // clone it before the welcome/editor children are wired.
+        let content_stack = gtk4::Stack::new();
+        content_stack.set_vexpand(true);
+        content_stack.set_hexpand(true);
+
         // Right-click context menu on the main editor — extras factory looks
         // up the active file each time so the format action follows the
         // currently-open file's extension.
@@ -328,23 +340,37 @@ impl EditorTabs {
             let ml = match_lines.clone();
             let mr = match_ruler.clone();
             let lsq = last_search_query.clone();
+            let cs = content_stack.clone();
             notebook.connect_switch_page(move |_nb, _page, page_num| {
                 let idx = page_num as usize;
                 if let Ok(mut st) = state_c.try_borrow_mut() {
                     if let Some(open_file) = st.open_files.get(idx) {
-                        sv.set_buffer(Some(open_file.buffer()));
-                        // Recompute search match positions for the newly
-                        // active buffer so the overview ruler stays in sync.
-                        let query = lsq.borrow().clone();
-                        let lines = collect_match_lines(open_file.buffer(), &query);
-                        let has = !lines.is_empty();
-                        *ml.borrow_mut() = lines;
-                        mr.set_visible(has);
-                        mr.queue_draw();
-                        if let Some(l) = open_file.buffer().language() {
-                            lang_l.set_text(&l.name());
+                        let child = open_file.content.content_stack_child_name(open_file.tab_id);
+                        cs.set_visible_child_name(&child);
+                        // Only source tabs participate in the shared source
+                        // view, match ruler, and language label. Non-source
+                        // tabs own their own widget tree inside content_stack.
+                        if let Some(buf) = open_file.source_buffer() {
+                            sv.set_buffer(Some(buf));
+                            let query = lsq.borrow().clone();
+                            let lines = collect_match_lines(buf, &query);
+                            let has = !lines.is_empty();
+                            *ml.borrow_mut() = lines;
+                            mr.set_visible(has);
+                            mr.queue_draw();
+                            if let Some(l) = buf.language() {
+                                lang_l.set_text(&l.name());
+                            } else {
+                                lang_l.set_text("Plain Text");
+                            }
                         } else {
-                            lang_l.set_text("Plain Text");
+                            ml.borrow_mut().clear();
+                            mr.set_visible(false);
+                            lang_l.set_text(match &open_file.content {
+                                super::tab_content::TabContent::Markdown(_) => "Markdown",
+                                super::tab_content::TabContent::Image(_) => "Image",
+                                _ => "",
+                            });
                         }
                         mod_l.set_text(if open_file.modified() {
                             "\u{25CF} Modified"
@@ -644,11 +670,7 @@ impl EditorTabs {
             });
         }
 
-        // ── Content stack ────────────────────────────────────────────
-        let content_stack = gtk4::Stack::new();
-        content_stack.set_vexpand(true);
-        content_stack.set_hexpand(true);
-
+        // ── Content stack: wire welcome + editor children ───────────
         let welcome_wrap = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
         welcome_wrap.add_css_class("editor-welcome");
         welcome_wrap.set_vexpand(true);
@@ -726,6 +748,19 @@ impl EditorTabs {
                 self.notebook.set_current_page(Some(idx as u32));
                 self.switch_to_buffer(idx, state);
                 return Some(idx);
+            }
+        }
+
+        // Dispatch on extension: markdown files get a Rendered/Source viewer
+        // instead of the shared sourceview. Unknown/other extensions fall
+        // through to the source-code path below.
+        if let Some(ext) = path
+            .extension()
+            .and_then(|e| e.to_str())
+            .map(|s| s.to_ascii_lowercase())
+        {
+            if MARKDOWN_EXTS.contains(&ext.as_str()) {
+                return self.open_markdown_file(path, state);
             }
         }
 
@@ -820,7 +855,10 @@ impl EditorTabs {
             let dot_c = dot.clone();
             let mod_label = self.status_modified.clone();
             // Compare buffer content against saved content for accurate dirty detection
-            let saved_for_changed = state.borrow().open_files[idx].saved_content().clone();
+            let saved_for_changed = state.borrow().open_files[idx]
+                .saved_content()
+                .expect("source tab just pushed has saved_content")
+                .clone();
             buf.connect_changed(move |buf| {
                 let current = buf
                     .text(&buf.start_iter(), &buf.end_iter(), false)
@@ -849,6 +887,7 @@ impl EditorTabs {
                 let cs = cs.clone();
                 Rc::new(move || {
                     let (empty_after, new_idx);
+                    let per_tab_child = format!("tab-{}", tab_id);
                     {
                         let mut st = state_c.borrow_mut();
                         if let Some(idx) =
@@ -868,6 +907,12 @@ impl EditorTabs {
                             }
                             drop(st);
                             nb.remove_page(Some(idx as u32));
+                            // Drop the per-tab content widget if this tab had one
+                            // (Markdown / Image tabs). Source tabs share the
+                            // "editor" child so there's nothing to remove.
+                            if let Some(w) = cs.child_by_name(&per_tab_child) {
+                                cs.remove(&w);
+                            }
                             if empty_after {
                                 nb.set_show_tabs(false);
                                 cs.set_visible_child_name("welcome");
@@ -960,11 +1005,14 @@ impl EditorTabs {
                                 if let Some(f) =
                                     st.open_files.iter().find(|f| f.tab_id == tab_id)
                                 {
-                                    let buf = f.buffer();
-                                    let text = buf
-                                        .text(&buf.start_iter(), &buf.end_iter(), false)
-                                        .to_string();
-                                    backend.write_file(&f.path, &text).map(|_| text)
+                                    if let Some(buf) = f.writable_buffer() {
+                                        let text = buf
+                                            .text(&buf.start_iter(), &buf.end_iter(), false)
+                                            .to_string();
+                                        backend.write_file(&f.path, &text).map(|_| text)
+                                    } else {
+                                        Err("Tab is read-only".to_string())
+                                    }
                                 } else {
                                     Err("File not found".to_string())
                                 }
@@ -977,7 +1025,9 @@ impl EditorTabs {
                                         {
                                             f.set_modified(false);
                                             f.last_disk_mtime = get_mtime(&f.path);
-                                            *f.saved_content().borrow_mut() = text;
+                                            if let Some(cell) = f.saved_content() {
+                                                *cell.borrow_mut() = text;
+                                            }
                                         }
                                     }
                                     close();
@@ -1016,6 +1066,268 @@ impl EditorTabs {
         Some(idx)
     }
 
+    /// Open a `.md` file in a Rendered/Source Markdown tab.
+    fn open_markdown_file(
+        &self,
+        path: &Path,
+        state: &Rc<RefCell<EditorState>>,
+    ) -> Option<usize> {
+        let backend = state.borrow().backend.clone();
+        let content = match backend.read_file(path) {
+            Ok(c) => c,
+            Err(e) => {
+                tracing::warn!("Cannot open markdown {}: {}", path.display(), e);
+                return None;
+            }
+        };
+
+        let md = super::markdown_view::build_markdown_tab(&content);
+        self.completion_words.register(&md.buffer);
+
+        let tab_id = alloc_tab_id();
+        let child_name = format!("tab-{}", tab_id);
+        self.content_stack.add_named(&md.outer, Some(&child_name));
+        self.content_stack.set_visible_child_name(&child_name);
+
+        let mtime = get_mtime(path);
+        let file_name = path
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_else(|| "untitled".to_string());
+
+        // Tab label with dirty dot + name + close button. Mirrors open_file's
+        // tab-label layout so CSS and existing tab handling keep working.
+        let tab_box = gtk4::Box::new(gtk4::Orientation::Horizontal, 4);
+        tab_box.add_css_class("editor-tab-label");
+        let dot = gtk4::Label::new(None);
+        dot.add_css_class("dirty-indicator");
+        let label = gtk4::Label::new(Some(&file_name));
+        let close_btn = gtk4::Button::from_icon_name("window-close-symbolic");
+        close_btn.add_css_class("flat");
+        close_btn.add_css_class("tab-close-btn");
+        tab_box.append(&dot);
+        tab_box.append(&label);
+        tab_box.append(&close_btn);
+
+        let page_widget = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
+        page_widget.set_height_request(0);
+        let _page_idx = self.notebook.append_page(&page_widget, Some(&tab_box));
+        self.notebook.set_show_tabs(true);
+
+        let md_state = md.clone();
+        let idx = {
+            let mut st = state.borrow_mut();
+            st.open_files.push(super::OpenFile {
+                tab_id,
+                path: path.to_path_buf(),
+                last_disk_mtime: mtime,
+                name_label: label.clone(),
+                content: super::tab_content::TabContent::Markdown(md_state),
+            });
+            st.active_tab = Some(st.open_files.len() - 1);
+            st.open_files.len() - 1
+        };
+
+        // Dirty tracking on the markdown source buffer.
+        {
+            let state_c = state.clone();
+            let dot_c = dot.clone();
+            let mod_label = self.status_modified.clone();
+            let saved = md.saved_content.clone();
+            md.buffer.connect_changed(move |buf| {
+                let current = buf
+                    .text(&buf.start_iter(), &buf.end_iter(), false)
+                    .to_string();
+                let is_dirty = current != *saved.borrow();
+                dot_c.set_text(if is_dirty { "\u{25CF} " } else { "" });
+                mod_label.set_text(if is_dirty { "\u{25CF} Modified" } else { "" });
+                if let Ok(mut st) = state_c.try_borrow_mut() {
+                    if let Some(file_idx) =
+                        st.open_files.iter().position(|f| f.tab_id == tab_id)
+                    {
+                        st.open_files[file_idx].set_modified(is_dirty);
+                    }
+                }
+            });
+        }
+
+        // Close button — mirrors open_file's close path including the
+        // unsaved-changes dialog. Per-tab stack child is removed by close_do_it.
+        {
+            let state_c = state.clone();
+            let nb = self.notebook.clone();
+            let cs = self.content_stack.clone();
+            let close_do_it = {
+                let state_c = state_c.clone();
+                let nb = nb.clone();
+                let cs = cs.clone();
+                Rc::new(move || {
+                    let (empty_after, new_idx);
+                    let per_tab_child = format!("tab-{}", tab_id);
+                    {
+                        let mut st = state_c.borrow_mut();
+                        if let Some(idx) =
+                            st.open_files.iter().position(|f| f.tab_id == tab_id)
+                        {
+                            st.open_files.remove(idx);
+                            empty_after = st.open_files.is_empty();
+                            new_idx = if empty_after {
+                                0
+                            } else {
+                                idx.min(st.open_files.len() - 1)
+                            };
+                            if empty_after {
+                                st.active_tab = None;
+                            } else {
+                                st.active_tab = Some(new_idx);
+                            }
+                            drop(st);
+                            nb.remove_page(Some(idx as u32));
+                            if let Some(w) = cs.child_by_name(&per_tab_child) {
+                                cs.remove(&w);
+                            }
+                            if empty_after {
+                                nb.set_show_tabs(false);
+                                cs.set_visible_child_name("welcome");
+                            } else {
+                                nb.set_current_page(Some(new_idx as u32));
+                            }
+                            super::fire_nav_state_changed(&state_c);
+                        }
+                    }
+                })
+            };
+            close_btn.connect_clicked(move |btn| {
+                let (is_modified, current_name) = {
+                    let st = state_c.borrow();
+                    let entry = st.open_files.iter().find(|f| f.tab_id == tab_id);
+                    let modified = entry.map(|f| f.modified()).unwrap_or(false);
+                    let name = entry
+                        .and_then(|f| f.path.file_name().map(|n| n.to_string_lossy().to_string()))
+                        .unwrap_or_else(|| "file".to_string());
+                    (modified, name)
+                };
+                if is_modified {
+                    let dialog = gtk4::Window::builder()
+                        .title("Unsaved Changes")
+                        .modal(true)
+                        .default_width(350)
+                        .default_height(100)
+                        .build();
+                    if let Some(win) = btn.root().and_then(|r| r.downcast::<gtk4::Window>().ok()) {
+                        dialog.set_transient_for(Some(&win));
+                    }
+                    let vbox = gtk4::Box::new(gtk4::Orientation::Vertical, 12);
+                    vbox.set_margin_top(16);
+                    vbox.set_margin_bottom(16);
+                    vbox.set_margin_start(16);
+                    vbox.set_margin_end(16);
+                    let msg = gtk4::Label::new(Some(&format!(
+                        "\"{}\" has unsaved changes.",
+                        current_name
+                    )));
+                    vbox.append(&msg);
+                    let btn_row = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
+                    btn_row.set_halign(gtk4::Align::End);
+                    let save_btn = gtk4::Button::with_label("Save");
+                    save_btn.add_css_class("suggested-action");
+                    let discard_btn = gtk4::Button::with_label("Discard");
+                    discard_btn.add_css_class("destructive-action");
+                    let cancel_btn = gtk4::Button::with_label("Cancel");
+                    btn_row.append(&cancel_btn);
+                    btn_row.append(&discard_btn);
+                    btn_row.append(&save_btn);
+                    vbox.append(&btn_row);
+                    {
+                        let d = dialog.clone();
+                        cancel_btn.connect_clicked(move |_| d.close());
+                    }
+                    {
+                        let d = dialog.clone();
+                        let sc = state_c.clone();
+                        let close = close_do_it.clone();
+                        discard_btn.connect_clicked(move |_| {
+                            if let Ok(mut st) = sc.try_borrow_mut() {
+                                if let Some(f) =
+                                    st.open_files.iter_mut().find(|f| f.tab_id == tab_id)
+                                {
+                                    f.set_modified(false);
+                                }
+                            }
+                            close();
+                            d.close();
+                        });
+                    }
+                    {
+                        let d = dialog.clone();
+                        let sc = state_c.clone();
+                        let close = close_do_it.clone();
+                        save_btn.connect_clicked(move |_| {
+                            let save_result = {
+                                let st = sc.borrow();
+                                let backend = st.backend.clone();
+                                if let Some(f) =
+                                    st.open_files.iter().find(|f| f.tab_id == tab_id)
+                                {
+                                    if let Some(buf) = f.writable_buffer() {
+                                        let text = buf
+                                            .text(&buf.start_iter(), &buf.end_iter(), false)
+                                            .to_string();
+                                        backend.write_file(&f.path, &text).map(|_| text)
+                                    } else {
+                                        Err("Tab is read-only".to_string())
+                                    }
+                                } else {
+                                    Err("File not found".to_string())
+                                }
+                            };
+                            match save_result {
+                                Ok(text) => {
+                                    if let Ok(mut st) = sc.try_borrow_mut() {
+                                        if let Some(f) =
+                                            st.open_files.iter_mut().find(|f| f.tab_id == tab_id)
+                                        {
+                                            f.set_modified(false);
+                                            f.last_disk_mtime = get_mtime(&f.path);
+                                            if let Some(cell) = f.saved_content() {
+                                                *cell.borrow_mut() = text;
+                                            }
+                                        }
+                                    }
+                                    close();
+                                    d.close();
+                                }
+                                Err(_) => {
+                                    d.close();
+                                }
+                            }
+                        });
+                    }
+                    dialog.set_child(Some(&vbox));
+                    dialog.present();
+                    return;
+                }
+                close_do_it();
+            });
+        }
+
+        // Middle-click to close tab.
+        {
+            let close_btn = close_btn.clone();
+            let gesture = gtk4::GestureClick::new();
+            gesture.set_button(2);
+            gesture.connect_released(move |_, _, _, _| {
+                close_btn.emit_clicked();
+            });
+            tab_box.add_controller(gesture);
+        }
+
+        self.switch_to_buffer(idx, state);
+        self.notebook.set_current_page(Some(idx as u32));
+
+        Some(idx)
+    }
+
     /// Switch the SourceView to display the buffer at the given index.
     pub fn switch_to_buffer(&self, idx: usize, state: &Rc<RefCell<EditorState>>) {
         // Toggle active CSS class on editor tab labels
@@ -1034,14 +1346,26 @@ impl EditorTabs {
 
         let st = state.borrow();
         if let Some(open_file) = st.open_files.get(idx) {
-            self.source_view.set_buffer(Some(open_file.buffer()));
-            let language = open_file.buffer().language();
-            if let Some(lang) = language.as_ref() {
-                self.status_lang.set_text(&lang.name());
+            let child = open_file.content.content_stack_child_name(open_file.tab_id);
+            self.content_stack.set_visible_child_name(&child);
+            if let Some(buf) = open_file.source_buffer() {
+                self.source_view.set_buffer(Some(buf));
+                let language = buf.language();
+                if let Some(lang) = language.as_ref() {
+                    self.status_lang.set_text(&lang.name());
+                } else {
+                    self.status_lang.set_text("Plain Text");
+                }
+                self.refresh_keyword_shadow(
+                    language.as_ref().map(|l| l.id().to_string()).as_deref(),
+                );
             } else {
-                self.status_lang.set_text("Plain Text");
+                self.status_lang.set_text(match &open_file.content {
+                    super::tab_content::TabContent::Markdown(_) => "Markdown",
+                    super::tab_content::TabContent::Image(_) => "Image",
+                    _ => "",
+                });
             }
-            self.refresh_keyword_shadow(language.as_ref().map(|l| l.id().to_string()).as_deref());
             self.status_modified.set_text(if open_file.modified() {
                 "\u{25CF} Modified"
             } else {
@@ -1402,7 +1726,9 @@ impl EditorTabs {
             let backend = st.backend.clone();
             if let Some(idx) = st.active_tab {
                 if let Some(open_file) = st.open_files.get_mut(idx) {
-                    let buf = open_file.buffer().clone();
+                    let Some(buf) = open_file.writable_buffer().cloned() else {
+                        return;
+                    };
                     let text = buf
                         .text(&buf.start_iter(), &buf.end_iter(), false)
                         .to_string();
@@ -1413,7 +1739,9 @@ impl EditorTabs {
                     open_file.set_modified(false);
                     open_file.last_disk_mtime = get_mtime(&open_file.path);
                     // Update saved content so dirty detection compares against new save
-                    *open_file.saved_content().borrow_mut() = text;
+                    if let Some(cell) = open_file.saved_content() {
+                        *cell.borrow_mut() = text;
+                    }
                     // Clear the modified indicator in tab and status bar
                     if let Some(page) = self.notebook.nth_page(Some(idx as u32)) {
                         if let Some(tab_label) = self.notebook.tab_label(&page) {
@@ -1512,7 +1840,9 @@ impl EditorTabs {
         let new_lang = lang_manager
             .guess_language(Some(new_path), None::<&str>)
             .or_else(|| fallback_language_for(&lang_manager, new_path));
-        open_file.buffer().set_language(new_lang.as_ref());
+        if let Some(buf) = open_file.source_buffer() {
+            buf.set_language(new_lang.as_ref());
+        }
         tracing::info!(
             "editor.tabs: rename_open_file old={} new={}",
             old_path.display(),
@@ -1581,7 +1911,11 @@ impl EditorTabs {
             None => return,
         };
 
-        let buf = open_file.buffer();
+        // Diff markers apply only to source tabs.
+        let buf = match open_file.source_buffer() {
+            Some(b) => b,
+            None => return,
+        };
 
         let tt = buf.tag_table();
         let ensure_tag = |name: &str, bg: &str| {
@@ -1610,7 +1944,10 @@ impl EditorTabs {
             Some(f) => f,
             None => return,
         };
-        let buf = open_file.buffer();
+        let buf = match open_file.source_buffer() {
+            Some(b) => b,
+            None => return,
+        };
 
         for hunk in &hunks {
             let has_old = hunk.old_lines.iter().any(|l| l.starts_with('-'));
