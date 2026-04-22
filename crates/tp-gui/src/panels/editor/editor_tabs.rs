@@ -332,21 +332,21 @@ impl EditorTabs {
                 let idx = page_num as usize;
                 if let Ok(mut st) = state_c.try_borrow_mut() {
                     if let Some(open_file) = st.open_files.get(idx) {
-                        sv.set_buffer(Some(&open_file.buffer));
+                        sv.set_buffer(Some(open_file.buffer()));
                         // Recompute search match positions for the newly
                         // active buffer so the overview ruler stays in sync.
                         let query = lsq.borrow().clone();
-                        let lines = collect_match_lines(&open_file.buffer, &query);
+                        let lines = collect_match_lines(open_file.buffer(), &query);
                         let has = !lines.is_empty();
                         *ml.borrow_mut() = lines;
                         mr.set_visible(has);
                         mr.queue_draw();
-                        if let Some(l) = open_file.buffer.language() {
+                        if let Some(l) = open_file.buffer().language() {
                             lang_l.set_text(&l.name());
                         } else {
                             lang_l.set_text("Plain Text");
                         }
-                        mod_l.set_text(if open_file.modified {
+                        mod_l.set_text(if open_file.modified() {
                             "\u{25CF} Modified"
                         } else {
                             ""
@@ -802,11 +802,13 @@ impl EditorTabs {
             st.open_files.push(super::OpenFile {
                 tab_id,
                 path: path.to_path_buf(),
-                buffer: buf.clone(),
-                modified: false,
                 last_disk_mtime: mtime,
-                saved_content: saved_content.clone(),
                 name_label: label.clone(),
+                content: super::tab_content::TabContent::Source(super::tab_content::SourceTab {
+                    buffer: buf.clone(),
+                    modified: false,
+                    saved_content: saved_content.clone(),
+                }),
             });
             st.active_tab = Some(st.open_files.len() - 1);
             st.open_files.len() - 1
@@ -818,7 +820,7 @@ impl EditorTabs {
             let dot_c = dot.clone();
             let mod_label = self.status_modified.clone();
             // Compare buffer content against saved content for accurate dirty detection
-            let saved_for_changed = state.borrow().open_files[idx].saved_content.clone();
+            let saved_for_changed = state.borrow().open_files[idx].saved_content().clone();
             buf.connect_changed(move |buf| {
                 let current = buf
                     .text(&buf.start_iter(), &buf.end_iter(), false)
@@ -830,7 +832,7 @@ impl EditorTabs {
                     if let Some(file_idx) =
                         st.open_files.iter().position(|f| f.tab_id == tab_id)
                     {
-                        st.open_files[file_idx].modified = is_dirty;
+                        st.open_files[file_idx].set_modified(is_dirty);
                     }
                 }
             });
@@ -881,7 +883,7 @@ impl EditorTabs {
                 let (is_modified, current_name) = {
                     let st = state_c.borrow();
                     let entry = st.open_files.iter().find(|f| f.tab_id == tab_id);
-                    let modified = entry.map(|f| f.modified).unwrap_or(false);
+                    let modified = entry.map(|f| f.modified()).unwrap_or(false);
                     let name = entry
                         .and_then(|f| f.path.file_name().map(|n| n.to_string_lossy().to_string()))
                         .unwrap_or_else(|| "file".to_string());
@@ -939,7 +941,7 @@ impl EditorTabs {
                                 if let Some(f) =
                                     st.open_files.iter_mut().find(|f| f.tab_id == tab_id)
                                 {
-                                    f.modified = false;
+                                    f.set_modified(false);
                                 }
                             }
                             close();
@@ -958,9 +960,9 @@ impl EditorTabs {
                                 if let Some(f) =
                                     st.open_files.iter().find(|f| f.tab_id == tab_id)
                                 {
-                                    let text = f
-                                        .buffer
-                                        .text(&f.buffer.start_iter(), &f.buffer.end_iter(), false)
+                                    let buf = f.buffer();
+                                    let text = buf
+                                        .text(&buf.start_iter(), &buf.end_iter(), false)
                                         .to_string();
                                     backend.write_file(&f.path, &text).map(|_| text)
                                 } else {
@@ -973,9 +975,9 @@ impl EditorTabs {
                                         if let Some(f) =
                                             st.open_files.iter_mut().find(|f| f.tab_id == tab_id)
                                         {
-                                            f.modified = false;
+                                            f.set_modified(false);
                                             f.last_disk_mtime = get_mtime(&f.path);
-                                            *f.saved_content.borrow_mut() = text;
+                                            *f.saved_content().borrow_mut() = text;
                                         }
                                     }
                                     close();
@@ -1032,15 +1034,15 @@ impl EditorTabs {
 
         let st = state.borrow();
         if let Some(open_file) = st.open_files.get(idx) {
-            self.source_view.set_buffer(Some(&open_file.buffer));
-            let language = open_file.buffer.language();
+            self.source_view.set_buffer(Some(open_file.buffer()));
+            let language = open_file.buffer().language();
             if let Some(lang) = language.as_ref() {
                 self.status_lang.set_text(&lang.name());
             } else {
                 self.status_lang.set_text("Plain Text");
             }
             self.refresh_keyword_shadow(language.as_ref().map(|l| l.id().to_string()).as_deref());
-            self.status_modified.set_text(if open_file.modified {
+            self.status_modified.set_text(if open_file.modified() {
                 "\u{25CF} Modified"
             } else {
                 ""
@@ -1400,7 +1402,7 @@ impl EditorTabs {
             let backend = st.backend.clone();
             if let Some(idx) = st.active_tab {
                 if let Some(open_file) = st.open_files.get_mut(idx) {
-                    let buf = &open_file.buffer;
+                    let buf = open_file.buffer().clone();
                     let text = buf
                         .text(&buf.start_iter(), &buf.end_iter(), false)
                         .to_string();
@@ -1408,10 +1410,10 @@ impl EditorTabs {
                         tracing::error!("Failed to save {}: {}", open_file.path.display(), e);
                         return;
                     }
-                    open_file.modified = false;
+                    open_file.set_modified(false);
                     open_file.last_disk_mtime = get_mtime(&open_file.path);
                     // Update saved content so dirty detection compares against new save
-                    *open_file.saved_content.borrow_mut() = text;
+                    *open_file.saved_content().borrow_mut() = text;
                     // Clear the modified indicator in tab and status bar
                     if let Some(page) = self.notebook.nth_page(Some(idx as u32)) {
                         if let Some(tab_label) = self.notebook.tab_label(&page) {
@@ -1440,7 +1442,7 @@ impl EditorTabs {
             .borrow()
             .open_files
             .get(idx)
-            .map(|f| f.modified)
+            .map(|f| f.modified())
             .unwrap_or(false);
 
         if is_modified {
@@ -1510,7 +1512,7 @@ impl EditorTabs {
         let new_lang = lang_manager
             .guess_language(Some(new_path), None::<&str>)
             .or_else(|| fallback_language_for(&lang_manager, new_path));
-        open_file.buffer.set_language(new_lang.as_ref());
+        open_file.buffer().set_language(new_lang.as_ref());
         tracing::info!(
             "editor.tabs: rename_open_file old={} new={}",
             old_path.display(),
@@ -1579,7 +1581,7 @@ impl EditorTabs {
             None => return,
         };
 
-        let buf = &open_file.buffer;
+        let buf = open_file.buffer();
 
         let tt = buf.tag_table();
         let ensure_tag = |name: &str, bg: &str| {
@@ -1608,7 +1610,7 @@ impl EditorTabs {
             Some(f) => f,
             None => return,
         };
-        let buf = &open_file.buffer;
+        let buf = open_file.buffer();
 
         for hunk in &hunks {
             let has_old = hunk.old_lines.iter().any(|l| l.starts_with('-'));

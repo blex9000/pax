@@ -75,10 +75,15 @@ fn start_open_file_watcher(
             let st = state.borrow();
             st.open_files
                 .iter()
-                .map(|open_file| WatchedFileSnapshot {
-                    path: open_file.path.clone(),
-                    saved_content: open_file.saved_content.borrow().clone(),
-                    last_disk_mtime: open_file.last_disk_mtime,
+                .filter_map(|open_file| {
+                    // Only source tabs participate in watcher-driven reload.
+                    // Markdown/Image tabs manage their own content separately.
+                    let saved = open_file.content.saved_content()?;
+                    Some(WatchedFileSnapshot {
+                        path: open_file.path.clone(),
+                        saved_content: saved.borrow().clone(),
+                        last_disk_mtime: open_file.last_disk_mtime,
+                    })
                 })
                 .collect()
         };
@@ -105,23 +110,31 @@ fn start_open_file_watcher(
                         continue;
                     };
 
+                    // Non-source tabs (Markdown/Image) opt out of watcher reload.
+                    let Some(buffer) = open_file.content.source_buffer().cloned() else {
+                        continue;
+                    };
+                    let Some(saved_cell) = open_file.content.saved_content().cloned() else {
+                        continue;
+                    };
+
                     if is_remote {
-                        let disk_changed = change.content != *open_file.saved_content.borrow();
+                        let disk_changed = change.content != *saved_cell.borrow();
                         if !disk_changed {
                             continue;
                         }
-                        if !open_file.modified {
-                            *open_file.saved_content.borrow_mut() = change.content.clone();
-                            open_file.buffer.set_text(&change.content);
-                            open_file.buffer.set_enable_undo(false);
-                            open_file.buffer.set_enable_undo(true);
-                            open_file.modified = false;
+                        if !open_file.modified() {
+                            *saved_cell.borrow_mut() = change.content.clone();
+                            buffer.set_text(&change.content);
+                            buffer.set_enable_undo(false);
+                            buffer.set_enable_undo(true);
+                            open_file.set_modified(false);
                         } else {
                             show_conflict_bar(
                                 &info_bar_container_c,
                                 &open_file.path,
-                                &open_file.buffer,
-                                open_file.saved_content.clone(),
+                                &buffer,
+                                saved_cell.clone(),
                                 backend_for_apply.clone(),
                             );
                         }
@@ -134,18 +147,18 @@ fn start_open_file_watcher(
                         continue;
                     }
                     open_file.last_disk_mtime = change.last_disk_mtime;
-                    if !open_file.modified {
-                        *open_file.saved_content.borrow_mut() = change.content.clone();
-                        open_file.buffer.set_text(&change.content);
-                        open_file.buffer.set_enable_undo(false);
-                        open_file.buffer.set_enable_undo(true);
-                        open_file.modified = false;
+                    if !open_file.modified() {
+                        *saved_cell.borrow_mut() = change.content.clone();
+                        buffer.set_text(&change.content);
+                        buffer.set_enable_undo(false);
+                        buffer.set_enable_undo(true);
+                        open_file.set_modified(false);
                     } else {
                         show_conflict_bar(
                             &info_bar_container_c,
                             &open_file.path,
-                            &open_file.buffer,
-                            open_file.saved_content.clone(),
+                            &buffer,
+                            saved_cell.clone(),
                             backend_for_apply.clone(),
                         );
                     }

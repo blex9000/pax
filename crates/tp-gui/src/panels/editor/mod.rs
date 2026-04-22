@@ -13,6 +13,8 @@ pub mod fuzzy_finder;
 #[cfg(feature = "sourceview")]
 pub mod git_log;
 #[cfg(feature = "sourceview")]
+pub mod tab_content;
+#[cfg(feature = "sourceview")]
 pub mod git_status;
 #[cfg(feature = "sourceview")]
 pub mod project_search;
@@ -88,15 +90,40 @@ pub struct OpenFile {
     /// propagation) keep matching the right tab after a rename.
     pub tab_id: u64,
     pub path: PathBuf,
-    pub buffer: sourceview5::Buffer,
-    pub modified: bool,
     pub last_disk_mtime: u64,
-    /// Original content for accurate dirty detection (content on disk at open/save time).
-    pub saved_content: Rc<RefCell<String>>,
     /// The label widget inside the tab bar that shows the file name. Kept as
     /// a direct reference so rename propagation can update it in O(1) without
     /// traversing the notebook's tab widget tree.
     pub name_label: gtk4::Label,
+    /// Per-tab content (source / markdown / image).
+    pub content: tab_content::TabContent,
+}
+
+#[cfg(feature = "sourceview")]
+impl OpenFile {
+    /// Source buffer of this tab. Panics on non-source tabs — call sites
+    /// established as source-only are fine to use this; generic code should go
+    /// through `content.source_buffer()` which returns an `Option`.
+    pub fn buffer(&self) -> &sourceview5::Buffer {
+        self.content
+            .source_buffer()
+            .expect("OpenFile::buffer() called on a non-source tab")
+    }
+
+    pub fn modified(&self) -> bool {
+        self.content.is_modified()
+    }
+
+    pub fn set_modified(&mut self, v: bool) {
+        self.content.set_modified(v);
+    }
+
+    /// Dirty-tracking cell. Panics on tabs without a writable buffer (image).
+    pub fn saved_content(&self) -> &Rc<RefCell<String>> {
+        self.content
+            .saved_content()
+            .expect("OpenFile::saved_content() called on a tab without a buffer")
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -437,10 +464,10 @@ impl CodeEditorPanel {
                         let Some(open_file) = st.open_files.get(idx) else {
                             return;
                         };
-                        let Some(iter) = open_file.buffer.iter_at_line(line_zero_based) else {
+                        let Some(iter) = open_file.buffer().iter_at_line(line_zero_based) else {
                             return;
                         };
-                        open_file.buffer.place_cursor(&iter);
+                        open_file.buffer().place_cursor(&iter);
                         tabs_c2.source_view.scroll_to_iter(
                             &mut iter.clone(),
                             0.1,
@@ -858,7 +885,7 @@ fn push_nav_position(state: &Rc<RefCell<EditorState>>) {
         let st = state.borrow();
         if let Some(idx) = st.active_tab {
             if let Some(f) = st.open_files.get(idx) {
-                let buf = &f.buffer;
+                let buf = f.buffer();
                 let iter = buf.iter_at_mark(&buf.get_insert());
                 Some(FilePosition {
                     path: f.path.clone(),
@@ -897,7 +924,7 @@ fn navigate_history(
         let st = state.borrow();
         st.active_tab.and_then(|idx| {
             st.open_files.get(idx).map(|f| {
-                let iter = f.buffer.iter_at_mark(&f.buffer.get_insert());
+                let iter = f.buffer().iter_at_mark(&f.buffer().get_insert());
                 FilePosition {
                     path: f.path.clone(),
                     line: iter.line(),
@@ -968,7 +995,7 @@ fn navigate_history(
             let st = state_c.borrow();
             if let Some(idx) = st.active_tab {
                 if let Some(f) = st.open_files.get(idx) {
-                    let buf = &f.buffer;
+                    let buf = f.buffer();
                     let target_line = if line < buf.line_count() {
                         line
                     } else {
@@ -1070,10 +1097,12 @@ impl PanelBackend for CodeEditorPanel {
     fn get_text_content(&self) -> Option<String> {
         let st = self.state.borrow();
         st.active_tab.and_then(|idx| {
-            st.open_files.get(idx).map(|f| {
-                let buf = &f.buffer;
-                buf.text(&buf.start_iter(), &buf.end_iter(), false)
-                    .to_string()
+            st.open_files.get(idx).and_then(|f| {
+                let buf = f.content.source_buffer()?;
+                Some(
+                    buf.text(&buf.start_iter(), &buf.end_iter(), false)
+                        .to_string(),
+                )
             })
         })
     }
