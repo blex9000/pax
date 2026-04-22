@@ -600,6 +600,37 @@ impl FileTree {
                 }
                 menu_box.append(&copy_abs);
 
+                // ── Open in Terminal ──
+                // Launch the system terminal emulator in the target directory
+                // (selected folder, or the parent of a selected file, or the
+                // project root when nothing is selected). Remote (SSH) roots
+                // are skipped since we don't control the remote shell.
+                if !backend.is_remote() {
+                    let term_btn =
+                        make_item("utilities-terminal-symbolic", "Open in Terminal");
+                    let term_dir = if selected_is_dir {
+                        selected_path.clone()
+                    } else {
+                        selected_path
+                            .parent()
+                            .map(|p| p.to_path_buf())
+                            .unwrap_or_else(|| target_dir.clone())
+                    };
+                    term_btn.connect_clicked(move |btn| {
+                        if let Some(pop) = btn.ancestor(gtk4::Popover::static_type()) {
+                            pop.downcast_ref::<gtk4::Popover>().unwrap().popdown();
+                        }
+                        if let Err(e) = spawn_terminal_in(&term_dir) {
+                            tracing::warn!(
+                                "editor.ft: failed to open terminal in {}: {}",
+                                term_dir.display(),
+                                e
+                            );
+                        }
+                    });
+                    menu_box.append(&term_btn);
+                }
+
                 if selected_entry.is_some() {
                     menu_box.append(&gtk4::Separator::new(gtk4::Orientation::Horizontal));
                 }
@@ -2269,6 +2300,77 @@ fn show_confirm_dialog(
 
     dialog.present();
     cancel_btn.grab_focus();
+}
+
+/// Spawn the system terminal emulator with its initial working directory
+/// set to `dir`. Tries `$TERMINAL`, then a list of common emulators; the
+/// first one found on `$PATH` is launched. Linux-first — on other OSes the
+/// command fallback is effectively a best-effort.
+fn spawn_terminal_in(dir: &Path) -> std::io::Result<()> {
+    use std::process::Command;
+
+    let dir_str = dir.to_string_lossy().into_owned();
+
+    // Preferred: honor the user's $TERMINAL env var if set.
+    if let Ok(term) = std::env::var("TERMINAL") {
+        if !term.is_empty() {
+            return Command::new(&term).current_dir(dir).spawn().map(|_| ());
+        }
+    }
+
+    // Each candidate is (program, args) where args open a shell in `dir`.
+    // Programs that accept a --working-directory flag don't need us to cd
+    // explicitly; the others inherit the `current_dir` we set on Command.
+    let candidates: &[(&str, &[&str])] = &[
+        ("x-terminal-emulator", &[]),
+        ("gnome-terminal", &["--working-directory"]),
+        ("konsole", &["--workdir"]),
+        ("xfce4-terminal", &["--working-directory"]),
+        ("tilix", &["--working-directory"]),
+        ("alacritty", &["--working-directory"]),
+        ("kitty", &["-d"]),
+        ("wezterm", &["start", "--cwd"]),
+        ("foot", &[]),
+        ("xterm", &[]),
+    ];
+
+    for (prog, flags) in candidates {
+        if which_executable(prog).is_none() {
+            continue;
+        }
+        let mut cmd = Command::new(prog);
+        cmd.current_dir(dir);
+        if !flags.is_empty() {
+            // Programs that take --working-directory=<path> (or equivalent)
+            // still work because current_dir is also set; we pass the flag
+            // for programs that otherwise ignore current_dir.
+            if flags.len() == 1 {
+                cmd.arg(format!("{}={}", flags[0], dir_str));
+            } else {
+                for f in *flags {
+                    cmd.arg(f);
+                }
+                cmd.arg(&dir_str);
+            }
+        }
+        return cmd.spawn().map(|_| ());
+    }
+
+    Err(std::io::Error::new(
+        std::io::ErrorKind::NotFound,
+        "no terminal emulator found on PATH",
+    ))
+}
+
+fn which_executable(name: &str) -> Option<PathBuf> {
+    let path_env = std::env::var_os("PATH")?;
+    for dir in std::env::split_paths(&path_env) {
+        let candidate = dir.join(name);
+        if candidate.is_file() {
+            return Some(candidate);
+        }
+    }
+    None
 }
 
 #[cfg(test)]
