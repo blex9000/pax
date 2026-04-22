@@ -257,7 +257,7 @@ impl CodeEditorPanel {
         activity_bar.append(&bar_spacer);
         activity_bar.append(&recent_btn);
 
-        let sidebar_hide_btn = gtk4::Button::from_icon_name("go-previous-symbolic");
+        let sidebar_hide_btn = gtk4::Button::from_icon_name("sidebar-show-symbolic");
         sidebar_hide_btn.add_css_class("flat");
         sidebar_hide_btn.set_tooltip_text(Some("Hide sidebar (Ctrl+B)"));
         activity_bar.append(&sidebar_hide_btn);
@@ -481,7 +481,7 @@ impl CodeEditorPanel {
         ));
 
         // Sidebar toggle button — visible only when sidebar is hidden
-        let sidebar_open_btn = gtk4::Button::from_icon_name("go-next-symbolic");
+        let sidebar_open_btn = gtk4::Button::from_icon_name("sidebar-show-symbolic");
         sidebar_open_btn.add_css_class("flat");
         sidebar_open_btn.set_tooltip_text(Some("Show sidebar (Ctrl+B)"));
         sidebar_open_btn.set_visible(false);
