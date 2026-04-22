@@ -281,6 +281,18 @@ impl MarkdownPanel {
         *content.borrow_mut() = initial.clone();
         crate::markdown_render::render_markdown_to_view(&render_view, &initial);
 
+        // Re-render on theme change so code blocks pick up the new palette.
+        {
+            let rv = render_view.clone();
+            let ct = content.clone();
+            let m = mode.clone();
+            crate::theme::register_theme_observer(Rc::new(move || {
+                if m.get() == Mode::Render {
+                    crate::markdown_render::render_markdown_to_view(&rv, &ct.borrow());
+                }
+            }));
+        }
+
         // ── Render button ────────────────────────────────────────────────
         {
             let rv = render_view.clone();

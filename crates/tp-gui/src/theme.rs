@@ -1,6 +1,7 @@
 /// Pax theme system — overrides libadwaita named colors via @define-color.
 use gtk4::prelude::IsA;
 use std::cell::RefCell;
+use std::rc::Rc;
 
 thread_local! {
     static CURRENT_THEME: RefCell<Theme> = RefCell::new(Theme::default());
@@ -8,6 +9,18 @@ thread_local! {
     static VTE_TERMINALS: RefCell<Vec<vte4::Terminal>> = RefCell::new(Vec::new());
     #[cfg(feature = "sourceview")]
     static SV_BUFFERS: RefCell<Vec<sourceview5::Buffer>> = RefCell::new(Vec::new());
+    /// Generic theme-change observers. Widgets that render theme-dependent
+    /// content without going through VTE/SourceView (e.g. the markdown
+    /// TextView renderer) register a closure here and re-apply their theme
+    /// on invocation.
+    static THEME_OBSERVERS: RefCell<Vec<Rc<dyn Fn()>>> = RefCell::new(Vec::new());
+}
+
+/// Register a theme-change observer. The closure is invoked synchronously
+/// after every `set_current_theme` call. Observers are not automatically
+/// unregistered; this is acceptable for editor-lifetime widgets.
+pub fn register_theme_observer(cb: Rc<dyn Fn()>) {
+    THEME_OBSERVERS.with(|c| c.borrow_mut().push(cb));
 }
 
 /// Set the current theme and update all registered VTE terminals and sourceview buffers.
@@ -17,6 +30,11 @@ pub fn set_current_theme(theme: Theme) {
     apply_theme_to_all_terminals(theme);
     #[cfg(feature = "sourceview")]
     apply_theme_to_all_buffers(theme);
+    let observers: Vec<Rc<dyn Fn()>> =
+        THEME_OBSERVERS.with(|c| c.borrow().iter().cloned().collect());
+    for cb in observers {
+        cb();
+    }
 }
 
 /// Get the current theme.
