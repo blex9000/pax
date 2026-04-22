@@ -343,15 +343,34 @@ impl EditorTabs {
             let cs = content_stack.clone();
             notebook.connect_switch_page(move |_nb, _page, page_num| {
                 let idx = page_num as usize;
+                // Resolve child + buffer under an immutable borrow so the
+                // content_stack visibility is always applied even when
+                // try_borrow_mut loses the race (which previously left the
+                // stack showing a stale child — e.g. after a Ctrl+F navigation
+                // followed by a tab click the new tab would appear blank).
+                let (child_opt, buf_opt) = {
+                    let st = state_c.borrow();
+                    match st.open_files.get(idx) {
+                        Some(f) => (
+                            Some(f.content.content_stack_child_name(f.tab_id)),
+                            f.source_buffer().cloned(),
+                        ),
+                        None => (None, None),
+                    }
+                };
+                if let Some(ref child) = child_opt {
+                    cs.set_visible_child_name(child);
+                }
+                if let Some(ref buf) = buf_opt {
+                    sv.set_buffer(Some(buf));
+                }
+
                 if let Ok(mut st) = state_c.try_borrow_mut() {
                     if let Some(open_file) = st.open_files.get(idx) {
-                        let child = open_file.content.content_stack_child_name(open_file.tab_id);
-                        cs.set_visible_child_name(&child);
                         // Only source tabs participate in the shared source
                         // view, match ruler, and language label. Non-source
                         // tabs own their own widget tree inside content_stack.
                         if let Some(buf) = open_file.source_buffer() {
-                            sv.set_buffer(Some(buf));
                             let query = lsq.borrow().clone();
                             let lines = collect_match_lines(buf, &query);
                             let has = !lines.is_empty();
@@ -562,37 +581,48 @@ impl EditorTabs {
             });
         }
 
-        // Enter → next, Shift+Enter → prev
+        // Enter → next match (via SearchEntry's native activate signal,
+        // which fires on Enter regardless of other key controllers). Shift+
+        // Enter → previous, handled via a capture-phase key controller so it
+        // runs before the SearchEntry swallows the key.
+        {
+            let get_ctx = ensure_ctx.clone();
+            let sv = source_view.clone();
+            search_entry.connect_activate(move |_| {
+                let ctx = get_ctx();
+                let buf = sv.buffer();
+                let (_, end) = buf.selection_bounds().unwrap_or_else(|| {
+                    let iter = buf.iter_at_offset(buf.cursor_position());
+                    (iter.clone(), iter)
+                });
+                if let Some((sm, em, _)) = ctx.forward(&end) {
+                    buf.select_range(&sm, &em);
+                    sv.scroll_to_iter(&mut sm.clone(), 0.1, false, 0.0, 0.0);
+                }
+            });
+        }
         {
             let get_ctx = ensure_ctx.clone();
             let sv = source_view.clone();
             let key_ctrl = gtk4::EventControllerKey::new();
+            key_ctrl.set_propagation_phase(gtk4::PropagationPhase::Capture);
             key_ctrl.connect_key_pressed(move |_, key, _, modifier| {
-                if key == gtk4::gdk::Key::Return || key == gtk4::gdk::Key::KP_Enter {
-                    let ctx = get_ctx();
-                    let buf = sv.buffer();
-                    if modifier.contains(gtk4::gdk::ModifierType::SHIFT_MASK) {
-                        let (start, _) = buf.selection_bounds().unwrap_or_else(|| {
-                            let iter = buf.iter_at_offset(buf.cursor_position());
-                            (iter.clone(), iter)
-                        });
-                        if let Some((sm, em, _)) = ctx.backward(&start) {
-                            buf.select_range(&sm, &em);
-                            sv.scroll_to_iter(&mut sm.clone(), 0.1, false, 0.0, 0.0);
-                        }
-                    } else {
-                        let (_, end) = buf.selection_bounds().unwrap_or_else(|| {
-                            let iter = buf.iter_at_offset(buf.cursor_position());
-                            (iter.clone(), iter)
-                        });
-                        if let Some((sm, em, _)) = ctx.forward(&end) {
-                            buf.select_range(&sm, &em);
-                            sv.scroll_to_iter(&mut sm.clone(), 0.1, false, 0.0, 0.0);
-                        }
-                    }
-                    return gtk4::glib::Propagation::Stop;
+                let is_enter = key == gtk4::gdk::Key::Return || key == gtk4::gdk::Key::KP_Enter;
+                let shift = modifier.contains(gtk4::gdk::ModifierType::SHIFT_MASK);
+                if !(is_enter && shift) {
+                    return gtk4::glib::Propagation::Proceed;
                 }
-                gtk4::glib::Propagation::Proceed
+                let ctx = get_ctx();
+                let buf = sv.buffer();
+                let (start, _) = buf.selection_bounds().unwrap_or_else(|| {
+                    let iter = buf.iter_at_offset(buf.cursor_position());
+                    (iter.clone(), iter)
+                });
+                if let Some((sm, em, _)) = ctx.backward(&start) {
+                    buf.select_range(&sm, &em);
+                    sv.scroll_to_iter(&mut sm.clone(), 0.1, false, 0.0, 0.0);
+                }
+                gtk4::glib::Propagation::Stop
             });
             search_entry.add_controller(key_ctrl);
         }
