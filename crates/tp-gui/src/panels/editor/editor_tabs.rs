@@ -94,12 +94,18 @@ fn install_text_clipboard_shortcuts<W: IsA<gtk4::Widget>>(widget: &W) {
     widget.add_controller(key_ctrl);
 }
 
-fn install_text_history_shortcuts<W: IsA<gtk4::Widget>>(widget: &W, buffer: &sourceview5::Buffer) {
-    let buffer = buffer.clone();
+fn install_text_history_shortcuts(view: &sourceview5::View) {
+    // Look up the buffer at event time: the main editor SourceView swaps its
+    // buffer every tab switch, so we must not capture the initial one.
+    let view_c = view.clone();
     let key_ctrl = gtk4::EventControllerKey::new();
     key_ctrl.set_propagation_phase(gtk4::PropagationPhase::Capture);
     key_ctrl.connect_key_pressed(move |_, key, _, modifiers| {
         let Some(action) = text_history_action(key, modifiers) else {
+            return gtk4::glib::Propagation::Proceed;
+        };
+
+        let Some(buffer) = view_c.buffer().downcast::<sourceview5::Buffer>().ok() else {
             return gtk4::glib::Propagation::Proceed;
         };
 
@@ -118,7 +124,7 @@ fn install_text_history_shortcuts<W: IsA<gtk4::Widget>>(widget: &W, buffer: &sou
 
         gtk4::glib::Propagation::Stop
     });
-    widget.add_controller(key_ctrl);
+    view.add_controller(key_ctrl);
 }
 
 /// Manages the Notebook tabs and SourceView buffers.
@@ -188,9 +194,7 @@ impl EditorTabs {
         source_view.set_show_right_margin(true);
         source_view.set_right_margin_position(120);
         install_text_clipboard_shortcuts(&source_view);
-        if let Some(buffer) = source_view.buffer().downcast_ref::<sourceview5::Buffer>() {
-            install_text_history_shortcuts(&source_view, buffer);
-        }
+        install_text_history_shortcuts(&source_view);
 
         // Apply and register for theme updates
         if let Some(buf) = source_view.buffer().downcast_ref::<sourceview5::Buffer>() {
@@ -1152,7 +1156,7 @@ impl EditorTabs {
                 view.set_monospace(true);
                 view.set_left_margin(3);
                 install_text_clipboard_shortcuts(&view);
-                install_text_history_shortcuts(&view, buf);
+                install_text_history_shortcuts(&view);
                 if editable {
                     view.set_auto_indent(true);
                     view.set_tab_width(4);
@@ -1925,7 +1929,7 @@ fn show_commit_file_diff(
         view.set_monospace(true);
         view.set_left_margin(3);
         install_text_clipboard_shortcuts(&view);
-        install_text_history_shortcuts(&view, buf);
+        install_text_history_shortcuts(&view);
         let scroll = gtk4::ScrolledWindow::new();
         scroll.set_child(Some(&view));
         scroll.set_vexpand(true);
