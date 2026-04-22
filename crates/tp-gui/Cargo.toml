@@ -27,6 +27,7 @@ fuzzy-matcher = "0.3"
 sourceview5 = { version = "0.9", optional = true }
 ignore = "0.4"
 similar = "2"
+pulldown-cmark = { version = "0.12", default-features = false }
 # Move-to-trash for local file/dir deletion (XDG freedesktop spec on Linux)
 # so that accidental deletes remain recoverable via the system file manager.
 trash = "5"

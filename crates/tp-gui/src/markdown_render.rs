@@ -1,10 +1,13 @@
 //! Shared Markdown-to-TextBuffer renderer.
 //!
 //! Used by both the standalone Markdown panel (`panels::markdown`) and the
-//! Code Editor's Markdown tab (`panels::editor::markdown_view`). A hand-rolled
-//! parser — deliberately minimal — with GTK `TextTag`s doing the visual work.
+//! Code Editor's Markdown tab (`panels::editor::markdown_view`). Parsing is
+//! done by pulldown-cmark (CommonMark + GFM tables/strikethrough/tasks/
+//! footnotes); events are mapped to GTK `TextTag`s for presentation inside
+//! a `TextView`, so the UI stays consistent with the rest of the editor.
 
 use gtk4::prelude::*;
+use pulldown_cmark::{CodeBlockKind, Event, HeadingLevel, Options, Parser, Tag, TagEnd};
 
 // Code block backgrounds — slight contrast against each theme family's main
 // surface, without overriding the default text foreground (so GTK keeps
@@ -17,9 +20,6 @@ pub(crate) fn render_markdown_to_view(tv: &gtk4::TextView, content: &str) {
     buf.set_text("");
     let tt = buf.tag_table();
 
-    // Theme-reactive colors for code blocks and inline code. The dark theme's
-    // #2a2a2a block background becomes unreadable against default dark text
-    // on a light theme; pick contrasting colors based on the active theme.
     let is_light = matches!(
         crate::theme::current_theme().color_scheme(),
         libadwaita::ColorScheme::ForceLight
@@ -27,8 +27,8 @@ pub(crate) fn render_markdown_to_view(tv: &gtk4::TextView, content: &str) {
     let code_bg = if is_light { CODE_BG_LIGHT } else { CODE_BG_DARK };
 
     // `ensure` re-applies the callback every time so theme-reactive tags
-    // (code, code_block) update when the renderer runs again after a theme
-    // change, not just on first creation.
+    // update when the renderer runs again after a theme change, not just on
+    // first creation.
     let ensure = |name: &str, f: &dyn Fn(&gtk4::TextTag)| {
         let t = if let Some(t) = tt.lookup(name) {
             t
@@ -51,6 +51,18 @@ pub(crate) fn render_markdown_to_view(tv: &gtk4::TextView, content: &str) {
         t.set_size_points(14.0);
         t.set_weight(700);
     });
+    ensure("h4", &|t| {
+        t.set_size_points(13.0);
+        t.set_weight(700);
+    });
+    ensure("h5", &|t| {
+        t.set_size_points(12.0);
+        t.set_weight(700);
+    });
+    ensure("h6", &|t| {
+        t.set_size_points(11.0);
+        t.set_weight(700);
+    });
     ensure("bold", &|t| {
         t.set_weight(700);
     });
@@ -62,14 +74,10 @@ pub(crate) fn render_markdown_to_view(tv: &gtk4::TextView, content: &str) {
     });
     ensure("code", &|t| {
         t.set_family(Some("monospace"));
-        // No background — inline code stays as-is to avoid visually heavy
-        // spans; only the code_block (fenced) paragraph gets a background.
     });
     ensure("code_block", &|t| {
         t.set_family(Some("monospace"));
         t.set_paragraph_background(Some(code_bg));
-        // Foreground intentionally unset: inheriting the theme's default
-        // text color keeps readability on light and dark themes alike.
         t.set_left_margin(20);
     });
     ensure("link", &|t| {
@@ -98,107 +106,311 @@ pub(crate) fn render_markdown_to_view(tv: &gtk4::TextView, content: &str) {
         t.set_weight(700);
     });
 
-    let lines: Vec<&str> = content.lines().collect();
+    let mut opts = Options::empty();
+    opts.insert(Options::ENABLE_TABLES);
+    opts.insert(Options::ENABLE_STRIKETHROUGH);
+    opts.insert(Options::ENABLE_TASKLISTS);
+    opts.insert(Options::ENABLE_FOOTNOTES);
+    let parser = Parser::new_ext(content, opts);
+
+    let mut state = RenderState::default();
     let mut it = buf.end_iter();
-    let mut in_code = false;
-    let mut i = 0;
-    while i < lines.len() {
-        let line = lines[i];
-        if line.starts_with("```") {
-            in_code = !in_code;
-            let hint = line.trim_start_matches('`').trim();
-            if in_code && !hint.is_empty() {
-                buf.insert_with_tags_by_name(&mut it, &format!("─── {} ───\n", hint), &["sep"]);
-            } else if !in_code {
-                buf.insert_with_tags_by_name(&mut it, "───────\n", &["sep"]);
+    for event in parser {
+        dispatch(&buf, &mut it, &mut state, event);
+    }
+}
+
+/// Inline formatting and structural state carried across events.
+#[derive(Default)]
+struct RenderState {
+    /// Inline tag names currently active (bold/italic/strike/link).
+    inline_tags: Vec<&'static str>,
+    /// Heading level in flight, if any.
+    heading: Option<&'static str>,
+    /// Depth of nested lists with each frame's next-ordinal (None = unordered).
+    lists: Vec<Option<u64>>,
+    /// Block quote nesting level.
+    bq_depth: usize,
+    /// Inside a fenced/indented code block?
+    in_code_block: bool,
+    /// Remember whether the current list item has had its marker emitted yet.
+    item_needs_marker: bool,
+    /// Table buffering — pulldown-cmark emits cells one-by-one; we collect
+    /// rows and render aligned when the table ends.
+    table: Option<TableState>,
+}
+
+struct TableState {
+    rows: Vec<Vec<String>>,
+    /// Index into `rows` where the body starts. Everything before is header.
+    body_start: usize,
+    /// Accumulator for the current cell while events stream in.
+    current_cell: String,
+    /// Accumulator for the current row.
+    current_row: Vec<String>,
+    /// Are we currently in the table head?
+    in_head: bool,
+}
+
+fn dispatch(buf: &gtk4::TextBuffer, it: &mut gtk4::TextIter, st: &mut RenderState, ev: Event) {
+    match ev {
+        Event::Start(tag) => handle_start(buf, it, st, tag),
+        Event::End(tag) => handle_end(buf, it, st, tag),
+        Event::Text(text) => on_text(buf, it, st, &text),
+        Event::Code(code) => on_inline_code(buf, it, st, &code),
+        Event::Html(_) | Event::InlineHtml(_) => {}
+        Event::FootnoteReference(r) => {
+            let marker = format!("[^{}]", r);
+            insert_inline(buf, it, st, &marker);
+        }
+        Event::SoftBreak => insert_inline(buf, it, st, " "),
+        Event::HardBreak => {
+            buf.insert(it, "\n");
+        }
+        Event::Rule => {
+            buf.insert_with_tags_by_name(it, "────────────────────\n", &["sep"]);
+        }
+        Event::TaskListMarker(done) => {
+            insert_inline(buf, it, st, if done { "☒ " } else { "☐ " });
+        }
+        Event::InlineMath(s) | Event::DisplayMath(s) => {
+            insert_inline(buf, it, st, &s);
+        }
+    }
+}
+
+fn handle_start(buf: &gtk4::TextBuffer, it: &mut gtk4::TextIter, st: &mut RenderState, tag: Tag) {
+    match tag {
+        Tag::Paragraph => {
+            if st.item_needs_marker {
+                emit_list_marker(buf, it, st);
             }
-            i += 1;
-            continue;
         }
-        if in_code {
-            buf.insert_with_tags_by_name(&mut it, &format!("{}\n", line), &["code_block"]);
-            i += 1;
-            continue;
+        Tag::Heading { level, .. } => {
+            st.heading = Some(heading_tag(level));
         }
-        // GFM table: header line with pipes, followed by a separator line.
-        if line.contains('|')
-            && i + 1 < lines.len()
-            && is_table_separator(lines[i + 1])
-        {
-            let consumed = render_table(&buf, &mut it, &lines, i);
-            i += consumed;
-            continue;
+        Tag::BlockQuote(_) => {
+            st.bq_depth += 1;
         }
-        if line.starts_with("### ") {
-            buf.insert_with_tags_by_name(&mut it, &format!("{}\n", &line[4..]), &["h3"]);
-        } else if line.starts_with("## ") {
-            buf.insert_with_tags_by_name(&mut it, &format!("{}\n", &line[3..]), &["h2"]);
-        } else if line.starts_with("# ") {
-            buf.insert_with_tags_by_name(&mut it, &format!("{}\n", &line[2..]), &["h1"]);
-        } else if line.starts_with("---") || line.starts_with("***") {
-            buf.insert_with_tags_by_name(&mut it, "────────────────────\n", &["sep"]);
-        } else if line.starts_with("- ") || line.starts_with("* ") {
-            buf.insert_with_tags_by_name(&mut it, &format!("  • {}\n", &line[2..]), &["bullet"]);
-        } else if line.starts_with("> ") {
-            buf.insert_with_tags_by_name(&mut it, &format!("│ {}\n", &line[2..]), &["bq"]);
-        } else {
-            render_inline(&buf, &mut it, line);
-            buf.insert(&mut it, "\n");
+        Tag::CodeBlock(kind) => {
+            st.in_code_block = true;
+            let hint = match kind {
+                CodeBlockKind::Fenced(s) => s.to_string(),
+                CodeBlockKind::Indented => String::new(),
+            };
+            if hint.is_empty() {
+                buf.insert_with_tags_by_name(it, "───────\n", &["sep"]);
+            } else {
+                buf.insert_with_tags_by_name(it, &format!("─── {} ───\n", hint), &["sep"]);
+            }
         }
-        i += 1;
+        Tag::List(start) => {
+            st.lists.push(start);
+        }
+        Tag::Item => {
+            st.item_needs_marker = true;
+        }
+        Tag::Emphasis => st.inline_tags.push("italic"),
+        Tag::Strong => st.inline_tags.push("bold"),
+        Tag::Strikethrough => st.inline_tags.push("strike"),
+        Tag::Link { .. } => st.inline_tags.push("link"),
+        Tag::Image { .. } => st.inline_tags.push("italic"),
+        Tag::Table(_) => {
+            st.table = Some(TableState {
+                rows: Vec::new(),
+                body_start: 0,
+                current_cell: String::new(),
+                current_row: Vec::new(),
+                in_head: false,
+            });
+        }
+        Tag::TableHead => {
+            if let Some(t) = st.table.as_mut() {
+                t.in_head = true;
+            }
+        }
+        Tag::TableRow => {
+            if let Some(t) = st.table.as_mut() {
+                t.current_row = Vec::new();
+            }
+        }
+        Tag::TableCell => {
+            if let Some(t) = st.table.as_mut() {
+                t.current_cell = String::new();
+            }
+        }
+        Tag::FootnoteDefinition(label) => {
+            insert_inline(buf, it, st, &format!("\n[^{}]: ", label));
+        }
+        _ => {}
     }
 }
 
-fn is_table_separator(line: &str) -> bool {
-    let trimmed = line.trim();
-    if trimmed.is_empty() || !trimmed.contains('|') {
-        return false;
-    }
-    let mut saw_dash = false;
-    for c in trimmed.chars() {
-        match c {
-            '|' | ' ' | '\t' | ':' => {}
-            '-' => saw_dash = true,
-            _ => return false,
-        }
-    }
-    saw_dash
-}
-
-fn parse_table_row(line: &str) -> Vec<String> {
-    let trimmed = line.trim();
-    let stripped = trimmed.trim_start_matches('|').trim_end_matches('|');
-    stripped.split('|').map(|s| s.trim().to_string()).collect()
-}
-
-/// Render a GFM table starting at `lines[start]` (header row). Returns how
-/// many lines were consumed (at minimum 2: header + separator).
-fn render_table(
+fn handle_end(
     buf: &gtk4::TextBuffer,
     it: &mut gtk4::TextIter,
-    lines: &[&str],
-    start: usize,
-) -> usize {
-    let header = parse_table_row(lines[start]);
-    // start+1 is the separator, already verified by caller.
-    let mut rows: Vec<Vec<String>> = vec![header];
-    let mut j = start + 2;
-    while j < lines.len() {
-        let l = lines[j];
-        if l.trim().is_empty() || !l.contains('|') {
-            break;
+    st: &mut RenderState,
+    tag: TagEnd,
+) {
+    match tag {
+        TagEnd::Paragraph => {
+            buf.insert(it, "\n");
         }
-        rows.push(parse_table_row(l));
-        j += 1;
+        TagEnd::Heading(_) => {
+            st.heading = None;
+            buf.insert(it, "\n");
+        }
+        TagEnd::BlockQuote(_) => {
+            if st.bq_depth > 0 {
+                st.bq_depth -= 1;
+            }
+        }
+        TagEnd::CodeBlock => {
+            st.in_code_block = false;
+            buf.insert_with_tags_by_name(it, "───────\n", &["sep"]);
+        }
+        TagEnd::List(_) => {
+            st.lists.pop();
+        }
+        TagEnd::Item => {
+            // If an item had no paragraph inside (tight list), still emit
+            // a trailing newline. Loose lists already ended with one via
+            // TagEnd::Paragraph.
+            if st.item_needs_marker {
+                // Empty item — emit the marker and newline anyway so
+                // pulldown-cmark's canonical form stays faithful.
+                emit_list_marker(buf, it, st);
+                buf.insert(it, "\n");
+            }
+        }
+        TagEnd::Emphasis | TagEnd::Strong | TagEnd::Strikethrough | TagEnd::Link
+        | TagEnd::Image => {
+            st.inline_tags.pop();
+        }
+        TagEnd::Table => {
+            if let Some(t) = st.table.take() {
+                render_table(buf, it, &t);
+            }
+        }
+        TagEnd::TableHead => {
+            if let Some(t) = st.table.as_mut() {
+                t.in_head = false;
+                t.body_start = t.rows.len();
+            }
+        }
+        TagEnd::TableRow => {
+            if let Some(t) = st.table.as_mut() {
+                let row = std::mem::take(&mut t.current_row);
+                t.rows.push(row);
+            }
+        }
+        TagEnd::TableCell => {
+            if let Some(t) = st.table.as_mut() {
+                let cell = std::mem::take(&mut t.current_cell);
+                t.current_row.push(cell);
+            }
+        }
+        _ => {}
     }
-    let consumed = j - start;
+}
 
-    let n_cols = rows.iter().map(|r| r.len()).max().unwrap_or(0);
+fn on_text(buf: &gtk4::TextBuffer, it: &mut gtk4::TextIter, st: &mut RenderState, text: &str) {
+    if let Some(t) = st.table.as_mut() {
+        t.current_cell.push_str(text);
+        return;
+    }
+    if st.in_code_block {
+        buf.insert_with_tags_by_name(it, text, &["code_block"]);
+        return;
+    }
+    insert_inline(buf, it, st, text);
+}
+
+fn on_inline_code(
+    buf: &gtk4::TextBuffer,
+    it: &mut gtk4::TextIter,
+    st: &mut RenderState,
+    code: &str,
+) {
+    if let Some(t) = st.table.as_mut() {
+        t.current_cell.push_str(code);
+        return;
+    }
+    let mut tags: Vec<&str> = effective_tags(st);
+    tags.push("code");
+    buf.insert_with_tags_by_name(it, code, &tags);
+}
+
+/// Insert `text` with whatever inline/block tags the current state implies.
+fn insert_inline(
+    buf: &gtk4::TextBuffer,
+    it: &mut gtk4::TextIter,
+    st: &mut RenderState,
+    text: &str,
+) {
+    if st.item_needs_marker {
+        emit_list_marker(buf, it, st);
+    }
+    let tags = effective_tags(st);
+    if tags.is_empty() {
+        buf.insert(it, text);
+    } else {
+        buf.insert_with_tags_by_name(it, text, &tags);
+    }
+}
+
+fn effective_tags(st: &RenderState) -> Vec<&'static str> {
+    let mut tags: Vec<&'static str> = Vec::new();
+    if let Some(h) = st.heading {
+        tags.push(h);
+    }
+    if st.bq_depth > 0 {
+        tags.push("bq");
+    }
+    if !st.lists.is_empty() && st.heading.is_none() {
+        tags.push("bullet");
+    }
+    tags.extend(st.inline_tags.iter().copied());
+    tags
+}
+
+fn emit_list_marker(buf: &gtk4::TextBuffer, it: &mut gtk4::TextIter, st: &mut RenderState) {
+    st.item_needs_marker = false;
+    let depth = st.lists.len().saturating_sub(1);
+    let indent = "  ".repeat(depth);
+    let marker_body = match st.lists.last_mut() {
+        Some(Some(n)) => {
+            let out = format!("{}. ", n);
+            *n += 1;
+            out
+        }
+        _ => "• ".to_string(),
+    };
+    let full = format!("  {}{}", indent, marker_body);
+    buf.insert_with_tags_by_name(it, &full, &["bullet"]);
+}
+
+fn heading_tag(level: HeadingLevel) -> &'static str {
+    match level {
+        HeadingLevel::H1 => "h1",
+        HeadingLevel::H2 => "h2",
+        HeadingLevel::H3 => "h3",
+        HeadingLevel::H4 => "h4",
+        HeadingLevel::H5 => "h5",
+        HeadingLevel::H6 => "h6",
+    }
+}
+
+fn render_table(buf: &gtk4::TextBuffer, it: &mut gtk4::TextIter, t: &TableState) {
+    if t.rows.is_empty() {
+        return;
+    }
+    let n_cols = t.rows.iter().map(|r| r.len()).max().unwrap_or(0);
     if n_cols == 0 {
-        return consumed;
+        return;
     }
     let mut widths = vec![0_usize; n_cols];
-    for row in &rows {
+    for row in &t.rows {
         for (c, cell) in row.iter().enumerate() {
             widths[c] = widths[c].max(cell.chars().count());
         }
@@ -228,93 +440,16 @@ fn render_table(
     };
 
     buf.insert_with_tags_by_name(it, &border_row('┌', '┬', '┐'), &["table"]);
-    buf.insert_with_tags_by_name(it, &format_row(&rows[0]), &["table_header"]);
-    buf.insert_with_tags_by_name(it, &border_row('├', '┼', '┤'), &["table"]);
-    for row in &rows[1..] {
-        buf.insert_with_tags_by_name(it, &format_row(row), &["table"]);
-    }
-    buf.insert_with_tags_by_name(it, &border_row('└', '┴', '┘'), &["table"]);
-
-    consumed
-}
-
-fn render_inline(buf: &gtk4::TextBuffer, it: &mut gtk4::TextIter, text: &str) {
-    let c: Vec<char> = text.chars().collect();
-    let n = c.len();
-    let mut i = 0;
-    let mut p = String::new();
-    while i < n {
-        if i + 1 < n && c[i] == '*' && c[i + 1] == '*' {
-            if !p.is_empty() {
-                buf.insert(it, &p);
-                p.clear();
-            }
-            i += 2;
-            let s = i;
-            while i + 1 < n && !(c[i] == '*' && c[i + 1] == '*') {
-                i += 1;
-            }
-            buf.insert_with_tags_by_name(it, &c[s..i].iter().collect::<String>(), &["bold"]);
-            if i + 1 < n {
-                i += 2;
-            }
-        } else if c[i] == '*' {
-            if !p.is_empty() {
-                buf.insert(it, &p);
-                p.clear();
-            }
-            i += 1;
-            let s = i;
-            while i < n && c[i] != '*' {
-                i += 1;
-            }
-            buf.insert_with_tags_by_name(it, &c[s..i].iter().collect::<String>(), &["italic"]);
-            if i < n {
-                i += 1;
-            }
-        } else if c[i] == '`' {
-            if !p.is_empty() {
-                buf.insert(it, &p);
-                p.clear();
-            }
-            i += 1;
-            let s = i;
-            while i < n && c[i] != '`' {
-                i += 1;
-            }
-            buf.insert_with_tags_by_name(it, &c[s..i].iter().collect::<String>(), &["code"]);
-            if i < n {
-                i += 1;
-            }
-        } else if c[i] == '[' {
-            if !p.is_empty() {
-                buf.insert(it, &p);
-                p.clear();
-            }
-            i += 1;
-            let s = i;
-            while i < n && c[i] != ']' {
-                i += 1;
-            }
-            let lt: String = c[s..i].iter().collect();
-            if i + 1 < n && c[i] == ']' && c[i + 1] == '(' {
-                i += 2;
-                while i < n && c[i] != ')' {
-                    i += 1;
-                }
-                if i < n {
-                    i += 1;
-                }
-            } else if i < n {
-                i += 1;
-            }
-            buf.insert_with_tags_by_name(it, &lt, &["link"]);
+    for (idx, row) in t.rows.iter().enumerate() {
+        let tag = if idx < t.body_start {
+            "table_header"
         } else {
-            p.push(c[i]);
-            i += 1;
+            "table"
+        };
+        buf.insert_with_tags_by_name(it, &format_row(row), &[tag]);
+        if idx + 1 == t.body_start && t.body_start > 0 {
+            buf.insert_with_tags_by_name(it, &border_row('├', '┼', '┤'), &["table"]);
         }
     }
-    if !p.is_empty() {
-        buf.insert(it, &p);
-    }
+    buf.insert_with_tags_by_name(it, &border_row('└', '┴', '┘'), &["table"]);
 }
