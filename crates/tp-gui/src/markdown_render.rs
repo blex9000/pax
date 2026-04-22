@@ -6,17 +6,38 @@
 
 use gtk4::prelude::*;
 
+const CODE_BG_DARK: &str = "#2a2a2a";
+const CODE_FG_DARK: &str = "#e6e6e6";
+const CODE_BG_LIGHT: &str = "#ececec";
+const CODE_FG_LIGHT: &str = "#1a1a1a";
+
 pub(crate) fn render_markdown_to_view(tv: &gtk4::TextView, content: &str) {
     let buf = tv.buffer();
     buf.set_text("");
     let tt = buf.tag_table();
 
+    // Theme-reactive colors for code blocks and inline code. The dark theme's
+    // #2a2a2a block background becomes unreadable against default dark text
+    // on a light theme; pick contrasting colors based on the active theme.
+    let is_light = matches!(
+        crate::theme::current_theme().color_scheme(),
+        libadwaita::ColorScheme::ForceLight
+    );
+    let code_bg = if is_light { CODE_BG_LIGHT } else { CODE_BG_DARK };
+    let code_fg = if is_light { CODE_FG_LIGHT } else { CODE_FG_DARK };
+
+    // `ensure` re-applies the callback every time so theme-reactive tags
+    // (code, code_block) update when the renderer runs again after a theme
+    // change, not just on first creation.
     let ensure = |name: &str, f: &dyn Fn(&gtk4::TextTag)| {
-        if tt.lookup(name).is_none() {
+        let t = if let Some(t) = tt.lookup(name) {
+            t
+        } else {
             let t = gtk4::TextTag::new(Some(name));
-            f(&t);
             tt.add(&t);
-        }
+            t
+        };
+        f(&t);
     };
     ensure("h1", &|t| {
         t.set_size_points(20.0);
@@ -41,10 +62,13 @@ pub(crate) fn render_markdown_to_view(tv: &gtk4::TextView, content: &str) {
     });
     ensure("code", &|t| {
         t.set_family(Some("monospace"));
+        t.set_background(Some(code_bg));
+        t.set_foreground(Some(code_fg));
     });
     ensure("code_block", &|t| {
         t.set_family(Some("monospace"));
-        t.set_paragraph_background(Some("#2a2a2a"));
+        t.set_paragraph_background(Some(code_bg));
+        t.set_foreground(Some(code_fg));
         t.set_left_margin(20);
     });
     ensure("link", &|t| {

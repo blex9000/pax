@@ -74,27 +74,32 @@ pub fn build_markdown_tab(content: &str) -> MarkdownTab {
     inner_stack.set_vexpand(true);
     inner_stack.set_hexpand(true);
 
-    // Toolbar with linked Rendered/Source toggle buttons.
-    let bar = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
-    bar.add_css_class("editor-markdown-toolbar");
-    bar.add_css_class("linked");
-    bar.set_margin_start(TOOLBAR_MARGIN);
-    bar.set_margin_end(TOOLBAR_MARGIN);
-    bar.set_margin_top(TOOLBAR_MARGIN);
-    bar.set_margin_bottom(TOOLBAR_MARGIN);
+    // Toolbar row 1: Rendered / Source mode toggle.
+    let mode_bar = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
+    mode_bar.add_css_class("editor-markdown-toolbar");
+    mode_bar.add_css_class("linked");
+    mode_bar.set_margin_start(TOOLBAR_MARGIN);
+    mode_bar.set_margin_end(TOOLBAR_MARGIN);
+    mode_bar.set_margin_top(TOOLBAR_MARGIN);
+    mode_bar.set_margin_bottom(TOOLBAR_MARGIN);
 
     let rendered_btn = gtk4::ToggleButton::with_label("Rendered");
     rendered_btn.set_active(true);
     let source_btn = gtk4::ToggleButton::with_label("Source");
     source_btn.set_group(Some(&rendered_btn));
-    bar.append(&rendered_btn);
-    bar.append(&source_btn);
+    mode_bar.append(&rendered_btn);
+    mode_bar.append(&source_btn);
+
+    // Toolbar row 2: formatting buttons for Source mode. Hidden in Rendered
+    // mode. Mirrors the buttons available in the standalone Markdown Panel.
+    let fmt_bar = build_formatting_bar(&buffer);
 
     {
         let stack = inner_stack.clone();
         let rv = rendered_view.clone();
         let buf = buffer.clone();
         let mode_c = mode.clone();
+        let fmt_bar_c = fmt_bar.clone();
         rendered_btn.connect_toggled(move |btn| {
             if !btn.is_active() {
                 return;
@@ -107,24 +112,28 @@ pub fn build_markdown_tab(content: &str) -> MarkdownTab {
             crate::markdown_render::render_markdown_to_view(&rv, &text);
             stack.set_visible_child_name("rendered");
             mode_c.set(MarkdownMode::Rendered);
+            fmt_bar_c.set_visible(false);
         });
     }
     {
         let stack = inner_stack.clone();
         let mode_c = mode.clone();
+        let fmt_bar_c = fmt_bar.clone();
         source_btn.connect_toggled(move |btn| {
             if !btn.is_active() {
                 return;
             }
             stack.set_visible_child_name("source");
             mode_c.set(MarkdownMode::Source);
+            fmt_bar_c.set_visible(true);
         });
     }
 
     let outer = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
     outer.set_vexpand(true);
     outer.set_hexpand(true);
-    outer.append(&bar);
+    outer.append(&mode_bar);
+    outer.append(&fmt_bar);
     outer.append(&inner_stack);
 
     MarkdownTab {
@@ -137,4 +146,88 @@ pub fn build_markdown_tab(content: &str) -> MarkdownTab {
         saved_content,
         outer: outer.upcast::<gtk4::Widget>(),
     }
+}
+
+/// Formatting buttons for Source mode: bold / italic / code, H1-H3,
+/// list / link / code-block. Mirrors the standalone Markdown panel.
+fn build_formatting_bar(buffer: &sourceview5::Buffer) -> gtk4::Box {
+    let fmt_bar = gtk4::Box::new(gtk4::Orientation::Horizontal, 2);
+    fmt_bar.add_css_class("markdown-toolbar");
+    fmt_bar.add_css_class("editor-markdown-toolbar");
+    fmt_bar.set_margin_start(TOOLBAR_MARGIN);
+    fmt_bar.set_margin_end(TOOLBAR_MARGIN);
+    fmt_bar.set_margin_bottom(TOOLBAR_MARGIN);
+    fmt_bar.set_visible(false);
+
+    let buf: gtk4::TextBuffer = buffer.clone().upcast();
+
+    // Inline-wrap markers.
+    for (icon, tooltip, marker) in &[
+        ("format-text-bold-symbolic", "Bold", "**"),
+        ("format-text-italic-symbolic", "Italic", "*"),
+        ("accessories-text-editor-symbolic", "Code", "`"),
+    ] {
+        let btn = gtk4::Button::from_icon_name(icon);
+        btn.add_css_class("flat");
+        btn.set_tooltip_text(Some(tooltip));
+        let m = marker.to_string();
+        let b = buf.clone();
+        btn.connect_clicked(move |_| wrap_selection(&b, &m));
+        fmt_bar.append(&btn);
+    }
+    fmt_bar.append(&gtk4::Separator::new(gtk4::Orientation::Vertical));
+
+    // Heading levels.
+    for (level, text) in &[(1, "H1"), (2, "H2"), (3, "H3")] {
+        let btn = gtk4::Button::with_label(text);
+        btn.add_css_class("flat");
+        let prefix = "#".repeat(*level);
+        let b = buf.clone();
+        btn.connect_clicked(move |_| prepend_line(&b, &format!("{} ", prefix)));
+        fmt_bar.append(&btn);
+    }
+    fmt_bar.append(&gtk4::Separator::new(gtk4::Orientation::Vertical));
+
+    // Insert-at-cursor.
+    for (icon, tooltip, text) in &[
+        ("view-list-symbolic", "List", "- "),
+        ("mail-attachment-symbolic", "Link", "[text](url)"),
+        ("utilities-terminal-symbolic", "Code block", "```\n\n```"),
+    ] {
+        let btn = gtk4::Button::from_icon_name(icon);
+        btn.add_css_class("flat");
+        btn.set_tooltip_text(Some(tooltip));
+        let t = text.to_string();
+        let b = buf.clone();
+        btn.connect_clicked(move |_| insert_at_cursor(&b, &t));
+        fmt_bar.append(&btn);
+    }
+
+    fmt_bar
+}
+
+fn wrap_selection(buf: &gtk4::TextBuffer, marker: &str) {
+    if let Some((start, end)) = buf.selection_bounds() {
+        let text = buf.text(&start, &end, false).to_string();
+        buf.delete(&mut start.clone(), &mut end.clone());
+        buf.insert(
+            &mut buf.iter_at_offset(start.offset()),
+            &format!("{}{}{}", marker, text, marker),
+        );
+    } else {
+        buf.insert(
+            &mut buf.iter_at_mark(&buf.get_insert()),
+            &format!("{}text{}", marker, marker),
+        );
+    }
+}
+
+fn prepend_line(buf: &gtk4::TextBuffer, prefix: &str) {
+    let mut iter = buf.iter_at_mark(&buf.get_insert());
+    iter.set_line_offset(0);
+    buf.insert(&mut iter, prefix);
+}
+
+fn insert_at_cursor(buf: &gtk4::TextBuffer, text: &str) {
+    buf.insert(&mut buf.iter_at_mark(&buf.get_insert()), text);
 }
