@@ -33,15 +33,17 @@ RUST_LOG=pax_gui=debug cargo run -- new "test"
 
 ## Workspace Architecture (4 crates)
 
+Crate directories are prefixed `tp-` on disk, but package names in Cargo.toml remained `pax-*` (historical rename). Use package names (`pax-core`, `pax-gui`, `pax-db`, `pax` for the CLI binary) with cargo; use directory names when reading/editing files.
+
 ```
 crates/
-├── pax-cli/    CLI entry point (clap). Routes subcommands to core/gui.
-├── pax-core/   Domain models & logic. Workspace/LayoutNode/PanelConfig structs,
+├── tp-cli/    package `pax` — CLI entry point (clap). Routes subcommands to core/gui.
+├── tp-core/   package `pax-core` — Domain models & logic. Workspace/LayoutNode/PanelConfig structs,
 │              JSON config loading, SSH config parsing, command safety blocklist,
 │              alert rules, workspace templates.
-├── pax-db/     SQLite persistence (rusqlite, bundled). Schema migrations, FTS5
+├── tp-db/     package `pax-db` — SQLite persistence (rusqlite, bundled). Schema migrations, FTS5
 │              full-text search on command history and saved output.
-└── pax-gui/    GTK4 + libadwaita UI. Application lifecycle, layout engine,
+└── tp-gui/    package `pax-gui` — GTK4 + libadwaita UI. Application lifecycle, layout engine,
                panel system, themes, dialogs, keybindings.
 ```
 
@@ -49,11 +51,11 @@ crates/
 
 **Model-first UI**: All layout operations (split, tab, close, zoom) update the `LayoutNode` model tree first, then rebuild the GTK widget tree from the model. This ensures consistency and enables serialization.
 
-**LayoutNode enum** (pax-core/src/workspace.rs): Recursive tree with variants `Panel { id }`, `Hsplit { children, ratios }`, `Vsplit { children, ratios }`, `Tabs { children, labels }`.
+**LayoutNode enum** (`crates/tp-core/src/workspace.rs`): Recursive tree with variants `Panel { id }`, `Hsplit { children, ratios }`, `Vsplit { children, ratios }`, `Tabs { children, labels }`.
 
-**PanelBackend trait** (pax-gui/src/panels/mod.rs): Plugin interface for panel types. Implementations: Terminal (VTE4/PTY), Markdown, Chooser. Each provides `widget()`, `on_focus()`, `write_input()`, `get_text_content()`.
+**PanelBackend trait** (`crates/tp-gui/src/panels/mod.rs`): Plugin interface for panel types. Implementations: Terminal (VTE4/PTY), Markdown, Chooser, Editor. Each provides `widget()`, `on_focus()`, `write_input()`, `get_text_content()`.
 
-**Backend factory** (pax-gui/src/backend_factory.rs): Creates panel backends from `PanelConfig` enum variants.
+**Backend factory** (`crates/tp-gui/src/backend_factory.rs`): Creates panel backends from `PanelConfig` enum variants.
 
 ## Conditional Compilation
 
