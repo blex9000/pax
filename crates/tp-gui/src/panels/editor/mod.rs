@@ -63,6 +63,21 @@ pub struct EditorState {
     /// Recent files history (last 10 focused files).
     #[cfg(feature = "sourceview")]
     pub recent_files: Vec<PathBuf>,
+    /// Fired after any mutation that affects the activity-bar button
+    /// sensitivities (active_tab, nav stacks, recent_files). Set once during
+    /// panel setup.
+    #[cfg(feature = "sourceview")]
+    pub on_nav_state_changed: Option<Rc<dyn Fn()>>,
+}
+
+/// Invoke the nav-state callback if one is installed, swallowing borrow
+/// conflicts the caller can't reasonably handle.
+#[cfg(feature = "sourceview")]
+pub(crate) fn fire_nav_state_changed(state: &Rc<RefCell<EditorState>>) {
+    let cb = state.borrow().on_nav_state_changed.clone();
+    if let Some(cb) = cb {
+        cb();
+    }
 }
 
 #[cfg(feature = "sourceview")]
@@ -162,6 +177,7 @@ impl CodeEditorPanel {
             nav_back: Vec::new(),
             nav_forward: Vec::new(),
             recent_files: Vec::new(),
+            on_nav_state_changed: None,
         }));
 
         let tabs = editor_tabs::EditorTabs::new(state.clone());
@@ -261,6 +277,26 @@ impl CodeEditorPanel {
         sidebar_hide_btn.add_css_class("flat");
         sidebar_hide_btn.set_tooltip_text(Some("Hide sidebar (Ctrl+B)"));
         activity_bar.append(&sidebar_hide_btn);
+
+        // Disable activity-bar buttons when they would no-op. Updated
+        // through `state.on_nav_state_changed` after any mutation to
+        // active_tab / nav stacks / recent_files.
+        {
+            let nav_back = nav_back_btn.clone();
+            let nav_fwd = nav_fwd_btn.clone();
+            let reveal = reveal_btn.clone();
+            let recent = recent_btn.clone();
+            let state_c = state.clone();
+            let refresh: Rc<dyn Fn()> = Rc::new(move || {
+                let st = state_c.borrow();
+                nav_back.set_sensitive(!st.nav_back.is_empty());
+                nav_fwd.set_sensitive(!st.nav_forward.is_empty());
+                reveal.set_sensitive(st.active_tab.is_some());
+                recent.set_sensitive(!st.recent_files.is_empty());
+            });
+            state.borrow_mut().on_nav_state_changed = Some(refresh.clone());
+            refresh();
+        }
 
         let header_wrap = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
         header_wrap.add_css_class("editor-file-tree-header-wrap");
@@ -836,12 +872,15 @@ fn push_nav_position(state: &Rc<RefCell<EditorState>>) {
         }
     };
     if let Some(pos) = pos {
-        let mut st = state.borrow_mut();
-        st.nav_back.push(pos);
-        st.nav_forward.clear(); // new action clears forward stack
-        if st.nav_back.len() > 50 {
-            st.nav_back.remove(0);
+        {
+            let mut st = state.borrow_mut();
+            st.nav_back.push(pos);
+            st.nav_forward.clear(); // new action clears forward stack
+            if st.nav_back.len() > 50 {
+                st.nav_back.remove(0);
+            }
         }
+        fire_nav_state_changed(state);
     }
 }
 
@@ -918,6 +957,7 @@ fn navigate_history(
             let mut st = state.borrow_mut();
             st.nav_back.pop(); // undo the push from open_file
         }
+        fire_nav_state_changed(state);
 
         // Scroll to saved line (deferred so layout has time to complete)
         // If line doesn't exist, go to last line

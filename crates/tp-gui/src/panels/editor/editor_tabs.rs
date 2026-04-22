@@ -354,6 +354,7 @@ impl EditorTabs {
                     }
                     st.active_tab = Some(idx);
                 }
+                super::fire_nav_state_changed(&state_c);
             });
         }
 
@@ -716,6 +717,7 @@ impl EditorTabs {
                 st.recent_files.truncate(10);
             }
         }
+        super::fire_nav_state_changed(state);
 
         // Check if already open
         {
@@ -870,6 +872,7 @@ impl EditorTabs {
                             } else {
                                 nb.set_current_page(Some(new_idx as u32));
                             }
+                            super::fire_nav_state_changed(&state_c);
                         }
                     }
                 })
@@ -1477,6 +1480,7 @@ impl EditorTabs {
             self.notebook.set_current_page(Some(new_idx as u32));
             self.switch_to_buffer(new_idx, state);
         }
+        super::fire_nav_state_changed(state);
     }
 
     /// Propagate an on-disk rename to any tab currently showing `old_path`.
