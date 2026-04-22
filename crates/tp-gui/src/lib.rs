@@ -6,6 +6,7 @@ pub mod focus;
 mod fonts;
 mod icons;
 pub mod layout_ops;
+pub mod markdown_render;
 pub mod panel_host;
 pub mod panels;
 pub mod shortcuts;
