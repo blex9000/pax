@@ -117,31 +117,23 @@ pub(crate) fn render_markdown_to_view(tv: &gtk4::TextView, content: &str) {
 
     let mut state = RenderState::default();
     let mut it = buf.end_iter();
-    let mut last_top_block_end: Option<usize> = None;
     for (event, range) in parser {
         let starts_block = is_block_marker_start(&event);
-        let ends_block = is_block_marker_end(&event);
 
-        if starts_block && state.lists.is_empty() && state.bq_depth == 0 {
-            if let Some(prev_end) = last_top_block_end {
-                // Count newlines in the inter-block source gap. Different
-                // blocks report range.end differently: Paragraph/Heading
-                // stop before their terminating \n (the gap then owns it),
-                // List/BlockQuote include it (the gap starts past it). So
-                // only subtract the structural \n when it actually lives
-                // inside the gap.
-                let gap = &content[prev_end..range.start];
-                let nl = gap.bytes().filter(|b| *b == b'\n').count();
-                let prev_byte = content.as_bytes().get(prev_end - 1).copied();
-                let prev_includes_terminator = prev_byte == Some(b'\n');
-                let blanks = if prev_includes_terminator {
-                    nl
-                } else {
-                    nl.saturating_sub(1)
-                };
-                for _ in 0..blanks {
-                    buf.insert(&mut it, "\n");
-                }
+        if starts_block
+            && !state.pending_first_block
+            && state.lists.is_empty()
+            && state.bq_depth == 0
+        {
+            // Count blank lines by walking backwards from the new block's
+            // start through whitespace. This is independent of how
+            // pulldown-cmark sets the previous event's range.end (which
+            // differs between Paragraph/Heading vs List/BlockQuote), so
+            // lists followed by paragraphs get the same spacing as
+            // paragraphs followed by paragraphs.
+            let blanks = blank_lines_before(content, range.start);
+            for _ in 0..blanks {
+                buf.insert(&mut it, "\n");
             }
         }
 
@@ -150,11 +142,31 @@ pub(crate) fn render_markdown_to_view(tv: &gtk4::TextView, content: &str) {
         if starts_block && state.pending_first_block {
             state.pending_first_block = false;
         }
+    }
+}
 
-        if ends_block && state.lists.is_empty() && state.bq_depth == 0 {
-            last_top_block_end = Some(range.end);
+fn blank_lines_before(source: &str, next_start: usize) -> usize {
+    let bytes = source.as_bytes();
+    let mut pos = next_start;
+    // Skip trailing whitespace on the next block's line (unlikely but cheap).
+    while pos > 0 && matches!(bytes[pos - 1], b' ' | b'\t') {
+        pos -= 1;
+    }
+    // The first \n we cross is the newline that ended the previous block's
+    // last line; it isn't a blank line by itself. Every additional \n in
+    // the run corresponds to one blank line (possibly with inner whitespace).
+    let mut newline_run: isize = 0;
+    loop {
+        if pos == 0 || bytes[pos - 1] != b'\n' {
+            break;
+        }
+        newline_run += 1;
+        pos -= 1;
+        while pos > 0 && matches!(bytes[pos - 1], b' ' | b'\t') {
+            pos -= 1;
         }
     }
+    (newline_run - 1).max(0) as usize
 }
 
 fn is_block_marker_start(ev: &Event) -> bool {
@@ -176,21 +188,6 @@ fn is_block_marker_start(ev: &Event) -> bool {
     }
 }
 
-fn is_block_marker_end(ev: &Event) -> bool {
-    match ev {
-        Event::End(tag) => matches!(
-            tag,
-            TagEnd::Paragraph
-                | TagEnd::Heading(_)
-                | TagEnd::CodeBlock
-                | TagEnd::BlockQuote(_)
-                | TagEnd::List(_)
-                | TagEnd::Table
-        ),
-        Event::Rule => true,
-        _ => false,
-    }
-}
 
 /// Inline formatting and structural state carried across events.
 struct RenderState {
@@ -296,10 +293,14 @@ fn handle_start(buf: &gtk4::TextBuffer, it: &mut gtk4::TextIter, st: &mut Render
             }
         }
         Tag::List(start) => {
-            // A list nested inside an item starts on a new line; otherwise
-            // the "- parent text" and the first child's "• child text" run
-            // together on the same visual row.
-            if !st.lists.is_empty() {
+            // A list nested inside an item needs to start on a fresh line.
+            // In loose lists the preceding End(Paragraph) already closed
+            // the line; in tight lists nothing has, so check that the
+            // buffer's cursor is at the start of a line and only insert a
+            // newline when it isn't. This prevents the extra blank row
+            // that was appearing between an item's text and its nested
+            // list in loose lists.
+            if !st.lists.is_empty() && !it.starts_line() {
                 buf.insert(it, "\n");
             }
             st.lists.push(start);
