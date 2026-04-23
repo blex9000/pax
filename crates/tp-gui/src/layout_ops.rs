@@ -102,30 +102,54 @@ fn has_panels(node: &LayoutNode) -> bool {
 }
 
 /// Find the panel that should receive focus when `panel_id` is closed.
-/// Returns the first panel of the PREVIOUS sibling in the innermost Tabs
-/// that contains `panel_id`; if `panel_id` is at index 0, returns the first
-/// panel of the NEXT sibling instead. Returns `None` when no Tabs ancestor
-/// exists or the Tabs has only one child.
+/// Choose a panel to focus after closing `panel_id`, keeping the user in
+/// the same (outer) Tabs page whenever possible.
+///
+/// Strategy, outside-in:
+///   1. Recurse into any inner Tabs containing the panel. An inner Tabs
+///      with siblings takes precedence — closing a panel inside a nested
+///      tab group should stay in that group if a sibling exists.
+///   2. If the current Tabs child (the subtree that contains the panel)
+///      holds any OTHER panel besides the target, focus that one — the
+///      user stays on the same outer tab because the subtree rooted at
+///      this child still has content.
+///   3. Otherwise the whole child subtree is about to become empty
+///      (or replaced with a fresh chooser). Fall back to the adjacent
+///      outer Tabs sibling so the user doesn't end up on a blank page.
+///
+/// Returns `None` when no Tabs ancestor exists; the caller then picks a
+/// generic focus target via focus-order.
 pub fn adjacent_tab_sibling_panel(node: &LayoutNode, panel_id: &str) -> Option<String> {
     match node {
         LayoutNode::Tabs { children, .. } => {
-            // Which child contains (or is) the target panel?
             let idx = children
                 .iter()
                 .position(|c| subtree_contains_panel(c, panel_id))?;
-            // Pick the previous sibling; if first, pick next.
+            let matching = &children[idx];
+
+            // (1) Inner Tabs first: if a deeper Tabs in this subtree has a
+            // sibling of the target, return that.
+            if let Some(inner) = adjacent_tab_sibling_panel(matching, panel_id) {
+                return Some(inner);
+            }
+
+            // (2) Stay in the same outer tab if this subtree has any other
+            // panel besides the one being closed.
+            if let Some(sibling_in_subtree) = first_panel_other_than(matching, panel_id) {
+                return Some(sibling_in_subtree);
+            }
+
+            // (3) Subtree will be empty → pick adjacent outer tab.
             let sibling_idx = if idx > 0 {
                 idx - 1
             } else if idx + 1 < children.len() {
                 idx + 1
             } else {
-                return None; // only child
+                return None;
             };
             first_panel_in_subtree(&children[sibling_idx])
         }
-        LayoutNode::Hsplit { children, .. }
-        | LayoutNode::Vsplit { children, .. } => {
-            // Recurse into the branch that contains the panel.
+        LayoutNode::Hsplit { children, .. } | LayoutNode::Vsplit { children, .. } => {
             for child in children {
                 if let Some(id) = adjacent_tab_sibling_panel(child, panel_id) {
                     return Some(id);
@@ -134,6 +158,24 @@ pub fn adjacent_tab_sibling_panel(node: &LayoutNode, panel_id: &str) -> Option<S
             None
         }
         LayoutNode::Panel { .. } => None,
+    }
+}
+
+/// First panel found in `node`, skipping `exclude`. Depth-first walk.
+fn first_panel_other_than(node: &LayoutNode, exclude: &str) -> Option<String> {
+    match node {
+        LayoutNode::Panel { id } => {
+            if id == exclude {
+                None
+            } else {
+                Some(id.clone())
+            }
+        }
+        LayoutNode::Hsplit { children, .. }
+        | LayoutNode::Vsplit { children, .. }
+        | LayoutNode::Tabs { children, .. } => children
+            .iter()
+            .find_map(|c| first_panel_other_than(c, exclude)),
     }
 }
 
