@@ -152,7 +152,6 @@ pub struct EditorTabs {
     pub status_bar: gtk4::Box,
     pub info_bar_container: gtk4::Box,
     status_lang: gtk4::Label,
-    #[allow(dead_code)]
     status_pos: gtk4::Label,
     status_modified: gtk4::Label,
     pub search_entry: gtk4::SearchEntry,
@@ -316,18 +315,10 @@ impl EditorTabs {
         status_pos.set_halign(gtk4::Align::End);
         status_bar.append(&status_pos);
 
-        // Track cursor position
-        {
-            let pos_label = status_pos.clone();
-            source_view
-                .buffer()
-                .connect_notify_local(Some("cursor-position"), move |buf, _| {
-                    let iter = buf.iter_at_offset(buf.cursor_position());
-                    let line = iter.line() + 1;
-                    let col = iter.line_offset() + 1;
-                    pos_label.set_text(&format!("Ln {}, Col {}", line, col));
-                });
-        }
+        // Cursor-position tracking happens per-buffer inside open_file,
+        // attached to each newly-opened file's buffer. (SourceView swaps
+        // its buffer on every tab switch, so a listener on the initial
+        // default buffer would never fire once a file is open.)
 
         // Switch page: update SourceView buffer and status bar when tab changes.
         // Uses try_borrow_mut to avoid panic when triggered by remove_page/set_current_page
@@ -828,6 +819,22 @@ impl EditorTabs {
 
         // Feed this buffer's words into the autocompletion provider.
         self.completion_words.register(&buf);
+
+        // Drive the Ln/Col label from this buffer's cursor. The listener
+        // set up on the SourceView's initial buffer in EditorTabs::new
+        // doesn't survive the set_buffer swap, so every newly-opened file
+        // needs its own notifier.
+        {
+            let pos_label = self.status_pos.clone();
+            buf.connect_notify_local(Some("cursor-position"), move |b, _| {
+                let iter = b.iter_at_offset(b.cursor_position());
+                pos_label.set_text(&format!(
+                    "Ln {}, Col {}",
+                    iter.line() + 1,
+                    iter.line_offset() + 1
+                ));
+            });
+        }
 
         // Reset undo after setting initial text
         buf.set_enable_undo(false);
