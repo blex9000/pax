@@ -14,10 +14,13 @@ const NOTES_DOT_R: f64 = 0.96;
 const NOTES_DOT_G: f64 = 0.78;
 const NOTES_DOT_B: f64 = 0.25;
 
+pub type OnNoteJump = Rc<RefCell<Option<Box<dyn Fn(i32)>>>>;
+
 pub struct NotesRuler {
     pub widget: gtk4::DrawingArea,
     lines: Rc<RefCell<Vec<i32>>>,
     total_lines: Rc<RefCell<i32>>,
+    on_jump: OnNoteJump,
 }
 
 impl NotesRuler {
@@ -31,6 +34,7 @@ impl NotesRuler {
 
         let lines: Rc<RefCell<Vec<i32>>> = Rc::new(RefCell::new(Vec::new()));
         let total_lines: Rc<RefCell<i32>> = Rc::new(RefCell::new(1));
+        let on_jump: OnNoteJump = Rc::new(RefCell::new(None));
 
         {
             let lines = lines.clone();
@@ -51,11 +55,48 @@ impl NotesRuler {
             });
         }
 
+        // Click-to-jump: on click, pick the nearest painted dot's line and
+        // fire the owner's callback. Owner wires it to scroll the source
+        // view + place the cursor. Matches the match ruler's UX.
+        {
+            let lines_c = lines.clone();
+            let total_c = total_lines.clone();
+            let widget_for_click = widget.clone();
+            let jump = on_jump.clone();
+            let gesture = gtk4::GestureClick::new();
+            gesture.set_button(1);
+            gesture.connect_pressed(move |_, _n, _x, y| {
+                let h = widget_for_click.height().max(1) as f64;
+                let total = (*total_c.borrow()).max(1) as f64;
+                let ls = lines_c.borrow();
+                if ls.is_empty() {
+                    return;
+                }
+                let clicked = ((y / h).clamp(0.0, 1.0) * total) as i32;
+                let Some(target) =
+                    ls.iter().copied().min_by_key(|l| (*l - clicked).abs())
+                else {
+                    return;
+                };
+                if let Some(cb) = jump.borrow().as_ref() {
+                    cb(target);
+                }
+            });
+            widget.add_controller(gesture);
+        }
+
         Self {
             widget,
             lines,
             total_lines,
+            on_jump,
         }
+    }
+
+    /// Register a callback invoked with the 0-based line number of the
+    /// nearest note dot whenever the user clicks on the ruler.
+    pub fn set_jump_callback(&self, cb: impl Fn(i32) + 'static) {
+        *self.on_jump.borrow_mut() = Some(Box::new(cb));
     }
 
     /// Refresh with the current set of note lines for a buffer.
