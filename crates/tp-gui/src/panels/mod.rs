@@ -1,6 +1,7 @@
 pub mod chooser;
 pub mod editor;
 pub mod markdown;
+pub mod notes;
 pub mod registry;
 pub mod terminal;
 

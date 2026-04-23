@@ -402,6 +402,28 @@ pub fn build_default_registry() -> PanelRegistry {
         },
     );
 
+    // Notes
+    reg.register(
+        "note",
+        "Notes",
+        "Free-form workspace notes with tags, severity, and scheduled alerts",
+        "text-editor-symbolic",
+        false,
+        |config| {
+            let record_key = config
+                .extra
+                .get("__workspace_record_key__")
+                .cloned()
+                .unwrap_or_default();
+            let panel_id = config
+                .extra
+                .get("__panel_id__")
+                .cloned()
+                .unwrap_or_default();
+            Box::new(super::notes::NotesPanel::new(record_key, panel_id))
+        },
+    );
+
     reg
 }
 
