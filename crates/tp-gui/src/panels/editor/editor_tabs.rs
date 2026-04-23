@@ -14,7 +14,6 @@ const MARKDOWN_EXTS: &[&str] = &["md", "markdown"];
 
 const NOTE_EDITOR_WIDTH_PX: i32 = 440;
 const NOTE_EDITOR_HEIGHT_PX: i32 = 240;
-const NOTE_LABEL_PREVIEW_LEN: usize = 32;
 
 /// GTK-standard symbolic icon used in the line-marks gutter for notes.
 const NOTE_MARK_ICON: &str = "user-bookmarks-symbolic";
@@ -97,8 +96,69 @@ fn build_editor_extras(
         return items;
     }
 
-    // Add Note
-    {
+    // One note per (file, line). If the line already has one, show
+    // Edit + Delete for it; otherwise show Add. Legacy data with multiple
+    // notes on the same line still works — the context menu operates on
+    // the first one (users can clean up duplicates via the Metadata
+    // Manager dialog).
+    if let Some(existing) = notes_here.into_iter().next() {
+        let id = existing.db_id;
+        let existing_text = existing.text.clone();
+
+        // Edit
+        {
+            let text_for_edit = existing_text.clone();
+            let buffer = buffer.clone();
+            let notes_state = notes_state.clone();
+            let ruler = notes_ruler.clone();
+            let parent_widget = view.clone();
+            items.push(TextContextMenuItem::button(
+                "document-edit-symbolic",
+                "Edit Note",
+                None,
+                move || {
+                    let parent = parent_widget
+                        .root()
+                        .and_then(|r| r.downcast::<gtk4::Window>().ok());
+                    let existing_text = text_for_edit.clone();
+                    let buffer = buffer.clone();
+                    let notes_state = notes_state.clone();
+                    let ruler = ruler.clone();
+                    show_note_editor(parent.as_ref(), "Edit note", &existing_text, move |text| {
+                        let db_path = pax_db::Database::default_path();
+                        if let Ok(db) = pax_db::Database::open(&db_path) {
+                            let _ = db.update_note_text(id, &text);
+                        }
+                        notes_state.set_text(id, &text);
+                        let lines = notes_state.current_lines(&buffer);
+                        ruler.update(lines, buffer.line_count());
+                    });
+                },
+            ));
+        }
+
+        // Delete
+        {
+            let buffer = buffer.clone();
+            let notes_state = notes_state.clone();
+            let ruler = notes_ruler.clone();
+            items.push(TextContextMenuItem::button(
+                "user-trash-symbolic",
+                "Delete Note",
+                None,
+                move || {
+                    let db_path = pax_db::Database::default_path();
+                    if let Ok(db) = pax_db::Database::open(&db_path) {
+                        let _ = db.delete_metadata_entry(id);
+                    }
+                    notes_state.remove(id, &buffer);
+                    let lines = notes_state.current_lines(&buffer);
+                    ruler.update(lines, buffer.line_count());
+                },
+            ));
+        }
+    } else {
+        // Add Note — only when there isn't already one on this line.
         let record_key = record_key.clone();
         let file_path_str = file_path_str.clone();
         let buffer = buffer.clone();
@@ -148,77 +208,7 @@ fn build_editor_extras(
         ));
     }
 
-    // Edit / Delete entries for each existing note on the clicked line.
-    for note in notes_here {
-        let label_short = truncate_note_label(&note.text);
-
-        // Edit
-        {
-            let existing = note.text.clone();
-            let id = note.db_id;
-            let buffer = buffer.clone();
-            let notes_state = notes_state.clone();
-            let ruler = notes_ruler.clone();
-            let parent_widget = view.clone();
-            items.push(TextContextMenuItem::button(
-                "document-edit-symbolic",
-                format!("Edit Note: {}", label_short),
-                None,
-                move || {
-                    let parent = parent_widget
-                        .root()
-                        .and_then(|r| r.downcast::<gtk4::Window>().ok());
-                    let existing = existing.clone();
-                    let buffer = buffer.clone();
-                    let notes_state = notes_state.clone();
-                    let ruler = ruler.clone();
-                    show_note_editor(parent.as_ref(), "Edit note", &existing, move |text| {
-                        let db_path = pax_db::Database::default_path();
-                        if let Ok(db) = pax_db::Database::open(&db_path) {
-                            let _ = db.update_note_text(id, &text);
-                        }
-                        notes_state.set_text(id, &text);
-                        let lines = notes_state.current_lines(&buffer);
-                        ruler.update(lines, buffer.line_count());
-                    });
-                },
-            ));
-        }
-
-        // Delete
-        {
-            let id = note.db_id;
-            let buffer = buffer.clone();
-            let notes_state = notes_state.clone();
-            let ruler = notes_ruler.clone();
-            items.push(TextContextMenuItem::button(
-                "user-trash-symbolic",
-                format!("Delete Note: {}", label_short),
-                None,
-                move || {
-                    let db_path = pax_db::Database::default_path();
-                    if let Ok(db) = pax_db::Database::open(&db_path) {
-                        let _ = db.delete_metadata_entry(id);
-                    }
-                    notes_state.remove(id, &buffer);
-                    let lines = notes_state.current_lines(&buffer);
-                    ruler.update(lines, buffer.line_count());
-                },
-            ));
-        }
-    }
-
     items
-}
-
-fn truncate_note_label(text: &str) -> String {
-    let first_line = text.lines().next().unwrap_or("");
-    if first_line.chars().count() > NOTE_LABEL_PREVIEW_LEN {
-        let truncated: String = first_line.chars().take(NOTE_LABEL_PREVIEW_LEN).collect();
-        format!("{}…", truncated)
-    } else {
-        first_line.to_string()
-    }
 }
 
 /// Modal dialog for editing a note's text (Add and Edit share this).
