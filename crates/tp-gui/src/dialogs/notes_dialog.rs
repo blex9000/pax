@@ -31,6 +31,7 @@ pub fn show_workspace_notes_dialog(
         .default_width(DIALOG_WIDTH_PX)
         .default_height(DIALOG_HEIGHT_PX)
         .build();
+    crate::theme::configure_dialog_window(&dialog);
     if let Some(win) = parent {
         dialog.set_transient_for(Some(win));
     }

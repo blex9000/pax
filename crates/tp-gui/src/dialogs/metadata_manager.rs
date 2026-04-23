@@ -28,6 +28,7 @@ pub fn show_metadata_manager(parent: Option<&gtk4::Window>) {
         .default_width(DIALOG_WIDTH_PX)
         .default_height(DIALOG_HEIGHT_PX)
         .build();
+    crate::theme::configure_dialog_window(&dialog);
     if let Some(win) = parent {
         dialog.set_transient_for(Some(win));
     }
@@ -374,6 +375,7 @@ fn confirm_delete(
         .default_width(380)
         .default_height(120)
         .build();
+    crate::theme::configure_dialog_window(&dialog);
     if let Some(win) = parent {
         dialog.set_transient_for(Some(win));
     }

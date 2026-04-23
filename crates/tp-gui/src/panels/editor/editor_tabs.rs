@@ -429,6 +429,7 @@ pub(crate) fn show_note_editor(
         .default_width(NOTE_EDITOR_WIDTH_PX)
         .default_height(NOTE_EDITOR_HEIGHT_PX)
         .build();
+    crate::theme::configure_dialog_window(&dialog);
     if let Some(win) = parent {
         dialog.set_transient_for(Some(win));
     }
