@@ -315,6 +315,26 @@ fn install_markdown_notes(
             });
     }
 
+    // Tooltip on the markdown tab's side ruler dots — look up this
+    // tab's NotesState for the given line and return the note text.
+    {
+        let state_c = state.clone();
+        md.notes_ruler.set_tooltip_callback(move |line| {
+            let st = state_c.borrow();
+            let idx = st.active_tab?;
+            let open_file = st.open_files.get(idx)?;
+            let super::tab_content::TabContent::Markdown(m) = &open_file.content
+            else {
+                return None;
+            };
+            m.notes
+                .notes_on_line(&m.buffer, line)
+                .into_iter()
+                .next()
+                .map(|n| n.text)
+        });
+    }
+
     // Async DB load of notes for this file.
     let record_key = state.borrow().record_key.clone();
     if !record_key.is_empty() {
