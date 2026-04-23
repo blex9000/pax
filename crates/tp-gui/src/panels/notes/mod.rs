@@ -5,9 +5,10 @@
 //! trait hooks `close_confirmation` / `on_permanent_close` glue that to the
 //! app-level close flow.
 
-use std::rc::Rc;
+mod card;
+mod list;
 
-use gtk4::prelude::*;
+use std::rc::Rc;
 
 use super::PanelBackend;
 
@@ -20,6 +21,7 @@ pub struct NotesPanel {
     widget: gtk4::Widget,
     record_key: Rc<String>,
     panel_id: Rc<String>,
+    list: Rc<list::NoteListView>,
 }
 
 impl std::fmt::Debug for NotesPanel {
@@ -33,23 +35,15 @@ impl std::fmt::Debug for NotesPanel {
 
 impl NotesPanel {
     pub fn new(record_key: String, panel_id: String) -> Self {
-        // Placeholder layout — full list/card UI lands in the next commit.
-        let root = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
-        root.set_hexpand(true);
-        root.set_vexpand(true);
-        root.add_css_class("notes-panel");
-
-        let placeholder = gtk4::Label::new(Some("Notes panel — coming online…"));
-        placeholder.add_css_class("dim-label");
-        placeholder.set_vexpand(true);
-        placeholder.set_valign(gtk4::Align::Center);
-        placeholder.set_halign(gtk4::Align::Center);
-        root.append(&placeholder);
-
+        let record_key = Rc::new(record_key);
+        let panel_id = Rc::new(panel_id);
+        let list = list::NoteListView::new(record_key.clone(), panel_id.clone());
+        let widget = list.widget().clone();
         Self {
-            widget: root.upcast(),
-            record_key: Rc::new(record_key),
-            panel_id: Rc::new(panel_id),
+            widget,
+            record_key,
+            panel_id,
+            list,
         }
     }
 
@@ -81,7 +75,9 @@ impl PanelBackend for NotesPanel {
     }
 
     fn on_focus(&self) {
-        // Nothing to grab yet — the full UI will focus its search entry.
+        // Refresh from DB in case another panel mutated the set (e.g. the
+        // scheduler marked an alert as fired).
+        self.list.reload();
     }
 
     fn close_confirmation(&self) -> Option<String> {
