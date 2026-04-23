@@ -1,4 +1,6 @@
 pub mod commands;
+pub mod metadata_entries;
+pub mod notes;
 pub mod output;
 pub mod preferences;
 pub mod schema;

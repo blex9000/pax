@@ -3,6 +3,16 @@ use rusqlite::{params, OptionalExtension};
 
 use crate::Database;
 
+/// Derive the DB `record_key` for a workspace without touching the DB. This
+/// is the public, side-effect-free counterpart to the logic embedded in
+/// `record_workspace_open`. GUI code uses it to find a workspace's metadata.
+pub fn compute_record_key(name: &str, config_path: Option<&str>) -> String {
+    config_path
+        .filter(|path| !path.trim().is_empty())
+        .map(|path| format!("path:{}", path))
+        .unwrap_or_else(|| format!("name:{}", name))
+}
+
 #[derive(Debug, Clone)]
 pub struct WorkspaceRecord {
     pub id: i64,

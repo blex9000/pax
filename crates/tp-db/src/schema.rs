@@ -28,6 +28,7 @@ pub fn run_migrations(db: &Database) -> Result<()> {
     apply_sql_migration(db, &applied, "002_fts5", MIGRATION_002)?;
     ensure_workspace_metadata_key_migration(db, &applied)?;
     apply_sql_migration(db, &applied, "004_app_preferences", MIGRATION_004)?;
+    apply_sql_migration(db, &applied, "005_file_metadata", MIGRATION_005_FILE_METADATA)?;
 
     Ok(())
 }
@@ -244,6 +245,26 @@ CREATE TABLE IF NOT EXISTS app_preferences (
     value TEXT NOT NULL,
     updated_at TEXT DEFAULT (datetime('now'))
 );
+";
+
+const MIGRATION_005_FILE_METADATA: &str = "
+CREATE TABLE IF NOT EXISTS workspace_file_metadata_entries (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    record_key TEXT NOT NULL,
+    entry_type TEXT NOT NULL,
+    file_path TEXT NOT NULL,
+    line_number INTEGER NOT NULL,
+    line_anchor TEXT,
+    payload TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_wfme_lookup
+    ON workspace_file_metadata_entries(record_key, entry_type, file_path);
+
+CREATE INDEX IF NOT EXISTS idx_wfme_by_workspace
+    ON workspace_file_metadata_entries(record_key);
 ";
 
 #[cfg(test)]
