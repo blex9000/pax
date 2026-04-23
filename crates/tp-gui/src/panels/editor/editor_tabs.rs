@@ -696,6 +696,15 @@ impl EditorTabs {
                 }
                 if let Some(ref buf) = buf_opt {
                     sv.set_buffer(Some(buf));
+                    // Scroll the view to the incoming buffer's cursor so the
+                    // user returns to where they were on that tab. Without
+                    // this, the view keeps its previous pixel scroll position
+                    // across the buffer swap — which can leave the user
+                    // looking at blank space past the end of the new buffer,
+                    // especially after a Ctrl+F next/prev had scrolled the
+                    // old buffer deep into the file.
+                    let insert = buf.get_insert();
+                    sv.scroll_to_mark(&insert, 0.1, true, 0.0, 0.3);
                 }
 
                 if let Ok(mut st) = state_c.try_borrow_mut() {
@@ -1957,6 +1966,8 @@ impl EditorTabs {
             self.content_stack.set_visible_child_name(&child);
             if let Some(buf) = open_file.source_buffer() {
                 self.source_view.set_buffer(Some(buf));
+                let insert = buf.get_insert();
+                self.source_view.scroll_to_mark(&insert, 0.1, true, 0.0, 0.3);
                 let language = buf.language();
                 if let Some(lang) = language.as_ref() {
                     self.status_lang.set_text(&lang.name());
