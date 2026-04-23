@@ -13,14 +13,20 @@ const NOTES_DOT_RADIUS: f64 = 3.0;
 const NOTES_DOT_R: f64 = 0.96;
 const NOTES_DOT_G: f64 = 0.78;
 const NOTES_DOT_B: f64 = 0.25;
+/// Vertical pixel tolerance: the tooltip only shows when the pointer is
+/// this close to a painted dot, so hovering on empty ruler space doesn't
+/// resolve to a random nearby note.
+const NOTES_TOOLTIP_HIT_RADIUS_PX: f64 = 6.0;
 
 pub type OnNoteJump = Rc<RefCell<Option<Box<dyn Fn(i32)>>>>;
+pub type OnNoteTooltip = Rc<RefCell<Option<Box<dyn Fn(i32) -> Option<String>>>>>;
 
 pub struct NotesRuler {
     pub widget: gtk4::DrawingArea,
     lines: Rc<RefCell<Vec<i32>>>,
     total_lines: Rc<RefCell<i32>>,
     on_jump: OnNoteJump,
+    on_tooltip: OnNoteTooltip,
 }
 
 impl NotesRuler {
@@ -35,6 +41,7 @@ impl NotesRuler {
         let lines: Rc<RefCell<Vec<i32>>> = Rc::new(RefCell::new(Vec::new()));
         let total_lines: Rc<RefCell<i32>> = Rc::new(RefCell::new(1));
         let on_jump: OnNoteJump = Rc::new(RefCell::new(None));
+        let on_tooltip: OnNoteTooltip = Rc::new(RefCell::new(None));
 
         {
             let lines = lines.clone();
@@ -99,11 +106,54 @@ impl NotesRuler {
             widget.add_controller(gesture);
         }
 
+        // Hover tooltip: on pointer movement, look up the nearest note dot
+        // and ask the owner for its text.
+        {
+            let lines_c = lines.clone();
+            let total_c = total_lines.clone();
+            let widget_for_tip = widget.clone();
+            let tooltip_cb = on_tooltip.clone();
+            widget.set_has_tooltip(true);
+            widget.connect_query_tooltip(move |_, _x, y, _keyboard, tooltip| {
+                let ls = lines_c.borrow();
+                if ls.is_empty() {
+                    return false;
+                }
+                let h = widget_for_tip.height().max(1) as f64;
+                let total = (*total_c.borrow()).max(1) as f64;
+                let clicked = ((y as f64 / h).clamp(0.0, 1.0) * total) as i32;
+                let Some(target) =
+                    ls.iter().copied().min_by_key(|l| (*l - clicked).abs())
+                else {
+                    return false;
+                };
+                // Only show if the click is within a small pixel radius of
+                // the dot — otherwise the entire column would show a
+                // tooltip.
+                let target_y = (target as f64 / total) * h;
+                if (y as f64 - target_y).abs() > NOTES_TOOLTIP_HIT_RADIUS_PX {
+                    return false;
+                }
+                let text = tooltip_cb
+                    .borrow()
+                    .as_ref()
+                    .and_then(|cb| cb(target));
+                match text {
+                    Some(t) => {
+                        tooltip.set_text(Some(&t));
+                        true
+                    }
+                    None => false,
+                }
+            });
+        }
+
         Self {
             widget,
             lines,
             total_lines,
             on_jump,
+            on_tooltip,
         }
     }
 
@@ -111,6 +161,12 @@ impl NotesRuler {
     /// nearest note dot whenever the user clicks on the ruler.
     pub fn set_jump_callback(&self, cb: impl Fn(i32) + 'static) {
         *self.on_jump.borrow_mut() = Some(Box::new(cb));
+    }
+
+    /// Register a callback used to resolve a line number to the note text
+    /// for tooltip display. Return `None` to suppress the tooltip.
+    pub fn set_tooltip_callback(&self, cb: impl Fn(i32) -> Option<String> + 'static) {
+        *self.on_tooltip.borrow_mut() = Some(Box::new(cb));
     }
 
     /// Refresh with the current set of note lines for a buffer.

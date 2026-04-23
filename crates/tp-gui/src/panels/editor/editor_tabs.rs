@@ -14,6 +14,9 @@ const MARKDOWN_EXTS: &[&str] = &["md", "markdown"];
 
 const NOTE_EDITOR_WIDTH_PX: i32 = 440;
 const NOTE_EDITOR_HEIGHT_PX: i32 = 240;
+const NOTE_POPOVER_MIN_WIDTH_PX: i32 = 260;
+const NOTE_POPOVER_MIN_HEIGHT_PX: i32 = 60;
+const NOTE_POPOVER_MAX_HEIGHT_PX: i32 = 180;
 
 /// GTK-standard symbolic icon used in the line-marks gutter for notes.
 const NOTE_MARK_ICON: &str = "user-bookmarks-symbolic";
@@ -209,6 +212,126 @@ fn build_editor_extras(
     }
 
     items
+}
+
+/// Transient popover anchored to a line's gutter mark showing the note
+/// text with Edit / Delete buttons. Opened by the line-mark-activated
+/// signal when the user clicks the gutter bookmark icon.
+fn show_note_popover(
+    view: &sourceview5::View,
+    buffer: &sourceview5::Buffer,
+    notes_state: &super::notes_state::NotesState,
+    notes_ruler: &Rc<super::notes_ruler::NotesRuler>,
+    line: i32,
+    note: &super::notes_state::LiveNote,
+) {
+    let popover = gtk4::Popover::new();
+    popover.set_autohide(true);
+    popover.set_position(gtk4::PositionType::Right);
+
+    let vbox = gtk4::Box::new(gtk4::Orientation::Vertical, 8);
+    vbox.set_margin_start(8);
+    vbox.set_margin_end(8);
+    vbox.set_margin_top(8);
+    vbox.set_margin_bottom(8);
+    vbox.set_size_request(NOTE_POPOVER_MIN_WIDTH_PX, -1);
+
+    let tv = gtk4::TextView::new();
+    tv.set_editable(false);
+    tv.set_cursor_visible(false);
+    tv.set_wrap_mode(gtk4::WrapMode::WordChar);
+    tv.set_top_margin(4);
+    tv.set_bottom_margin(4);
+    tv.set_left_margin(4);
+    tv.set_right_margin(4);
+    tv.buffer().set_text(&note.text);
+
+    let scroll = gtk4::ScrolledWindow::new();
+    scroll.set_child(Some(&tv));
+    scroll.set_min_content_height(NOTE_POPOVER_MIN_HEIGHT_PX);
+    scroll.set_max_content_height(NOTE_POPOVER_MAX_HEIGHT_PX);
+    scroll.set_propagate_natural_height(true);
+    vbox.append(&scroll);
+
+    let btn_row = gtk4::Box::new(gtk4::Orientation::Horizontal, 6);
+    btn_row.set_halign(gtk4::Align::End);
+    let edit_btn = gtk4::Button::with_label("Edit");
+    let delete_btn = gtk4::Button::with_label("Delete");
+    delete_btn.add_css_class("destructive-action");
+    btn_row.append(&edit_btn);
+    btn_row.append(&delete_btn);
+    vbox.append(&btn_row);
+
+    popover.set_child(Some(&vbox));
+    popover.set_parent(view);
+
+    // Anchor to the iter's y position on screen.
+    if let Some(iter) = buffer.iter_at_line(line) {
+        let rect = view.iter_location(&iter);
+        let (wx, wy) = view.buffer_to_window_coords(
+            gtk4::TextWindowType::Widget,
+            rect.x(),
+            rect.y(),
+        );
+        popover.set_pointing_to(Some(&gtk4::gdk::Rectangle::new(
+            0,
+            wy.max(0),
+            1,
+            rect.height().max(1),
+        )));
+        let _ = wx;
+    }
+
+    // Edit
+    {
+        let popover_c = popover.clone();
+        let view_c = view.clone();
+        let buffer_c = buffer.clone();
+        let notes_state_c = notes_state.clone();
+        let ruler_c = notes_ruler.clone();
+        let existing = note.text.clone();
+        let id = note.db_id;
+        edit_btn.connect_clicked(move |_| {
+            popover_c.popdown();
+            let parent = view_c
+                .root()
+                .and_then(|r| r.downcast::<gtk4::Window>().ok());
+            let buffer = buffer_c.clone();
+            let notes_state = notes_state_c.clone();
+            let ruler = ruler_c.clone();
+            let existing = existing.clone();
+            show_note_editor(parent.as_ref(), "Edit note", &existing, move |text| {
+                let db_path = pax_db::Database::default_path();
+                if let Ok(db) = pax_db::Database::open(&db_path) {
+                    let _ = db.update_note_text(id, &text);
+                }
+                notes_state.set_text(id, &text);
+                let lines = notes_state.current_lines(&buffer);
+                ruler.update(lines, buffer.line_count());
+            });
+        });
+    }
+
+    // Delete
+    {
+        let popover_c = popover.clone();
+        let buffer_c = buffer.clone();
+        let notes_state_c = notes_state.clone();
+        let ruler_c = notes_ruler.clone();
+        let id = note.db_id;
+        delete_btn.connect_clicked(move |_| {
+            let db_path = pax_db::Database::default_path();
+            if let Ok(db) = pax_db::Database::open(&db_path) {
+                let _ = db.delete_metadata_entry(id);
+            }
+            notes_state_c.remove(id, &buffer_c);
+            let lines = notes_state_c.current_lines(&buffer_c);
+            ruler_c.update(lines, buffer_c.line_count());
+            popover_c.popdown();
+        });
+    }
+
+    popover.popup();
 }
 
 /// Modal dialog for editing a note's text (Add and Edit share this).
@@ -494,6 +617,41 @@ impl EditorTabs {
             crate::theme::register_sourceview_buffer(buf);
         }
 
+        // Hover tooltip: when the user hovers over any line in the active
+        // source tab that has a note, show the note text as a tooltip.
+        // Scoped to the line so both gutter-icon and text-area hovers
+        // surface the same preview.
+        {
+            let state_c = state.clone();
+            source_view.set_has_tooltip(true);
+            source_view.connect_query_tooltip(move |view, _x, y, _keyboard, tooltip| {
+                let (_, buf_y) = view.window_to_buffer_coords(
+                    gtk4::TextWindowType::Widget,
+                    0,
+                    y,
+                );
+                let (iter, _) = view.line_at_y(buf_y);
+                let line = iter.line();
+                let st = state_c.borrow();
+                let Some(idx) = st.active_tab else { return false };
+                let Some(open_file) = st.open_files.get(idx) else { return false };
+                let super::tab_content::TabContent::Source(source) = &open_file.content
+                else {
+                    return false;
+                };
+                let notes = source.notes.notes_on_line(&source.buffer, line);
+                let Some(note) = notes.into_iter().next() else {
+                    return false;
+                };
+                tooltip.set_text(Some(&note.text));
+                true
+            });
+        }
+
+        // NOTE: line-mark-activated wiring lives below, next to the
+        // `notes_ruler` creation — it needs the ruler to refresh after
+        // Edit/Delete actions in the popover.
+
         // Buffer-word autocompletion. The provider scans every registered
         // buffer for words and offers them as proposals as the user types.
         // 3 chars minimum to avoid noise from very short prefixes; the popup
@@ -546,6 +704,60 @@ impl EditorTabs {
                     sv.grab_focus();
                 }
             });
+        }
+        // Tooltip callback: look up the note text for a line in the active
+        // source tab so hovering the ruler dot reveals the note preview.
+        {
+            let state_c = state.clone();
+            notes_ruler.set_tooltip_callback(move |line| {
+                let st = state_c.borrow();
+                let idx = st.active_tab?;
+                let open_file = st.open_files.get(idx)?;
+                let super::tab_content::TabContent::Source(source) = &open_file.content
+                else {
+                    return None;
+                };
+                source
+                    .notes
+                    .notes_on_line(&source.buffer, line)
+                    .into_iter()
+                    .next()
+                    .map(|n| n.text)
+            });
+        }
+
+        // Gutter-icon click → popover with the note + Edit/Delete buttons.
+        // Uses GtkSourceView's native line-mark-activated signal so only
+        // clicks on the mark icon fire. Placed here because the popover
+        // refreshes the notes_ruler after the user edits/deletes.
+        {
+            let state_c = state.clone();
+            let ruler_c = notes_ruler.clone();
+            source_view.connect_line_mark_activated(
+                move |view, iter, _button, _state, _n_presses| {
+                    let line = iter.line();
+                    let (buffer, notes_state, note) = {
+                        let st = state_c.borrow();
+                        let Some(idx) = st.active_tab else { return };
+                        let Some(open_file) = st.open_files.get(idx) else { return };
+                        let super::tab_content::TabContent::Source(source) =
+                            &open_file.content
+                        else {
+                            return;
+                        };
+                        let Some(note) = source
+                            .notes
+                            .notes_on_line(&source.buffer, line)
+                            .into_iter()
+                            .next()
+                        else {
+                            return;
+                        };
+                        (source.buffer.clone(), source.notes.clone(), note)
+                    };
+                    show_note_popover(view, &buffer, &notes_state, &ruler_c, line, &note);
+                },
+            );
         }
 
         let editor_row = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
