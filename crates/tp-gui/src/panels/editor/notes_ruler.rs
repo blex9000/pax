@@ -34,7 +34,9 @@ impl NotesRuler {
         widget.set_width_request(NOTES_RULER_WIDTH);
         widget.set_vexpand(true);
         widget.add_css_class("editor-notes-ruler");
-        widget.set_cursor_from_name(Some("pointer"));
+        // Default cursor; the motion controller below swaps to "pointer"
+        // only when the pointer is close to a note dot.
+        widget.set_cursor_from_name(Some("default"));
 
         let lines: Rc<RefCell<Vec<i32>>> = Rc::new(RefCell::new(Vec::new()));
         let total_lines: Rc<RefCell<i32>> = Rc::new(RefCell::new(1));
@@ -88,6 +90,38 @@ impl NotesRuler {
                 }
             });
             widget.add_controller(gesture);
+        }
+
+        // Pointer cursor only when hovering near a note dot. Avoids the
+        // "whole ruler is clickable" feel when 99% of the column is empty.
+        {
+            let lines_c = lines.clone();
+            let total_c = total_lines.clone();
+            let widget_for_motion = widget.clone();
+            let motion = gtk4::EventControllerMotion::new();
+            motion.connect_motion(move |_, _x, y| {
+                let ls = lines_c.borrow();
+                if ls.is_empty() {
+                    widget_for_motion.set_cursor_from_name(Some("default"));
+                    return;
+                }
+                let h = widget_for_motion.height().max(1) as f64;
+                let total = (*total_c.borrow()).max(1) as f64;
+                let clicked = ((y / h).clamp(0.0, 1.0) * total) as i32;
+                let Some(target) =
+                    ls.iter().copied().min_by_key(|l| (*l - clicked).abs())
+                else {
+                    widget_for_motion.set_cursor_from_name(Some("default"));
+                    return;
+                };
+                let target_y = (target as f64 / total) * h;
+                if (y - target_y).abs() <= NOTES_TOOLTIP_HIT_RADIUS_PX {
+                    widget_for_motion.set_cursor_from_name(Some("pointer"));
+                } else {
+                    widget_for_motion.set_cursor_from_name(Some("default"));
+                }
+            });
+            widget.add_controller(motion);
         }
 
         // Hover tooltip: on pointer movement, look up the nearest note dot

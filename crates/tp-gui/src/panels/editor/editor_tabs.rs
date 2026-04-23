@@ -226,14 +226,15 @@ fn show_note_popover(
     note: &super::notes_state::LiveNote,
 ) {
     let popover = gtk4::Popover::new();
+    crate::theme::configure_popover(&popover);
     popover.set_autohide(true);
     popover.set_position(gtk4::PositionType::Right);
 
     let vbox = gtk4::Box::new(gtk4::Orientation::Vertical, 8);
-    vbox.set_margin_start(8);
-    vbox.set_margin_end(8);
-    vbox.set_margin_top(8);
-    vbox.set_margin_bottom(8);
+    vbox.set_margin_start(6);
+    vbox.set_margin_end(6);
+    vbox.set_margin_top(6);
+    vbox.set_margin_bottom(6);
     vbox.set_size_request(NOTE_POPOVER_MIN_WIDTH_PX, -1);
 
     let tv = gtk4::TextView::new();
