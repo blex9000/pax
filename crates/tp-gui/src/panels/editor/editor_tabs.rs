@@ -752,8 +752,8 @@ impl EditorTabs {
         let editor_row = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
         editor_row.set_vexpand(true);
         editor_row.set_hexpand(true);
-        editor_row.append(&notes_ruler.widget);
         editor_row.append(&source_scroll);
+        editor_row.append(&notes_ruler.widget);
         editor_row.append(&match_ruler);
 
         // Content stack. Welcome and editor children are added here; per-tab
