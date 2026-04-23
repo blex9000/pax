@@ -1038,6 +1038,18 @@ box.editor-file-preview-footer.panel-footer {
   font-size: 10px;
   min-width: 0;
 }
+/* Edit/Delete action buttons on Notes rows: hidden until the row is
+   hovered or selected. Keeps the list calm and only reveals actions
+   when the pointer is actually on the row. */
+.editor-note-row-actions {
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+row:hover .editor-note-row-actions,
+row:selected .editor-note-row-actions,
+.editor-note-row-actions:hover {
+  opacity: 1;
+}
 /* Breathing room between the line-marks column (notes icon) and the line
    numbers so the mark icon isn't squished against the numbers. */
 .editor-code-view gutter {
