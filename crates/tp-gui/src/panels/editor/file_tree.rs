@@ -150,7 +150,16 @@ impl OpHistory {
 
 impl FileTree {
     pub fn new(root_dir: &Path, on_file_open: OnFileOpen, backend: Arc<dyn FileBackend>) -> Self {
-        Self::new_with_context(root_dir, on_file_open, None, None, None, backend)
+        Self::new_with_context(
+            root_dir,
+            on_file_open,
+            None,
+            None,
+            None,
+            backend,
+            String::new(),
+            None,
+        )
     }
 
     pub fn new_with_context(
@@ -160,6 +169,8 @@ impl FileTree {
         on_file_renamed: Option<OnFileRenamed>,
         on_path_deleted: Option<OnPathDeleted>,
         backend: Arc<dyn FileBackend>,
+        record_key: String,
+        on_notes_jump: Option<Rc<dyn Fn(&Path, i32)>>,
     ) -> Self {
         let container = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
         container.add_css_class("editor-file-tree");
@@ -177,6 +188,36 @@ impl FileTree {
         collapse_btn.set_tooltip_text(Some("Collapse All"));
 
         actions_bar.append(&collapse_btn);
+
+        // Notes button — only visible when we have a workspace record_key
+        // (i.e. notes can be scoped). Opens the per-workspace Notes dialog.
+        if !record_key.is_empty() && on_notes_jump.is_some() {
+            let notes_btn = gtk4::Button::from_icon_name("user-bookmarks-symbolic");
+            notes_btn.add_css_class("flat");
+            notes_btn.set_tooltip_text(Some("Workspace notes"));
+            actions_bar.append(&notes_btn);
+
+            let record_key_for_btn = record_key.clone();
+            let root_for_btn = root_dir.to_path_buf();
+            let on_jump = on_notes_jump.clone().expect("checked above");
+            notes_btn.connect_clicked(move |btn| {
+                let parent = btn
+                    .root()
+                    .and_then(|r| r.downcast::<gtk4::Window>().ok());
+                let label = root_for_btn
+                    .file_name()
+                    .map(|s| s.to_string_lossy().into_owned())
+                    .unwrap_or_else(|| "workspace".into());
+                crate::dialogs::notes_dialog::show_workspace_notes_dialog(
+                    parent.as_ref(),
+                    &label,
+                    record_key_for_btn.clone(),
+                    root_for_btn.clone(),
+                    on_jump.clone(),
+                    Rc::new(|| {}),
+                );
+            });
+        }
 
         let file_index: Rc<RefCell<Vec<PathBuf>>> = Rc::new(RefCell::new(Vec::new()));
         let entries: Rc<RefCell<Vec<FileEntry>>> = Rc::new(RefCell::new(Vec::new()));

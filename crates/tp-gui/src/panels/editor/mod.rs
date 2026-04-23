@@ -1,5 +1,5 @@
 #[cfg(feature = "sourceview")]
-mod editor_tabs;
+pub mod editor_tabs;
 #[cfg(feature = "sourceview")]
 mod text_context_menu;
 // Submodules for future tasks (stubs for now)
@@ -30,7 +30,7 @@ pub mod project_search;
 pub mod task;
 
 use std::cell::RefCell;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::Arc;
 
@@ -388,6 +388,34 @@ impl CodeEditorPanel {
         } else {
             None
         };
+        let record_key_for_tree = state.borrow().record_key.clone();
+        let on_notes_jump: Option<Rc<dyn Fn(&Path, i32)>> = {
+            let state_c = state.clone();
+            let tabs_c = tabs_rc.clone();
+            Some(Rc::new(move |path: &Path, line: i32| {
+                // Open the file, then defer cursor placement so the view's
+                // layout pass completes before scroll_to_iter (same pattern
+                // as project-search jump).
+                tabs_c.open_file(path, &state_c);
+                let state_c2 = state_c.clone();
+                let tabs_c2 = tabs_c.clone();
+                gtk4::glib::idle_add_local_once(move || {
+                    let st = state_c2.borrow();
+                    let Some(idx) = st.active_tab else { return };
+                    let Some(open_file) = st.open_files.get(idx) else { return };
+                    let Some(buf) = open_file.source_buffer() else { return };
+                    let Some(iter) = buf.iter_at_line(line) else { return };
+                    buf.place_cursor(&iter);
+                    tabs_c2.source_view.scroll_to_iter(
+                        &mut iter.clone(),
+                        0.1,
+                        true,
+                        0.5,
+                        0.3,
+                    );
+                });
+            }))
+        };
         let file_tree = Rc::new(file_tree::FileTree::new_with_context(
             &PathBuf::from(root_dir),
             Rc::new(move |path| {
@@ -405,6 +433,8 @@ impl CodeEditorPanel {
                 tabs_for_delete.close_tabs_under_dir(deleted_path, &state_for_delete);
             })),
             backend.clone(),
+            record_key_for_tree,
+            on_notes_jump,
         ));
 
         // Git status view
