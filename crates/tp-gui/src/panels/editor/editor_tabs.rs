@@ -335,6 +335,34 @@ fn install_markdown_notes(
         });
     }
 
+    // Ruler click in markdown: activate Source mode (if not already)
+    // and scroll the internal source view to the note's line. Keeps
+    // the dot clickable in Rendered mode too — the click reveals the
+    // line in source, which is where the note lives.
+    {
+        let source_view = md.source_view.clone();
+        let source_btn = md.source_btn.clone();
+        md.notes_ruler.set_on_activate(move |line| {
+            if !source_btn.is_active() {
+                source_btn.set_active(true);
+            }
+            let buf = source_view.buffer();
+            if let Some(iter) = buf.iter_at_line(line) {
+                buf.place_cursor(&iter);
+                gtk4::glib::idle_add_local_once({
+                    let view = source_view.clone();
+                    move || {
+                        let buf = view.buffer();
+                        if let Some(iter) = buf.iter_at_line(line) {
+                            view.scroll_to_iter(&mut iter.clone(), 0.1, true, 0.5, 0.5);
+                            view.grab_focus();
+                        }
+                    }
+                });
+            }
+        });
+    }
+
     // Async DB load of notes for this file.
     let record_key = state.borrow().record_key.clone();
     if !record_key.is_empty() {

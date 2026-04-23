@@ -84,18 +84,14 @@ pub fn build_markdown_tab(content: &str) -> MarkdownTab {
     source_scroll.set_vexpand(true);
     source_scroll.set_hexpand(true);
 
-    // Side ruler with amber dots for notes, placed to the right of the
-    // source scroll. Hidden by default (`update` sets visible when lines
-    // are present).
+    // Side ruler with amber dots for notes. Lives at the outer level so
+    // it's visible in BOTH Rendered and Source modes (the dots are at
+    // source-line proportions regardless of which view is shown). Hidden
+    // by default — `update` toggles visibility when lines are present.
     let notes_ruler = Rc::new(
         crate::panels::editor::notes_ruler::NotesRuler::new(source_view.clone()),
     );
     notes_ruler.widget.set_visible(false);
-    let source_row = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
-    source_row.set_vexpand(true);
-    source_row.set_hexpand(true);
-    source_row.append(&source_scroll);
-    source_row.append(&notes_ruler.widget);
 
     // Rendered view (read-only TextView populated by the shared markdown renderer).
     let rendered_view = gtk4::TextView::new();
@@ -115,7 +111,7 @@ pub fn build_markdown_tab(content: &str) -> MarkdownTab {
 
     let inner_stack = gtk4::Stack::new();
     inner_stack.add_named(&rendered_scroll, Some("rendered"));
-    inner_stack.add_named(&source_row, Some("source"));
+    inner_stack.add_named(&source_scroll, Some("source"));
     inner_stack.set_visible_child_name("rendered");
     inner_stack.set_vexpand(true);
     inner_stack.set_hexpand(true);
@@ -198,12 +194,21 @@ pub fn build_markdown_tab(content: &str) -> MarkdownTab {
         });
     }
 
+    // Horizontal row: inner_stack fills, notes_ruler sits on the right.
+    // Keeping the ruler outside the stack means it stays visible when
+    // the user toggles between Rendered and Source.
+    let content_row = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
+    content_row.set_vexpand(true);
+    content_row.set_hexpand(true);
+    content_row.append(&inner_stack);
+    content_row.append(&notes_ruler.widget);
+
     let outer = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
     outer.set_vexpand(true);
     outer.set_hexpand(true);
     outer.append(&mode_bar);
     outer.append(&fmt_bar);
-    outer.append(&inner_stack);
+    outer.append(&content_row);
 
     // Re-render on theme change so theme-reactive colors in the renderer
     // (code block background) take effect without restarting the app.

@@ -20,12 +20,14 @@ const NOTES_DOT_B: f64 = 0.25;
 const NOTES_TOOLTIP_HIT_RADIUS_PX: f64 = 6.0;
 
 pub type OnNoteTooltip = Rc<RefCell<Option<Box<dyn Fn(i32) -> Option<String>>>>>;
+pub type OnNoteActivate = Rc<RefCell<Option<Box<dyn Fn(i32)>>>>;
 
 pub struct NotesRuler {
     pub widget: gtk4::DrawingArea,
     lines: Rc<RefCell<Vec<i32>>>,
     total_lines: Rc<RefCell<i32>>,
     on_tooltip: OnNoteTooltip,
+    on_activate: OnNoteActivate,
 }
 
 impl std::fmt::Debug for NotesRuler {
@@ -49,6 +51,7 @@ impl NotesRuler {
         let lines: Rc<RefCell<Vec<i32>>> = Rc::new(RefCell::new(Vec::new()));
         let total_lines: Rc<RefCell<i32>> = Rc::new(RefCell::new(1));
         let on_tooltip: OnNoteTooltip = Rc::new(RefCell::new(None));
+        let on_activate: OnNoteActivate = Rc::new(RefCell::new(None));
 
         {
             let lines = lines.clone();
@@ -69,13 +72,16 @@ impl NotesRuler {
             });
         }
 
-        // Click-to-jump: exact mirror of build_match_overview_ruler. The
-        // view is captured by clone and we call scroll_to_iter directly,
-        // no callback indirection.
+        // Click-to-jump: default behaviour mirrors build_match_overview_ruler
+        // (scroll the captured source view to the target line). Callers can
+        // override via `set_on_activate` to insert extra work before the
+        // scroll — the markdown tab uses this to switch from Rendered to
+        // Source mode first, so the click actually reveals the note line.
         {
             let view = view.clone();
             let lines = lines.clone();
             let bar_for_click = widget.clone();
+            let activate = on_activate.clone();
             let gesture = gtk4::GestureClick::new();
             gesture.connect_pressed(move |_, _n, _x, y| {
                 let total = view.buffer().line_count().max(1);
@@ -91,6 +97,10 @@ impl NotesRuler {
                     .copied()
                     .min_by_key(|l| (*l - clicked).abs())
                     .unwrap_or(clicked);
+                if let Some(cb) = activate.borrow().as_ref() {
+                    cb(target);
+                    return;
+                }
                 let buf = view.buffer();
                 if let Some(iter) = buf.iter_at_line(target) {
                     buf.place_cursor(&iter);
@@ -179,6 +189,7 @@ impl NotesRuler {
             lines,
             total_lines,
             on_tooltip,
+            on_activate,
         }
     }
 
@@ -186,6 +197,12 @@ impl NotesRuler {
     /// for tooltip display. Return `None` to suppress the tooltip.
     pub fn set_tooltip_callback(&self, cb: impl Fn(i32) -> Option<String> + 'static) {
         *self.on_tooltip.borrow_mut() = Some(Box::new(cb));
+    }
+
+    /// Replace the default click behaviour. The callback receives the
+    /// note's source-line and takes full responsibility for navigation.
+    pub fn set_on_activate(&self, cb: impl Fn(i32) + 'static) {
+        *self.on_activate.borrow_mut() = Some(Box::new(cb));
     }
 
     /// Refresh with the current set of note lines for a buffer.
