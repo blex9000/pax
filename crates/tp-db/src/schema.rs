@@ -29,6 +29,7 @@ pub fn run_migrations(db: &Database) -> Result<()> {
     ensure_workspace_metadata_key_migration(db, &applied)?;
     apply_sql_migration(db, &applied, "004_app_preferences", MIGRATION_004)?;
     apply_sql_migration(db, &applied, "005_file_metadata", MIGRATION_005_FILE_METADATA)?;
+    apply_sql_migration(db, &applied, "006_workspace_notes", MIGRATION_006_WORKSPACE_NOTES)?;
 
     Ok(())
 }
@@ -265,6 +266,47 @@ CREATE INDEX IF NOT EXISTS idx_wfme_lookup
 
 CREATE INDEX IF NOT EXISTS idx_wfme_by_workspace
     ON workspace_file_metadata_entries(record_key);
+";
+
+const MIGRATION_006_WORKSPACE_NOTES: &str = "
+CREATE TABLE IF NOT EXISTS workspace_notes (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    record_key      TEXT NOT NULL,
+    panel_id        TEXT NOT NULL,
+    text            TEXT NOT NULL DEFAULT '',
+    tags            TEXT NOT NULL DEFAULT '[]',
+    severity        TEXT NOT NULL DEFAULT 'info',
+    alert_at        INTEGER,
+    alert_fired_at  INTEGER,
+    created_at      INTEGER NOT NULL,
+    updated_at      INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_wn_scope
+    ON workspace_notes(record_key, panel_id, created_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_wn_alert_due
+    ON workspace_notes(alert_at)
+    WHERE alert_at IS NOT NULL AND alert_fired_at IS NULL;
+
+CREATE VIRTUAL TABLE IF NOT EXISTS workspace_notes_fts USING fts5(
+    text, tags, content='workspace_notes', content_rowid='id'
+);
+
+CREATE TRIGGER IF NOT EXISTS workspace_notes_ai AFTER INSERT ON workspace_notes BEGIN
+    INSERT INTO workspace_notes_fts(rowid, text, tags) VALUES (new.id, new.text, new.tags);
+END;
+
+CREATE TRIGGER IF NOT EXISTS workspace_notes_ad AFTER DELETE ON workspace_notes BEGIN
+    INSERT INTO workspace_notes_fts(workspace_notes_fts, rowid, text, tags)
+    VALUES ('delete', old.id, old.text, old.tags);
+END;
+
+CREATE TRIGGER IF NOT EXISTS workspace_notes_au AFTER UPDATE ON workspace_notes BEGIN
+    INSERT INTO workspace_notes_fts(workspace_notes_fts, rowid, text, tags)
+    VALUES ('delete', old.id, old.text, old.tags);
+    INSERT INTO workspace_notes_fts(rowid, text, tags) VALUES (new.id, new.text, new.tags);
+END;
 ";
 
 #[cfg(test)]

@@ -4,6 +4,7 @@ pub mod notes;
 pub mod output;
 pub mod preferences;
 pub mod schema;
+pub mod workspace_notes;
 pub mod workspaces;
 
 use anyhow::Result;
