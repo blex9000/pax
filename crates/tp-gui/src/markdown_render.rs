@@ -47,43 +47,21 @@ pub(crate) fn render_markdown_to_view(tv: &gtk4::TextView, content: &str) {
     };
     // Heading tags carry their own vertical padding so every heading is
     // visually separated from whatever precedes/follows it, independent
-    // of the user's blank-line count in source.
-    ensure("h1", &|t| {
-        t.set_size_points(20.0);
-        t.set_weight(700);
-        t.set_pixels_above_lines(HEADING_PAD_LG);
-        t.set_pixels_below_lines(HEADING_PAD_MD);
-    });
-    ensure("h2", &|t| {
-        t.set_size_points(16.0);
-        t.set_weight(700);
-        t.set_pixels_above_lines(HEADING_PAD_LG);
-        t.set_pixels_below_lines(HEADING_PAD_MD);
-    });
-    ensure("h3", &|t| {
-        t.set_size_points(14.0);
-        t.set_weight(700);
-        t.set_pixels_above_lines(HEADING_PAD_MD);
-        t.set_pixels_below_lines(HEADING_PAD_SM);
-    });
-    ensure("h4", &|t| {
-        t.set_size_points(13.0);
-        t.set_weight(700);
-        t.set_pixels_above_lines(HEADING_PAD_MD);
-        t.set_pixels_below_lines(HEADING_PAD_SM);
-    });
-    ensure("h5", &|t| {
-        t.set_size_points(12.0);
-        t.set_weight(700);
-        t.set_pixels_above_lines(HEADING_PAD_SM);
-        t.set_pixels_below_lines(HEADING_PAD_SM);
-    });
-    ensure("h6", &|t| {
-        t.set_size_points(11.0);
-        t.set_weight(700);
-        t.set_pixels_above_lines(HEADING_PAD_SM);
-        t.set_pixels_below_lines(HEADING_PAD_SM);
-    });
+    // of the user's blank-line count in source. The `_flush` variants drop
+    // `pixels_above_lines` so the very first block in the document doesn't
+    // paint a visual margin at the top of the view.
+    define_heading_tag(&ensure, "h1", 20.0, HEADING_PAD_LG, HEADING_PAD_MD);
+    define_heading_tag(&ensure, "h1_flush", 20.0, 0, HEADING_PAD_MD);
+    define_heading_tag(&ensure, "h2", 16.0, HEADING_PAD_LG, HEADING_PAD_MD);
+    define_heading_tag(&ensure, "h2_flush", 16.0, 0, HEADING_PAD_MD);
+    define_heading_tag(&ensure, "h3", 14.0, HEADING_PAD_MD, HEADING_PAD_SM);
+    define_heading_tag(&ensure, "h3_flush", 14.0, 0, HEADING_PAD_SM);
+    define_heading_tag(&ensure, "h4", 13.0, HEADING_PAD_MD, HEADING_PAD_SM);
+    define_heading_tag(&ensure, "h4_flush", 13.0, 0, HEADING_PAD_SM);
+    define_heading_tag(&ensure, "h5", 12.0, HEADING_PAD_SM, HEADING_PAD_SM);
+    define_heading_tag(&ensure, "h5_flush", 12.0, 0, HEADING_PAD_SM);
+    define_heading_tag(&ensure, "h6", 11.0, HEADING_PAD_SM, HEADING_PAD_SM);
+    define_heading_tag(&ensure, "h6_flush", 11.0, 0, HEADING_PAD_SM);
     ensure("bold", &|t| {
         t.set_weight(700);
     });
@@ -146,21 +124,32 @@ pub(crate) fn render_markdown_to_view(tv: &gtk4::TextView, content: &str) {
 
         if starts_block && state.lists.is_empty() && state.bq_depth == 0 {
             if let Some(prev_end) = last_top_block_end {
-                // Count newlines in the inter-block source gap. The first
-                // newline is the block-terminating one already emitted by
-                // the previous End handler; everything beyond that
-                // corresponds to user-typed blank lines.
-                let nl = content[prev_end..range.start]
-                    .bytes()
-                    .filter(|b| *b == b'\n')
-                    .count();
-                for _ in 0..nl.saturating_sub(1) {
+                // Count newlines in the inter-block source gap. Different
+                // blocks report range.end differently: Paragraph/Heading
+                // stop before their terminating \n (the gap then owns it),
+                // List/BlockQuote include it (the gap starts past it). So
+                // only subtract the structural \n when it actually lives
+                // inside the gap.
+                let gap = &content[prev_end..range.start];
+                let nl = gap.bytes().filter(|b| *b == b'\n').count();
+                let prev_byte = content.as_bytes().get(prev_end - 1).copied();
+                let prev_includes_terminator = prev_byte == Some(b'\n');
+                let blanks = if prev_includes_terminator {
+                    nl
+                } else {
+                    nl.saturating_sub(1)
+                };
+                for _ in 0..blanks {
                     buf.insert(&mut it, "\n");
                 }
             }
         }
 
         dispatch(&buf, &mut it, &mut state, event);
+
+        if starts_block && state.pending_first_block {
+            state.pending_first_block = false;
+        }
 
         if ends_block && state.lists.is_empty() && state.bq_depth == 0 {
             last_top_block_end = Some(range.end);
@@ -204,7 +193,6 @@ fn is_block_marker_end(ev: &Event) -> bool {
 }
 
 /// Inline formatting and structural state carried across events.
-#[derive(Default)]
 struct RenderState {
     /// Inline tag names currently active (bold/italic/strike/link).
     inline_tags: Vec<&'static str>,
@@ -221,6 +209,25 @@ struct RenderState {
     /// Table buffering — pulldown-cmark emits cells one-by-one; we collect
     /// rows and render aligned when the table ends.
     table: Option<TableState>,
+    /// True until the first top-level block starts. Lets the first heading
+    /// use a `_flush` tag so it doesn't paint padding above itself when
+    /// nothing precedes it in the document.
+    pending_first_block: bool,
+}
+
+impl Default for RenderState {
+    fn default() -> Self {
+        Self {
+            inline_tags: Vec::new(),
+            heading: None,
+            lists: Vec::new(),
+            bq_depth: 0,
+            in_code_block: false,
+            item_needs_marker: false,
+            table: None,
+            pending_first_block: true,
+        }
+    }
 }
 
 struct TableState {
@@ -270,7 +277,8 @@ fn handle_start(buf: &gtk4::TextBuffer, it: &mut gtk4::TextIter, st: &mut Render
             }
         }
         Tag::Heading { level, .. } => {
-            st.heading = Some(heading_tag(level));
+            let first = st.pending_first_block && st.lists.is_empty() && st.bq_depth == 0;
+            st.heading = Some(heading_tag(level, first));
         }
         Tag::BlockQuote(_) => {
             st.bq_depth += 1;
@@ -479,15 +487,36 @@ fn emit_list_marker(buf: &gtk4::TextBuffer, it: &mut gtk4::TextIter, st: &mut Re
     buf.insert_with_tags_by_name(it, &full, &["bullet"]);
 }
 
-fn heading_tag(level: HeadingLevel) -> &'static str {
-    match level {
-        HeadingLevel::H1 => "h1",
-        HeadingLevel::H2 => "h2",
-        HeadingLevel::H3 => "h3",
-        HeadingLevel::H4 => "h4",
-        HeadingLevel::H5 => "h5",
-        HeadingLevel::H6 => "h6",
+fn heading_tag(level: HeadingLevel, first_block: bool) -> &'static str {
+    match (level, first_block) {
+        (HeadingLevel::H1, false) => "h1",
+        (HeadingLevel::H1, true) => "h1_flush",
+        (HeadingLevel::H2, false) => "h2",
+        (HeadingLevel::H2, true) => "h2_flush",
+        (HeadingLevel::H3, false) => "h3",
+        (HeadingLevel::H3, true) => "h3_flush",
+        (HeadingLevel::H4, false) => "h4",
+        (HeadingLevel::H4, true) => "h4_flush",
+        (HeadingLevel::H5, false) => "h5",
+        (HeadingLevel::H5, true) => "h5_flush",
+        (HeadingLevel::H6, false) => "h6",
+        (HeadingLevel::H6, true) => "h6_flush",
     }
+}
+
+fn define_heading_tag(
+    ensure: &dyn Fn(&str, &dyn Fn(&gtk4::TextTag)),
+    name: &str,
+    size_points: f64,
+    pixels_above: i32,
+    pixels_below: i32,
+) {
+    ensure(name, &|t| {
+        t.set_size_points(size_points);
+        t.set_weight(700);
+        t.set_pixels_above_lines(pixels_above);
+        t.set_pixels_below_lines(pixels_below);
+    });
 }
 
 fn render_table(buf: &gtk4::TextBuffer, it: &mut gtk4::TextIter, t: &TableState) {
