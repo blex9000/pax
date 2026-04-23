@@ -15,6 +15,12 @@ use pulldown_cmark::{CodeBlockKind, Event, HeadingLevel, Options, Parser, Tag, T
 const CODE_BG_DARK: &str = "#1a1a1a";
 const CODE_BG_LIGHT: &str = "#ececec";
 
+// Heading vertical padding (pixels above / below the heading line).
+// Scaled so H1/H2 get more breathing room than H5/H6.
+const HEADING_PAD_LG: i32 = 14;
+const HEADING_PAD_MD: i32 = 8;
+const HEADING_PAD_SM: i32 = 4;
+
 pub(crate) fn render_markdown_to_view(tv: &gtk4::TextView, content: &str) {
     let buf = tv.buffer();
     buf.set_text("");
@@ -39,29 +45,44 @@ pub(crate) fn render_markdown_to_view(tv: &gtk4::TextView, content: &str) {
         };
         f(&t);
     };
+    // Heading tags carry their own vertical padding so every heading is
+    // visually separated from whatever precedes/follows it, independent
+    // of the user's blank-line count in source.
     ensure("h1", &|t| {
         t.set_size_points(20.0);
         t.set_weight(700);
+        t.set_pixels_above_lines(HEADING_PAD_LG);
+        t.set_pixels_below_lines(HEADING_PAD_MD);
     });
     ensure("h2", &|t| {
         t.set_size_points(16.0);
         t.set_weight(700);
+        t.set_pixels_above_lines(HEADING_PAD_LG);
+        t.set_pixels_below_lines(HEADING_PAD_MD);
     });
     ensure("h3", &|t| {
         t.set_size_points(14.0);
         t.set_weight(700);
+        t.set_pixels_above_lines(HEADING_PAD_MD);
+        t.set_pixels_below_lines(HEADING_PAD_SM);
     });
     ensure("h4", &|t| {
         t.set_size_points(13.0);
         t.set_weight(700);
+        t.set_pixels_above_lines(HEADING_PAD_MD);
+        t.set_pixels_below_lines(HEADING_PAD_SM);
     });
     ensure("h5", &|t| {
         t.set_size_points(12.0);
         t.set_weight(700);
+        t.set_pixels_above_lines(HEADING_PAD_SM);
+        t.set_pixels_below_lines(HEADING_PAD_SM);
     });
     ensure("h6", &|t| {
         t.set_size_points(11.0);
         t.set_weight(700);
+        t.set_pixels_above_lines(HEADING_PAD_SM);
+        t.set_pixels_below_lines(HEADING_PAD_SM);
     });
     ensure("bold", &|t| {
         t.set_weight(700);
