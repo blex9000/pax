@@ -6,6 +6,7 @@
 //! app-level close flow.
 
 mod card;
+mod editor_dialog;
 mod list;
 
 use std::rc::Rc;

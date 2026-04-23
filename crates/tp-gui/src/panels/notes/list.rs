@@ -16,6 +16,9 @@ use pax_db::workspace_notes::{
 };
 
 use super::card::{build_note_card, NoteCardActions};
+use super::editor_dialog::{
+    draft_default, draft_from_note, open_note_dialog, NoteDraft,
+};
 
 /// Delay before the undo-toast auto-dismisses.
 const UNDO_TOAST_TIMEOUT_SECS: u32 = 5;
@@ -239,6 +242,10 @@ impl NoteListView {
                         let sev = severity.clone();
                         Box::new(move || this.on_cycle_severity(id, &sev))
                     },
+                    on_open_editor: {
+                        let this = self.clone();
+                        Box::new(move || this.on_open_editor(id))
+                    },
                 },
             );
             row.set_child(Some(&card));
@@ -268,22 +275,77 @@ impl NoteListView {
     }
 
     fn on_new_note(self: &Rc<Self>) {
+        let Some(parent) = self.parent_window() else {
+            return;
+        };
+        let this = self.clone();
+        open_note_dialog(
+            &parent,
+            "New note",
+            draft_default(),
+            Rc::new(move |draft| this.persist_new(draft)),
+        );
+    }
+
+    fn persist_new(self: &Rc<Self>, draft: NoteDraft) {
         let Some(db) = open_db() else {
             return;
         };
         let result = db.add_workspace_note(
             &self.record_key,
             &self.panel_id,
-            "New note",
-            &[],
-            SEVERITY_INFO,
-            None,
+            &draft.text,
+            &draft.tags,
+            &draft.severity,
+            draft.alert_at,
         );
         if let Err(e) = result {
             tracing::warn!("notes: could not create note: {e}");
             return;
         }
         self.reload();
+    }
+
+    fn on_open_editor(self: &Rc<Self>, id: i64) {
+        let Some(db) = open_db() else {
+            return;
+        };
+        let Some(note) = db.get_workspace_note(id).ok().flatten() else {
+            return;
+        };
+        let Some(parent) = self.parent_window() else {
+            return;
+        };
+        let this = self.clone();
+        open_note_dialog(
+            &parent,
+            "Edit note",
+            draft_from_note(&note),
+            Rc::new(move |draft| this.persist_update(id, draft)),
+        );
+    }
+
+    fn persist_update(self: &Rc<Self>, id: i64, draft: NoteDraft) {
+        let Some(db) = open_db() else {
+            return;
+        };
+        if let Err(e) = db.update_workspace_note(
+            id,
+            &draft.text,
+            &draft.tags,
+            &draft.severity,
+            draft.alert_at,
+        ) {
+            tracing::warn!("notes: could not update note {id}: {e}");
+            return;
+        }
+        self.reload();
+    }
+
+    fn parent_window(&self) -> Option<gtk4::Window> {
+        self.root
+            .ancestor(gtk4::Window::static_type())
+            .and_then(|w| w.downcast::<gtk4::Window>().ok())
     }
 
     fn on_save_text(self: &Rc<Self>, id: i64, text: &str) {

@@ -18,6 +18,9 @@ pub struct NoteCardActions {
     pub on_save_text: Box<dyn Fn(&str)>,
     pub on_delete: Box<dyn Fn()>,
     pub on_cycle_severity: Box<dyn Fn()>,
+    /// Double-click on the body opens the full editor dialog (tags,
+    /// severity, alert).
+    pub on_open_editor: Box<dyn Fn()>,
 }
 
 const SEVERITY_CLASS_PREFIX: &str = "note-card--";
@@ -181,6 +184,23 @@ pub fn build_note_card(note: &WorkspaceNote, actions: NoteCardActions) -> gtk4::
 
     let on_delete = Rc::new(actions.on_delete);
     delete_btn.connect_clicked(move |_| on_delete());
+
+    // Double-click on the rendered body opens the advanced editor dialog.
+    // We intentionally attach to the rendered view only — double-clicking
+    // inside the source view should just select a word like a normal text
+    // editor.
+    let on_open_editor = Rc::new(actions.on_open_editor);
+    let dbl_click = gtk4::GestureClick::new();
+    dbl_click.set_button(gtk4::gdk::BUTTON_PRIMARY);
+    {
+        let open = on_open_editor.clone();
+        dbl_click.connect_pressed(move |_, n_press, _, _| {
+            if n_press == 2 {
+                open();
+            }
+        });
+    }
+    rendered_view.add_controller(dbl_click);
 
     card.upcast()
 }
