@@ -75,15 +75,21 @@ pub fn install(
             return;
         };
 
-        let (buf_x, buf_y) = view_cell.window_to_buffer_coords(
+        // Convert widget -> buffer coords. For clicks in the gutter
+        // (left of the text area) buf_x goes negative and
+        // `iter_at_location` returns None, which would wrongly default
+        // the line to 0 and show Add/Edit/Delete entries for the first
+        // line regardless of where the user actually clicked. Use
+        // `line_at_y` (takes just the y coord) so the click line
+        // resolves correctly whether the click is on the text, the
+        // gutter, or the line-marks column.
+        let (_, buf_y) = view_cell.window_to_buffer_coords(
             gtk4::TextWindowType::Widget,
             x as i32,
             y as i32,
         );
-        let click_line = view_cell
-            .iter_at_location(buf_x, buf_y)
-            .map(|it| it.line())
-            .unwrap_or(0);
+        let (iter, _) = view_cell.line_at_y(buf_y);
+        let click_line = iter.line();
 
         let popover = build_menu(&view_cell, &buffer, editable, extras_factory(click_line));
 
