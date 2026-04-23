@@ -391,6 +391,14 @@ fn handle_end(
         TagEnd::TableHead => {
             if let Some(t) = st.table.as_mut() {
                 t.in_head = false;
+                // pulldown-cmark emits header cells directly inside TableHead
+                // without a wrapping TableRow, so the accumulated header cells
+                // sit in `current_row` and never reach `rows` via the usual
+                // End(TableRow) handler. Push them now.
+                if !t.current_row.is_empty() {
+                    let row = std::mem::take(&mut t.current_row);
+                    t.rows.push(row);
+                }
                 t.body_start = t.rows.len();
             }
         }
