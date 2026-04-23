@@ -22,6 +22,15 @@ const TAB_WIDTH: u32 = 4;
 /// toggle buttons. Without this the labels hug the button border and read
 /// as cramped next to the linked button group's outer chrome.
 const MODE_BUTTON_PAD_PX: i32 = 10;
+/// Note mark attribute values for the markdown tab's source view. Kept
+/// close to the source-tab constants in editor_tabs but duplicated here
+/// to avoid leaking a module boundary just for numbers.
+const MD_NOTE_MARK_ICON: &str = "user-bookmarks-symbolic";
+const MD_NOTE_MARK_R: f32 = 0.96;
+const MD_NOTE_MARK_G: f32 = 0.78;
+const MD_NOTE_MARK_B: f32 = 0.25;
+const MD_NOTE_MARK_A: f32 = 0.25;
+const MD_NOTE_MARK_PRIORITY: i32 = 10;
 
 pub fn build_markdown_tab(content: &str) -> MarkdownTab {
     let mode = Rc::new(Cell::new(MarkdownMode::Rendered));
@@ -42,6 +51,7 @@ pub fn build_markdown_tab(content: &str) -> MarkdownTab {
     let source_view = sourceview5::View::with_buffer(&buffer);
     source_view.add_css_class("editor-code-view");
     source_view.set_show_line_numbers(true);
+    source_view.set_show_line_marks(true);
     source_view.set_auto_indent(true);
     source_view.set_tab_width(TAB_WIDTH);
     source_view.set_wrap_mode(gtk4::WrapMode::WordChar);
@@ -50,6 +60,25 @@ pub fn build_markdown_tab(content: &str) -> MarkdownTab {
     source_view.set_monospace(true);
     source_view.set_show_right_margin(true);
     source_view.set_right_margin_position(RIGHT_MARGIN_POSITION);
+
+    // Same note-mark category as source tabs so the gutter bookmark
+    // icon renders for markdown too.
+    {
+        let attrs = sourceview5::MarkAttributes::new();
+        attrs.set_icon_name(MD_NOTE_MARK_ICON);
+        attrs.set_background(&gtk4::gdk::RGBA::new(
+            MD_NOTE_MARK_R,
+            MD_NOTE_MARK_G,
+            MD_NOTE_MARK_B,
+            MD_NOTE_MARK_A,
+        ));
+        source_view.set_mark_attributes(
+            crate::panels::editor::notes_state::NOTE_MARK_CATEGORY,
+            &attrs,
+            MD_NOTE_MARK_PRIORITY,
+        );
+    }
+
     let source_scroll = gtk4::ScrolledWindow::new();
     source_scroll.set_child(Some(&source_view));
     source_scroll.set_vexpand(true);
@@ -192,6 +221,7 @@ pub fn build_markdown_tab(content: &str) -> MarkdownTab {
         source_btn,
         rendered_scroll,
         source_scroll,
+        notes: crate::panels::editor::notes_state::NotesState::new(),
     }
 }
 

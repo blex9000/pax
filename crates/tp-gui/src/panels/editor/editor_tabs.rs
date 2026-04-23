@@ -36,22 +36,18 @@ pub(crate) fn relative_file_path(root: &Path, absolute: &Path) -> String {
         .unwrap_or_else(|_| absolute.to_string_lossy().into_owned())
 }
 
-/// Build the context-menu extras for the main editor: the existing
-/// format-current-file item plus Add/Edit/Delete Note items scoped to the
-/// line the user right-clicked on.
+/// Build the context-menu extras for the main source editor: the
+/// existing format-current-file item plus Add/Edit/Delete Note items
+/// scoped to the line the user right-clicked on.
 fn build_editor_extras(
     view: &sourceview5::View,
     state: &Rc<RefCell<EditorState>>,
     notes_ruler: &Rc<super::notes_ruler::NotesRuler>,
     click_line: i32,
 ) -> Vec<super::text_context_menu::TextContextMenuItem> {
-    use super::text_context_menu::TextContextMenuItem;
+    let mut items: Vec<super::text_context_menu::TextContextMenuItem> = Vec::new();
 
-    let mut items: Vec<TextContextMenuItem> = Vec::new();
-
-    // Pull everything we need from state once, dropping the borrow before
-    // we build items whose callbacks re-borrow state internally.
-    let (record_key, file_path_str, notes_here, buffer_opt, notes_state_opt, path) = {
+    let (record_key, file_path_str, buffer, notes_state, path) = {
         let st = state.borrow();
         let Some(idx) = st.active_tab else {
             return items;
@@ -60,47 +56,71 @@ fn build_editor_extras(
             return items;
         };
         match &open_file.content {
-            super::tab_content::TabContent::Source(source) => {
-                let fp = relative_file_path(&st.root_dir, &open_file.path);
-                let notes_here = source.notes.notes_on_line(&source.buffer, click_line);
-                (
-                    st.record_key.clone(),
-                    fp,
-                    notes_here,
-                    Some(source.buffer.clone()),
-                    Some(source.notes.clone()),
-                    open_file.path.clone(),
-                )
-            }
+            super::tab_content::TabContent::Source(source) => (
+                st.record_key.clone(),
+                relative_file_path(&st.root_dir, &open_file.path),
+                source.buffer.clone(),
+                source.notes.clone(),
+                open_file.path.clone(),
+            ),
             _ => return items,
         }
     };
 
     // Format item — only if a formatter is available for this extension.
-    if let Some(buffer) = view
-        .buffer()
-        .downcast::<sourceview5::Buffer>()
-        .ok()
-        .filter(|_| buffer_opt.is_some())
-    {
-        if let Some(format_item) = super::text_context_menu::format_item_for(&path, &buffer) {
+    if let Ok(buffer_for_format) = view.buffer().downcast::<sourceview5::Buffer>() {
+        if let Some(format_item) =
+            super::text_context_menu::format_item_for(&path, &buffer_for_format)
+        {
             items.push(format_item);
         }
     }
 
-    // Note actions are scoped to workspaces (we need a record_key to persist).
-    let (Some(buffer), Some(notes_state)) = (buffer_opt, notes_state_opt) else {
-        return items;
-    };
+    items.extend(build_note_menu_items(
+        view,
+        &buffer,
+        &notes_state,
+        Some(notes_ruler),
+        &record_key,
+        &file_path_str,
+        click_line,
+    ));
+    items
+}
+
+/// Build just the Add/Edit/Delete Note entries for a given buffer +
+/// notes state. Shared between source tabs (which also gets the format
+/// item above) and markdown tabs (which don't). `notes_ruler` is Some
+/// for source tabs (so the side ruler refreshes after mutations) and
+/// None for markdown tabs (no side ruler).
+pub(crate) fn build_note_menu_items(
+    view: &sourceview5::View,
+    buffer: &sourceview5::Buffer,
+    notes_state: &super::notes_state::NotesState,
+    notes_ruler: Option<&Rc<super::notes_ruler::NotesRuler>>,
+    record_key: &str,
+    file_path_str: &str,
+    click_line: i32,
+) -> Vec<super::text_context_menu::TextContextMenuItem> {
+    use super::text_context_menu::TextContextMenuItem;
+    let mut items: Vec<TextContextMenuItem> = Vec::new();
+
     if record_key.is_empty() {
         return items;
     }
 
-    // One note per (file, line). If the line already has one, show
-    // Edit + Delete for it; otherwise show Add. Legacy data with multiple
-    // notes on the same line still works — the context menu operates on
-    // the first one (users can clean up duplicates via the Metadata
-    // Manager dialog).
+    let refresh_ruler = |buffer: &sourceview5::Buffer,
+                        notes_state: &super::notes_state::NotesState,
+                        ruler: &Option<Rc<super::notes_ruler::NotesRuler>>| {
+        if let Some(r) = ruler {
+            let lines = notes_state.current_lines(buffer);
+            r.update(lines, buffer.line_count());
+        }
+    };
+    let _ = refresh_ruler; // used via inline closures below
+
+    let notes_here = notes_state.notes_on_line(buffer, click_line);
+
     if let Some(existing) = notes_here.into_iter().next() {
         let id = existing.db_id;
         let existing_text = existing.text.clone();
@@ -110,7 +130,7 @@ fn build_editor_extras(
             let text_for_edit = existing_text.clone();
             let buffer = buffer.clone();
             let notes_state = notes_state.clone();
-            let ruler = notes_ruler.clone();
+            let ruler = notes_ruler.cloned();
             let parent_widget = view.clone();
             items.push(TextContextMenuItem::button(
                 "document-edit-symbolic",
@@ -130,8 +150,10 @@ fn build_editor_extras(
                             let _ = db.update_note_text(id, &text);
                         }
                         notes_state.set_text(id, &text);
-                        let lines = notes_state.current_lines(&buffer);
-                        ruler.update(lines, buffer.line_count());
+                        if let Some(r) = &ruler {
+                            let lines = notes_state.current_lines(&buffer);
+                            r.update(lines, buffer.line_count());
+                        }
                     });
                 },
             ));
@@ -141,7 +163,7 @@ fn build_editor_extras(
         {
             let buffer = buffer.clone();
             let notes_state = notes_state.clone();
-            let ruler = notes_ruler.clone();
+            let ruler = notes_ruler.cloned();
             items.push(TextContextMenuItem::button(
                 "user-trash-symbolic",
                 "Delete Note",
@@ -152,18 +174,20 @@ fn build_editor_extras(
                         let _ = db.delete_metadata_entry(id);
                     }
                     notes_state.remove(id, &buffer);
-                    let lines = notes_state.current_lines(&buffer);
-                    ruler.update(lines, buffer.line_count());
+                    if let Some(r) = &ruler {
+                        let lines = notes_state.current_lines(&buffer);
+                        r.update(lines, buffer.line_count());
+                    }
                 },
             ));
         }
     } else {
-        // Add Note — only when there isn't already one on this line.
-        let record_key = record_key.clone();
-        let file_path_str = file_path_str.clone();
+        // Add Note.
+        let record_key = record_key.to_string();
+        let file_path_str = file_path_str.to_string();
         let buffer = buffer.clone();
         let notes_state = notes_state.clone();
-        let ruler = notes_ruler.clone();
+        let ruler = notes_ruler.cloned();
         let parent_widget = view.clone();
         items.push(TextContextMenuItem::button(
             "document-new-symbolic",
@@ -201,14 +225,143 @@ fn build_editor_extras(
                         mark: Some(super::notes_state::create_mark_at_line(&buffer, click_line)),
                     };
                     notes_state.push(live);
-                    let lines = notes_state.current_lines(&buffer);
-                    ruler.update(lines, buffer.line_count());
+                    if let Some(r) = &ruler {
+                        let lines = notes_state.current_lines(&buffer);
+                        r.update(lines, buffer.line_count());
+                    }
                 });
             },
         ));
     }
 
     items
+}
+
+/// Wire context-menu Add/Edit/Delete Note, hover tooltip, and async
+/// notes load on a markdown tab's internal source view. Mirrors the
+/// equivalent source-tab setup but is scoped to this tab's buffer +
+/// NotesState rather than going through the shared source view.
+fn install_markdown_notes(
+    tabs: &EditorTabs,
+    state: &Rc<RefCell<EditorState>>,
+    md: &super::tab_content::MarkdownTab,
+    path: &Path,
+    tab_id: u64,
+) {
+    // Context menu extras on the markdown source scroll + view.
+    {
+        let state_c = state.clone();
+        super::text_context_menu::install(
+            &md.source_scroll,
+            &md.source_view,
+            true,
+            move |click_line| {
+                let (record_key, file_path_str, buffer, notes_state) = {
+                    let st = state_c.borrow();
+                    let Some(idx) = st.active_tab else { return Vec::new() };
+                    let Some(open_file) = st.open_files.get(idx) else {
+                        return Vec::new();
+                    };
+                    let super::tab_content::TabContent::Markdown(m) = &open_file.content
+                    else {
+                        return Vec::new();
+                    };
+                    (
+                        st.record_key.clone(),
+                        relative_file_path(&st.root_dir, &open_file.path),
+                        m.buffer.clone(),
+                        m.notes.clone(),
+                    )
+                };
+                build_note_menu_items(
+                    &md_source_view_for_closure(&state_c),
+                    &buffer,
+                    &notes_state,
+                    None,
+                    &record_key,
+                    &file_path_str,
+                    click_line,
+                )
+            },
+        );
+    }
+
+    // Hover tooltip: surface the note text when hovering a line that
+    // owns a note, same as the source tab's tooltip.
+    {
+        let state_c = state.clone();
+        md.source_view.set_has_tooltip(true);
+        md.source_view
+            .connect_query_tooltip(move |view, _x, y, _keyboard, tooltip| {
+                let (_, buf_y) =
+                    view.window_to_buffer_coords(gtk4::TextWindowType::Widget, 0, y);
+                let (iter, _) = view.line_at_y(buf_y);
+                let line = iter.line();
+                let st = state_c.borrow();
+                let Some(idx) = st.active_tab else { return false };
+                let Some(open_file) = st.open_files.get(idx) else { return false };
+                let super::tab_content::TabContent::Markdown(m) = &open_file.content
+                else {
+                    return false;
+                };
+                let Some(note) =
+                    m.notes.notes_on_line(&m.buffer, line).into_iter().next()
+                else {
+                    return false;
+                };
+                tooltip.set_text(Some(&note.text));
+                true
+            });
+    }
+
+    // Async DB load of notes for this file.
+    let record_key = state.borrow().record_key.clone();
+    if !record_key.is_empty() {
+        let fp = relative_file_path(&state.borrow().root_dir, path);
+        let state_c = state.clone();
+        super::task::run_blocking(
+            move || {
+                let db = pax_db::Database::open(&pax_db::Database::default_path()).ok()?;
+                db.list_notes_for_file(&record_key, &fp).ok()
+            },
+            move |maybe_notes| {
+                let Some(notes) = maybe_notes else { return };
+                let st = state_c.borrow();
+                let Some(open_file) =
+                    st.open_files.iter().find(|f| f.tab_id == tab_id)
+                else {
+                    return;
+                };
+                let super::tab_content::TabContent::Markdown(m) = &open_file.content
+                else {
+                    return;
+                };
+                super::notes_state::apply_loaded_notes(&m.notes, &m.buffer, notes);
+            },
+        );
+    }
+    let _ = tabs; // reserved for future integrations (e.g. notes_ruler)
+}
+
+/// Lookup helper — returns a clone of the source_view inside the
+/// currently active markdown tab so closures that need a view parent
+/// (for tooltip / dialog parenting) can reach it without hoarding the
+/// outer `md` by value.
+fn md_source_view_for_closure(
+    state: &Rc<RefCell<EditorState>>,
+) -> sourceview5::View {
+    let st = state.borrow();
+    if let Some(idx) = st.active_tab {
+        if let Some(open_file) = st.open_files.get(idx) {
+            if let super::tab_content::TabContent::Markdown(m) = &open_file.content {
+                return m.source_view.clone();
+            }
+        }
+    }
+    // Fallback: a fresh detached view. Only used if the lookup races
+    // with a tab close — callbacks that route through this view will
+    // no-op gracefully since it's not in any window.
+    sourceview5::View::new()
 }
 
 /// Modal dialog for editing a note's text (Add and Edit share this).
@@ -1822,6 +1975,10 @@ impl EditorTabs {
             tab_box.add_controller(gesture);
         }
 
+        // Notes wiring for the markdown tab's internal source view:
+        // context-menu Add/Edit/Delete, hover tooltip, and async load.
+        install_markdown_notes(self, state, &md, path, tab_id);
+
         self.switch_to_buffer(idx, state);
         self.notebook.set_current_page(Some(idx as u32));
 
@@ -2366,24 +2523,32 @@ impl EditorTabs {
                     // Flush note positions: for each note on this tab, read
                     // its current line from its mark and persist (line,
                     // anchor) so the next reload is robust to edits the user
-                    // made during the session.
+                    // made during the session. Applies to both source and
+                    // markdown tabs (both carry a NotesState over a buffer).
                     if !record_key.is_empty() {
-                        if let super::tab_content::TabContent::Source(source) =
-                            &open_file.content
-                        {
-                            let snapshot: Vec<(i64, i32, String)> = source
-                                .notes
+                        let (notes_opt, buffer_opt): (
+                            Option<&super::notes_state::NotesState>,
+                            Option<&sourceview5::Buffer>,
+                        ) = match &open_file.content {
+                            super::tab_content::TabContent::Source(source) => {
+                                (Some(&source.notes), Some(&source.buffer))
+                            }
+                            super::tab_content::TabContent::Markdown(m) => {
+                                (Some(&m.notes), Some(&m.buffer))
+                            }
+                            _ => (None, None),
+                        };
+                        if let (Some(notes), Some(buffer)) = (notes_opt, buffer_opt) {
+                            let snapshot: Vec<(i64, i32, String)> = notes
                                 .entries
                                 .borrow()
                                 .iter()
                                 .filter_map(|e| {
                                     let mark = e.mark.as_ref()?;
                                     let line =
-                                        super::notes_state::line_of_mark(&source.buffer, mark);
-                                    let anchor = super::notes_state::line_content(
-                                        &source.buffer,
-                                        line,
-                                    );
+                                        super::notes_state::line_of_mark(buffer, mark);
+                                    let anchor =
+                                        super::notes_state::line_content(buffer, line);
                                     Some((e.db_id, line, anchor))
                                 })
                                 .collect();

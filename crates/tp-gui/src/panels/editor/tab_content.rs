@@ -47,6 +47,9 @@ pub struct MarkdownTab {
     /// to preserve the user's scroll position across mode switches.
     pub rendered_scroll: gtk4::ScrolledWindow,
     pub source_scroll: gtk4::ScrolledWindow,
+    /// Per-tab notes — same shape as SourceTab so the feature works on
+    /// markdown tabs' source view too.
+    pub notes: crate::panels::editor::notes_state::NotesState,
 }
 
 /// Data that's specific to an Image tab.
