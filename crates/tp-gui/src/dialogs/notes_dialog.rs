@@ -105,24 +105,41 @@ pub fn show_workspace_notes_dialog(
         search.connect_search_changed(move |_| reload());
     }
 
-    // Jump
-    {
-        let list_box_c = list_box.clone();
+    // Jump helper used by both the Jump button and double-click.
+    let do_jump = {
         let all_notes = all_notes.clone();
         let root = workspace_root.clone();
         let d = dialog.clone();
         let on_jump = on_jump.clone();
-        jump_btn.connect_clicked(move |_| {
-            let Some(row) = list_box_c.selected_row() else {
-                return;
-            };
-            let idx: usize = row.widget_name().parse().unwrap_or(usize::MAX);
+        Rc::new(move |idx: usize| {
             let Some(note) = all_notes.borrow().get(idx).cloned() else {
                 return;
             };
             let full = root.join(&note.file_path);
             on_jump(&full, note.line_number);
             d.close();
+        })
+    };
+
+    // Jump button
+    {
+        let list_box_c = list_box.clone();
+        let do_jump = do_jump.clone();
+        jump_btn.connect_clicked(move |_| {
+            let Some(row) = list_box_c.selected_row() else {
+                return;
+            };
+            let idx: usize = row.widget_name().parse().unwrap_or(usize::MAX);
+            do_jump(idx);
+        });
+    }
+
+    // Double-click (or Enter) on a row → same as Jump.
+    {
+        let do_jump = do_jump.clone();
+        list_box.connect_row_activated(move |_, row| {
+            let idx: usize = row.widget_name().parse().unwrap_or(usize::MAX);
+            do_jump(idx);
         });
     }
 
@@ -202,25 +219,32 @@ fn build_row(note: &FileNote, idx: usize) -> gtk4::ListBoxRow {
     vbox.set_margin_top(6);
     vbox.set_margin_bottom(6);
 
+    // Header row: file name bold on the left, line-number badge on the right.
     let header = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
-    let loc = gtk4::Label::new(Some(&format!(
-        "{} · L{}",
-        note.file_path,
-        note.line_number + 1
-    )));
-    loc.add_css_class("caption");
-    loc.set_halign(gtk4::Align::Start);
-    header.append(&loc);
+    let file_label = gtk4::Label::new(None);
+    file_label.set_markup(&format!(
+        "<b>{}</b>",
+        gtk4::glib::markup_escape_text(&note.file_path)
+    ));
+    file_label.set_halign(gtk4::Align::Start);
+    file_label.set_hexpand(true);
+    file_label.set_ellipsize(gtk4::pango::EllipsizeMode::Middle);
+    header.append(&file_label);
     if note.line_anchor.is_none() {
-        let badge = gtk4::Label::new(Some("orphan"));
-        badge.add_css_class("caption");
-        badge.add_css_class("dim-label");
-        header.append(&badge);
+        let orphan = gtk4::Label::new(Some("orphan"));
+        orphan.add_css_class("caption");
+        orphan.add_css_class("dim-label");
+        header.append(&orphan);
     }
+    let line_badge = gtk4::Label::new(Some(&format!("L{}", note.line_number + 1)));
+    line_badge.add_css_class("editor-note-line-badge");
+    header.append(&line_badge);
     vbox.append(&header);
 
+    // Preview row: note text in dimmed grey.
     let preview_text = preview_of(&note.text);
     let preview = gtk4::Label::new(Some(&preview_text));
+    preview.add_css_class("dim-label");
     preview.set_halign(gtk4::Align::Start);
     preview.set_ellipsize(gtk4::pango::EllipsizeMode::End);
     vbox.append(&preview);

@@ -1028,6 +1028,16 @@ box.editor-file-preview-footer.panel-footer {
   background-color: @view_bg_color;
   color: @view_fg_color;
 }
+/* Line-number chip used in the Notes list rows (right-aligned). */
+.editor-note-line-badge {
+  background-color: alpha(@accent_color, 0.15);
+  color: @accent_color;
+  border-radius: 6px;
+  padding: 1px 7px;
+  font-family: \"JetBrains Mono\", \"SF Mono\", monospace;
+  font-size: 10px;
+  min-width: 0;
+}
 /* Breathing room between the line-marks column (notes icon) and the line
    numbers so the mark icon isn't squished against the numbers. */
 .editor-code-view gutter {
