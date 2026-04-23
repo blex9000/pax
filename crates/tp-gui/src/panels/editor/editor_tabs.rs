@@ -1397,6 +1397,51 @@ impl EditorTabs {
             tab_box.add_controller(gesture);
         }
 
+        // Async load of notes attached to this file in the DB. The open
+        // doesn't block on it; when the query returns we resolve each
+        // note's line via anchor match and paint the ruler.
+        {
+            let record_key = state.borrow().record_key.clone();
+            if !record_key.is_empty() {
+                let fp = relative_file_path(&state.borrow().root_dir, path);
+                let state_c = state.clone();
+                let notes_ruler = self.notes_ruler.clone();
+                super::task::run_blocking(
+                    move || {
+                        let db = pax_db::Database::open(&pax_db::Database::default_path())
+                            .ok()?;
+                        db.list_notes_for_file(&record_key, &fp).ok()
+                    },
+                    move |maybe_notes| {
+                        let Some(notes) = maybe_notes else { return };
+                        let st = state_c.borrow();
+                        let Some(open_file) =
+                            st.open_files.iter().find(|f| f.tab_id == tab_id)
+                        else {
+                            return;
+                        };
+                        let super::tab_content::TabContent::Source(source) =
+                            &open_file.content
+                        else {
+                            return;
+                        };
+                        super::notes_state::apply_loaded_notes(
+                            &source.notes,
+                            &source.buffer,
+                            notes,
+                        );
+                        let is_active = st.active_tab.map(|i| i == idx).unwrap_or(false);
+                        let lines = source.notes.current_lines(&source.buffer);
+                        let total = source.buffer.line_count();
+                        drop(st);
+                        if is_active {
+                            notes_ruler.update(lines, total);
+                        }
+                    },
+                );
+            }
+        }
+
         // Switch to this buffer
         self.switch_to_buffer(idx, state);
         self.notebook.set_current_page(Some(idx as u32));
@@ -2180,6 +2225,7 @@ impl EditorTabs {
         {
             let mut st = state.borrow_mut();
             let backend = st.backend.clone();
+            let record_key = st.record_key.clone();
             if let Some(idx) = st.active_tab {
                 if let Some(open_file) = st.open_files.get_mut(idx) {
                     let Some(buf) = open_file.writable_buffer().cloned() else {
@@ -2197,6 +2243,44 @@ impl EditorTabs {
                     // Update saved content so dirty detection compares against new save
                     if let Some(cell) = open_file.saved_content() {
                         *cell.borrow_mut() = text;
+                    }
+                    // Flush note positions: for each note on this tab, read
+                    // its current line from its mark and persist (line,
+                    // anchor) so the next reload is robust to edits the user
+                    // made during the session.
+                    if !record_key.is_empty() {
+                        if let super::tab_content::TabContent::Source(source) =
+                            &open_file.content
+                        {
+                            let snapshot: Vec<(i64, i32, String)> = source
+                                .notes
+                                .entries
+                                .borrow()
+                                .iter()
+                                .filter_map(|e| {
+                                    let mark = e.mark.as_ref()?;
+                                    let line =
+                                        super::notes_state::line_of_mark(&source.buffer, mark);
+                                    let anchor = super::notes_state::line_content(
+                                        &source.buffer,
+                                        line,
+                                    );
+                                    Some((e.db_id, line, anchor))
+                                })
+                                .collect();
+                            if !snapshot.is_empty() {
+                                let db_path = pax_db::Database::default_path();
+                                if let Ok(db) = pax_db::Database::open(&db_path) {
+                                    for (id, line, anchor) in snapshot {
+                                        let _ = db.update_metadata_position(
+                                            id,
+                                            line,
+                                            Some(&anchor),
+                                        );
+                                    }
+                                }
+                            }
+                        }
                     }
                     // Clear the modified indicator in tab and status bar
                     if let Some(page) = self.notebook.nth_page(Some(idx as u32)) {
