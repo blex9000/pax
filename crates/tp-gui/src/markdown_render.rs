@@ -111,12 +111,74 @@ pub(crate) fn render_markdown_to_view(tv: &gtk4::TextView, content: &str) {
     opts.insert(Options::ENABLE_STRIKETHROUGH);
     opts.insert(Options::ENABLE_TASKLISTS);
     opts.insert(Options::ENABLE_FOOTNOTES);
-    let parser = Parser::new_ext(content, opts);
+    // offset_iter exposes the source byte range of each event, so we can
+    // preserve the user's blank-line count between top-level blocks instead
+    // of forcing a single auto-inserted blank after every block.
+    let parser = Parser::new_ext(content, opts).into_offset_iter();
 
     let mut state = RenderState::default();
     let mut it = buf.end_iter();
-    for event in parser {
+    let mut last_top_block_end: Option<usize> = None;
+    for (event, range) in parser {
+        let starts_block = is_block_marker_start(&event);
+        let ends_block = is_block_marker_end(&event);
+
+        if starts_block && state.lists.is_empty() && state.bq_depth == 0 {
+            if let Some(prev_end) = last_top_block_end {
+                // Count newlines in the inter-block source gap. The first
+                // newline is the block-terminating one already emitted by
+                // the previous End handler; everything beyond that
+                // corresponds to user-typed blank lines.
+                let nl = content[prev_end..range.start]
+                    .bytes()
+                    .filter(|b| *b == b'\n')
+                    .count();
+                for _ in 0..nl.saturating_sub(1) {
+                    buf.insert(&mut it, "\n");
+                }
+            }
+        }
+
         dispatch(&buf, &mut it, &mut state, event);
+
+        if ends_block && state.lists.is_empty() && state.bq_depth == 0 {
+            last_top_block_end = Some(range.end);
+        }
+    }
+}
+
+fn is_block_marker_start(ev: &Event) -> bool {
+    match ev {
+        Event::Start(tag) => matches!(
+            tag,
+            Tag::Paragraph
+                | Tag::Heading { .. }
+                | Tag::CodeBlock(_)
+                | Tag::BlockQuote(_)
+                | Tag::List(_)
+                | Tag::Table(_)
+        ),
+        // Rule is a self-contained block event — treat it as both a start
+        // (so preceding blank lines are honored) and an end (so the next
+        // block also sees its gap from here).
+        Event::Rule => true,
+        _ => false,
+    }
+}
+
+fn is_block_marker_end(ev: &Event) -> bool {
+    match ev {
+        Event::End(tag) => matches!(
+            tag,
+            TagEnd::Paragraph
+                | TagEnd::Heading(_)
+                | TagEnd::CodeBlock
+                | TagEnd::BlockQuote(_)
+                | TagEnd::List(_)
+                | TagEnd::Table
+        ),
+        Event::Rule => true,
+        _ => false,
     }
 }
 
@@ -169,7 +231,6 @@ fn dispatch(buf: &gtk4::TextBuffer, it: &mut gtk4::TextIter, st: &mut RenderStat
         }
         Event::Rule => {
             buf.insert_with_tags_by_name(it, "────────────────────\n", &["sep"]);
-            emit_block_separator(buf, it, st);
         }
         Event::TaskListMarker(done) => {
             insert_inline(buf, it, st, if done { "☒ " } else { "☐ " });
@@ -262,27 +323,22 @@ fn handle_end(
     match tag {
         TagEnd::Paragraph => {
             buf.insert(it, "\n");
-            emit_block_separator(buf, it, st);
         }
         TagEnd::Heading(_) => {
             st.heading = None;
             buf.insert(it, "\n");
-            emit_block_separator(buf, it, st);
         }
         TagEnd::BlockQuote(_) => {
             if st.bq_depth > 0 {
                 st.bq_depth -= 1;
             }
-            emit_block_separator(buf, it, st);
         }
         TagEnd::CodeBlock => {
             st.in_code_block = false;
             buf.insert_with_tags_by_name(it, "───────\n", &["sep"]);
-            emit_block_separator(buf, it, st);
         }
         TagEnd::List(_) => {
             st.lists.pop();
-            emit_block_separator(buf, it, st);
         }
         TagEnd::Item => {
             // Tight lists don't emit Paragraph events, so End(Paragraph)
@@ -302,7 +358,6 @@ fn handle_end(
             if let Some(t) = st.table.take() {
                 render_table(buf, it, &t);
             }
-            emit_block_separator(buf, it, st);
         }
         TagEnd::TableHead => {
             if let Some(t) = st.table.as_mut() {
@@ -326,14 +381,6 @@ fn handle_end(
     }
 }
 
-/// Emit a blank line after a block when we're back at the document top
-/// level, so paragraphs/headings/lists/quotes don't run together. Inside a
-/// list item or blockquote the surrounding container drives the spacing.
-fn emit_block_separator(buf: &gtk4::TextBuffer, it: &mut gtk4::TextIter, st: &RenderState) {
-    if st.lists.is_empty() && st.bq_depth == 0 {
-        buf.insert(it, "\n");
-    }
-}
 
 fn on_text(buf: &gtk4::TextBuffer, it: &mut gtk4::TextIter, st: &mut RenderState, text: &str) {
     if let Some(t) = st.table.as_mut() {
