@@ -1637,10 +1637,17 @@ impl EditorTabs {
         // note's line via anchor match and paint the ruler.
         {
             let record_key = state.borrow().record_key.clone();
+            let fp = relative_file_path(&state.borrow().root_dir, path);
+            tracing::debug!(
+                "notes: open_file record_key='{}' file_path='{}'",
+                record_key,
+                fp
+            );
             if !record_key.is_empty() {
-                let fp = relative_file_path(&state.borrow().root_dir, path);
                 let state_c = state.clone();
                 let notes_ruler = self.notes_ruler.clone();
+                let rk_for_log = record_key.clone();
+                let fp_for_log = fp.clone();
                 super::task::run_blocking(
                     move || {
                         let db = pax_db::Database::open(&pax_db::Database::default_path())
@@ -1648,10 +1655,29 @@ impl EditorTabs {
                         db.list_notes_for_file(&record_key, &fp).ok()
                     },
                     move |maybe_notes| {
-                        let Some(notes) = maybe_notes else { return };
+                        let notes = match maybe_notes {
+                            Some(n) => n,
+                            None => {
+                                tracing::warn!(
+                                    "notes: DB load failed for rk='{}' fp='{}'",
+                                    rk_for_log,
+                                    fp_for_log
+                                );
+                                return;
+                            }
+                        };
+                        tracing::debug!(
+                            "notes: loaded {} note(s) for rk='{}' fp='{}'",
+                            notes.len(),
+                            rk_for_log,
+                            fp_for_log
+                        );
                         let st = state_c.borrow();
-                        let Some(open_file) =
-                            st.open_files.iter().find(|f| f.tab_id == tab_id)
+                        let Some((current_idx, open_file)) = st
+                            .open_files
+                            .iter()
+                            .enumerate()
+                            .find(|(_, f)| f.tab_id == tab_id)
                         else {
                             return;
                         };
@@ -1665,9 +1691,14 @@ impl EditorTabs {
                             &source.buffer,
                             notes,
                         );
-                        let is_active = st.active_tab.map(|i| i == idx).unwrap_or(false);
+                        let is_active = st.active_tab == Some(current_idx);
                         let lines = source.notes.current_lines(&source.buffer);
                         let total = source.buffer.line_count();
+                        tracing::debug!(
+                            "notes: applied; {} resolved lines, is_active={}",
+                            lines.len(),
+                            is_active
+                        );
                         drop(st);
                         if is_active {
                             notes_ruler.update(lines, total);
