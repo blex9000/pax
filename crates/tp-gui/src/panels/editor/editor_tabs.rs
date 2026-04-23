@@ -12,6 +12,271 @@ use super::EditorState;
 /// source-code view.
 const MARKDOWN_EXTS: &[&str] = &["md", "markdown"];
 
+const NOTE_EDITOR_WIDTH_PX: i32 = 440;
+const NOTE_EDITOR_HEIGHT_PX: i32 = 240;
+const NOTE_LABEL_PREVIEW_LEN: usize = 32;
+
+/// Resolve a path to the workspace-relative form when possible, else keep
+/// it absolute. Used as the `file_path` key for metadata entries.
+pub(crate) fn relative_file_path(root: &Path, absolute: &Path) -> String {
+    absolute
+        .strip_prefix(root)
+        .map(|p| p.to_string_lossy().into_owned())
+        .unwrap_or_else(|_| absolute.to_string_lossy().into_owned())
+}
+
+/// Build the context-menu extras for the main editor: the existing
+/// format-current-file item plus Add/Edit/Delete Note items scoped to the
+/// line the user right-clicked on.
+fn build_editor_extras(
+    view: &sourceview5::View,
+    state: &Rc<RefCell<EditorState>>,
+    notes_ruler: &Rc<super::notes_ruler::NotesRuler>,
+    click_line: i32,
+) -> Vec<super::text_context_menu::TextContextMenuItem> {
+    use super::text_context_menu::TextContextMenuItem;
+
+    let mut items: Vec<TextContextMenuItem> = Vec::new();
+
+    // Pull everything we need from state once, dropping the borrow before
+    // we build items whose callbacks re-borrow state internally.
+    let (record_key, file_path_str, notes_here, buffer_opt, notes_state_opt, path) = {
+        let st = state.borrow();
+        let Some(idx) = st.active_tab else {
+            return items;
+        };
+        let Some(open_file) = st.open_files.get(idx) else {
+            return items;
+        };
+        match &open_file.content {
+            super::tab_content::TabContent::Source(source) => {
+                let fp = relative_file_path(&st.root_dir, &open_file.path);
+                let notes_here = source.notes.notes_on_line(&source.buffer, click_line);
+                (
+                    st.record_key.clone(),
+                    fp,
+                    notes_here,
+                    Some(source.buffer.clone()),
+                    Some(source.notes.clone()),
+                    open_file.path.clone(),
+                )
+            }
+            _ => return items,
+        }
+    };
+
+    // Format item — only if a formatter is available for this extension.
+    if let Some(buffer) = view
+        .buffer()
+        .downcast::<sourceview5::Buffer>()
+        .ok()
+        .filter(|_| buffer_opt.is_some())
+    {
+        if let Some(format_item) = super::text_context_menu::format_item_for(&path, &buffer) {
+            items.push(format_item);
+        }
+    }
+
+    // Note actions are scoped to workspaces (we need a record_key to persist).
+    let (Some(buffer), Some(notes_state)) = (buffer_opt, notes_state_opt) else {
+        return items;
+    };
+    if record_key.is_empty() {
+        return items;
+    }
+
+    // Add Note
+    {
+        let record_key = record_key.clone();
+        let file_path_str = file_path_str.clone();
+        let buffer = buffer.clone();
+        let notes_state = notes_state.clone();
+        let ruler = notes_ruler.clone();
+        let parent_widget = view.clone();
+        items.push(TextContextMenuItem::button(
+            "document-new-symbolic",
+            "Add Note",
+            None,
+            move || {
+                let anchor = super::notes_state::line_content(&buffer, click_line);
+                let parent = parent_widget
+                    .root()
+                    .and_then(|r| r.downcast::<gtk4::Window>().ok());
+                let record_key = record_key.clone();
+                let file_path_str = file_path_str.clone();
+                let buffer = buffer.clone();
+                let notes_state = notes_state.clone();
+                let ruler = ruler.clone();
+                show_note_editor(parent.as_ref(), "Add note", "", move |text| {
+                    let db_path = pax_db::Database::default_path();
+                    let Ok(db) = pax_db::Database::open(&db_path) else {
+                        return;
+                    };
+                    let Ok(note) = db.add_note(
+                        &record_key,
+                        &file_path_str,
+                        click_line,
+                        Some(&anchor),
+                        &text,
+                    ) else {
+                        return;
+                    };
+                    let live = super::notes_state::LiveNote {
+                        db_id: note.id,
+                        text: note.text,
+                        saved_line: note.line_number,
+                        saved_anchor: note.line_anchor,
+                        mark: Some(super::notes_state::create_mark_at_line(&buffer, click_line)),
+                    };
+                    notes_state.push(live);
+                    let lines = notes_state.current_lines(&buffer);
+                    ruler.update(lines, buffer.line_count());
+                });
+            },
+        ));
+    }
+
+    // Edit / Delete entries for each existing note on the clicked line.
+    for note in notes_here {
+        let label_short = truncate_note_label(&note.text);
+
+        // Edit
+        {
+            let existing = note.text.clone();
+            let id = note.db_id;
+            let buffer = buffer.clone();
+            let notes_state = notes_state.clone();
+            let ruler = notes_ruler.clone();
+            let parent_widget = view.clone();
+            items.push(TextContextMenuItem::button(
+                "document-edit-symbolic",
+                format!("Edit Note: {}", label_short),
+                None,
+                move || {
+                    let parent = parent_widget
+                        .root()
+                        .and_then(|r| r.downcast::<gtk4::Window>().ok());
+                    let existing = existing.clone();
+                    let buffer = buffer.clone();
+                    let notes_state = notes_state.clone();
+                    let ruler = ruler.clone();
+                    show_note_editor(parent.as_ref(), "Edit note", &existing, move |text| {
+                        let db_path = pax_db::Database::default_path();
+                        if let Ok(db) = pax_db::Database::open(&db_path) {
+                            let _ = db.update_note_text(id, &text);
+                        }
+                        notes_state.set_text(id, &text);
+                        let lines = notes_state.current_lines(&buffer);
+                        ruler.update(lines, buffer.line_count());
+                    });
+                },
+            ));
+        }
+
+        // Delete
+        {
+            let id = note.db_id;
+            let buffer = buffer.clone();
+            let notes_state = notes_state.clone();
+            let ruler = notes_ruler.clone();
+            items.push(TextContextMenuItem::button(
+                "user-trash-symbolic",
+                format!("Delete Note: {}", label_short),
+                None,
+                move || {
+                    let db_path = pax_db::Database::default_path();
+                    if let Ok(db) = pax_db::Database::open(&db_path) {
+                        let _ = db.delete_metadata_entry(id);
+                    }
+                    notes_state.remove(id, &buffer);
+                    let lines = notes_state.current_lines(&buffer);
+                    ruler.update(lines, buffer.line_count());
+                },
+            ));
+        }
+    }
+
+    items
+}
+
+fn truncate_note_label(text: &str) -> String {
+    let first_line = text.lines().next().unwrap_or("");
+    if first_line.chars().count() > NOTE_LABEL_PREVIEW_LEN {
+        let truncated: String = first_line.chars().take(NOTE_LABEL_PREVIEW_LEN).collect();
+        format!("{}…", truncated)
+    } else {
+        first_line.to_string()
+    }
+}
+
+/// Modal dialog for editing a note's text (Add and Edit share this).
+/// Calls `on_save(text)` with the new text when the user clicks Save.
+pub(crate) fn show_note_editor(
+    parent: Option<&gtk4::Window>,
+    title: &str,
+    initial_text: &str,
+    on_save: impl Fn(String) + 'static,
+) {
+    let dialog = gtk4::Window::builder()
+        .title(title)
+        .modal(true)
+        .default_width(NOTE_EDITOR_WIDTH_PX)
+        .default_height(NOTE_EDITOR_HEIGHT_PX)
+        .build();
+    if let Some(win) = parent {
+        dialog.set_transient_for(Some(win));
+    }
+
+    let vbox = gtk4::Box::new(gtk4::Orientation::Vertical, 8);
+    vbox.set_margin_top(12);
+    vbox.set_margin_bottom(12);
+    vbox.set_margin_start(12);
+    vbox.set_margin_end(12);
+
+    let text_view = gtk4::TextView::new();
+    text_view.set_wrap_mode(gtk4::WrapMode::WordChar);
+    text_view.set_vexpand(true);
+    text_view.set_hexpand(true);
+    text_view.buffer().set_text(initial_text);
+
+    let scroll = gtk4::ScrolledWindow::new();
+    scroll.set_child(Some(&text_view));
+    scroll.set_vexpand(true);
+    vbox.append(&scroll);
+
+    let btn_row = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
+    btn_row.set_halign(gtk4::Align::End);
+    let cancel_btn = gtk4::Button::with_label("Cancel");
+    let save_btn = gtk4::Button::with_label("Save");
+    save_btn.add_css_class("suggested-action");
+    btn_row.append(&cancel_btn);
+    btn_row.append(&save_btn);
+    vbox.append(&btn_row);
+
+    {
+        let d = dialog.clone();
+        cancel_btn.connect_clicked(move |_| d.close());
+    }
+    {
+        let d = dialog.clone();
+        let tv = text_view.clone();
+        save_btn.connect_clicked(move |_| {
+            let buf = tv.buffer();
+            let text = buf
+                .text(&buf.start_iter(), &buf.end_iter(), false)
+                .to_string();
+            if !text.trim().is_empty() {
+                on_save(text);
+            }
+            d.close();
+        });
+    }
+
+    dialog.set_child(Some(&vbox));
+    dialog.present();
+    text_view.grab_focus();
+}
+
 /// Monotonic counter producing a fresh `tab_id` per opened file. Stable IDs
 /// let long-lived per-tab closures survive a rename of the underlying path.
 static NEXT_TAB_ID: AtomicU64 = AtomicU64::new(1);
@@ -267,27 +532,19 @@ impl EditorTabs {
 
         // Right-click context menu on the main editor — extras factory looks
         // up the active file each time so the format action follows the
-        // currently-open file's extension.
+        // currently-open file's extension, plus Add/Edit/Delete Note on the
+        // clicked line.
         {
             let view_for_menu = source_view.clone();
             let state_for_menu = state.clone();
-            text_context_menu::install(&source_scroll, &source_view, true, move || {
-                let st = state_for_menu.borrow();
-                let Some(idx) = st.active_tab else {
-                    return Vec::new();
-                };
-                let Some(open_file) = st.open_files.get(idx) else {
-                    return Vec::new();
-                };
-                let path = open_file.path.clone();
-                let buffer = match view_for_menu.buffer().downcast::<sourceview5::Buffer>() {
-                    Ok(b) => b,
-                    Err(_) => return Vec::new(),
-                };
-                drop(st);
-                text_context_menu::format_item_for(&path, &buffer)
-                    .map(|i| vec![i])
-                    .unwrap_or_default()
+            let notes_ruler_for_menu = notes_ruler.clone();
+            text_context_menu::install(&source_scroll, &source_view, true, move |click_line| {
+                build_editor_extras(
+                    &view_for_menu,
+                    &state_for_menu,
+                    &notes_ruler_for_menu,
+                    click_line,
+                )
             });
         }
 
@@ -1695,7 +1952,7 @@ impl EditorTabs {
                 scroll.set_hexpand(true);
                 let file_path_factory = file_path_owned.clone();
                 let buf_factory = buf.clone();
-                text_context_menu::install(&scroll, &view, editable, move || {
+                text_context_menu::install(&scroll, &view, editable, move |_click_line| {
                     if !editable {
                         return Vec::new();
                     }
@@ -2476,7 +2733,7 @@ fn show_commit_file_diff(
         scroll.set_child(Some(&view));
         scroll.set_vexpand(true);
         scroll.set_hexpand(true);
-        text_context_menu::install(&scroll, &view, false, Vec::new);
+        text_context_menu::install(&scroll, &view, false, |_click_line| Vec::new());
         scroll
     };
 

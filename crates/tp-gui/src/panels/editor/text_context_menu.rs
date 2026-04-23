@@ -48,13 +48,15 @@ impl TextContextMenuItem {
 /// install-time buffer would freeze the menu on the initial empty buffer and
 /// hide language-aware items like Comment/Uncomment.
 ///
-/// `extras_factory` is invoked every time the menu opens, so context-specific
-/// items (e.g. format current file) can reflect up-to-date state.
+/// `extras_factory` is invoked every time the menu opens and receives the
+/// 0-based buffer line the click landed on, so context-specific items (e.g.
+/// format current file, add/edit notes on the clicked line) can reflect the
+/// current click target.
 pub fn install(
     host: &gtk4::ScrolledWindow,
     view: &sourceview5::View,
     editable: bool,
-    extras_factory: impl Fn() -> Vec<TextContextMenuItem> + 'static,
+    extras_factory: impl Fn(i32) -> Vec<TextContextMenuItem> + 'static,
 ) {
     remove_builtin_context_gesture(view);
 
@@ -73,7 +75,17 @@ pub fn install(
             return;
         };
 
-        let popover = build_menu(&view_cell, &buffer, editable, extras_factory());
+        let (buf_x, buf_y) = view_cell.window_to_buffer_coords(
+            gtk4::TextWindowType::Widget,
+            x as i32,
+            y as i32,
+        );
+        let click_line = view_cell
+            .iter_at_location(buf_x, buf_y)
+            .map(|it| it.line())
+            .unwrap_or(0);
+
+        let popover = build_menu(&view_cell, &buffer, editable, extras_factory(click_line));
 
         popover.set_parent(&host_cell);
         popover.set_pointing_to(Some(&gtk4::gdk::Rectangle::new(
