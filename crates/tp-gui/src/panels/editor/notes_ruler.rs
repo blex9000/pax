@@ -4,6 +4,7 @@
 //! click-to-jump gesture against whatever callback the owner wires up.
 
 use gtk4::prelude::*;
+use sourceview5::prelude::*;
 use std::cell::RefCell;
 use std::rc::Rc;
 
@@ -18,29 +19,25 @@ const NOTES_DOT_B: f64 = 0.25;
 /// resolve to a random nearby note.
 const NOTES_TOOLTIP_HIT_RADIUS_PX: f64 = 6.0;
 
-pub type OnNoteJump = Rc<RefCell<Option<Box<dyn Fn(i32)>>>>;
 pub type OnNoteTooltip = Rc<RefCell<Option<Box<dyn Fn(i32) -> Option<String>>>>>;
 
 pub struct NotesRuler {
     pub widget: gtk4::DrawingArea,
     lines: Rc<RefCell<Vec<i32>>>,
     total_lines: Rc<RefCell<i32>>,
-    on_jump: OnNoteJump,
     on_tooltip: OnNoteTooltip,
 }
 
 impl NotesRuler {
-    pub fn new() -> Self {
+    pub fn new(view: sourceview5::View) -> Self {
         let widget = gtk4::DrawingArea::new();
         widget.set_width_request(NOTES_RULER_WIDTH);
         widget.set_vexpand(true);
         widget.add_css_class("editor-notes-ruler");
-        widget.set_tooltip_text(Some("Click a note marker to jump to it"));
         widget.set_cursor_from_name(Some("pointer"));
 
         let lines: Rc<RefCell<Vec<i32>>> = Rc::new(RefCell::new(Vec::new()));
         let total_lines: Rc<RefCell<i32>> = Rc::new(RefCell::new(1));
-        let on_jump: OnNoteJump = Rc::new(RefCell::new(None));
         let on_tooltip: OnNoteTooltip = Rc::new(RefCell::new(None));
 
         {
@@ -62,45 +59,32 @@ impl NotesRuler {
             });
         }
 
-        // Click-to-jump: on click, pick the nearest painted dot's line and
-        // fire the owner's callback. Owner wires it to scroll the source
-        // view + place the cursor. Matches the match ruler's UX — same
-        // pattern, default button filter (any button) so the gesture isn't
-        // accidentally filtered out by secondary-mouse mappings.
+        // Click-to-jump: exact mirror of build_match_overview_ruler. The
+        // view is captured by clone and we call scroll_to_iter directly,
+        // no callback indirection.
         {
-            let lines_c = lines.clone();
-            let total_c = total_lines.clone();
-            let widget_for_click = widget.clone();
-            let jump = on_jump.clone();
+            let view = view.clone();
+            let lines = lines.clone();
+            let bar_for_click = widget.clone();
             let gesture = gtk4::GestureClick::new();
             gesture.connect_pressed(move |_, _n, _x, y| {
-                let h = widget_for_click.height().max(1) as f64;
-                let total = (*total_c.borrow()).max(1) as f64;
-                let ls = lines_c.borrow();
-                tracing::debug!(
-                    "notes_ruler: click y={} h={} total={} lines={}",
-                    y,
-                    h,
-                    total,
-                    ls.len()
-                );
+                let total = view.buffer().line_count().max(1);
+                let h = bar_for_click.height().max(1) as f64;
+                let proportion = (y / h).clamp(0.0, 1.0);
+                let clicked = (proportion * total as f64) as i32;
+                let ls = lines.borrow();
                 if ls.is_empty() {
                     return;
                 }
-                let clicked = ((y / h).clamp(0.0, 1.0) * total) as i32;
-                let Some(target) =
-                    ls.iter().copied().min_by_key(|l| (*l - clicked).abs())
-                else {
-                    return;
-                };
-                match jump.borrow().as_ref() {
-                    Some(cb) => {
-                        tracing::debug!("notes_ruler: jumping to line {}", target);
-                        cb(target);
-                    }
-                    None => {
-                        tracing::warn!("notes_ruler: no jump callback registered");
-                    }
+                let target = ls
+                    .iter()
+                    .copied()
+                    .min_by_key(|l| (*l - clicked).abs())
+                    .unwrap_or(clicked);
+                let buf = view.buffer();
+                if let Some(iter) = buf.iter_at_line(target) {
+                    buf.place_cursor(&iter);
+                    view.scroll_to_iter(&mut iter.clone(), 0.1, true, 0.5, 0.5);
                 }
             });
             widget.add_controller(gesture);
@@ -152,15 +136,8 @@ impl NotesRuler {
             widget,
             lines,
             total_lines,
-            on_jump,
             on_tooltip,
         }
-    }
-
-    /// Register a callback invoked with the 0-based line number of the
-    /// nearest note dot whenever the user clicks on the ruler.
-    pub fn set_jump_callback(&self, cb: impl Fn(i32) + 'static) {
-        *self.on_jump.borrow_mut() = Some(Box::new(cb));
     }
 
     /// Register a callback used to resolve a line number to the note text
@@ -184,15 +161,4 @@ impl NotesRuler {
         self.widget.queue_draw();
     }
 
-    /// Given a pixel y coordinate inside the widget, return the buffer
-    /// line closest to a painted dot, or `None` when no dots exist.
-    pub fn nearest_line(&self, y: f64, height_px: f64) -> Option<i32> {
-        let lines = self.lines.borrow();
-        if lines.is_empty() {
-            return None;
-        }
-        let total = (*self.total_lines.borrow()).max(1) as f64;
-        let clicked = ((y / height_px).clamp(0.0, 1.0) * total) as i32;
-        lines.iter().copied().min_by_key(|l| (*l - clicked).abs())
-    }
 }

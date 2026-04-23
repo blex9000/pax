@@ -692,19 +692,8 @@ impl EditorTabs {
         );
         match_ruler.set_visible(false);
 
-        let notes_ruler = Rc::new(super::notes_ruler::NotesRuler::new());
+        let notes_ruler = Rc::new(super::notes_ruler::NotesRuler::new(source_view.clone()));
         notes_ruler.widget.set_visible(false);
-        {
-            let sv = source_view.clone();
-            notes_ruler.set_jump_callback(move |line| {
-                let buf = sv.buffer();
-                if let Some(iter) = buf.iter_at_line(line) {
-                    buf.place_cursor(&iter);
-                    sv.scroll_to_iter(&mut iter.clone(), 0.1, true, 0.5, 0.5);
-                    sv.grab_focus();
-                }
-            });
-        }
         // Tooltip callback: look up the note text for a line in the active
         // source tab so hovering the ruler dot reveals the note preview.
         {
