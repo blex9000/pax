@@ -1028,6 +1028,12 @@ box.editor-file-preview-footer.panel-footer {
   background-color: @view_bg_color;
   color: @view_fg_color;
 }
+/* Breathing room between the line-marks column (notes icon) and the line
+   numbers so the mark icon isn't squished against the numbers. */
+.editor-code-view gutter {
+  padding-left: 3px;
+  padding-right: 4px;
+}
 .markdown-toolbar { border-bottom: 1px solid alpha(@border_soft, 0.3); padding: 0 2px; }
 .markdown-toolbar button,
 .markdown-toolbar togglebutton {
