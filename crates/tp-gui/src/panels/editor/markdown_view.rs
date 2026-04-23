@@ -84,6 +84,19 @@ pub fn build_markdown_tab(content: &str) -> MarkdownTab {
     source_scroll.set_vexpand(true);
     source_scroll.set_hexpand(true);
 
+    // Side ruler with amber dots for notes, placed to the right of the
+    // source scroll. Hidden by default (`update` sets visible when lines
+    // are present).
+    let notes_ruler = Rc::new(
+        crate::panels::editor::notes_ruler::NotesRuler::new(source_view.clone()),
+    );
+    notes_ruler.widget.set_visible(false);
+    let source_row = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
+    source_row.set_vexpand(true);
+    source_row.set_hexpand(true);
+    source_row.append(&source_scroll);
+    source_row.append(&notes_ruler.widget);
+
     // Rendered view (read-only TextView populated by the shared markdown renderer).
     let rendered_view = gtk4::TextView::new();
     rendered_view.set_editable(false);
@@ -102,7 +115,7 @@ pub fn build_markdown_tab(content: &str) -> MarkdownTab {
 
     let inner_stack = gtk4::Stack::new();
     inner_stack.add_named(&rendered_scroll, Some("rendered"));
-    inner_stack.add_named(&source_scroll, Some("source"));
+    inner_stack.add_named(&source_row, Some("source"));
     inner_stack.set_visible_child_name("rendered");
     inner_stack.set_vexpand(true);
     inner_stack.set_hexpand(true);
@@ -222,6 +235,7 @@ pub fn build_markdown_tab(content: &str) -> MarkdownTab {
         rendered_scroll,
         source_scroll,
         notes: crate::panels::editor::notes_state::NotesState::new(),
+        notes_ruler,
     }
 }
 

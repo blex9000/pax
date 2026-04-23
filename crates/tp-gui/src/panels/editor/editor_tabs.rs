@@ -256,7 +256,7 @@ fn install_markdown_notes(
             &md.source_view,
             true,
             move |click_line| {
-                let (record_key, file_path_str, buffer, notes_state) = {
+                let (record_key, file_path_str, buffer, notes_state, ruler) = {
                     let st = state_c.borrow();
                     let Some(idx) = st.active_tab else { return Vec::new() };
                     let Some(open_file) = st.open_files.get(idx) else {
@@ -271,13 +271,14 @@ fn install_markdown_notes(
                         relative_file_path(&st.root_dir, &open_file.path),
                         m.buffer.clone(),
                         m.notes.clone(),
+                        m.notes_ruler.clone(),
                     )
                 };
                 build_note_menu_items(
                     &md_source_view_for_closure(&state_c),
                     &buffer,
                     &notes_state,
-                    None,
+                    Some(&ruler),
                     &record_key,
                     &file_path_str,
                     click_line,
@@ -337,10 +338,12 @@ fn install_markdown_notes(
                     return;
                 };
                 super::notes_state::apply_loaded_notes(&m.notes, &m.buffer, notes);
+                let lines = m.notes.current_lines(&m.buffer);
+                m.notes_ruler.update(lines, m.buffer.line_count());
             },
         );
     }
-    let _ = tabs; // reserved for future integrations (e.g. notes_ruler)
+    let _ = tabs; // reserved for future integrations (e.g. focus the ruler on tab switch)
 }
 
 /// Lookup helper — returns a clone of the source_view inside the

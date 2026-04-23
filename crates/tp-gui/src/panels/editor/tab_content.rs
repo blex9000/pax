@@ -50,6 +50,9 @@ pub struct MarkdownTab {
     /// Per-tab notes — same shape as SourceTab so the feature works on
     /// markdown tabs' source view too.
     pub notes: crate::panels::editor::notes_state::NotesState,
+    /// Side ruler with amber dots at every note line; painted next to
+    /// the markdown tab's internal source view in Source mode only.
+    pub notes_ruler: Rc<crate::panels::editor::notes_ruler::NotesRuler>,
 }
 
 /// Data that's specific to an Image tab.

@@ -28,6 +28,14 @@ pub struct NotesRuler {
     on_tooltip: OnNoteTooltip,
 }
 
+impl std::fmt::Debug for NotesRuler {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("NotesRuler")
+            .field("lines", &self.lines.borrow().len())
+            .finish()
+    }
+}
+
 impl NotesRuler {
     pub fn new(view: sourceview5::View) -> Self {
         let widget = gtk4::DrawingArea::new();
