@@ -107,6 +107,12 @@ const APP_MENU_SETTINGS_ITEMS: &[AppMenuItemSpec] = &[
         tooltip: "Show keyboard shortcuts",
     },
     AppMenuItemSpec {
+        label: "Workspace Metadata…",
+        action: "app.workspace_metadata",
+        icon: "document-properties-symbolic",
+        tooltip: "Browse, search, and delete metadata across all workspaces",
+    },
+    AppMenuItemSpec {
         label: "About Pax",
         action: "app.about",
         icon: "help-about-symbolic",
@@ -1191,6 +1197,17 @@ fn setup_workspace_ui(
                 }
                 actions::update_dirty_ui(&ws2, &win2, &sa2);
             });
+        });
+        action_group.add_action(&action);
+    }
+
+    // Workspace Metadata manager (cross-workspace inspector)
+    {
+        let action = gtk4::gio::SimpleAction::new("workspace_metadata", None);
+        let win = window_rc.clone();
+        action.connect_activate(move |_, _| {
+            let parent: &gtk4::Window = win.upcast_ref();
+            crate::dialogs::metadata_manager::show_metadata_manager(Some(parent));
         });
         action_group.add_action(&action);
     }
