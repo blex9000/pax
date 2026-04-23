@@ -5,6 +5,7 @@
 //! is robust to edits the user made during the session.
 
 use gtk4::prelude::*;
+use sourceview5::prelude::*;
 use std::cell::RefCell;
 use std::rc::Rc;
 
@@ -14,6 +15,11 @@ use pax_db::notes::FileNote;
 /// matches the anchor text, scan this many lines above and below looking
 /// for the anchor's exact content.
 pub const ANCHOR_FUZZY_RADIUS: i32 = 20;
+
+/// Source-mark category used for note markers. The editor registers
+/// `MarkAttributes` for this category (icon + color) so the gutter
+/// draws an amber bookmark next to any line with a note.
+pub const NOTE_MARK_CATEGORY: &str = "pax-note";
 
 /// A single live note attached to a buffer. `mark` is `None` when the
 /// note couldn't be resolved to any current line in the buffer (orphan).
@@ -112,14 +118,17 @@ pub fn apply_loaded_notes(
     }
 }
 
-/// Create a `TextMark` at the start of `line`. `left_gravity = true`
-/// means text typed before the mark pushes it right, matching "the note
-/// lives at the start of this line".
+/// Create a source mark at the start of `line` in the `NOTE_MARK_CATEGORY`.
+/// Returned as a `TextMark` (which `sourceview5::Mark` extends) so the rest
+/// of the state machinery stays type-generic; the category is what drives
+/// the gutter-icon rendering in the SourceView.
 pub fn create_mark_at_line(buffer: &sourceview5::Buffer, line: i32) -> gtk4::TextMark {
     let iter = buffer
         .iter_at_line(line)
         .unwrap_or_else(|| buffer.start_iter());
-    buffer.create_mark(None, &iter, true)
+    buffer
+        .create_source_mark(None, NOTE_MARK_CATEGORY, &iter)
+        .upcast::<gtk4::TextMark>()
 }
 
 /// 0-based line number of a mark's current position.

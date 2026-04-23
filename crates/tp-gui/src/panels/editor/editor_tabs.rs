@@ -16,6 +16,18 @@ const NOTE_EDITOR_WIDTH_PX: i32 = 440;
 const NOTE_EDITOR_HEIGHT_PX: i32 = 240;
 const NOTE_LABEL_PREVIEW_LEN: usize = 32;
 
+/// GTK-standard symbolic icon used in the line-marks gutter for notes.
+const NOTE_MARK_ICON: &str = "user-bookmarks-symbolic";
+/// Amber background for the note mark in the gutter. Low alpha keeps the
+/// line number readable behind it.
+const NOTE_MARK_COLOR_R: f32 = 0.96;
+const NOTE_MARK_COLOR_G: f32 = 0.78;
+const NOTE_MARK_COLOR_B: f32 = 0.25;
+const NOTE_MARK_COLOR_A: f32 = 0.25;
+/// Priority for the note-mark category in the gutter renderer. Non-zero
+/// so notes win over lower-priority marks if we add more categories.
+const NOTE_MARK_PRIORITY: i32 = 10;
+
 /// Resolve a path to the workspace-relative form when possible, else keep
 /// it absolute. Used as the `file_path` key for metadata entries.
 pub(crate) fn relative_file_path(root: &Path, absolute: &Path) -> String {
@@ -455,7 +467,27 @@ impl EditorTabs {
         let source_view = sourceview5::View::new();
         source_view.add_css_class("editor-code-view");
         source_view.set_show_line_numbers(true);
+        source_view.set_show_line_marks(true);
         source_view.set_highlight_current_line(true);
+
+        // Register mark attributes for notes so the gutter paints an amber
+        // bookmark icon next to any line that owns a note.
+        {
+            let attrs = sourceview5::MarkAttributes::new();
+            attrs.set_icon_name(NOTE_MARK_ICON);
+            let color = gtk4::gdk::RGBA::new(
+                NOTE_MARK_COLOR_R,
+                NOTE_MARK_COLOR_G,
+                NOTE_MARK_COLOR_B,
+                NOTE_MARK_COLOR_A,
+            );
+            attrs.set_background(&color);
+            source_view.set_mark_attributes(
+                super::notes_state::NOTE_MARK_CATEGORY,
+                &attrs,
+                NOTE_MARK_PRIORITY,
+            );
+        }
         source_view.set_auto_indent(true);
         source_view.set_tab_width(4);
         source_view.set_wrap_mode(gtk4::WrapMode::None);
