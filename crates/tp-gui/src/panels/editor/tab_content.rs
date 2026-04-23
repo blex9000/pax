@@ -41,6 +41,10 @@ pub struct MarkdownTab {
     /// (e.g. Ctrl+Shift+V) so button state stays in sync with the stack.
     pub rendered_btn: gtk4::ToggleButton,
     pub source_btn: gtk4::ToggleButton,
+    /// Scrolled containers wrapping each inner view. Used by `toggle_mode`
+    /// to preserve the user's scroll position across mode switches.
+    pub rendered_scroll: gtk4::ScrolledWindow,
+    pub source_scroll: gtk4::ScrolledWindow,
 }
 
 /// Data that's specific to an Image tab.

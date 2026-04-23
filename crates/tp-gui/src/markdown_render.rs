@@ -205,6 +205,12 @@ fn handle_start(buf: &gtk4::TextBuffer, it: &mut gtk4::TextIter, st: &mut Render
             }
         }
         Tag::List(start) => {
+            // A list nested inside an item starts on a new line; otherwise
+            // the "- parent text" and the first child's "• child text" run
+            // together on the same visual row.
+            if !st.lists.is_empty() {
+                buf.insert(it, "\n");
+            }
             st.lists.push(start);
         }
         Tag::Item => {
@@ -273,15 +279,14 @@ fn handle_end(
             st.lists.pop();
         }
         TagEnd::Item => {
-            // If an item had no paragraph inside (tight list), still emit
-            // a trailing newline. Loose lists already ended with one via
-            // TagEnd::Paragraph.
+            // Tight lists don't emit Paragraph events, so End(Paragraph)
+            // can't carry the trailing newline. Always close the item with
+            // one here — loose lists get a second newline (blank row between
+            // items) which is the intended visual for loose lists anyway.
             if st.item_needs_marker {
-                // Empty item — emit the marker and newline anyway so
-                // pulldown-cmark's canonical form stays faithful.
                 emit_list_marker(buf, it, st);
-                buf.insert(it, "\n");
             }
+            buf.insert(it, "\n");
         }
         TagEnd::Emphasis | TagEnd::Strong | TagEnd::Strikethrough | TagEnd::Link
         | TagEnd::Image => {

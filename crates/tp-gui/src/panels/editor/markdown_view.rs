@@ -18,6 +18,10 @@ const EDITOR_LEFT_MARGIN: i32 = 6;
 const EDITOR_TOP_MARGIN: i32 = 3;
 const RIGHT_MARGIN_POSITION: u32 = 120;
 const TAB_WIDTH: u32 = 4;
+/// Horizontal padding around the label text inside the Rendered/Source
+/// toggle buttons. Without this the labels hug the button border and read
+/// as cramped next to the linked button group's outer chrome.
+const MODE_BUTTON_PAD_PX: i32 = 10;
 
 pub fn build_markdown_tab(content: &str) -> MarkdownTab {
     let mode = Rc::new(Cell::new(MarkdownMode::Rendered));
@@ -83,9 +87,13 @@ pub fn build_markdown_tab(content: &str) -> MarkdownTab {
     mode_bar.set_margin_top(TOOLBAR_MARGIN);
     mode_bar.set_margin_bottom(TOOLBAR_MARGIN);
 
-    let rendered_btn = gtk4::ToggleButton::with_label("Rendered");
+    // Build the toggle buttons with a padded label so the hit area is
+    // comfortable rather than hugging the text.
+    let rendered_btn = gtk4::ToggleButton::new();
+    rendered_btn.set_child(Some(&padded_button_label("Rendered")));
     rendered_btn.set_active(true);
-    let source_btn = gtk4::ToggleButton::with_label("Source");
+    let source_btn = gtk4::ToggleButton::new();
+    source_btn.set_child(Some(&padded_button_label("Source")));
     source_btn.set_group(Some(&rendered_btn));
     mode_bar.append(&rendered_btn);
     mode_bar.append(&source_btn);
@@ -100,12 +108,15 @@ pub fn build_markdown_tab(content: &str) -> MarkdownTab {
         let buf = buffer.clone();
         let mode_c = mode.clone();
         let fmt_bar_c = fmt_bar.clone();
+        let src_scroll = source_scroll.clone();
+        let ren_scroll = rendered_scroll.clone();
         rendered_btn.connect_toggled(move |btn| {
             if !btn.is_active() {
                 return;
             }
-            // Re-render from the current buffer content (dirty OK). Matches
-            // the standalone Markdown panel's behavior.
+            // Preserve scroll: read fraction from source (departing), re-render,
+            // then apply to rendered (arriving) after the layout pass.
+            let frac = scroll_fraction(&src_scroll);
             let text = buf
                 .text(&buf.start_iter(), &buf.end_iter(), false)
                 .to_string();
@@ -113,19 +124,26 @@ pub fn build_markdown_tab(content: &str) -> MarkdownTab {
             stack.set_visible_child_name("rendered");
             mode_c.set(MarkdownMode::Rendered);
             fmt_bar_c.set_visible(false);
+            let target = ren_scroll.clone();
+            gtk4::glib::idle_add_local_once(move || set_scroll_fraction(&target, frac));
         });
     }
     {
         let stack = inner_stack.clone();
         let mode_c = mode.clone();
         let fmt_bar_c = fmt_bar.clone();
+        let src_scroll = source_scroll.clone();
+        let ren_scroll = rendered_scroll.clone();
         source_btn.connect_toggled(move |btn| {
             if !btn.is_active() {
                 return;
             }
+            let frac = scroll_fraction(&ren_scroll);
             stack.set_visible_child_name("source");
             mode_c.set(MarkdownMode::Source);
             fmt_bar_c.set_visible(true);
+            let target = src_scroll.clone();
+            gtk4::glib::idle_add_local_once(move || set_scroll_fraction(&target, frac));
         });
     }
 
@@ -163,17 +181,43 @@ pub fn build_markdown_tab(content: &str) -> MarkdownTab {
         outer: outer.upcast::<gtk4::Widget>(),
         rendered_btn,
         source_btn,
+        rendered_scroll,
+        source_scroll,
     }
 }
 
 /// Flip the tab between Rendered and Source modes. Drives the toggle
-/// buttons directly so all the wired side effects (re-rendering, toolbar
-/// visibility, mode cell update) fire through the existing handlers.
+/// buttons directly so all wired side effects (re-rendering, toolbar
+/// visibility, mode cell update, scroll preservation) fire through the
+/// existing `connect_toggled` handlers.
 pub fn toggle_mode(tab: &MarkdownTab) {
     match tab.mode.get() {
         MarkdownMode::Rendered => tab.source_btn.set_active(true),
         MarkdownMode::Source => tab.rendered_btn.set_active(true),
     }
+}
+
+fn padded_button_label(text: &str) -> gtk4::Label {
+    let label = gtk4::Label::new(Some(text));
+    label.set_margin_start(MODE_BUTTON_PAD_PX);
+    label.set_margin_end(MODE_BUTTON_PAD_PX);
+    label
+}
+
+fn scroll_fraction(scroll: &gtk4::ScrolledWindow) -> f64 {
+    let v = scroll.vadjustment();
+    let range = v.upper() - v.page_size() - v.lower();
+    if range <= 0.0 {
+        0.0
+    } else {
+        ((v.value() - v.lower()) / range).clamp(0.0, 1.0)
+    }
+}
+
+fn set_scroll_fraction(scroll: &gtk4::ScrolledWindow, frac: f64) {
+    let v = scroll.vadjustment();
+    let range = (v.upper() - v.page_size() - v.lower()).max(0.0);
+    v.set_value(v.lower() + range * frac.clamp(0.0, 1.0));
 }
 
 /// Formatting buttons for Source mode: bold / italic / code, H1-H3,
