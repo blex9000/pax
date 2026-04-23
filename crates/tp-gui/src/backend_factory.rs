@@ -11,6 +11,7 @@ pub fn panel_type_to_id(pt: &PanelType) -> &'static str {
         PanelType::Terminal | PanelType::Ssh { .. } | PanelType::RemoteTmux { .. } => "terminal",
         PanelType::Markdown { .. } => "markdown",
         PanelType::CodeEditor { .. } => "code_editor",
+        PanelType::Note => "note",
     }
 }
 
@@ -121,6 +122,11 @@ pub fn create_backend_from_registry(
                 extra.insert("remote_path".to_string(), rp.clone());
             }
             ("code_editor", extra)
+        }
+        PanelType::Note => {
+            let mut extra = HashMap::new();
+            extra.insert("__panel_id__".to_string(), panel_cfg.id.clone());
+            ("note", extra)
         }
     };
 

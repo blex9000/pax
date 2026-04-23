@@ -149,6 +149,10 @@ pub enum PanelType {
         #[serde(default)]
         poll_interval: Option<u64>,
     },
+    /// Free-form workspace notes (markdown cards, tags, scheduled alerts).
+    /// State lives in the database scoped by (record_key, panel_id);
+    /// nothing to carry in the config.
+    Note,
 }
 
 #[derive(Debug, Deserialize)]
@@ -185,6 +189,7 @@ enum KnownPanelType {
         #[serde(default)]
         poll_interval: Option<u64>,
     },
+    Note,
 }
 
 impl From<KnownPanelType> for PanelType {
@@ -226,6 +231,7 @@ impl From<KnownPanelType> for PanelType {
                 remote_path,
                 poll_interval,
             },
+            KnownPanelType::Note => PanelType::Note,
         }
     }
 }
@@ -245,7 +251,7 @@ impl<'de> Deserialize<'de> for PanelType {
         };
 
         match type_name {
-            "empty" | "terminal" | "ssh" | "remote_tmux" | "markdown" | "code_editor" => {
+            "empty" | "terminal" | "ssh" | "remote_tmux" | "markdown" | "code_editor" | "note" => {
                 serde_json::from_value::<KnownPanelType>(value)
                     .map(PanelType::from)
                     .map_err(serde::de::Error::custom)

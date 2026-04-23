@@ -66,6 +66,11 @@ pub fn show_panel_config_dialog(
             on_done,
         ),
         PanelType::Empty => {}
+        PanelType::Note => {
+            // Note panels are stateless at the config level; all the state
+            // lives in the database scoped by (record_key, panel_id). The
+            // panel has its own in-place UI for CRUD.
+        }
     }
 }
 
