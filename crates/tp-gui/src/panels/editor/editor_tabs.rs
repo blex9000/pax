@@ -883,6 +883,7 @@ impl EditorTabs {
                     buffer: buf.clone(),
                     modified: false,
                     saved_content: saved_content.clone(),
+                    notes: super::notes_state::NotesState::new(),
                 }),
             });
             st.active_tab = Some(st.open_files.len() - 1);

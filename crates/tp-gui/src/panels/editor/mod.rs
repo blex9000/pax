@@ -17,6 +17,8 @@ pub mod image_view;
 #[cfg(feature = "sourceview")]
 pub mod markdown_view;
 #[cfg(feature = "sourceview")]
+pub mod notes_state;
+#[cfg(feature = "sourceview")]
 pub mod tab_content;
 #[cfg(feature = "sourceview")]
 pub mod git_status;

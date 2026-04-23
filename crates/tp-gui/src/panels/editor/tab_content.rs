@@ -16,6 +16,8 @@ pub struct SourceTab {
     pub modified: bool,
     /// Content on disk at last open/save — drives dirty detection.
     pub saved_content: Rc<RefCell<String>>,
+    /// Per-tab notes state (lives and dies with this source tab).
+    pub notes: crate::panels::editor::notes_state::NotesState,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
