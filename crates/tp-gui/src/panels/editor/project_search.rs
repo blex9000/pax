@@ -33,6 +33,10 @@ const CONTENT_SEARCH_RESULTS_CAP: usize = 500;
 /// and `file_tree::ROW_ICON_PX`.
 const SEARCH_ROW_HEIGHT_PX: i32 = 18;
 const SEARCH_ROW_ICON_PX: i32 = 14;
+/// Gap between the file name and the match count in Content search rows.
+/// The name label is `hexpand` and ellipsizes, so a small hard margin is
+/// enough to guarantee breathing room even when the name is very long.
+const SEARCH_COUNT_LEFT_MARGIN_PX: i32 = 10;
 
 /// Project-wide search sidebar panel with content/filename modes.
 pub struct ProjectSearch {
@@ -582,6 +586,7 @@ fn render_results(
         let count_label = gtk4::Label::new(Some(&format!("{}", match_count)));
         count_label.add_css_class("dim-label");
         count_label.set_valign(gtk4::Align::Center);
+        count_label.set_margin_start(SEARCH_COUNT_LEFT_MARGIN_PX);
         count_label.set_margin_end(3);
         row.append(&count_label);
 
