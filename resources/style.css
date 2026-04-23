@@ -87,3 +87,132 @@
     font-family: sans-serif;
     font-size: 12px;
 }
+
+/* ── Note panel ─────────────────────────────────────────────────────────
+ * Cards are the focal point: a soft surface with an accent rail on the
+ * left that encodes severity, and a footer that collects tag chips, the
+ * alert badge and action buttons. Structural rules only — colors stay
+ * muted so the note content leads visually.
+ */
+
+.notes-panel {
+    background: transparent;
+}
+
+.notes-header {
+    padding: 2px 4px;
+}
+
+.notes-list {
+    background: transparent;
+    padding: 0;
+}
+
+.notes-list row {
+    background: transparent;
+    padding: 0;
+}
+
+.note-card {
+    background: alpha(@theme_fg_color, 0.035);
+    border: 1px solid alpha(@borders, 0.6);
+    border-left: 3px solid alpha(@theme_fg_color, 0.18);
+    border-radius: 6px;
+    padding: 8px 10px;
+    transition: background-color 120ms ease, border-color 120ms ease;
+}
+
+.note-card:hover {
+    background: alpha(@theme_fg_color, 0.06);
+    border-color: alpha(@borders, 0.85);
+}
+
+.note-card--info {
+    border-left-color: #4a90e2;
+}
+
+.note-card--warning {
+    border-left-color: #d97706;
+    background: alpha(#d97706, 0.05);
+}
+
+.note-card--important {
+    border-left-color: #dc2626;
+    background: alpha(#dc2626, 0.07);
+    box-shadow: 0 0 0 1px alpha(#dc2626, 0.15);
+}
+
+.note-card-rendered,
+.note-card-rendered text {
+    background: transparent;
+    font-size: 12px;
+}
+
+.note-card-source,
+.note-card-source text {
+    background: alpha(@theme_fg_color, 0.05);
+    border-radius: 4px;
+    font-size: 12px;
+}
+
+.tag-chip {
+    background: alpha(@theme_fg_color, 0.1);
+    color: @theme_fg_color;
+    border-radius: 10px;
+    padding: 1px 8px;
+    font-size: 10px;
+    font-weight: 500;
+}
+
+.alert-badge {
+    color: #d97706;
+    font-size: 10px;
+    font-weight: 500;
+    padding: 1px 6px;
+    border-radius: 10px;
+    background: alpha(#d97706, 0.12);
+}
+
+.note-card--important .alert-badge {
+    color: #dc2626;
+    background: alpha(#dc2626, 0.15);
+}
+
+.severity-toggle {
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    padding: 2px 8px;
+    min-height: 0;
+    opacity: 0.75;
+}
+
+.severity-toggle:hover {
+    opacity: 1;
+}
+
+.note-card--important .severity-toggle {
+    color: #dc2626;
+    opacity: 1;
+}
+
+.note-card--warning .severity-toggle {
+    color: #d97706;
+    opacity: 1;
+}
+
+.note-toast {
+    background: alpha(@theme_fg_color, 0.92);
+    color: @theme_bg_color;
+    border-radius: 6px;
+    padding: 6px 12px;
+    font-size: 11px;
+}
+
+.note-toast button {
+    color: @theme_bg_color;
+    font-weight: 600;
+    padding: 0 4px;
+    min-height: 0;
+}
