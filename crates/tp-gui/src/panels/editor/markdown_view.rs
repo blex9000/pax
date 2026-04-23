@@ -78,14 +78,22 @@ pub fn build_markdown_tab(content: &str) -> MarkdownTab {
     inner_stack.set_vexpand(true);
     inner_stack.set_hexpand(true);
 
-    // Toolbar row 1: Rendered / Source mode toggle.
+    // Toolbar row 1: Rendered / Source mode toggle, right-aligned.
     let mode_bar = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
     mode_bar.add_css_class("editor-markdown-toolbar");
-    mode_bar.add_css_class("linked");
     mode_bar.set_margin_start(TOOLBAR_MARGIN);
     mode_bar.set_margin_end(TOOLBAR_MARGIN);
     mode_bar.set_margin_top(TOOLBAR_MARGIN);
     mode_bar.set_margin_bottom(TOOLBAR_MARGIN);
+
+    // Spacer pushes the linked toggle pair to the right edge.
+    let mode_spacer = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
+    mode_spacer.set_hexpand(true);
+    mode_bar.append(&mode_spacer);
+
+    let mode_toggles = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
+    mode_toggles.add_css_class("linked");
+    mode_toggles.set_halign(gtk4::Align::End);
 
     // Build the toggle buttons with a padded label so the hit area is
     // comfortable rather than hugging the text.
@@ -95,8 +103,9 @@ pub fn build_markdown_tab(content: &str) -> MarkdownTab {
     let source_btn = gtk4::ToggleButton::new();
     source_btn.set_child(Some(&padded_button_label("Source")));
     source_btn.set_group(Some(&rendered_btn));
-    mode_bar.append(&rendered_btn);
-    mode_bar.append(&source_btn);
+    mode_toggles.append(&rendered_btn);
+    mode_toggles.append(&source_btn);
+    mode_bar.append(&mode_toggles);
 
     // Toolbar row 2: formatting buttons for Source mode. Hidden in Rendered
     // mode. Mirrors the buttons available in the standalone Markdown Panel.
@@ -230,6 +239,12 @@ fn build_formatting_bar(buffer: &sourceview5::Buffer) -> gtk4::Box {
     fmt_bar.set_margin_end(TOOLBAR_MARGIN);
     fmt_bar.set_margin_bottom(TOOLBAR_MARGIN);
     fmt_bar.set_visible(false);
+
+    // Left-side spacer so the formatting buttons sit right-aligned,
+    // matching the Rendered/Source toggle above them.
+    let spacer = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
+    spacer.set_hexpand(true);
+    fmt_bar.append(&spacer);
 
     let buf: gtk4::TextBuffer = buffer.clone().upcast();
 
