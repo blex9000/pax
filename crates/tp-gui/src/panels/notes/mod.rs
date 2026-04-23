@@ -5,6 +5,7 @@
 //! trait hooks `close_confirmation` / `on_permanent_close` glue that to the
 //! app-level close flow.
 
+pub mod alert_scheduler;
 mod card;
 mod editor_dialog;
 mod list;

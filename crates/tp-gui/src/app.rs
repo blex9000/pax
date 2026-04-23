@@ -305,6 +305,12 @@ pub fn run_app(workspace: Option<Workspace>, config_path: Option<&Path>) -> Resu
         // Set default window icon (used by window manager / taskbar)
         gtk4::Window::set_default_icon_name("pax");
 
+        // Kick off the Note panel's alert scheduler. It runs on the GLib
+        // main loop for as long as the application is alive; a startup
+        // sweep also reconciles any alerts that came due while Pax was
+        // closed.
+        crate::panels::notes::alert_scheduler::start(app.clone());
+
         let window = adw::ApplicationWindow::builder()
             .application(app)
             .title("Pax")
