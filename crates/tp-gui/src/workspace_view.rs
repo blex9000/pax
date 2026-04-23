@@ -1262,6 +1262,20 @@ impl WorkspaceView {
     }
 
     /// Close the focused panel. Uses model update + layout rebuild for reliability.
+    /// Peek: if the focused panel needs a user confirmation before closing,
+    /// return its prompt text. Callers use this BEFORE `close_focused` to
+    /// decide whether to show a confirmation dialog.
+    ///
+    /// `None` can mean either "no confirmation needed" OR "nothing to close
+    /// (last panel)" — callers should still check `close_focused`'s return.
+    pub fn close_focused_prompt(&self) -> Option<String> {
+        if self.focus.order.len() <= 1 {
+            return None;
+        }
+        let focused_id = self.focused_panel_id()?;
+        self.hosts.get(focused_id).and_then(|h| h.close_confirmation())
+    }
+
     pub fn close_focused(&mut self) -> bool {
         if self.focus.order.len() <= 1 {
             return false; // Don't close the last panel
@@ -1311,9 +1325,11 @@ impl WorkspaceView {
 
         self.workspace.panels.retain(|p| p.id != focused_id);
 
-        // 2. Shut down the backend (terminate child process), detach widget, drop the host
+        // 2. Shut down the backend (terminate child process), fire the
+        //    permanent-close signal (so backends can delete per-instance
+        //    persisted state), detach widget, drop the host.
         if let Some(host) = self.hosts.remove(&focused_id) {
-            host.shutdown_backend();
+            host.permanent_close_backend();
             detach_widget(host.widget());
         }
 

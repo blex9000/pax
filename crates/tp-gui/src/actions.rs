@@ -124,6 +124,61 @@ fn do_save_internal(
     );
 }
 
+/// Modal confirmation for closing a panel that owns persisted state. The
+/// panel's `PanelBackend::close_confirmation` supplies the body text; when
+/// the user picks "Close and delete" we invoke `on_confirm` (which is
+/// expected to call `WorkspaceView::close_focused`).
+pub fn show_close_confirm_dialog(
+    window: &Rc<adw::ApplicationWindow>,
+    prompt: &str,
+    on_confirm: impl Fn() + 'static,
+) {
+    let dialog = gtk4::Window::builder()
+        .title("Close panel")
+        .transient_for(window.as_ref())
+        .modal(true)
+        .default_width(420)
+        .default_height(140)
+        .build();
+    crate::theme::configure_dialog_window(&dialog);
+
+    let vbox = gtk4::Box::new(gtk4::Orientation::Vertical, 12);
+    vbox.set_margin_top(16);
+    vbox.set_margin_bottom(16);
+    vbox.set_margin_start(16);
+    vbox.set_margin_end(16);
+
+    let label = gtk4::Label::new(Some(prompt));
+    label.set_wrap(true);
+    label.set_halign(gtk4::Align::Start);
+    vbox.append(&label);
+
+    let btn_row = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
+    btn_row.set_halign(gtk4::Align::End);
+
+    let cancel_btn = gtk4::Button::with_label("Cancel");
+    let confirm_btn = gtk4::Button::with_label("Close and delete");
+    confirm_btn.add_css_class("destructive-action");
+    btn_row.append(&cancel_btn);
+    btn_row.append(&confirm_btn);
+    vbox.append(&btn_row);
+
+    {
+        let d = dialog.clone();
+        cancel_btn.connect_clicked(move |_| d.close());
+    }
+    {
+        let d = dialog.clone();
+        confirm_btn.connect_clicked(move |_| {
+            d.close();
+            on_confirm();
+        });
+    }
+
+    dialog.set_child(Some(&vbox));
+    dialog.present();
+}
+
 pub fn confirm_discard_workspace_changes(
     ws: &Rc<RefCell<WorkspaceView>>,
     sb: &Rc<RefCell<StatusBar>>,

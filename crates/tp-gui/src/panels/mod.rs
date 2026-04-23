@@ -79,4 +79,19 @@ pub trait PanelBackend: std::fmt::Debug {
     fn footer_text(&self) -> Option<String> {
         None
     }
+
+    /// If `Some(prompt)`, the panel is asking the caller to show a
+    /// confirmation dialog with this text before the panel is closed
+    /// permanently. Returning `None` (default) means "close immediately".
+    ///
+    /// Only consulted on permanent close (user action like Ctrl+W), not on
+    /// backend swaps triggered by app shutdown.
+    fn close_confirmation(&self) -> Option<String> {
+        None
+    }
+
+    /// Called exactly once, AFTER `shutdown()`, when the panel is being
+    /// removed permanently (not on a backend swap). Backends use this to
+    /// delete any persisted state tied to this panel instance.
+    fn on_permanent_close(&self) {}
 }

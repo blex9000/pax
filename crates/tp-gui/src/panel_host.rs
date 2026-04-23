@@ -516,6 +516,30 @@ impl PanelHost {
         }
     }
 
+    /// If the current backend asks for a confirmation dialog before close,
+    /// return its prompt text. Callers show the dialog and, on confirm, call
+    /// `close_focused` on the owning `WorkspaceView`.
+    pub fn close_confirmation(&self) -> Option<String> {
+        if let Ok(current) = self.backend.try_borrow() {
+            if let Some(ref backend) = *current {
+                return backend.close_confirmation();
+            }
+        }
+        None
+    }
+
+    /// Shutdown + permanent-close signal. Used only on user-initiated close
+    /// (not on backend swaps) so backends can delete per-instance persisted
+    /// state.
+    pub fn permanent_close_backend(&self) {
+        if let Ok(current) = self.backend.try_borrow() {
+            if let Some(ref backend) = *current {
+                backend.shutdown();
+                backend.on_permanent_close();
+            }
+        }
+    }
+
     /// Set the panel backend, placing its widget inside this host.
     /// If a backend is already set, shuts it down and removes the old widget first.
     pub fn set_backend(&self, backend: Box<dyn PanelBackend>) {

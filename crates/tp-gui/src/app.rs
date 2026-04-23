@@ -730,11 +730,26 @@ fn setup_workspace_ui(
                                         ws_for_cb.borrow_mut().set_focus_index(idx);
                                     }
                                 }
-                                if ws_for_cb.borrow_mut().close_focused() {
-                                    if let Some(id) = ws_for_cb.borrow().focused_panel_id() {
-                                        sb_for_cb.borrow().set_panel(id);
-                                    }
-                                    sb_for_cb.borrow().set_message("Tab removed");
+                                let prompt = ws_for_cb.borrow().close_focused_prompt();
+                                let do_close: Rc<dyn Fn()> = {
+                                    let ws = ws_for_cb.clone();
+                                    let sb = sb_for_cb.clone();
+                                    Rc::new(move || {
+                                        if ws.borrow_mut().close_focused() {
+                                            if let Some(id) = ws.borrow().focused_panel_id() {
+                                                sb.borrow().set_panel(id);
+                                            }
+                                            sb.borrow().set_message("Tab removed");
+                                        }
+                                    })
+                                };
+                                match prompt {
+                                    Some(text) => crate::actions::show_close_confirm_dialog(
+                                        &win_for_cb,
+                                        &text,
+                                        move || do_close(),
+                                    ),
+                                    None => do_close(),
                                 }
                             }
                             PanelAction::BeginTabEdit {
@@ -836,13 +851,28 @@ fn setup_workspace_ui(
                     sb_for_cb.borrow().set_message("Panel reset");
                 }
                 PanelAction::Close => {
-                    if ws_for_cb.borrow_mut().close_focused() {
-                        if let Some(id) = ws_for_cb.borrow().focused_panel_id() {
-                            sb_for_cb.borrow().set_panel(id);
-                        }
-                        sb_for_cb.borrow().set_message("Panel closed");
-                    } else {
-                        sb_for_cb.borrow().set_message("Cannot close last panel");
+                    let prompt = ws_for_cb.borrow().close_focused_prompt();
+                    let do_close: Rc<dyn Fn()> = {
+                        let ws = ws_for_cb.clone();
+                        let sb = sb_for_cb.clone();
+                        Rc::new(move || {
+                            if ws.borrow_mut().close_focused() {
+                                if let Some(id) = ws.borrow().focused_panel_id() {
+                                    sb.borrow().set_panel(id);
+                                }
+                                sb.borrow().set_message("Panel closed");
+                            } else {
+                                sb.borrow().set_message("Cannot close last panel");
+                            }
+                        })
+                    };
+                    match prompt {
+                        Some(text) => crate::actions::show_close_confirm_dialog(
+                            &win_for_cb,
+                            &text,
+                            move || do_close(),
+                        ),
+                        None => do_close(),
                     }
                 }
                 PanelAction::Configure => {
@@ -1353,13 +1383,30 @@ fn setup_workspace_ui(
                         return glib::Propagation::Stop;
                     }
                     gdk::Key::W => {
-                        if ws.borrow_mut().close_focused() {
-                            if let Some(id) = ws.borrow().focused_panel_id() {
-                                sb.borrow().set_panel(id);
-                            }
-                            sb.borrow().set_message("Panel closed");
+                        let prompt = ws.borrow().close_focused_prompt();
+                        let do_close: Rc<dyn Fn()> = {
+                            let ws = ws.clone();
+                            let sb = sb.clone();
+                            let win = win.clone();
+                            let sa = sa.clone();
+                            Rc::new(move || {
+                                if ws.borrow_mut().close_focused() {
+                                    if let Some(id) = ws.borrow().focused_panel_id() {
+                                        sb.borrow().set_panel(id);
+                                    }
+                                    sb.borrow().set_message("Panel closed");
+                                }
+                                actions::update_dirty_ui(&ws, &win, &sa);
+                            })
+                        };
+                        match prompt {
+                            Some(text) => crate::actions::show_close_confirm_dialog(
+                                &win,
+                                &text,
+                                move || do_close(),
+                            ),
+                            None => do_close(),
                         }
-                        actions::update_dirty_ui(&ws, &win, &sa);
                         return glib::Propagation::Stop;
                     }
                     gdk::Key::S => {
