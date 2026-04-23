@@ -63,6 +63,8 @@ impl WorkspaceView {
         let ws_dir = config_path
             .and_then(|p| p.parent())
             .map(|p| p.to_string_lossy().to_string());
+        let config_path_str = config_path.map(|p| p.to_string_lossy().to_string());
+        let record_key = workspace.record_key(config_path_str.as_deref());
         let mut hosts = HashMap::new();
 
         for panel_cfg in &workspace.panels {
@@ -76,6 +78,7 @@ impl WorkspaceView {
                     &workspace.settings.default_shell,
                     &registry,
                     ws_dir.as_deref(),
+                    Some(record_key.as_str()),
                 );
                 host.set_backend(backend);
             }
@@ -176,6 +179,11 @@ impl WorkspaceView {
             .as_ref()
             .and_then(|p| p.parent())
             .map(|p| p.to_string_lossy().to_string());
+        let config_path_str = self
+            .config_path
+            .as_ref()
+            .map(|p| p.to_string_lossy().to_string());
+        let record_key = ws.record_key(config_path_str.as_deref());
         let mut hosts = HashMap::new();
 
         for panel_cfg in &ws.panels {
@@ -190,6 +198,7 @@ impl WorkspaceView {
                     &ws.settings.default_shell,
                     &registry,
                     ws_dir.as_deref(),
+                    Some(record_key.as_str()),
                 );
                 host.set_backend(backend);
             }
@@ -291,10 +300,16 @@ impl WorkspaceView {
             .as_ref()
             .and_then(|p| p.parent())
             .map(|p| p.to_string_lossy().to_string());
+        let config_path_str = self
+            .config_path
+            .as_ref()
+            .map(|p| p.to_string_lossy().to_string());
+        let record_key = self.workspace.record_key(config_path_str.as_deref());
         let mut config = panel_type_to_create_config(
             &new_type,
             &self.workspace.settings.default_shell,
             ws_dir.as_deref(),
+            Some(record_key.as_str()),
         );
         // Pass cwd and env from panel config
         config.cwd = cwd;
@@ -679,10 +694,16 @@ impl WorkspaceView {
             .as_ref()
             .and_then(|p| p.parent())
             .map(|p| p.to_string_lossy().to_string());
+        let config_path_str = self
+            .config_path
+            .as_ref()
+            .map(|p| p.to_string_lossy().to_string());
+        let record_key = self.workspace.record_key(config_path_str.as_deref());
         let mut extra = HashMap::new();
         if let Some(dir) = ws_dir {
             extra.insert("__workspace_dir__".to_string(), dir);
         }
+        extra.insert("__workspace_record_key__".to_string(), record_key);
         let config = PanelCreateConfig {
             shell: self.workspace.settings.default_shell.clone(),
             cwd: None,

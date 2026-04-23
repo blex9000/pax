@@ -377,6 +377,11 @@ pub fn build_default_registry() -> PanelRegistry {
                 .and_then(|s| s.parse().ok())
                 .unwrap_or(22u16);
             let remote_path = config.extra.get("remote_path").cloned();
+            let record_key = config
+                .extra
+                .get("__workspace_record_key__")
+                .cloned()
+                .unwrap_or_default();
 
             if let Some(host) = ssh_host {
                 // Remote code editor: mount via SSHFS
@@ -389,9 +394,10 @@ pub fn build_default_registry() -> PanelRegistry {
                     ssh_password.as_deref(),
                     ssh_identity.as_deref(),
                     rpath,
+                    record_key,
                 ))
             } else {
-                Box::new(super::editor::CodeEditorPanel::new(&root_dir))
+                Box::new(super::editor::CodeEditorPanel::new(&root_dir, record_key))
             }
         },
     );

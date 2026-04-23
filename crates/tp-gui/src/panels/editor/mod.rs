@@ -74,6 +74,10 @@ pub struct EditorState {
     /// panel setup.
     #[cfg(feature = "sourceview")]
     pub on_nav_state_changed: Option<Rc<dyn Fn()>>,
+    /// pax-db `record_key` of the workspace owning this editor. Used to
+    /// scope workspace metadata (notes, future types). Empty when the
+    /// editor is spawned outside a workspace (tests, standalone runs).
+    pub record_key: String,
 }
 
 /// Invoke the nav-state callback if one is installed, swallowing borrow
@@ -159,6 +163,7 @@ impl CodeEditorPanel {
         password: Option<&str>,
         identity_file: Option<&str>,
         remote_path: &str,
+        record_key: String,
     ) -> Self {
         let ssh_label = format!("{}@{}", user, host);
 
@@ -173,21 +178,25 @@ impl CodeEditorPanel {
                 identity_file,
             ));
 
-        let mut panel = Self::new_with_backend(remote_path, backend);
+        let mut panel = Self::new_with_backend(remote_path, backend, record_key);
         panel.ssh_info = Some(ssh_label);
         panel
     }
 
-    pub fn new(root_dir: &str) -> Self {
+    pub fn new(root_dir: &str, record_key: String) -> Self {
         let backend = Arc::new(file_backend::LocalFileBackend::new(&PathBuf::from(
             root_dir,
         )));
-        let mut panel = Self::new_with_backend(root_dir, backend);
+        let mut panel = Self::new_with_backend(root_dir, backend, record_key);
         panel.ssh_info = None;
         panel
     }
 
-    fn new_with_backend(root_dir: &str, backend: Arc<dyn file_backend::FileBackend>) -> Self {
+    fn new_with_backend(
+        root_dir: &str,
+        backend: Arc<dyn file_backend::FileBackend>,
+        record_key: String,
+    ) -> Self {
         let poll_secs = if backend.is_remote() { 5 } else { 2 };
 
         // Detect whether the project root is a git repository. We check both
@@ -210,6 +219,7 @@ impl CodeEditorPanel {
             nav_forward: Vec::new(),
             recent_files: Vec::new(),
             on_nav_state_changed: None,
+            record_key,
         }));
 
         let tabs = editor_tabs::EditorTabs::new(state.clone());
@@ -1178,7 +1188,7 @@ pub struct CodeEditorPanel {
 
 #[cfg(not(feature = "sourceview"))]
 impl CodeEditorPanel {
-    pub fn new(_root_dir: &str) -> Self {
+    pub fn new(_root_dir: &str, _record_key: String) -> Self {
         let label = gtk4::Label::new(Some("Code Editor requires the 'sourceview' feature.\nRecompile with: cargo build --features sourceview"));
         label.set_margin_top(32);
         label.set_margin_bottom(32);
@@ -1195,8 +1205,9 @@ impl CodeEditorPanel {
         _password: Option<&str>,
         _identity_file: Option<&str>,
         _remote_path: &str,
+        _record_key: String,
     ) -> Self {
-        Self::new("")
+        Self::new("", String::new())
     }
 }
 

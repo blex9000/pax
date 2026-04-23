@@ -535,6 +535,16 @@ impl Workspace {
     pub fn ensure_layout_tab_ids(&mut self) {
         self.layout.ensure_tab_ids();
     }
+
+    /// Derive the pax-db `record_key` for this workspace. The workspace's
+    /// saved config path (when present) takes precedence over the name,
+    /// matching the logic in `pax_db::record_workspace_open`.
+    pub fn record_key(&self, config_path: Option<&str>) -> String {
+        match config_path {
+            Some(path) if !path.trim().is_empty() => format!("path:{}", path),
+            _ => format!("name:{}", self.name),
+        }
+    }
 }
 
 #[cfg(test)]

@@ -18,6 +18,7 @@ pub fn panel_type_to_create_config(
     pt: &PanelType,
     default_shell: &str,
     workspace_dir: Option<&str>,
+    workspace_record_key: Option<&str>,
 ) -> PanelCreateConfig {
     let mut extra = HashMap::new();
     match pt {
@@ -53,6 +54,9 @@ pub fn panel_type_to_create_config(
     if let Some(dir) = workspace_dir {
         extra.insert("__workspace_dir__".to_string(), dir.to_string());
     }
+    if let Some(rk) = workspace_record_key {
+        extra.insert("__workspace_record_key__".to_string(), rk.to_string());
+    }
     PanelCreateConfig {
         shell: default_shell.to_string(),
         cwd: None,
@@ -79,6 +83,7 @@ pub fn create_backend_from_registry(
     default_shell: &str,
     registry: &PanelRegistry,
     workspace_dir: Option<&str>,
+    workspace_record_key: Option<&str>,
 ) -> Box<dyn crate::panels::PanelBackend> {
     let effective = panel_cfg.effective_type();
     let (type_id, mut extra) = match &effective {
@@ -131,6 +136,9 @@ pub fn create_backend_from_registry(
     }
     if let Some(dir) = workspace_dir {
         extra.insert("__workspace_dir__".to_string(), dir.to_string());
+    }
+    if let Some(rk) = workspace_record_key {
+        extra.insert("__workspace_record_key__".to_string(), rk.to_string());
     }
     let config = PanelCreateConfig {
         shell: default_shell.to_string(),
