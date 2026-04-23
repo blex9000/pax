@@ -57,18 +57,26 @@ impl NotesRuler {
 
         // Click-to-jump: on click, pick the nearest painted dot's line and
         // fire the owner's callback. Owner wires it to scroll the source
-        // view + place the cursor. Matches the match ruler's UX.
+        // view + place the cursor. Matches the match ruler's UX — same
+        // pattern, default button filter (any button) so the gesture isn't
+        // accidentally filtered out by secondary-mouse mappings.
         {
             let lines_c = lines.clone();
             let total_c = total_lines.clone();
             let widget_for_click = widget.clone();
             let jump = on_jump.clone();
             let gesture = gtk4::GestureClick::new();
-            gesture.set_button(1);
             gesture.connect_pressed(move |_, _n, _x, y| {
                 let h = widget_for_click.height().max(1) as f64;
                 let total = (*total_c.borrow()).max(1) as f64;
                 let ls = lines_c.borrow();
+                tracing::debug!(
+                    "notes_ruler: click y={} h={} total={} lines={}",
+                    y,
+                    h,
+                    total,
+                    ls.len()
+                );
                 if ls.is_empty() {
                     return;
                 }
@@ -78,8 +86,14 @@ impl NotesRuler {
                 else {
                     return;
                 };
-                if let Some(cb) = jump.borrow().as_ref() {
-                    cb(target);
+                match jump.borrow().as_ref() {
+                    Some(cb) => {
+                        tracing::debug!("notes_ruler: jumping to line {}", target);
+                        cb(target);
+                    }
+                    None => {
+                        tracing::warn!("notes_ruler: no jump callback registered");
+                    }
                 }
             });
             widget.add_controller(gesture);
