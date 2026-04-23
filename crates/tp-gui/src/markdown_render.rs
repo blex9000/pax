@@ -169,6 +169,7 @@ fn dispatch(buf: &gtk4::TextBuffer, it: &mut gtk4::TextIter, st: &mut RenderStat
         }
         Event::Rule => {
             buf.insert_with_tags_by_name(it, "────────────────────\n", &["sep"]);
+            emit_block_separator(buf, it, st);
         }
         Event::TaskListMarker(done) => {
             insert_inline(buf, it, st, if done { "☒ " } else { "☐ " });
@@ -261,22 +262,27 @@ fn handle_end(
     match tag {
         TagEnd::Paragraph => {
             buf.insert(it, "\n");
+            emit_block_separator(buf, it, st);
         }
         TagEnd::Heading(_) => {
             st.heading = None;
             buf.insert(it, "\n");
+            emit_block_separator(buf, it, st);
         }
         TagEnd::BlockQuote(_) => {
             if st.bq_depth > 0 {
                 st.bq_depth -= 1;
             }
+            emit_block_separator(buf, it, st);
         }
         TagEnd::CodeBlock => {
             st.in_code_block = false;
             buf.insert_with_tags_by_name(it, "───────\n", &["sep"]);
+            emit_block_separator(buf, it, st);
         }
         TagEnd::List(_) => {
             st.lists.pop();
+            emit_block_separator(buf, it, st);
         }
         TagEnd::Item => {
             // Tight lists don't emit Paragraph events, so End(Paragraph)
@@ -296,6 +302,7 @@ fn handle_end(
             if let Some(t) = st.table.take() {
                 render_table(buf, it, &t);
             }
+            emit_block_separator(buf, it, st);
         }
         TagEnd::TableHead => {
             if let Some(t) = st.table.as_mut() {
@@ -316,6 +323,15 @@ fn handle_end(
             }
         }
         _ => {}
+    }
+}
+
+/// Emit a blank line after a block when we're back at the document top
+/// level, so paragraphs/headings/lists/quotes don't run together. Inside a
+/// list item or blockquote the surrounding container drives the spacing.
+fn emit_block_separator(buf: &gtk4::TextBuffer, it: &mut gtk4::TextIter, st: &RenderState) {
+    if st.lists.is_empty() && st.bq_depth == 0 {
+        buf.insert(it, "\n");
     }
 }
 
