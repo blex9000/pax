@@ -277,12 +277,15 @@ pub fn build_default_registry() -> PanelRegistry {
                     }
                 }
                 // Override PS1 and set PROMPT_COMMAND for OSC 7 on the remote shell
-                // (same as local terminal — minimal prompt + directory tracking + colored ls)
+                // (same as local terminal — minimal prompt + directory tracking +
+                // colored ls). Intentionally no trailing `clear`: when SSH fails
+                // the remote shell never executes these commands, and the fallback
+                // `clear` would end up wiping the SSH error from the local shell,
+                // turning connection failures into silent no-ops.
                 panel.send_commands(&[
                     " export PS1='\\[\\033[32m\\]$:\\[\\033[0m\\] '".to_string(),
                     " export PROMPT_COMMAND='printf \"\\033]7;file://%s%s\\033\\\\\" \"$HOSTNAME\" \"$PWD\"'".to_string(),
                     " export LS_COLORS='di=38;2;85;136;255:ln=36:so=35:pi=33:ex=32:bd=34;46:cd=34;43:su=30;41:sg=30;46:tw=30;42:ow=34;42'".to_string(),
-                    " clear".to_string(),
                 ]);
             }
             // Startup script commands
