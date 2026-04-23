@@ -28,6 +28,12 @@ pub enum SearchMode {
 const FILE_SEARCH_RESULTS_CAP: usize = 200;
 const CONTENT_SEARCH_RESULTS_CAP: usize = 500;
 
+/// Row metrics chosen to match the file-tree's rows so the two sidebar
+/// panes read as one piece. Keep in sync with `file_tree::ROW_HEIGHT_PX`
+/// and `file_tree::ROW_ICON_PX`.
+const SEARCH_ROW_HEIGHT_PX: i32 = 18;
+const SEARCH_ROW_ICON_PX: i32 = 14;
+
 /// Project-wide search sidebar panel with content/filename modes.
 pub struct ProjectSearch {
     pub widget: gtk4::Box,
@@ -433,14 +439,16 @@ fn refresh_files_results(
     let mut new_store = Vec::with_capacity(shown);
     for (_, path) in scored.into_iter().take(shown) {
         let rel = path.strip_prefix(root).unwrap_or(&path).to_path_buf();
-        let row = gtk4::Box::new(gtk4::Orientation::Horizontal, 6);
-        row.set_margin_start(6);
-        row.set_margin_end(6);
-        row.set_margin_top(3);
-        row.set_margin_bottom(3);
+        let row = gtk4::Box::new(gtk4::Orientation::Horizontal, 1);
+        row.set_size_request(-1, SEARCH_ROW_HEIGHT_PX);
+        row.set_margin_start(3);
+        row.set_margin_top(0);
+        row.set_margin_bottom(0);
+        row.add_css_class("editor-file-tree-entry");
 
         let icon = gtk4::Image::from_icon_name("text-x-generic-symbolic");
-        icon.set_pixel_size(14);
+        icon.set_pixel_size(SEARCH_ROW_ICON_PX);
+        icon.set_valign(gtk4::Align::Center);
         row.append(&icon);
 
         let name = rel
@@ -449,6 +457,8 @@ fn refresh_files_results(
             .unwrap_or_default();
         let name_label = gtk4::Label::new(Some(&name));
         name_label.set_halign(gtk4::Align::Start);
+        name_label.set_valign(gtk4::Align::Center);
+        name_label.set_margin_start(3);
         row.append(&name_label);
 
         let parent = rel
@@ -458,14 +468,16 @@ fn refresh_files_results(
         if !parent.is_empty() {
             let dir_label = gtk4::Label::new(Some(&parent));
             dir_label.add_css_class("dim-label");
-            dir_label.add_css_class("caption");
             dir_label.set_halign(gtk4::Align::Start);
+            dir_label.set_valign(gtk4::Align::Center);
+            dir_label.set_margin_start(6);
             dir_label.set_hexpand(true);
             dir_label.set_ellipsize(gtk4::pango::EllipsizeMode::Start);
             row.append(&dir_label);
         }
 
         let list_row = gtk4::ListBoxRow::new();
+        list_row.add_css_class("editor-file-tree-row");
         list_row.set_child(Some(&row));
         list_row.set_widget_name(&path.to_string_lossy());
         list_row.set_tooltip_text(Some(&rel.to_string_lossy()));
@@ -546,18 +558,22 @@ fn render_results(
 
     for (file_path, match_count, _first_line) in &file_groups {
         let rel = file_path.strip_prefix(root).unwrap_or(file_path);
-        let row = gtk4::Box::new(gtk4::Orientation::Horizontal, 6);
-        row.set_margin_start(6);
-        row.set_margin_end(6);
-        row.set_margin_top(3);
-        row.set_margin_bottom(3);
+        let row = gtk4::Box::new(gtk4::Orientation::Horizontal, 1);
+        row.set_size_request(-1, SEARCH_ROW_HEIGHT_PX);
+        row.set_margin_start(3);
+        row.set_margin_top(0);
+        row.set_margin_bottom(0);
+        row.add_css_class("editor-file-tree-entry");
 
         let icon = gtk4::Image::from_icon_name("text-x-generic-symbolic");
-        icon.set_pixel_size(14);
+        icon.set_pixel_size(SEARCH_ROW_ICON_PX);
+        icon.set_valign(gtk4::Align::Center);
         row.append(&icon);
 
         let name_label = gtk4::Label::new(Some(&rel.to_string_lossy()));
         name_label.set_halign(gtk4::Align::Start);
+        name_label.set_valign(gtk4::Align::Center);
+        name_label.set_margin_start(3);
         name_label.set_hexpand(true);
         name_label.set_ellipsize(gtk4::pango::EllipsizeMode::Start);
         name_label.set_tooltip_text(Some(&rel.to_string_lossy()));
@@ -565,10 +581,12 @@ fn render_results(
 
         let count_label = gtk4::Label::new(Some(&format!("{}", match_count)));
         count_label.add_css_class("dim-label");
-        count_label.add_css_class("caption");
+        count_label.set_valign(gtk4::Align::Center);
+        count_label.set_margin_end(3);
         row.append(&count_label);
 
         let list_row = gtk4::ListBoxRow::new();
+        list_row.add_css_class("editor-file-tree-row");
         list_row.set_child(Some(&row));
         list_row.set_widget_name(&file_path.to_string_lossy());
         results_list.append(&list_row);
