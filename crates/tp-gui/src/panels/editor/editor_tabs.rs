@@ -171,6 +171,9 @@ pub struct EditorTabs {
     /// Drawing area beside the editor that paints a gold mark at every line
     /// in match_lines and scrolls to the nearest match on click.
     match_ruler: gtk4::DrawingArea,
+    /// Amber note markers to the left of the source view. Populated from
+    /// the active source tab's NotesState via `refresh_notes_ruler`.
+    pub notes_ruler: Rc<super::notes_ruler::NotesRuler>,
 }
 
 impl EditorTabs {
@@ -244,9 +247,13 @@ impl EditorTabs {
         );
         match_ruler.set_visible(false);
 
+        let notes_ruler = Rc::new(super::notes_ruler::NotesRuler::new());
+        notes_ruler.widget.set_visible(false);
+
         let editor_row = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
         editor_row.set_vexpand(true);
         editor_row.set_hexpand(true);
+        editor_row.append(&notes_ruler.widget);
         editor_row.append(&source_scroll);
         editor_row.append(&match_ruler);
 
@@ -332,6 +339,7 @@ impl EditorTabs {
             let mr = match_ruler.clone();
             let lsq = last_search_query.clone();
             let cs = content_stack.clone();
+            let nr = notes_ruler.clone();
             notebook.connect_switch_page(move |_nb, _page, page_num| {
                 let idx = page_num as usize;
                 // Resolve child + buffer under an immutable borrow so the
@@ -373,9 +381,19 @@ impl EditorTabs {
                             } else {
                                 lang_l.set_text("Plain Text");
                             }
+                            // Notes ruler for source tabs.
+                            if let super::tab_content::TabContent::Source(source) =
+                                &open_file.content
+                            {
+                                let note_lines = source.notes.current_lines(&source.buffer);
+                                nr.update(note_lines, source.buffer.line_count());
+                            } else {
+                                nr.clear();
+                            }
                         } else {
                             ml.borrow_mut().clear();
                             mr.set_visible(false);
+                            nr.clear();
                             lang_l.set_text(match &open_file.content {
                                 super::tab_content::TabContent::Markdown(_) => "Markdown",
                                 super::tab_content::TabContent::Image(_) => "Image",
@@ -726,7 +744,29 @@ impl EditorTabs {
             match_lines,
             last_search_query,
             match_ruler,
+            notes_ruler,
         }
+    }
+
+    /// Refresh the notes ruler from the active source tab's NotesState.
+    /// Called after tab switch and after any note add/edit/delete.
+    pub fn refresh_notes_ruler(&self, state: &Rc<RefCell<EditorState>>) {
+        let st = state.borrow();
+        let Some(idx) = st.active_tab else {
+            self.notes_ruler.clear();
+            return;
+        };
+        let Some(open_file) = st.open_files.get(idx) else {
+            self.notes_ruler.clear();
+            return;
+        };
+        let super::tab_content::TabContent::Source(source) = &open_file.content else {
+            self.notes_ruler.clear();
+            return;
+        };
+        let lines = source.notes.current_lines(&source.buffer);
+        let total = source.buffer.line_count();
+        self.notes_ruler.update(lines, total);
     }
 
     /// Recompute the search-match overview ruler for the currently-active
@@ -1529,6 +1569,8 @@ impl EditorTabs {
                 ""
             });
         }
+        drop(st);
+        self.refresh_notes_ruler(state);
     }
 
     /// Re-populate the shadow buffer with the keyword list for the active
