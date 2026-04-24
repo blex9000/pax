@@ -6,7 +6,7 @@
 //! rebuilds the list. Notes scale to tens per panel, so the cost is
 //! negligible and state management stays trivial.
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
 use gtk4::prelude::*;
@@ -48,6 +48,11 @@ pub struct NoteListView {
     record_key: Rc<String>,
     panel_id: Rc<String>,
     state: Rc<RefCell<ListState>>,
+    /// Suppresses `selected-notify` re-entry: `refresh_tag_dropdown` mutates
+    /// the model + selection during a reload, which emits `notify::selected`
+    /// synchronously. Without this flag the handler would call `reload`
+    /// again and recurse until the stack blows.
+    updating: Rc<Cell<bool>>,
 }
 
 impl NoteListView {
@@ -133,6 +138,7 @@ impl NoteListView {
             record_key,
             panel_id,
             state: Rc::new(RefCell::new(ListState::default())),
+            updating: Rc::new(Cell::new(false)),
         });
 
         // Wire handlers.
@@ -146,6 +152,9 @@ impl NoteListView {
         {
             let v = view.clone();
             view.tag_dropdown.connect_selected_notify(move |dd| {
+                if v.updating.get() {
+                    return;
+                }
                 let selected = dd
                     .selected_item()
                     .and_then(|o| o.downcast::<gtk4::StringObject>().ok())
@@ -179,12 +188,18 @@ impl NoteListView {
             return;
         };
 
+        // Suppress `notify::selected` re-entry while we rewrite the
+        // dropdown model below; see the `updating` field's doc.
+        self.updating.set(true);
+
         // Refresh the tag dropdown options (keeping the current selection if
         // it still exists, otherwise fall back to "All tags").
         let tags = db
             .list_tags_for_panel(&self.record_key, &self.panel_id)
             .unwrap_or_default();
         self.refresh_tag_dropdown(&tags);
+
+        self.updating.set(false);
 
         // Query notes, then apply the tag filter client-side (FTS doesn't
         // know about tag equality — only substring matches).

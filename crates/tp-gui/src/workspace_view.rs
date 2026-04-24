@@ -704,6 +704,7 @@ impl WorkspaceView {
             extra.insert("__workspace_dir__".to_string(), dir);
         }
         extra.insert("__workspace_record_key__".to_string(), record_key);
+        extra.insert("__panel_id__".to_string(), panel_id.to_string());
         let config = PanelCreateConfig {
             shell: self.workspace.settings.default_shell.clone(),
             cwd: None,
@@ -735,6 +736,7 @@ impl WorkspaceView {
                         poll_interval: None,
                     }
                 }
+                "note" => PanelType::Note,
                 _ => PanelType::Terminal,
             };
             panel_cfg.name = format!("{}", type_id);
