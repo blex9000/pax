@@ -11,6 +11,7 @@
 //! app. The note still carries a `fired_at` badge so the user can see it
 //! was due.
 
+use std::rc::Rc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use gtk4::glib;
@@ -106,11 +107,25 @@ fn startup_sweep(app: &adw::Application) {
 fn emit_alert(app: &adw::Application, note: &pax_db::workspace_notes::WorkspaceNote) {
     let title = note_title_for_display(&note.title);
     let body = note_preview(&note.text);
+    // Resolve the note's owning workspace name so the toast subtitle
+    // tells the user which workspace the note lives in (critical when
+    // it's not the one currently on screen).
+    let workspace_name =
+        open_db().and_then(|db| db.find_workspace_by_record_key(&note.record_key).ok().flatten());
+    let workspace_name_str = workspace_name.as_ref().map(|w| w.name.as_str());
+
     crate::notifications::send_desktop(app, None, &title, &body);
+
+    let note_id = note.id;
+    let on_click: Rc<dyn Fn()> = Rc::new(move || {
+        crate::widgets::alert_tray::dispatch_note_click(note_id);
+    });
+
     // Also push an in-app toast that stays visible until the user
     // dismisses it — the OS notification auto-hides after a few seconds
-    // and users reported missing alerts entirely.
-    crate::widgets::alert_tray::emit(&title, &body);
+    // and users reported missing alerts entirely. Clicking the toast
+    // focuses the owning note panel (see alert_tray::register_note_click_handler).
+    crate::widgets::alert_tray::emit(&title, &body, workspace_name_str, Some(on_click));
 }
 
 fn note_title_for_display(raw: &str) -> String {

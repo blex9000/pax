@@ -118,6 +118,32 @@ impl Database {
         Ok(rows.filter_map(|r| r.ok()).collect())
     }
 
+    /// Look up a workspace record by its stored record_key
+    /// (format: `path:<config>` or `name:<workspace-name>`). Used by
+    /// the scheduled-alert toast so a note can display its owning
+    /// workspace name when it differs from the currently open one.
+    pub fn find_workspace_by_record_key(
+        &self,
+        record_key: &str,
+    ) -> Result<Option<WorkspaceRecord>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, name, config_path, last_opened, open_count
+             FROM workspace_metadata WHERE record_key = ?1 LIMIT 1",
+        )?;
+        let row = stmt
+            .query_row([record_key], |row| {
+                Ok(WorkspaceRecord {
+                    id: row.get(0)?,
+                    name: row.get(1)?,
+                    config_path: row.get(2)?,
+                    last_opened: row.get(3)?,
+                    open_count: row.get(4)?,
+                })
+            })
+            .optional()?;
+        Ok(row)
+    }
+
     /// Remove a workspace record.
     pub fn remove_workspace(&self, name: &str) -> Result<()> {
         self.conn.execute(

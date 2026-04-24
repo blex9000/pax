@@ -604,6 +604,24 @@ impl WorkspaceView {
         &self.workspace.name
     }
 
+    /// Record key of the currently loaded workspace — same value stored
+    /// on notes / commands so external callers (scheduled-alert click
+    /// handler) can compare "is the note in the workspace I'm looking
+    /// at?".
+    pub fn record_key(&self) -> String {
+        let config_path_str = self.config_path_str();
+        self.workspace.record_key(config_path_str.as_deref())
+    }
+
+    /// Reveal and focus the panel with the given id. If the panel lives
+    /// inside a non-active Notebook tab, the containing tab is switched
+    /// first. Returns false when the panel isn't in the current
+    /// workspace (caller should handle that — e.g. prompt to load the
+    /// owning workspace from file).
+    pub fn focus_panel(&mut self, panel_id: &str) -> bool {
+        self.focus_panel_after_rebuild(panel_id)
+    }
+
     pub fn is_dirty(&self) -> bool {
         self.dirty
     }

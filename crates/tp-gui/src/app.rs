@@ -425,6 +425,109 @@ fn install_window_content_with_alert_tray(
     window.set_content(Some(&overlay));
 }
 
+/// Dispatch target for the scheduled-alert click handler registered in
+/// `setup_workspace_ui`. Looks up the note and either focuses its
+/// panel (same workspace) or shows the choice dialog (this / new
+/// window) so the user can open its owning workspace.
+fn handle_alert_click(
+    ws_view: &Rc<RefCell<crate::workspace_view::WorkspaceView>>,
+    window: &Rc<adw::ApplicationWindow>,
+    status_bar: &Rc<RefCell<crate::widgets::status_bar::StatusBar>>,
+    save_action: &gtk4::gio::SimpleAction,
+    note_id: i64,
+) {
+    let Some(db) = pax_db::Database::open(&pax_db::Database::default_path()).ok() else {
+        tracing::warn!("alert click: could not open db");
+        return;
+    };
+    let Some(note) = db.get_workspace_note(note_id).ok().flatten() else {
+        status_bar.borrow().set_message("Note no longer exists");
+        return;
+    };
+
+    let current_record_key = ws_view.borrow().record_key();
+    if note.record_key == current_record_key {
+        if !ws_view.borrow_mut().focus_panel(&note.panel_id) {
+            status_bar.borrow().set_message(&format!(
+                "Note panel {} not found in current workspace",
+                note.panel_id
+            ));
+        }
+        return;
+    }
+
+    // Different workspace. Resolve its record + config path so we can
+    // offer "this window" / "new window".
+    let Some(record) = db.find_workspace_by_record_key(&note.record_key).ok().flatten() else {
+        status_bar
+            .borrow()
+            .set_message("Note's workspace is no longer in history");
+        return;
+    };
+    let Some(ref config_path) = record.config_path else {
+        status_bar
+            .borrow()
+            .set_message("Note's workspace has no saved config file");
+        return;
+    };
+    let path = std::path::PathBuf::from(config_path);
+    if !path.exists() {
+        status_bar
+            .borrow()
+            .set_message(&format!("Workspace file missing: {}", path.display()));
+        return;
+    }
+
+    let ws_for_decision = ws_view.clone();
+    let window_for_decision = window.clone();
+    let sb_for_decision = status_bar.clone();
+    let sa_for_decision = save_action.clone();
+    let note_panel_id = note.panel_id.clone();
+    crate::dialogs::open_workspace_choice::show(
+        window,
+        &record.name,
+        &path,
+        Rc::new(
+            move |decision| match decision {
+                crate::dialogs::open_workspace_choice::OpenWorkspaceDecision::Cancel => {}
+                crate::dialogs::open_workspace_choice::OpenWorkspaceDecision::NewWindow(p) => {
+                    if let Err(e) = crate::workspace_launcher::open_in_new_window(&p) {
+                        sb_for_decision
+                            .borrow()
+                            .set_message(&format!("Failed to spawn new window: {}", e));
+                    }
+                }
+                crate::dialogs::open_workspace_choice::OpenWorkspaceDecision::ThisWindow(p) => {
+                    let load = ws_for_decision.borrow_mut().load_from_file(&p);
+                    match load {
+                        Ok(()) => {
+                            let theme = apply_preferred_theme();
+                            ws_for_decision
+                                .borrow_mut()
+                                .set_workspace_theme_id_clean(theme.to_id());
+                            actions::update_dirty_ui(
+                                &ws_for_decision,
+                                &window_for_decision,
+                                &sa_for_decision,
+                            );
+                            // Try to focus the note panel in the freshly
+                            // loaded workspace.
+                            let _ =
+                                ws_for_decision.borrow_mut().focus_panel(&note_panel_id);
+                            sb_for_decision
+                                .borrow()
+                                .set_message(&format!("Opened: {}", p.display()));
+                        }
+                        Err(e) => {
+                            sb_for_decision.borrow().set_message(&format!("Error: {}", e));
+                        }
+                    }
+                }
+            },
+        ),
+    );
+}
+
 /// Build the theme-picker popover attached to the header bar button.
 /// Radio check buttons for each theme + a Customize button at the bottom.
 fn build_theme_popover(parent_window: &Rc<adw::ApplicationWindow>) -> gtk4::Popover {
@@ -1380,6 +1483,24 @@ fn setup_workspace_ui(
     toolbar_view.set_content(Some(&content_box));
     install_window_content_with_alert_tray(window, &toolbar_view);
     apply_theme(workspace_theme);
+
+    // Register the scheduled-alert click handler: look up the note,
+    // focus its panel if it lives in the current workspace, or prompt
+    // the user to open its owning workspace (this window / new window)
+    // otherwise.
+    {
+        let ws_weak = Rc::downgrade(&ws_view);
+        let window_weak = Rc::downgrade(window);
+        let sb_weak = Rc::downgrade(&status_bar);
+        let sa = save_action.clone();
+        let handler: Rc<dyn Fn(i64)> = Rc::new(move |note_id: i64| {
+            let Some(ws_view) = ws_weak.upgrade() else { return; };
+            let Some(window) = window_weak.upgrade() else { return; };
+            let Some(status_bar) = sb_weak.upgrade() else { return; };
+            handle_alert_click(&ws_view, &window, &status_bar, &sa, note_id);
+        });
+        crate::widgets::alert_tray::register_note_click_handler(handler);
+    }
 
     // Keyboard shortcuts
     let controller = gtk4::EventControllerKey::new();

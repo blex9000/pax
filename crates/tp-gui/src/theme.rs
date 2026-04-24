@@ -1526,6 +1526,18 @@ window.app-dialog dropdown.settings-theme-dropdown > popover.menu row:selected,
   font-size: 12px;
 }
 
+.alert-toast-workspace {
+  color: alpha(@card_fg_color, 0.55);
+  font-size: 10px;
+}
+
+.alert-toast-clickable {
+  /* Signal clickability with a subtle hover border brightening. */
+}
+.alert-toast-clickable:hover {
+  border-color: @note_warning;
+}
+
 .alert-toast-body {
   color: alpha(@card_fg_color, 0.85);
   font-size: 11px;
