@@ -403,7 +403,26 @@ fn setup_welcome_ui(window: &Rc<adw::ApplicationWindow>) {
     }));
 
     toolbar_view.set_content(Some(&welcome));
-    window.set_content(Some(&toolbar_view));
+    install_window_content_with_alert_tray(window, &toolbar_view);
+}
+
+/// Wrap `toolbar_view` in a GtkOverlay with the in-app alert tray
+/// anchored top-right, install the overlay as the window's content,
+/// and register the tray as the global alert sink. Shared between the
+/// welcome screen and the workspace UI so scheduled alerts pop up
+/// regardless of which screen is active.
+fn install_window_content_with_alert_tray(
+    window: &Rc<adw::ApplicationWindow>,
+    toolbar_view: &adw::ToolbarView,
+) {
+    let overlay = gtk4::Overlay::new();
+    overlay.set_child(Some(toolbar_view));
+
+    let tray = crate::widgets::alert_tray::AlertTray::new();
+    overlay.add_overlay(tray.widget());
+    crate::widgets::alert_tray::register_global(tray);
+
+    window.set_content(Some(&overlay));
 }
 
 /// Build the theme-picker popover attached to the header bar button.
@@ -1359,7 +1378,7 @@ fn setup_workspace_ui(
     toolbar_view.add_css_class("app-toolbar-view");
     toolbar_view.add_top_bar(&header);
     toolbar_view.set_content(Some(&content_box));
-    window.set_content(Some(&toolbar_view));
+    install_window_content_with_alert_tray(window, &toolbar_view);
     apply_theme(workspace_theme);
 
     // Keyboard shortcuts

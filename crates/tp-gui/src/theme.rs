@@ -1498,6 +1498,43 @@ window.app-dialog dropdown.settings-theme-dropdown > popover.menu row:selected,
   border-radius: 6px;
   padding: 6px 12px;
 }
+
+/* ── In-app scheduled-alert toasts (top-right overlay) ───────────── */
+.alert-tray {
+  /* Empty tray shouldn't claim pointer events or paint anything. */
+  background-color: transparent;
+}
+
+.alert-toast {
+  background-color: @card_bg_color;
+  color: @card_fg_color;
+  border: 1px solid alpha(@note_warning, 0.55);
+  border-left: 4px solid @note_warning;
+  border-radius: 8px;
+  padding: 10px 12px;
+  box-shadow: 0 4px 14px alpha(black, 0.28);
+}
+
+.alert-toast-title {
+  font-weight: 700;
+  color: @note_warning;
+  font-size: 12px;
+}
+
+.alert-toast-body {
+  color: alpha(@card_fg_color, 0.85);
+  font-size: 11px;
+}
+
+.alert-toast-close {
+  padding: 0;
+  min-height: 20px;
+  min-width: 20px;
+  opacity: 0.6;
+}
+.alert-toast-close:hover {
+  opacity: 1;
+}
 ";
 
 const GRAPHITE_CSS: &str = "\

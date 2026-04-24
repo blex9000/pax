@@ -106,6 +106,10 @@ fn startup_sweep(app: &adw::Application) {
 fn emit_alert(app: &adw::Application, body_source: &str) {
     let body = note_preview(body_source);
     crate::notifications::send_desktop(app, None, "Pax note", &body);
+    // Also push an in-app toast that stays visible until the user
+    // dismisses it — the OS notification auto-hides after a few seconds
+    // and users reported missing alerts entirely.
+    crate::widgets::alert_tray::emit("Pax note", &body);
 }
 
 /// Collapse a markdown note down to a plain one-line preview suitable
