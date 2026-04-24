@@ -205,37 +205,13 @@
     background: alpha(#dc2626, 0.17);
 }
 
-/* ── Action buttons: text labels, always visible and clickable ───── */
-.note-card-actions {
-    opacity: 1;
+/* ── Card is fully clickable: cursor + hover affordance ──────────── */
+.note-card {
+    /* Hand cursor to signal the whole card is clickable. */
 }
 
-.note-card-action {
-    padding: 4px 12px;
-    min-height: 26px;
-    font-size: 11px;
-    font-weight: 500;
-    color: @theme_fg_color;
-    background: alpha(@theme_fg_color, 0.08);
-    border: 1px solid alpha(@borders, 0.5);
-    border-radius: 6px;
-}
-
-.note-card-action:hover {
-    background: alpha(@accent_color, 0.2);
-    border-color: alpha(@accent_color, 0.6);
-}
-
-.note-card-action-danger {
-    color: #dc2626;
-    background: alpha(#dc2626, 0.08);
-    border-color: alpha(#dc2626, 0.35);
-}
-
-.note-card-action-danger:hover {
-    background: alpha(#dc2626, 0.2);
-    border-color: #dc2626;
-    color: #dc2626;
+.note-card:hover {
+    cursor: pointer;
 }
 
 .note-toast {
