@@ -44,12 +44,11 @@ struct ListState {
 
 pub struct NoteListView {
     root: gtk4::Box,
-    /// Cards live in a plain vertical Box inside a ScrolledWindow. The
-    /// previous FlowBox version was eating card-button clicks: hover
-    /// events arrived but click events never reached the buttons, even
-    /// with activate_on_single_click=false. A plain Box has no gesture
-    /// surface of its own so clicks hit the buttons directly.
-    cards_box: gtk4::Box,
+    /// Cards live in a ListBox (selection-mode None, non-activatable rows).
+    /// ListBox is GTK's well-tested scrollable list container — unlike a
+    /// plain Box or a FlowBox inside a ScrolledWindow, it reliably forwards
+    /// click events to interactive children like the card's action buttons.
+    cards_list: gtk4::ListBox,
     search_entry: gtk4::SearchEntry,
     tag_dropdown: gtk4::DropDown,
     toast_revealer: gtk4::Revealer,
@@ -94,24 +93,25 @@ impl NoteListView {
 
         root.append(&header);
 
-        // ── Scrollable single-column stack ──────────────────────────
-        // Plain vertical Box (not FlowBox). The FlowBox experiment ate
-        // button clicks: hover fired but connect_clicked never did,
-        // even with activate_on_single_click=false. A Box is a dumb
-        // container and clicks reach the card buttons uninterrupted.
+        // ── Scrollable single-column list ───────────────────────────
+        // ListBox is the standard GTK container for scrollable cliccable
+        // lists (file tree, sidebar, etc.). Selection mode None + rows
+        // with set_activatable(false) means the row itself consumes no
+        // clicks: they fall straight through to the card's buttons.
         let scroll = gtk4::ScrolledWindow::new();
         scroll.set_vexpand(true);
         scroll.set_hscrollbar_policy(gtk4::PolicyType::Never);
         scroll.set_vscrollbar_policy(gtk4::PolicyType::Automatic);
 
-        let cards_box = gtk4::Box::new(gtk4::Orientation::Vertical, 6);
-        cards_box.add_css_class("notes-list");
-        cards_box.set_margin_start(6);
-        cards_box.set_margin_end(6);
-        cards_box.set_margin_top(4);
-        cards_box.set_margin_bottom(4);
+        let cards_list = gtk4::ListBox::new();
+        cards_list.set_selection_mode(gtk4::SelectionMode::None);
+        cards_list.add_css_class("notes-list");
+        cards_list.set_margin_start(6);
+        cards_list.set_margin_end(6);
+        cards_list.set_margin_top(4);
+        cards_list.set_margin_bottom(4);
 
-        scroll.set_child(Some(&cards_box));
+        scroll.set_child(Some(&cards_list));
         root.append(&scroll);
 
         // ── Undo toast (revealer over the bottom edge) ──────────────
@@ -141,7 +141,7 @@ impl NoteListView {
 
         let view = Rc::new(Self {
             root,
-            cards_box,
+            cards_list,
             search_entry,
             tag_dropdown,
             toast_revealer,
@@ -235,9 +235,9 @@ impl NoteListView {
             None => notes,
         };
 
-        // Rebuild the stack.
-        while let Some(child) = self.cards_box.first_child() {
-            self.cards_box.remove(&child);
+        // Rebuild the list.
+        while let Some(child) = self.cards_list.first_child() {
+            self.cards_list.remove(&child);
         }
 
         if notes.is_empty() {
@@ -247,7 +247,11 @@ impl NoteListView {
             placeholder.add_css_class("dim-label");
             placeholder.set_margin_top(24);
             placeholder.set_margin_bottom(24);
-            self.cards_box.append(&placeholder);
+            let row = gtk4::ListBoxRow::new();
+            row.set_activatable(false);
+            row.set_selectable(false);
+            row.set_child(Some(&placeholder));
+            self.cards_list.append(&row);
             return;
         }
 
@@ -273,7 +277,11 @@ impl NoteListView {
                     },
                 },
             );
-            self.cards_box.append(&card);
+            let row = gtk4::ListBoxRow::new();
+            row.set_activatable(false);
+            row.set_selectable(false);
+            row.set_child(Some(&card));
+            self.cards_list.append(&row);
         }
     }
 
