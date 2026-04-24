@@ -119,11 +119,13 @@ pub fn build_welcome(on_choice: WelcomeCallback) -> gtk4::Widget {
 
     container.append(&actions);
 
-    // Recent workspaces section
+    // Recent workspaces section — same limit as the Recent Workspaces
+    // dialog (actions::show_recent_dialog) so both surfaces show the
+    // same cardinality.
     let db_path = pax_db::Database::default_path();
     let recents = pax_db::Database::open(&db_path)
         .ok()
-        .and_then(|db| db.list_workspaces_limit(10).ok())
+        .and_then(|db| db.list_workspaces_limit(20).ok())
         .unwrap_or_default();
     let visible_recents: Vec<_> = recents
         .into_iter()
@@ -205,10 +207,16 @@ pub fn build_welcome(on_choice: WelcomeCallback) -> gtk4::Widget {
             }
         });
 
+        // Scrollable recent list — sized like the Recent Workspaces
+        // dialog (fixed height, vertical scroll when there are many
+        // entries). Previously the list used propagate_natural_height
+        // with a 250px cap, so with 3-4 recents it looked shrunken.
         let scroll = gtk4::ScrolledWindow::new();
         scroll.set_child(Some(&list_box));
-        scroll.set_max_content_height(250);
-        scroll.set_propagate_natural_height(true);
+        scroll.set_min_content_height(300);
+        scroll.set_max_content_height(400);
+        scroll.set_hscrollbar_policy(gtk4::PolicyType::Never);
+        scroll.set_vscrollbar_policy(gtk4::PolicyType::Automatic);
         container.append(&scroll);
     }
 
