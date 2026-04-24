@@ -80,18 +80,6 @@ pub fn build_note_card(note: &WorkspaceNote, actions: NoteCardActions) -> gtk4::
         compact.append(&badge);
     }
 
-    let has_more = note_has_more_content(&note.text);
-    let expand_btn = gtk4::Button::from_icon_name("pan-down-symbolic");
-    expand_btn.add_css_class("flat");
-    expand_btn.add_css_class("note-card-action");
-    expand_btn.add_css_class("note-card-expand");
-    expand_btn.set_tooltip_text(Some("Expand"));
-    expand_btn.set_valign(gtk4::Align::Center);
-    if !has_more {
-        expand_btn.set_visible(false);
-    }
-    compact.append(&expand_btn);
-
     let edit_btn = gtk4::Button::with_label("Edit");
     edit_btn.add_css_class("note-card-action");
     edit_btn.add_css_class("note-card-hover-action");
@@ -112,6 +100,18 @@ pub fn build_note_card(note: &WorkspaceNote, actions: NoteCardActions) -> gtk4::
         delete_btn.connect_clicked(move |_| on_del());
     }
     compact.append(&delete_btn);
+
+    let has_more = note_has_more_content(&note.text);
+    let expand_btn = gtk4::Button::from_icon_name("pan-down-symbolic");
+    expand_btn.add_css_class("flat");
+    expand_btn.add_css_class("note-card-action");
+    expand_btn.add_css_class("note-card-expand");
+    expand_btn.set_tooltip_text(Some("Expand"));
+    expand_btn.set_valign(gtk4::Align::Center);
+    if !has_more {
+        expand_btn.set_visible(false);
+    }
+    compact.append(&expand_btn);
 
     card.append(&compact);
 
