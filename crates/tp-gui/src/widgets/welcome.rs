@@ -121,23 +121,14 @@ pub fn build_welcome(on_choice: WelcomeCallback) -> gtk4::Widget {
 
     // Recent workspaces section — same limit as the Recent Workspaces
     // dialog (actions::show_recent_dialog) so both surfaces show the
-    // same cardinality.
+    // same cardinality. Entries whose file no longer exists are shown
+    // dimmed and disabled, matching the dialog's behaviour (not filtered
+    // out — so users still see their history even after moves/deletes).
     let db_path = pax_db::Database::default_path();
-    let recents = pax_db::Database::open(&db_path)
+    let visible_recents = pax_db::Database::open(&db_path)
         .ok()
         .and_then(|db| db.list_workspaces_limit(20).ok())
         .unwrap_or_default();
-    let visible_recents: Vec<_> = recents
-        .into_iter()
-        .filter(|record| {
-            record
-                .config_path
-                .as_deref()
-                .map(std::path::Path::new)
-                .map(|path| path.exists())
-                .unwrap_or(false)
-        })
-        .collect();
 
     if !visible_recents.is_empty() {
         let sep = gtk4::Separator::new(gtk4::Orientation::Horizontal);
@@ -154,7 +145,12 @@ pub fn build_welcome(on_choice: WelcomeCallback) -> gtk4::Widget {
         list_box.add_css_class("boxed-list");
 
         for record in &visible_recents {
-            let config_path = record.config_path.as_ref().unwrap();
+            let config_path_opt = record.config_path.clone();
+            let file_exists = config_path_opt
+                .as_deref()
+                .map(std::path::Path::new)
+                .map(|p| p.exists())
+                .unwrap_or(false);
 
             let row_box = gtk4::Box::new(gtk4::Orientation::Horizontal, 12);
             row_box.set_margin_top(6);
@@ -173,24 +169,41 @@ pub fn build_welcome(on_choice: WelcomeCallback) -> gtk4::Widget {
             name.set_halign(gtk4::Align::Start);
             info.append(&name);
 
-            let path_label = gtk4::Label::new(Some(config_path));
+            let path_text = config_path_opt.as_deref().unwrap_or("(no file)");
+            let path_label = gtk4::Label::new(Some(path_text));
             path_label.add_css_class("dim-label");
             path_label.add_css_class("caption");
             path_label.set_halign(gtk4::Align::Start);
             path_label.set_ellipsize(gtk4::pango::EllipsizeMode::Start);
-            path_label.set_tooltip_text(Some(config_path));
+            path_label.set_tooltip_text(Some(if file_exists {
+                path_text
+            } else if config_path_opt.is_some() {
+                "File not found"
+            } else {
+                "No config file"
+            }));
             info.append(&path_label);
 
             row_box.append(&info);
 
-            // Make the whole row clickable
             let row = gtk4::ListBoxRow::new();
             row.set_child(Some(&row_box));
-            row.set_activatable(true);
+            // Missing-file rows stay inert so a click on a dangling entry
+            // can't produce a confused "loading" state, same pattern as
+            // actions::show_recent_dialog.
+            row.set_activatable(file_exists);
+            row.set_selectable(file_exists);
+            if !file_exists {
+                row.add_css_class("dim-label");
+            }
 
-            let cp = config_path.clone();
-            // We'll use ListBox row-activated signal instead
-            row_box.set_widget_name(&cp);
+            // Row-activated looks up the config path from the row's widget
+            // name; leave empty for unopenable rows.
+            row_box.set_widget_name(if file_exists {
+                config_path_opt.as_deref().unwrap_or("")
+            } else {
+                ""
+            });
 
             list_box.append(&row);
         }
