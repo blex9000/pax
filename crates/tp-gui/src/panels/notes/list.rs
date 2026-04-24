@@ -36,6 +36,10 @@ struct ListState {
     /// any previous timer on a new deletion so a stale timeout can't wipe
     /// the freshly set `last_deleted` snapshot.
     pending_toast_timer: Option<gtk4::glib::SourceId>,
+    /// Cache of the tag set currently populating the dropdown. We only
+    /// rebuild its model when this changes — rebuilding during a
+    /// selection-change notify caused the dropdown popup to hang.
+    dropdown_tags: Vec<String>,
 }
 
 pub struct NoteListView {
@@ -156,7 +160,9 @@ impl NoteListView {
             let v = view.clone();
             view.search_entry.connect_search_changed(move |entry| {
                 v.state.borrow_mut().query = entry.text().to_string();
-                v.reload();
+                if let Some(db) = open_db() {
+                    v.reload_grid_only(&db);
+                }
             });
         }
         {
@@ -172,7 +178,11 @@ impl NoteListView {
                 v.state.borrow_mut().tag_filter = selected
                     .filter(|s| s != ALL_TAGS_LABEL)
                     .filter(|s| !s.is_empty());
-                v.reload();
+                // Grid-only reload: do NOT rebuild the dropdown model
+                // here — that was the source of the hang.
+                if let Some(db) = open_db() {
+                    v.reload_grid_only(&db);
+                }
             });
         }
         {
@@ -192,25 +202,27 @@ impl NoteListView {
         self.root.upcast_ref()
     }
 
-    /// Re-query the database and rebuild the list.
+    /// Full reload: refresh the tag dropdown AND rebuild the grid. Call
+    /// after mutations (create / delete / update / cycle severity) but
+    /// NOT inside the dropdown's own selection-change handler — that
+    /// used to freeze the popup when the model was rebuilt mid-notify.
     pub fn reload(self: &Rc<Self>) {
         let Some(db) = open_db() else {
             return;
         };
 
-        // Suppress `notify::selected` re-entry while we rewrite the
-        // dropdown model below; see the `updating` field's doc.
-        self.updating.set(true);
-
-        // Refresh the tag dropdown options (keeping the current selection if
-        // it still exists, otherwise fall back to "All tags").
         let tags = db
             .list_tags_for_panel(&self.record_key, &self.panel_id)
             .unwrap_or_default();
-        self.refresh_tag_dropdown(&tags);
+        self.maybe_refresh_tag_dropdown(&tags);
+        self.reload_grid_only(&db);
+    }
 
-        self.updating.set(false);
-
+    /// Rebuild only the cards, not the tag dropdown. Called when the user
+    /// changes the filter (search query or tag selection): touching the
+    /// dropdown model during its own notify::selected is what caused
+    /// the hang.
+    fn reload_grid_only(self: &Rc<Self>, db: &pax_db::Database) {
         // Query notes, then apply the tag filter client-side (FTS doesn't
         // know about tag equality — only substring matches).
         let query = self.state.borrow().query.clone();
@@ -272,14 +284,27 @@ impl NoteListView {
         }
     }
 
-    fn refresh_tag_dropdown(&self, tags: &[String]) {
+    /// Rebuild the tag dropdown model only when the tag set actually
+    /// changes. This is critical: calling `set_model` inside the
+    /// dropdown's own `notify::selected` handler (even behind an
+    /// `updating` guard) used to hang the popup animation. Short-circuit
+    /// the common case.
+    fn maybe_refresh_tag_dropdown(&self, tags: &[String]) {
+        {
+            let state = self.state.borrow();
+            if state.dropdown_tags.as_slice() == tags {
+                return;
+            }
+        }
+
+        self.updating.set(true);
+
         let previous = self.state.borrow().tag_filter.clone();
         let mut options = vec![ALL_TAGS_LABEL.to_string()];
         options.extend(tags.iter().cloned());
         let refs: Vec<&str> = options.iter().map(|s| s.as_str()).collect();
         let model = gtk4::StringList::new(&refs);
         self.tag_dropdown.set_model(Some(&model));
-        // Restore previous selection if still present.
         if let Some(prev) = previous {
             if let Some(idx) = options.iter().position(|o| o == &prev) {
                 self.tag_dropdown.set_selected(idx as u32);
@@ -291,6 +316,9 @@ impl NoteListView {
         } else {
             self.tag_dropdown.set_selected(0);
         }
+
+        self.state.borrow_mut().dropdown_tags = tags.to_vec();
+        self.updating.set(false);
     }
 
     fn on_new_note(self: &Rc<Self>) {
