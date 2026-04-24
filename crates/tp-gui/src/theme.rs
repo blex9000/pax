@@ -1386,7 +1386,9 @@ window.app-dialog dropdown.settings-theme-dropdown > popover.menu row:selected,
 }
 
 .note-card {
-  background-color: @card_bg_color;
+  /* Transparent so the card inherits the panel body bg — same surface
+   * as the search / filter header above, no elevation between them. */
+  background-color: transparent;
   color: @card_fg_color;
   border: 1px solid alpha(@borders, 0.6);
   border-left: 3px solid @note_info;
