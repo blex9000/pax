@@ -1418,6 +1418,19 @@ window.app-dialog dropdown.settings-theme-dropdown > popover.menu row:selected,
   font-size: 12px;
 }
 
+.note-card-separator {
+  color: alpha(@card_fg_color, 0.28);
+  font-weight: 300;
+  padding: 0 2px;
+}
+
+.note-card-clickable {
+  /* Subtle cursor affordance when the row is expandable. */
+}
+.note-card-clickable:hover {
+  /* GTK4 CSS accepts the cursor property inside the stylesheet */
+}
+
 .note-card-rendered,
 .note-card-rendered text,
 .note-card-rendered.view {

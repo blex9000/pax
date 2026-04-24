@@ -1,10 +1,11 @@
 //! Single-note card widget.
 //!
 //! Two visual states:
-//!   compact   — one line: [title · preview…] [tag][tag] [alert] [expand] [edit][delete]
+//!   compact   — one line: [edit][delete] title | preview… [tag][tag] [alert] [▼]
 //!                Edit / Delete appear only when the row is hovered.
-//!                Expand button is shown only when the note has more content
-//!                than fits on one line.
+//!                Expand chevron is shown only when the note has more content
+//!                than fits on one line. Clicking anywhere on the compact row
+//!                (except on Edit / Delete / chevron) toggles the expansion.
 //!   expanded  — compact row kept, plus the fully rendered markdown below it.
 //!
 //! Severity is communicated by a colored left border on the card (info uses
@@ -47,39 +48,10 @@ pub fn build_note_card(note: &WorkspaceNote, actions: NoteCardActions) -> gtk4::
     let compact = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
     compact.set_valign(gtk4::Align::Center);
 
-    let title_label = gtk4::Label::new(None);
-    if note.title.trim().is_empty() {
-        title_label.set_text("Untitled");
-        title_label.add_css_class("dim-label");
-    } else {
-        title_label.set_text(&note.title);
-    }
-    title_label.add_css_class("note-card-title");
-    title_label.set_ellipsize(gtk4::pango::EllipsizeMode::End);
-    title_label.set_halign(gtk4::Align::Start);
-    title_label.set_xalign(0.0);
-    compact.append(&title_label);
-
-    let preview_label = gtk4::Label::new(Some(&first_line_preview(&note.text)));
-    preview_label.add_css_class("note-card-preview");
-    preview_label.set_ellipsize(gtk4::pango::EllipsizeMode::End);
-    preview_label.set_halign(gtk4::Align::Start);
-    preview_label.set_xalign(0.0);
-    preview_label.set_hexpand(true);
-    compact.append(&preview_label);
-
-    for tag in &note.tags {
-        let chip = gtk4::Label::new(Some(tag));
-        chip.add_css_class("tag-chip");
-        compact.append(&chip);
-    }
-
-    if let Some(alert_at) = note.alert_at {
-        let badge = gtk4::Label::new(Some(&format_alert_badge(alert_at, note.alert_fired_at)));
-        badge.add_css_class("alert-badge");
-        compact.append(&badge);
-    }
-
+    // Edit / Delete go first (leftmost). Hidden via CSS until the row is
+    // hovered. Button::clicked claims its own event sequence so the
+    // compact-row click gesture (below) does NOT fire when these are
+    // pressed — edit stays edit, delete stays delete.
     let edit_btn = gtk4::Button::with_label("Edit");
     edit_btn.add_css_class("note-card-action");
     edit_btn.add_css_class("note-card-hover-action");
@@ -100,6 +72,51 @@ pub fn build_note_card(note: &WorkspaceNote, actions: NoteCardActions) -> gtk4::
         delete_btn.connect_clicked(move |_| on_del());
     }
     compact.append(&delete_btn);
+
+    let title_label = gtk4::Label::new(None);
+    if note.title.trim().is_empty() {
+        title_label.set_text("Untitled");
+        title_label.add_css_class("dim-label");
+    } else {
+        title_label.set_text(&note.title);
+    }
+    title_label.add_css_class("note-card-title");
+    title_label.set_ellipsize(gtk4::pango::EllipsizeMode::End);
+    title_label.set_halign(gtk4::Align::Start);
+    title_label.set_xalign(0.0);
+    compact.append(&title_label);
+
+    let preview_text = first_line_preview(&note.text);
+    if !preview_text.is_empty() {
+        let separator = gtk4::Label::new(Some("|"));
+        separator.add_css_class("note-card-separator");
+        separator.set_valign(gtk4::Align::Center);
+        compact.append(&separator);
+
+        let preview_label = gtk4::Label::new(Some(&preview_text));
+        preview_label.add_css_class("note-card-preview");
+        preview_label.set_ellipsize(gtk4::pango::EllipsizeMode::End);
+        preview_label.set_halign(gtk4::Align::Start);
+        preview_label.set_xalign(0.0);
+        preview_label.set_hexpand(true);
+        compact.append(&preview_label);
+    } else {
+        let spacer = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
+        spacer.set_hexpand(true);
+        compact.append(&spacer);
+    }
+
+    for tag in &note.tags {
+        let chip = gtk4::Label::new(Some(tag));
+        chip.add_css_class("tag-chip");
+        compact.append(&chip);
+    }
+
+    if let Some(alert_at) = note.alert_at {
+        let badge = gtk4::Label::new(Some(&format_alert_badge(alert_at, note.alert_fired_at)));
+        badge.add_css_class("alert-badge");
+        compact.append(&badge);
+    }
 
     let has_more = note_has_more_content(&note.text);
     let expand_btn = gtk4::Button::from_icon_name("pan-down-symbolic");
@@ -144,10 +161,12 @@ pub fn build_note_card(note: &WorkspaceNote, actions: NoteCardActions) -> gtk4::
     body_revealer.set_child(Some(&rendered_view));
     card.append(&body_revealer);
 
-    {
+    // Single source of truth for the toggle: expand button click, row
+    // click, and row keyboard activation all call this.
+    let toggle_expand: Rc<dyn Fn()> = {
         let revealer = body_revealer.clone();
         let btn = expand_btn.clone();
-        expand_btn.connect_clicked(move |_| {
+        Rc::new(move || {
             let expanded = !revealer.reveals_child();
             revealer.set_reveal_child(expanded);
             btn.set_icon_name(if expanded {
@@ -156,7 +175,28 @@ pub fn build_note_card(note: &WorkspaceNote, actions: NoteCardActions) -> gtk4::
                 "pan-down-symbolic"
             });
             btn.set_tooltip_text(Some(if expanded { "Collapse" } else { "Expand" }));
+        })
+    };
+
+    {
+        let toggle = toggle_expand.clone();
+        expand_btn.connect_clicked(move |_| toggle());
+    }
+
+    // Row-level click on the compact area toggles the body. Bubble-phase
+    // gesture: any child button (Edit / Delete / chevron) claims the
+    // sequence first, so clicks on them don't also toggle. Clicks on
+    // labels (title, preview, tags, alert badge) do bubble up to us.
+    if has_more {
+        let gesture = gtk4::GestureClick::new();
+        gesture.set_button(gtk4::gdk::BUTTON_PRIMARY);
+        let toggle = toggle_expand.clone();
+        gesture.connect_released(move |g, _, _, _| {
+            g.set_state(gtk4::EventSequenceState::Claimed);
+            toggle();
         });
+        compact.add_controller(gesture);
+        compact.add_css_class("note-card-clickable");
     }
 
     card.upcast()
