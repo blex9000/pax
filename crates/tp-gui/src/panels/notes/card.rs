@@ -55,26 +55,28 @@ pub fn build_note_card(note: &WorkspaceNote, actions: NoteCardActions) -> gtk4::
     title_label.set_hexpand(true);
     header.append(&title_label);
 
-    let edit_btn = gtk4::Button::from_icon_name("document-edit-symbolic");
-    edit_btn.add_css_class("flat");
+    let edit_btn = gtk4::Button::with_label("Edit");
     edit_btn.add_css_class("note-card-action");
-    edit_btn.set_tooltip_text(Some("Edit"));
     edit_btn.set_valign(gtk4::Align::Center);
     {
         let on_open = on_open_editor.clone();
-        edit_btn.connect_clicked(move |_| on_open());
+        edit_btn.connect_clicked(move |_| {
+            tracing::info!("note card: edit clicked");
+            on_open();
+        });
     }
     header.append(&edit_btn);
 
-    let delete_btn = gtk4::Button::from_icon_name("user-trash-symbolic");
-    delete_btn.add_css_class("flat");
+    let delete_btn = gtk4::Button::with_label("Delete");
     delete_btn.add_css_class("note-card-action");
     delete_btn.add_css_class("destructive-action");
-    delete_btn.set_tooltip_text(Some("Delete"));
     delete_btn.set_valign(gtk4::Align::Center);
     {
         let on_del = on_delete.clone();
-        delete_btn.connect_clicked(move |_| on_del());
+        delete_btn.connect_clicked(move |_| {
+            tracing::info!("note card: delete clicked");
+            on_del();
+        });
     }
     header.append(&delete_btn);
 
