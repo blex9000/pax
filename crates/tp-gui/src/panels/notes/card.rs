@@ -1,16 +1,14 @@
 //! Single-note card widget.
 //!
-//! Interaction model (no inline buttons — cleaner and dodges the Button +
-//! FlowBoxChild + panel-focus-gesture rabbit hole that was eating clicks):
-//!
-//!   · Left-click anywhere on the card → open the editor dialog.
-//!   · Right-click anywhere → context popover with Delete.
-//!   · Click the severity dot → cycle info → warning → important.
-//!
-//! Layout (top to bottom):
-//!   header  : title
+//! Layout:
+//!   header  : title + [edit] [delete] icon buttons (right-aligned)
 //!   body    : rendered markdown preview
-//!   footer  : severity dot · tag chips · alert badge (right-aligned)
+//!   footer  : severity dot · tag chips · alert badge
+//!
+//! The Buttons use their native `connect_clicked`. This works reliably once
+//! the panel frame's capture-phase gesture in `panel_host.rs` explicitly
+//! denies its event sequence — otherwise it holds the sequence "pending"
+//! and Button's internal click recognition occasionally fails to claim.
 
 use gtk4::prelude::*;
 use std::rc::Rc;
@@ -40,7 +38,14 @@ pub fn build_note_card(note: &WorkspaceNote, actions: NoteCardActions) -> gtk4::
     card.set_margin_start(4);
     card.set_margin_end(4);
 
-    // ── Title ──────────────────────────────────────────────────────────
+    let on_open_editor = Rc::new(actions.on_open_editor);
+    let on_delete = Rc::new(actions.on_delete);
+    let on_cycle_severity = Rc::new(actions.on_cycle_severity);
+
+    // ── Header: title + edit/delete buttons ────────────────────────────
+    let header = gtk4::Box::new(gtk4::Orientation::Horizontal, 6);
+    header.set_valign(gtk4::Align::Center);
+
     let title_label = gtk4::Label::new(None);
     if note.title.trim().is_empty() {
         title_label.set_text("Untitled");
@@ -52,7 +57,33 @@ pub fn build_note_card(note: &WorkspaceNote, actions: NoteCardActions) -> gtk4::
     title_label.set_ellipsize(gtk4::pango::EllipsizeMode::End);
     title_label.set_halign(gtk4::Align::Start);
     title_label.set_xalign(0.0);
-    card.append(&title_label);
+    title_label.set_hexpand(true);
+    header.append(&title_label);
+
+    let edit_btn = gtk4::Button::from_icon_name("document-edit-symbolic");
+    edit_btn.add_css_class("flat");
+    edit_btn.add_css_class("note-card-action");
+    edit_btn.set_tooltip_text(Some("Edit"));
+    edit_btn.set_valign(gtk4::Align::Center);
+    {
+        let on_open = on_open_editor.clone();
+        edit_btn.connect_clicked(move |_| on_open());
+    }
+    header.append(&edit_btn);
+
+    let delete_btn = gtk4::Button::from_icon_name("user-trash-symbolic");
+    delete_btn.add_css_class("flat");
+    delete_btn.add_css_class("note-card-action");
+    delete_btn.add_css_class("destructive-action");
+    delete_btn.set_tooltip_text(Some("Delete"));
+    delete_btn.set_valign(gtk4::Align::Center);
+    {
+        let on_del = on_delete.clone();
+        delete_btn.connect_clicked(move |_| on_del());
+    }
+    header.append(&delete_btn);
+
+    card.append(&header);
 
     // ── Body: rendered markdown ────────────────────────────────────────
     let rendered_view = gtk4::TextView::new();
@@ -63,9 +94,6 @@ pub fn build_note_card(note: &WorkspaceNote, actions: NoteCardActions) -> gtk4::
     rendered_view.set_right_margin(0);
     rendered_view.set_top_margin(0);
     rendered_view.set_bottom_margin(0);
-    // Make the TextView non-interactive so our card-level GestureClick
-    // receives every click, rather than GTK's selection logic swallowing
-    // the press on the text.
     rendered_view.set_can_target(false);
     rendered_view.add_css_class("note-card-rendered");
     crate::markdown_render::render_markdown_to_view(
@@ -100,44 +128,7 @@ pub fn build_note_card(note: &WorkspaceNote, actions: NoteCardActions) -> gtk4::
 
     card.append(&footer);
 
-    // ── Wiring ─────────────────────────────────────────────────────────
-    let on_open_editor = Rc::new(actions.on_open_editor);
-    let on_delete = Rc::new(actions.on_delete);
-    let on_cycle_severity = Rc::new(actions.on_cycle_severity);
-
-    // Left-click anywhere on the card → open editor.
-    {
-        let gesture = gtk4::GestureClick::new();
-        gesture.set_button(gtk4::gdk::BUTTON_PRIMARY);
-        let on_open = on_open_editor.clone();
-        gesture.connect_pressed(|_, n, x, y| {
-            tracing::info!("note card: CARD press n={n} x={x:.0} y={y:.0}");
-        });
-        gesture.connect_released(move |g, _, _, _| {
-            tracing::info!("note card: CARD release — opening editor");
-            g.set_state(gtk4::EventSequenceState::Claimed);
-            on_open();
-        });
-        card.add_controller(gesture);
-    }
-
-    // Right-click → context popover (Edit + Delete).
-    let context_popover = build_context_popover(&card, on_open_editor.clone(), on_delete.clone());
-    {
-        let gesture = gtk4::GestureClick::new();
-        gesture.set_button(gtk4::gdk::BUTTON_SECONDARY);
-        let popover = context_popover.clone();
-        gesture.connect_pressed(move |g, _, x, y| {
-            g.set_state(gtk4::EventSequenceState::Claimed);
-            let rect = gtk4::gdk::Rectangle::new(x as i32, y as i32, 1, 1);
-            popover.set_pointing_to(Some(&rect));
-            popover.popup();
-        });
-        card.add_controller(gesture);
-    }
-
-    // Click the severity dot (stop propagation so the card-level click
-    // doesn't also trigger the editor).
+    // Click the severity dot to cycle info → warning → important.
     {
         let gesture = gtk4::GestureClick::new();
         gesture.set_button(gtk4::gdk::BUTTON_PRIMARY);
@@ -150,54 +141,6 @@ pub fn build_note_card(note: &WorkspaceNote, actions: NoteCardActions) -> gtk4::
     }
 
     card.upcast()
-}
-
-fn build_context_popover(
-    parent: &gtk4::Box,
-    on_open_editor: Rc<Box<dyn Fn()>>,
-    on_delete: Rc<Box<dyn Fn()>>,
-) -> gtk4::Popover {
-    let popover = gtk4::Popover::new();
-    popover.set_parent(parent);
-    popover.set_autohide(true);
-    popover.set_has_arrow(false);
-    popover.set_position(gtk4::PositionType::Bottom);
-
-    let vbox = gtk4::Box::new(gtk4::Orientation::Vertical, 2);
-    vbox.set_margin_top(4);
-    vbox.set_margin_bottom(4);
-    vbox.set_margin_start(4);
-    vbox.set_margin_end(4);
-
-    let edit_btn = gtk4::Button::with_label("Edit");
-    edit_btn.add_css_class("flat");
-    edit_btn.set_halign(gtk4::Align::Fill);
-    {
-        let popover = popover.clone();
-        let on_open = on_open_editor.clone();
-        edit_btn.connect_clicked(move |_| {
-            popover.popdown();
-            on_open();
-        });
-    }
-    vbox.append(&edit_btn);
-
-    let delete_btn = gtk4::Button::with_label("Delete");
-    delete_btn.add_css_class("flat");
-    delete_btn.add_css_class("destructive-action");
-    delete_btn.set_halign(gtk4::Align::Fill);
-    {
-        let popover = popover.clone();
-        let on_del = on_delete.clone();
-        delete_btn.connect_clicked(move |_| {
-            popover.popdown();
-            on_del();
-        });
-    }
-    vbox.append(&delete_btn);
-
-    popover.set_child(Some(&vbox));
-    popover
 }
 
 fn severity_class(severity: &str) -> String {

@@ -205,13 +205,19 @@
     background: alpha(#dc2626, 0.17);
 }
 
-/* ── Card is fully clickable: cursor + hover affordance ──────────── */
-.note-card {
-    /* Hand cursor to signal the whole card is clickable. */
+/* ── Card action buttons (edit / delete in the header) ───────────── */
+.note-card-action {
+    min-width: 24px;
+    min-height: 24px;
+    padding: 2px 4px;
 }
 
-.note-card:hover {
-    cursor: pointer;
+.note-card-action image {
+    opacity: 0.65;
+}
+
+.note-card-action:hover image {
+    opacity: 1.0;
 }
 
 .note-toast {

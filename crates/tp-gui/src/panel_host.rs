@@ -445,16 +445,20 @@ impl PanelHost {
             let gesture = gtk4::GestureClick::new();
             gesture.set_button(1);
             gesture.set_propagation_phase(gtk4::PropagationPhase::Capture);
-            gesture.connect_pressed(move |_, _, _, _| {
-                if !container_ref.is_visible() {
-                    return;
-                }
-                if let Ok(borrowed) = cb_ref.try_borrow() {
-                    if let Some(ref cb) = *borrowed {
-                        cb(&pid, PanelAction::Focus);
+            gesture.connect_pressed(move |g, _, _, _| {
+                if container_ref.is_visible() {
+                    if let Ok(borrowed) = cb_ref.try_borrow() {
+                        if let Some(ref cb) = *borrowed {
+                            cb(&pid, PanelAction::Focus);
+                        }
                     }
                 }
-                // Don't claim — let the click propagate to the content (VTE, TextView, etc.)
+                // Explicitly deny the sequence so child gestures (Button::clicked
+                // inside note cards, VTE, TextView) are not held pending waiting
+                // for this observational gesture to decide. Leaving it in the
+                // "None" state caused clicks on card buttons to be recognized
+                // only occasionally — a classic gesture-claiming race.
+                g.set_state(gtk4::EventSequenceState::Denied);
             });
             outer.add_controller(gesture);
         }
