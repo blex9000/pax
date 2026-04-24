@@ -1049,7 +1049,14 @@ fn setup_workspace_ui(
         let outside_click = gtk4::GestureClick::new();
         outside_click.set_button(1);
         outside_click.set_propagation_phase(gtk4::PropagationPhase::Capture);
-        outside_click.connect_pressed(move |_, _, x, y| {
+        outside_click.connect_pressed(move |g, _, x, y| {
+            // Purely observational: commit any in-progress tab-name edit when
+            // the user clicks outside it. Deny the sequence before returning
+            // so child gestures (e.g. Button::clicked inside note cards)
+            // aren't held pending waiting for this capture-phase gesture.
+            let finish = |g: &gtk4::GestureClick| {
+                g.set_state(gtk4::EventSequenceState::Denied);
+            };
             let picked = win_for_click.pick(x, y, gtk4::PickFlags::DEFAULT);
             let (active_editor, tab_id) = {
                 let view = ws_for_click.borrow();
@@ -1060,6 +1067,7 @@ fn setup_workspace_ui(
                 (active_editor, tab_id)
             };
             let (Some(active_editor), Some(tab_id)) = (active_editor, tab_id) else {
+                finish(g);
                 return;
             };
             let clicked_inside_editor = picked
@@ -1076,11 +1084,13 @@ fn setup_workspace_ui(
                 })
                 .unwrap_or(false);
             if clicked_inside_editor {
+                finish(g);
                 return;
             }
             if ws_for_click.borrow_mut().commit_tab_edit(&tab_id) {
                 actions::update_dirty_ui(&ws_for_click, &win_for_click, &sa_for_click);
             }
+            finish(g);
         });
         window.add_controller(outside_click);
     }

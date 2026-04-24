@@ -65,10 +65,7 @@ pub fn build_note_card(note: &WorkspaceNote, actions: NoteCardActions) -> gtk4::
     edit_btn.add_css_class("note-card-action");
     edit_btn.set_tooltip_text(Some("Edit"));
     edit_btn.set_valign(gtk4::Align::Center);
-    {
-        let on_open = on_open_editor.clone();
-        edit_btn.connect_clicked(move |_| on_open());
-    }
+    wire_card_button(&edit_btn, "edit", on_open_editor.clone());
     header.append(&edit_btn);
 
     let delete_btn = gtk4::Button::from_icon_name("user-trash-symbolic");
@@ -77,10 +74,7 @@ pub fn build_note_card(note: &WorkspaceNote, actions: NoteCardActions) -> gtk4::
     delete_btn.add_css_class("destructive-action");
     delete_btn.set_tooltip_text(Some("Delete"));
     delete_btn.set_valign(gtk4::Align::Center);
-    {
-        let on_del = on_delete.clone();
-        delete_btn.connect_clicked(move |_| on_del());
-    }
+    wire_card_button(&delete_btn, "delete", on_delete.clone());
     header.append(&delete_btn);
 
     card.append(&header);
@@ -141,6 +135,46 @@ pub fn build_note_card(note: &WorkspaceNote, actions: NoteCardActions) -> gtk4::
     }
 
     card.upcast()
+}
+
+/// Wire a card action button with BOTH the native `connect_clicked` AND a
+/// capture-phase `GestureClick` backup. The backup guarantees the callback
+/// fires even if an ancestor capture-phase gesture interferes with Button's
+/// internal click recognition (observed behavior pre-fix). Tracing lets us
+/// confirm which path actually fires.
+fn wire_card_button(btn: &gtk4::Button, tag: &'static str, action: Rc<Box<dyn Fn()>>) {
+    let fired = Rc::new(std::cell::Cell::new(false));
+    {
+        let action = action.clone();
+        let fired = fired.clone();
+        btn.connect_clicked(move |_| {
+            tracing::info!("note card: {tag} connect_clicked");
+            if fired.replace(true) {
+                // Already fired via the capture-phase gesture in the same
+                // event sequence; don't double-invoke.
+                return;
+            }
+            action();
+        });
+    }
+    let gesture = gtk4::GestureClick::new();
+    gesture.set_button(gtk4::gdk::BUTTON_PRIMARY);
+    gesture.set_propagation_phase(gtk4::PropagationPhase::Capture);
+    let action_for_gesture = action;
+    let fired_for_gesture = fired.clone();
+    gesture.connect_pressed(move |_, _, _, _| {
+        tracing::info!("note card: {tag} GestureClick press");
+        // Reset so connect_clicked can still run if the native path wins.
+        fired_for_gesture.set(false);
+    });
+    gesture.connect_released(move |g, _, _, _| {
+        tracing::info!("note card: {tag} GestureClick release → firing");
+        g.set_state(gtk4::EventSequenceState::Claimed);
+        if !fired.replace(true) {
+            action_for_gesture();
+        }
+    });
+    btn.add_controller(gesture);
 }
 
 fn severity_class(severity: &str) -> String {
