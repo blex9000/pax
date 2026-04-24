@@ -120,16 +120,33 @@ pub fn build_note_card(note: &WorkspaceNote, actions: NoteCardActions) -> gtk4::
     let on_delete = Rc::new(actions.on_delete);
     let on_cycle_severity = Rc::new(actions.on_cycle_severity);
 
+    // Wire each action button with BOTH the native connect_clicked AND a
+    // manual GestureClick in capture phase. An ancestor gesture on the
+    // panel frame (panel_host.rs) runs in capture phase and triggers
+    // a panel-focus action on every press; that seems to break Button's
+    // click recognition for our card buttons specifically. A capture-phase
+    // gesture on the Button itself lets us catch the released event
+    // before anything else can interfere.
     {
         let on_open = on_open_editor.clone();
         edit_btn.connect_clicked(move |_| {
-            tracing::info!("note card: edit button CLICK RECEIVED");
+            tracing::info!("note card: edit button connect_clicked");
             on_open();
         });
-        // Also log hover so we can tell whether the pointer even reaches
-        // the button. If hover fires but click doesn't, some ancestor is
-        // eating the click phase; if hover doesn't fire at all, the
-        // button is geometrically occluded.
+        let gesture = gtk4::GestureClick::new();
+        gesture.set_button(gtk4::gdk::BUTTON_PRIMARY);
+        gesture.set_propagation_phase(gtk4::PropagationPhase::Capture);
+        let on_open_cap = on_open_editor.clone();
+        gesture.connect_pressed(|_, _, _, _| {
+            tracing::info!("note card: edit GestureClick PRESS");
+        });
+        gesture.connect_released(move |g, _, _, _| {
+            tracing::info!("note card: edit GestureClick RELEASE (firing action)");
+            g.set_state(gtk4::EventSequenceState::Claimed);
+            on_open_cap();
+        });
+        edit_btn.add_controller(gesture);
+
         let motion = gtk4::EventControllerMotion::new();
         motion.connect_enter(|_, _, _| tracing::info!("note card: edit HOVER enter"));
         edit_btn.add_controller(motion);
@@ -138,9 +155,23 @@ pub fn build_note_card(note: &WorkspaceNote, actions: NoteCardActions) -> gtk4::
     {
         let on_del = on_delete.clone();
         delete_btn.connect_clicked(move |_| {
-            tracing::info!("note card: delete button CLICK RECEIVED");
+            tracing::info!("note card: delete button connect_clicked");
             on_del();
         });
+        let gesture = gtk4::GestureClick::new();
+        gesture.set_button(gtk4::gdk::BUTTON_PRIMARY);
+        gesture.set_propagation_phase(gtk4::PropagationPhase::Capture);
+        let on_del_cap = on_delete.clone();
+        gesture.connect_pressed(|_, _, _, _| {
+            tracing::info!("note card: delete GestureClick PRESS");
+        });
+        gesture.connect_released(move |g, _, _, _| {
+            tracing::info!("note card: delete GestureClick RELEASE (firing action)");
+            g.set_state(gtk4::EventSequenceState::Claimed);
+            on_del_cap();
+        });
+        delete_btn.add_controller(gesture);
+
         let motion = gtk4::EventControllerMotion::new();
         motion.connect_enter(|_, _, _| tracing::info!("note card: delete HOVER enter"));
         delete_btn.add_controller(motion);
