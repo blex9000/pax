@@ -16,6 +16,10 @@ const TOAST_WIDTH_PX: i32 = 320;
 /// Gap between stacked toasts (same variable used on the container Box
 /// to keep toasts visually distinct but grouped).
 const TOAST_STACK_GAP_PX: i32 = 6;
+/// Icon shown on the leading edge of each toast. Matches the panel
+/// registry's icon for the "note" panel type so the alert visually
+/// reads as "a note is calling you".
+const TOAST_ICON_NAME: &str = "text-editor-symbolic";
 
 thread_local! {
     /// Global singleton — registered once when the main window builds
@@ -59,6 +63,12 @@ impl AlertTray {
         toast.set_width_request(TOAST_WIDTH_PX);
 
         let header = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
+
+        let icon = gtk4::Image::from_icon_name(TOAST_ICON_NAME);
+        icon.add_css_class("alert-toast-icon");
+        icon.set_pixel_size(16);
+        header.append(&icon);
+
         let title_label = gtk4::Label::new(Some(title));
         title_label.add_css_class("heading");
         title_label.add_css_class("alert-toast-title");

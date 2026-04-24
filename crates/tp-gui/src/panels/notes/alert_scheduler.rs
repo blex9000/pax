@@ -67,7 +67,7 @@ fn tick(app: &adw::Application) {
         }
     };
     for note in due {
-        emit_alert(app, &note.text);
+        emit_alert(app, &note);
         if let Err(e) = db.mark_note_alert_fired(note.id, now) {
             tracing::warn!("notes scheduler: mark_fired failed: {e}");
         }
@@ -89,7 +89,7 @@ fn startup_sweep(app: &adw::Application) {
     for note in due {
         let age = now - note.alert_at.unwrap_or(now);
         if age <= STARTUP_GRACE_SECS {
-            emit_alert(app, &note.text);
+            emit_alert(app, &note);
         } else {
             tracing::info!(
                 "notes scheduler: missed alert on note {} (age {}s) — marking fired silently",
@@ -103,13 +103,23 @@ fn startup_sweep(app: &adw::Application) {
     }
 }
 
-fn emit_alert(app: &adw::Application, body_source: &str) {
-    let body = note_preview(body_source);
-    crate::notifications::send_desktop(app, None, "Pax note", &body);
+fn emit_alert(app: &adw::Application, note: &pax_db::workspace_notes::WorkspaceNote) {
+    let title = note_title_for_display(&note.title);
+    let body = note_preview(&note.text);
+    crate::notifications::send_desktop(app, None, &title, &body);
     // Also push an in-app toast that stays visible until the user
     // dismisses it — the OS notification auto-hides after a few seconds
     // and users reported missing alerts entirely.
-    crate::widgets::alert_tray::emit("Pax note", &body);
+    crate::widgets::alert_tray::emit(&title, &body);
+}
+
+fn note_title_for_display(raw: &str) -> String {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        "Untitled note".to_string()
+    } else {
+        trimmed.to_string()
+    }
 }
 
 /// Collapse a markdown note down to a plain one-line preview suitable

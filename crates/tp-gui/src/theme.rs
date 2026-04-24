@@ -1515,6 +1515,11 @@ window.app-dialog dropdown.settings-theme-dropdown > popover.menu row:selected,
   box-shadow: 0 4px 14px alpha(black, 0.28);
 }
 
+.alert-toast-icon {
+  color: @note_warning;
+  -gtk-icon-size: 16px;
+}
+
 .alert-toast-title {
   font-weight: 700;
   color: @note_warning;
