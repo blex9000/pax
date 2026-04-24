@@ -254,7 +254,17 @@ pub fn open_note_dialog(
                 &minute_spin,
             );
             d.close();
-            on_save(draft);
+            // Defer the persist-and-reload to the next main loop tick so
+            // the dialog finishes closing (and GSK finishes rendering its
+            // current frame) before we tear down / rebuild the note list
+            // beneath it. Running synchronously after d.close() was
+            // causing a SIGSEGV inside libgallium / gsk_renderer_render
+            // when widgets were freed while the previous frame was still
+            // in flight.
+            let on_save = on_save.clone();
+            gtk4::glib::idle_add_local_once(move || {
+                on_save(draft);
+            });
         });
     }
 
