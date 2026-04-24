@@ -146,6 +146,12 @@ pub fn open_note_dialog(
     time_row.append(&minute_spin);
     alert_box.append(&time_row);
 
+    let alert_warning = gtk4::Label::new(Some("⚠ Alert time is in the past"));
+    alert_warning.add_css_class("error");
+    alert_warning.set_halign(gtk4::Align::Start);
+    alert_warning.set_visible(false);
+    alert_box.append(&alert_warning);
+
     root.append(&alert_box);
 
     // Seed calendar/time from initial.alert_at if present.
@@ -159,12 +165,8 @@ pub fn open_note_dialog(
         minute_spin.set_value(DEFAULT_ALERT_MINUTE as f64);
     }
 
-    {
-        let alert_box = alert_box.clone();
-        alert_toggle.connect_toggled(move |t| alert_box.set_visible(t.is_active()));
-    }
-
-    // Action row.
+    // Action row — constructed before the validity wiring below so the
+    // save button is available to enable/disable on validation changes.
     let btn_row = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
     btn_row.set_halign(gtk4::Align::End);
     btn_row.set_margin_top(8);
@@ -174,6 +176,54 @@ pub fn open_note_dialog(
     btn_row.append(&cancel_btn);
     btn_row.append(&save_btn);
     root.append(&btn_row);
+
+    // Validation: if the alert toggle is on and the composed timestamp is
+    // before "now", disable Save and show the warning. Re-evaluated on
+    // every relevant change (toggle, calendar day, hour, minute).
+    let update_alert_validity: Rc<dyn Fn()> = {
+        let alert_toggle = alert_toggle.clone();
+        let calendar = calendar.clone();
+        let hour_spin = hour_spin.clone();
+        let minute_spin = minute_spin.clone();
+        let alert_warning = alert_warning.clone();
+        let save_btn = save_btn.clone();
+        Rc::new(move || {
+            if !alert_toggle.is_active() {
+                alert_warning.set_visible(false);
+                save_btn.set_sensitive(true);
+                return;
+            }
+            let now = chrono::Local::now().timestamp();
+            let in_past = match compose_alert_ts(&calendar, &hour_spin, &minute_spin) {
+                Some(ts) => ts <= now,
+                None => true, // invalid date composition — also refuse to save
+            };
+            alert_warning.set_visible(in_past);
+            save_btn.set_sensitive(!in_past);
+        })
+    };
+    update_alert_validity();
+
+    {
+        let alert_box = alert_box.clone();
+        let update = update_alert_validity.clone();
+        alert_toggle.connect_toggled(move |t| {
+            alert_box.set_visible(t.is_active());
+            update();
+        });
+    }
+    {
+        let update = update_alert_validity.clone();
+        calendar.connect_day_selected(move |_| update());
+    }
+    {
+        let update = update_alert_validity.clone();
+        hour_spin.connect_value_changed(move |_| update());
+    }
+    {
+        let update = update_alert_validity.clone();
+        minute_spin.connect_value_changed(move |_| update());
+    }
 
     dialog.set_child(Some(&root));
 
