@@ -1409,9 +1409,6 @@ window.app-dialog dropdown.settings-theme-dropdown > popover.menu row:selected,
   color: @card_fg_color;
   letter-spacing: 0.01em;
 }
-.note-card--important .note-card-title {
-  color: @note_important;
-}
 
 .note-card-preview {
   color: alpha(@card_fg_color, 0.55);
