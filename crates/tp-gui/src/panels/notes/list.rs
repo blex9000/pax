@@ -248,10 +248,6 @@ impl NoteListView {
             let card = build_note_card(
                 &note,
                 NoteCardActions {
-                    on_save_text: {
-                        let this = self.clone();
-                        Box::new(move |text| this.on_save_text(id, text))
-                    },
                     on_delete: {
                         let this = self.clone();
                         let snapshot = note.clone();
@@ -373,29 +369,8 @@ impl NoteListView {
             .and_then(|w| w.downcast::<gtk4::Window>().ok())
     }
 
-    fn on_save_text(self: &Rc<Self>, id: i64, text: &str) {
-        let Some(db) = open_db() else {
-            return;
-        };
-        let Some(note) = db.get_workspace_note(id).ok().flatten() else {
-            return;
-        };
-        let result = db.update_workspace_note(
-            id,
-            &note.title,
-            text,
-            &note.tags,
-            &note.severity,
-            note.alert_at,
-        );
-        if let Err(e) = result {
-            tracing::warn!("notes: could not update note {id}: {e}");
-            return;
-        }
-        self.reload();
-    }
-
     fn on_delete(self: &Rc<Self>, id: i64, snapshot: &WorkspaceNote) {
+        tracing::info!("note list: on_delete id={id}");
         let Some(db) = open_db() else {
             return;
         };
@@ -409,6 +384,7 @@ impl NoteListView {
     }
 
     fn on_cycle_severity(self: &Rc<Self>, id: i64, current: &str) {
+        tracing::info!("note list: cycle severity id={id} from={current}");
         let next = match current {
             SEVERITY_INFO => SEVERITY_WARNING,
             SEVERITY_WARNING => SEVERITY_IMPORTANT,

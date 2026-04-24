@@ -126,40 +126,61 @@
     box-shadow: none;
 }
 
+/* ── Card chrome ─────────────────────────────────────────────────── */
 .note-card {
-    background: alpha(@theme_fg_color, 0.04);
-    border: 1px solid alpha(@borders, 0.55);
-    border-radius: 6px;
-    padding: 6px 10px;
-    min-width: 260px;
+    background: @theme_base_color;
+    border: 1px solid alpha(@borders, 0.7);
+    border-radius: 8px;
+    padding: 10px 12px;
+    min-width: 280px;
     transition: background-color 120ms ease, border-color 120ms ease,
-                box-shadow 120ms ease;
+                box-shadow 160ms ease;
 }
 
 .note-card:hover {
-    background: alpha(@theme_fg_color, 0.07);
-    border-color: alpha(@borders, 0.9);
+    border-color: alpha(@accent_color, 0.55);
+    box-shadow: 0 2px 6px alpha(black, 0.08);
 }
 
 .note-card--important {
-    border-color: alpha(#dc2626, 0.45);
-    background: alpha(#dc2626, 0.06);
+    border-color: alpha(#dc2626, 0.5);
 }
 
 .note-card--important:hover {
-    background: alpha(#dc2626, 0.1);
-    box-shadow: 0 0 0 1px alpha(#dc2626, 0.25);
+    border-color: #dc2626;
+    box-shadow: 0 2px 8px alpha(#dc2626, 0.22);
 }
 
-/* ── Severity indicator (colored dot, clickable to cycle) ────────── */
+/* ── Title ───────────────────────────────────────────────────────── */
+.note-card-title {
+    font-weight: 700;
+    font-size: 14px;
+    color: @theme_fg_color;
+    letter-spacing: 0.01em;
+}
+
+.note-card--important .note-card-title {
+    color: #dc2626;
+}
+
+/* ── Body (rendered markdown preview) ────────────────────────────── */
+.note-card-rendered,
+.note-card-rendered text,
+.note-card-rendered.view {
+    background: transparent;
+    color: alpha(@theme_fg_color, 0.82);
+    font-size: 12px;
+}
+
+/* ── Footer: severity dot · tags · alert badge ───────────────────── */
 .note-card-severity-dot {
-    font-size: 11px;
-    padding: 0 1px;
+    font-size: 12px;
+    padding: 0 2px;
     transition: transform 100ms ease;
 }
 
 .note-card-severity-dot:hover {
-    transform: scale(1.15);
+    transform: scale(1.2);
 }
 
 .note-card-severity-dot.note-card--info {
@@ -174,78 +195,47 @@
     color: #dc2626;
 }
 
-/* ── Title ───────────────────────────────────────────────────────── */
-.note-card-title {
-    font-weight: 600;
-    font-size: 13px;
-    color: @theme_fg_color;
-}
-
-.note-card--important .note-card-title {
-    color: #dc2626;
-}
-
-/* ── Body ────────────────────────────────────────────────────────── */
-.note-card-rendered,
-.note-card-rendered text,
-.note-card-rendered.view {
-    background: transparent;
-    color: alpha(@theme_fg_color, 0.85);
-    font-size: 11px;
-}
-
-.note-card-source,
-.note-card-source text,
-.note-card-source.view {
-    background: alpha(@theme_fg_color, 0.06);
-    color: @theme_fg_color;
-    border-radius: 4px;
-    font-size: 11px;
-}
-
-/* ── Tag chips ───────────────────────────────────────────────────── */
 .tag-chip {
-    background: alpha(@theme_fg_color, 0.12);
-    color: @theme_fg_color;
+    background: alpha(@theme_fg_color, 0.1);
+    color: alpha(@theme_fg_color, 0.85);
     border-radius: 10px;
-    padding: 2px 10px;
+    padding: 1px 9px;
     font-size: 10px;
     font-weight: 500;
-    border: 1px solid alpha(@borders, 0.35);
+    border: 1px solid alpha(@borders, 0.3);
 }
 
-/* ── Alert badge ─────────────────────────────────────────────────── */
 .alert-badge {
     color: #d97706;
     font-size: 10px;
-    font-weight: 500;
-    padding: 1px 6px;
+    font-weight: 600;
+    padding: 1px 7px;
     border-radius: 10px;
-    background: alpha(#d97706, 0.15);
+    background: alpha(#d97706, 0.14);
 }
 
 .note-card--important .alert-badge {
     color: #dc2626;
-    background: alpha(#dc2626, 0.18);
+    background: alpha(#dc2626, 0.17);
 }
 
-/* ── Action buttons: dimmed by default, prominent on card hover ─── */
+/* ── Action buttons: always visible, dimmer at rest ──────────────── */
 .note-card-actions {
-    opacity: 0.45;
+    opacity: 0.55;
     transition: opacity 120ms ease;
 }
 
-.note-card:hover .note-card-actions,
-.note-card-actions.note-card-actions--editing {
+.note-card:hover .note-card-actions {
     opacity: 1;
 }
 
 .note-card-action {
-    padding: 0 4px;
-    min-width: 22px;
-    min-height: 22px;
+    padding: 2px 6px;
+    min-width: 26px;
+    min-height: 26px;
     color: @theme_fg_color;
     background: transparent;
+    border-radius: 6px;
 }
 
 .note-card-action:hover {
@@ -254,11 +244,11 @@
 }
 
 .note-card-action-danger {
-    color: alpha(@theme_fg_color, 0.75);
+    color: alpha(@theme_fg_color, 0.7);
 }
 
 .note-card-action-danger:hover {
-    background: alpha(#dc2626, 0.18);
+    background: alpha(#dc2626, 0.15);
     color: #dc2626;
 }
 
