@@ -97,6 +97,9 @@ impl NoteListView {
         let flow = gtk4::FlowBox::new();
         flow.add_css_class("notes-list");
         flow.set_selection_mode(gtk4::SelectionMode::None);
+        // Without this, FlowBox swallows single clicks before they reach
+        // buttons nested inside each card.
+        flow.set_activate_on_single_click(false);
         flow.set_homogeneous(false);
         flow.set_column_spacing(4);
         flow.set_row_spacing(4);
@@ -235,11 +238,7 @@ impl NoteListView {
             placeholder.add_css_class("dim-label");
             placeholder.set_margin_top(24);
             placeholder.set_margin_bottom(24);
-            let child = gtk4::FlowBoxChild::new();
-            child.set_child(Some(&placeholder));
-            child.set_focusable(false);
-            child.set_hexpand(true);
-            self.flow.insert(&child, -1);
+            self.flow.insert(&placeholder, -1);
             return;
         }
 
@@ -269,10 +268,11 @@ impl NoteListView {
                     },
                 },
             );
-            let child = gtk4::FlowBoxChild::new();
-            child.set_child(Some(&card));
-            child.set_focusable(false);
-            self.flow.insert(&child, -1);
+            // FlowBox auto-wraps the card in a FlowBoxChild. Don't pre-wrap
+            // manually: the auto-wrap is what makes clicks reach our
+            // nested buttons, whereas a self-made FlowBoxChild tended to
+            // intercept them.
+            self.flow.insert(&card, -1);
         }
     }
 

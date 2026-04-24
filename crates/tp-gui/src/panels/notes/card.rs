@@ -25,13 +25,13 @@ const NOTE_PREVIEW_MAX_CHARS: usize = 600;
 
 /// Build the widget tree for a single note card.
 pub fn build_note_card(note: &WorkspaceNote, actions: NoteCardActions) -> gtk4::Widget {
-    let card = gtk4::Box::new(gtk4::Orientation::Vertical, 6);
+    let card = gtk4::Box::new(gtk4::Orientation::Vertical, 4);
     card.add_css_class("note-card");
     card.add_css_class(&severity_class(&note.severity));
-    card.set_margin_top(4);
-    card.set_margin_bottom(4);
-    card.set_margin_start(6);
-    card.set_margin_end(6);
+    card.set_margin_top(2);
+    card.set_margin_bottom(2);
+    card.set_margin_start(2);
+    card.set_margin_end(2);
 
     // ── Header: severity dot + title + alert badge + actions ───────────
     let header = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);

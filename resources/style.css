@@ -113,11 +113,24 @@
     padding: 0;
 }
 
+/* FlowBox wraps each card in a flowboxchild — neutralise its default
+ * chrome so only our .note-card styling shows through. */
+.notes-list > flowboxchild {
+    padding: 0;
+    background: transparent;
+    border: none;
+}
+.notes-list > flowboxchild:focus,
+.notes-list > flowboxchild:focus:focus-visible {
+    outline: none;
+    box-shadow: none;
+}
+
 .note-card {
     background: alpha(@theme_fg_color, 0.04);
     border: 1px solid alpha(@borders, 0.55);
-    border-radius: 8px;
-    padding: 10px 12px;
+    border-radius: 6px;
+    padding: 6px 10px;
     min-width: 260px;
     transition: background-color 120ms ease, border-color 120ms ease,
                 box-shadow 120ms ease;
@@ -140,8 +153,8 @@
 
 /* ── Severity indicator (colored dot, clickable to cycle) ────────── */
 .note-card-severity-dot {
-    font-size: 14px;
-    padding: 0 2px;
+    font-size: 11px;
+    padding: 0 1px;
     transition: transform 100ms ease;
 }
 
@@ -174,18 +187,20 @@
 
 /* ── Body ────────────────────────────────────────────────────────── */
 .note-card-rendered,
-.note-card-rendered text {
+.note-card-rendered text,
+.note-card-rendered.view {
     background: transparent;
     color: alpha(@theme_fg_color, 0.85);
-    font-size: 12px;
+    font-size: 11px;
 }
 
 .note-card-source,
-.note-card-source text {
+.note-card-source text,
+.note-card-source.view {
     background: alpha(@theme_fg_color, 0.06);
     color: @theme_fg_color;
     border-radius: 4px;
-    font-size: 12px;
+    font-size: 11px;
 }
 
 /* ── Tag chips ───────────────────────────────────────────────────── */
@@ -214,9 +229,9 @@
     background: alpha(#dc2626, 0.18);
 }
 
-/* ── Action buttons: hidden until hover ──────────────────────────── */
+/* ── Action buttons: dimmed by default, prominent on card hover ─── */
 .note-card-actions {
-    opacity: 0;
+    opacity: 0.45;
     transition: opacity 120ms ease;
 }
 
@@ -230,10 +245,16 @@
     min-width: 22px;
     min-height: 22px;
     color: @theme_fg_color;
+    background: transparent;
 }
 
 .note-card-action:hover {
     background: alpha(@theme_fg_color, 0.12);
+    opacity: 1;
+}
+
+.note-card-action-danger {
+    color: alpha(@theme_fg_color, 0.75);
 }
 
 .note-card-action-danger:hover {
