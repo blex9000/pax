@@ -1,11 +1,11 @@
 //! Single-note card widget.
 //!
 //! Two visual states:
-//!   compact   — one line: [edit][delete] title | preview… [tag][tag] [alert] [▼]
-//!                Edit / Delete appear only when the row is hovered.
+//!   compact   — one line: title | preview… [tag][tag] [alert] [⋮] [▼]
+//!                The ⋮ (three-dot) button opens a popover with Edit / Delete.
 //!                Expand chevron is shown only when the note has more content
 //!                than fits on one line. Clicking anywhere on the compact row
-//!                (except on Edit / Delete / chevron) toggles the expansion.
+//!                (except on ⋮ / chevron) toggles the expansion.
 //!   expanded  — compact row kept, plus the fully rendered markdown below it.
 //!
 //! Severity is communicated by a colored left border on the card (info uses
@@ -47,31 +47,6 @@ pub fn build_note_card(note: &WorkspaceNote, actions: NoteCardActions) -> gtk4::
     // ── Compact row (always visible) ───────────────────────────────────
     let compact = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
     compact.set_valign(gtk4::Align::Center);
-
-    // Edit / Delete go first (leftmost). Hidden via CSS until the row is
-    // hovered. Button::clicked claims its own event sequence so the
-    // compact-row click gesture (below) does NOT fire when these are
-    // pressed — edit stays edit, delete stays delete.
-    let edit_btn = gtk4::Button::with_label("Edit");
-    edit_btn.add_css_class("note-card-action");
-    edit_btn.add_css_class("note-card-hover-action");
-    edit_btn.set_valign(gtk4::Align::Center);
-    {
-        let on_open = on_open_editor.clone();
-        edit_btn.connect_clicked(move |_| on_open());
-    }
-    compact.append(&edit_btn);
-
-    let delete_btn = gtk4::Button::with_label("Delete");
-    delete_btn.add_css_class("note-card-action");
-    delete_btn.add_css_class("note-card-hover-action");
-    delete_btn.add_css_class("destructive-action");
-    delete_btn.set_valign(gtk4::Align::Center);
-    {
-        let on_del = on_delete.clone();
-        delete_btn.connect_clicked(move |_| on_del());
-    }
-    compact.append(&delete_btn);
 
     let title_label = gtk4::Label::new(None);
     if note.title.trim().is_empty() {
@@ -117,6 +92,23 @@ pub fn build_note_card(note: &WorkspaceNote, actions: NoteCardActions) -> gtk4::
         badge.add_css_class("alert-badge");
         compact.append(&badge);
     }
+
+    // ⋮ overflow menu — mirrors the panel frame's own menu button. Holds
+    // Edit / Delete entries. MenuButton manages popover open/close and
+    // claims its own click sequence, so the row-toggle gesture doesn't
+    // fire when the user clicks it.
+    let menu_btn = gtk4::MenuButton::new();
+    menu_btn.set_icon_name("view-more-symbolic");
+    menu_btn.add_css_class("flat");
+    menu_btn.add_css_class("note-card-action");
+    menu_btn.add_css_class("note-card-menu");
+    menu_btn.set_tooltip_text(Some("More actions"));
+    menu_btn.set_valign(gtk4::Align::Center);
+    menu_btn.set_popover(Some(&build_card_menu(
+        on_open_editor.clone(),
+        on_delete.clone(),
+    )));
+    compact.append(&menu_btn);
 
     let has_more = note_has_more_content(&note.text);
     let expand_btn = gtk4::Button::from_icon_name("pan-down-symbolic");
@@ -200,6 +192,64 @@ pub fn build_note_card(note: &WorkspaceNote, actions: NoteCardActions) -> gtk4::
     }
 
     card.upcast()
+}
+
+/// Popover for the ⋮ button. Same visual pattern as the panel frame's
+/// own action menu so Notes look consistent with the rest of the app.
+fn build_card_menu(
+    on_open_editor: Rc<Box<dyn Fn()>>,
+    on_delete: Rc<Box<dyn Fn()>>,
+) -> gtk4::Popover {
+    let vbox = gtk4::Box::new(gtk4::Orientation::Vertical, 2);
+    vbox.set_margin_top(4);
+    vbox.set_margin_bottom(4);
+    vbox.set_margin_start(4);
+    vbox.set_margin_end(4);
+
+    let popover = gtk4::Popover::new();
+    crate::theme::configure_popover(&popover);
+
+    let make_item = |icon: &str, label: &str, destructive: bool| {
+        let btn = gtk4::Button::new();
+        btn.add_css_class("flat");
+        btn.add_css_class("app-popover-button");
+        if destructive {
+            btn.add_css_class("destructive-action");
+        }
+        let row = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
+        row.append(&gtk4::Image::from_icon_name(icon));
+        let lbl = gtk4::Label::new(Some(label));
+        lbl.set_halign(gtk4::Align::Start);
+        lbl.set_hexpand(true);
+        row.append(&lbl);
+        btn.set_child(Some(&row));
+        btn
+    };
+
+    let edit_item = make_item("document-edit-symbolic", "Edit", false);
+    {
+        let popover = popover.clone();
+        let on_open = on_open_editor.clone();
+        edit_item.connect_clicked(move |_| {
+            popover.popdown();
+            on_open();
+        });
+    }
+    vbox.append(&edit_item);
+
+    let delete_item = make_item("user-trash-symbolic", "Delete", true);
+    {
+        let popover = popover.clone();
+        let on_del = on_delete.clone();
+        delete_item.connect_clicked(move |_| {
+            popover.popdown();
+            on_del();
+        });
+    }
+    vbox.append(&delete_item);
+
+    popover.set_child(Some(&vbox));
+    popover
 }
 
 fn severity_class(severity: &str) -> String {

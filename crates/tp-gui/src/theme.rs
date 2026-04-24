@@ -1479,16 +1479,15 @@ window.app-dialog dropdown.settings-theme-dropdown > popover.menu row:selected,
   opacity: 1;
 }
 
-/* Edit / Delete are hidden until the row is hovered. Using opacity
- * keeps the layout stable — the buttons still reserve their column so
- * the preview doesn't reflow when the pointer moves in. */
-.note-card-hover-action {
-  opacity: 0;
-  transition: opacity 120ms ease;
+.note-card-menu {
+  padding: 0 2px;
+  min-height: 20px;
+  min-width: 20px;
+  opacity: 0.55;
 }
-.notes-list > row:hover .note-card-hover-action,
-.note-card-hover-action:focus,
-.note-card-hover-action:hover {
+.note-card-menu:hover,
+.note-card-menu:active,
+.note-card-menu:checked {
   opacity: 1;
 }
 
