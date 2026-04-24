@@ -55,13 +55,19 @@ pub fn build_note_card(note: &WorkspaceNote, actions: NoteCardActions) -> gtk4::
     title_label.set_hexpand(true);
     header.append(&title_label);
 
+    let note_id_for_log = note.id;
+    eprintln!(
+        "[notes] build_note_card id={note_id_for_log} title={:?}",
+        note.title
+    );
+
     let edit_btn = gtk4::Button::with_label("Edit");
     edit_btn.add_css_class("note-card-action");
     edit_btn.set_valign(gtk4::Align::Center);
     {
         let on_open = on_open_editor.clone();
         edit_btn.connect_clicked(move |_| {
-            tracing::info!("note card: edit clicked");
+            eprintln!("[notes] edit button CLICKED id={note_id_for_log}");
             on_open();
         });
     }
@@ -74,11 +80,30 @@ pub fn build_note_card(note: &WorkspaceNote, actions: NoteCardActions) -> gtk4::
     {
         let on_del = on_delete.clone();
         delete_btn.connect_clicked(move |_| {
-            tracing::info!("note card: delete clicked");
+            eprintln!("[notes] delete button CLICKED id={note_id_for_log}");
             on_del();
         });
     }
     header.append(&delete_btn);
+
+    // Motion tracking on each button — confirms that the pointer is at least
+    // reaching the button widget. If we see "hover enter" without "clicked",
+    // the widget is visible and reachable but the click is being eaten by
+    // something in the event chain.
+    {
+        let m = gtk4::EventControllerMotion::new();
+        m.connect_enter(move |_, _, _| {
+            eprintln!("[notes] edit HOVER enter id={note_id_for_log}");
+        });
+        edit_btn.add_controller(m);
+    }
+    {
+        let m = gtk4::EventControllerMotion::new();
+        m.connect_enter(move |_, _, _| {
+            eprintln!("[notes] delete HOVER enter id={note_id_for_log}");
+        });
+        delete_btn.add_controller(m);
+    }
 
     card.append(&header);
 
