@@ -115,7 +115,14 @@ pub fn build_note_card(note: &WorkspaceNote, actions: NoteCardActions) -> gtk4::
 
     card.append(&compact);
 
-    // ── Expanded body (hidden by default, revealed via expand_btn) ─────
+    // ── Expanded body (wrapped in a Revealer for natural-size reveal) ──
+    //
+    // A raw `TextView` toggled via `set_visible` measures its natural
+    // height against an unconstrained width on the first show, so the
+    // first expand grabs the whole scroll area; on subsequent shows the
+    // cached width gives the right measurement. `gtk::Revealer` is built
+    // for exactly this pattern — it queries the child's natural size
+    // at its own allocated width, so the first expand is the right size.
     let rendered_view = gtk4::TextView::new();
     rendered_view.set_editable(false);
     rendered_view.set_cursor_visible(false);
@@ -125,17 +132,24 @@ pub fn build_note_card(note: &WorkspaceNote, actions: NoteCardActions) -> gtk4::
     rendered_view.set_top_margin(6);
     rendered_view.set_bottom_margin(0);
     rendered_view.set_can_target(false);
+    rendered_view.set_vexpand(false);
+    rendered_view.set_valign(gtk4::Align::Start);
     rendered_view.add_css_class("note-card-rendered");
     crate::markdown_render::render_markdown_to_view(&rendered_view, &note.text);
-    rendered_view.set_visible(false);
-    card.append(&rendered_view);
+
+    let body_revealer = gtk4::Revealer::new();
+    body_revealer.set_transition_type(gtk4::RevealerTransitionType::SlideDown);
+    body_revealer.set_transition_duration(120);
+    body_revealer.set_reveal_child(false);
+    body_revealer.set_child(Some(&rendered_view));
+    card.append(&body_revealer);
 
     {
-        let view = rendered_view.clone();
+        let revealer = body_revealer.clone();
         let btn = expand_btn.clone();
         expand_btn.connect_clicked(move |_| {
-            let expanded = !view.is_visible();
-            view.set_visible(expanded);
+            let expanded = !revealer.reveals_child();
+            revealer.set_reveal_child(expanded);
             btn.set_icon_name(if expanded {
                 "pan-up-symbolic"
             } else {
