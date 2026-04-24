@@ -110,7 +110,11 @@ pub fn build_note_card(note: &WorkspaceNote, actions: NoteCardActions) -> gtk4::
         let gesture = gtk4::GestureClick::new();
         gesture.set_button(gtk4::gdk::BUTTON_PRIMARY);
         let on_open = on_open_editor.clone();
+        gesture.connect_pressed(|_, n, x, y| {
+            tracing::info!("note card: CARD press n={n} x={x:.0} y={y:.0}");
+        });
         gesture.connect_released(move |g, _, _, _| {
+            tracing::info!("note card: CARD release — opening editor");
             g.set_state(gtk4::EventSequenceState::Claimed);
             on_open();
         });
