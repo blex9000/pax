@@ -113,26 +113,12 @@
     padding: 0;
 }
 
-/* FlowBox wraps each card in a flowboxchild — neutralise its default
- * chrome so only our .note-card styling shows through. */
-.notes-list > flowboxchild {
-    padding: 0;
-    background: transparent;
-    border: none;
-}
-.notes-list > flowboxchild:focus,
-.notes-list > flowboxchild:focus:focus-visible {
-    outline: none;
-    box-shadow: none;
-}
-
 /* ── Card chrome ─────────────────────────────────────────────────── */
 .note-card {
     background: @theme_base_color;
     border: 1px solid alpha(@borders, 0.7);
     border-radius: 8px;
     padding: 10px 12px;
-    min-width: 280px;
     transition: background-color 120ms ease, border-color 120ms ease,
                 box-shadow 160ms ease;
 }

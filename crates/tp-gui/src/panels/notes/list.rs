@@ -44,7 +44,12 @@ struct ListState {
 
 pub struct NoteListView {
     root: gtk4::Box,
-    flow: gtk4::FlowBox,
+    /// Cards live in a plain vertical Box inside a ScrolledWindow. The
+    /// previous FlowBox version was eating card-button clicks: hover
+    /// events arrived but click events never reached the buttons, even
+    /// with activate_on_single_click=false. A plain Box has no gesture
+    /// surface of its own so clicks hit the buttons directly.
+    cards_box: gtk4::Box,
     search_entry: gtk4::SearchEntry,
     tag_dropdown: gtk4::DropDown,
     toast_revealer: gtk4::Revealer,
@@ -89,32 +94,24 @@ impl NoteListView {
 
         root.append(&header);
 
-        // ── Scrollable fluid grid ───────────────────────────────────
+        // ── Scrollable single-column stack ──────────────────────────
+        // Plain vertical Box (not FlowBox). The FlowBox experiment ate
+        // button clicks: hover fired but connect_clicked never did,
+        // even with activate_on_single_click=false. A Box is a dumb
+        // container and clicks reach the card buttons uninterrupted.
         let scroll = gtk4::ScrolledWindow::new();
         scroll.set_vexpand(true);
         scroll.set_hscrollbar_policy(gtk4::PolicyType::Never);
         scroll.set_vscrollbar_policy(gtk4::PolicyType::Automatic);
 
-        // FlowBox wraps cards to columns based on available width; cards
-        // carry a min_width via CSS so the wrap happens at a sensible
-        // breakpoint.
-        let flow = gtk4::FlowBox::new();
-        flow.add_css_class("notes-list");
-        flow.set_selection_mode(gtk4::SelectionMode::None);
-        // Without this, FlowBox swallows single clicks before they reach
-        // buttons nested inside each card.
-        flow.set_activate_on_single_click(false);
-        flow.set_homogeneous(false);
-        flow.set_column_spacing(4);
-        flow.set_row_spacing(4);
-        flow.set_min_children_per_line(1);
-        flow.set_max_children_per_line(4);
-        flow.set_margin_start(6);
-        flow.set_margin_end(6);
-        flow.set_margin_top(4);
-        flow.set_margin_bottom(4);
+        let cards_box = gtk4::Box::new(gtk4::Orientation::Vertical, 6);
+        cards_box.add_css_class("notes-list");
+        cards_box.set_margin_start(6);
+        cards_box.set_margin_end(6);
+        cards_box.set_margin_top(4);
+        cards_box.set_margin_bottom(4);
 
-        scroll.set_child(Some(&flow));
+        scroll.set_child(Some(&cards_box));
         root.append(&scroll);
 
         // ── Undo toast (revealer over the bottom edge) ──────────────
@@ -144,7 +141,7 @@ impl NoteListView {
 
         let view = Rc::new(Self {
             root,
-            flow,
+            cards_box,
             search_entry,
             tag_dropdown,
             toast_revealer,
@@ -238,9 +235,9 @@ impl NoteListView {
             None => notes,
         };
 
-        // Rebuild grid.
-        while let Some(child) = self.flow.first_child() {
-            self.flow.remove(&child);
+        // Rebuild the stack.
+        while let Some(child) = self.cards_box.first_child() {
+            self.cards_box.remove(&child);
         }
 
         if notes.is_empty() {
@@ -250,7 +247,7 @@ impl NoteListView {
             placeholder.add_css_class("dim-label");
             placeholder.set_margin_top(24);
             placeholder.set_margin_bottom(24);
-            self.flow.insert(&placeholder, -1);
+            self.cards_box.append(&placeholder);
             return;
         }
 
@@ -276,11 +273,7 @@ impl NoteListView {
                     },
                 },
             );
-            // FlowBox auto-wraps the card in a FlowBoxChild. Don't pre-wrap
-            // manually: the auto-wrap is what makes clicks reach our
-            // nested buttons, whereas a self-made FlowBoxChild tended to
-            // intercept them.
-            self.flow.insert(&card, -1);
+            self.cards_box.append(&card);
         }
     }
 
