@@ -1414,6 +1414,9 @@ const GRAPHITE_CSS: &str = "\
 @define-color borders @border_soft;\n\
 @define-color headerbar_border_color @border_hard;\n\
 @define-color headerbar_backdrop_color @bg_chrome;\n\
+@define-color note_info @accent;\n\
+@define-color note_warning #d97706;\n\
+@define-color note_important #dc2626;\n\
 ";
 
 const DRACULA_CSS: &str = "\
@@ -1458,6 +1461,9 @@ const DRACULA_CSS: &str = "\
 @define-color borders @border_soft;\n\
 @define-color headerbar_border_color @border_hard;\n\
 @define-color headerbar_backdrop_color @bg_chrome;\n\
+@define-color note_info @accent;\n\
+@define-color note_warning #ffb86c;\n\
+@define-color note_important #ff5555;\n\
 ";
 
 const AURORA_CSS: &str = "\
@@ -1502,6 +1508,9 @@ const AURORA_CSS: &str = "\
 @define-color borders @border_soft;\n\
 @define-color headerbar_border_color @border_hard;\n\
 @define-color headerbar_backdrop_color @bg_chrome;\n\
+@define-color note_info @accent;\n\
+@define-color note_warning #d97706;\n\
+@define-color note_important #dc2626;\n\
 ";
 
 const QUANTUM_CSS: &str = "\
@@ -1546,6 +1555,9 @@ const QUANTUM_CSS: &str = "\
 @define-color borders @border_soft;\n\
 @define-color headerbar_border_color @border_hard;\n\
 @define-color headerbar_backdrop_color @bg_chrome;\n\
+@define-color note_info @accent;\n\
+@define-color note_warning #d97706;\n\
+@define-color note_important #dc2626;\n\
 ";
 
 #[cfg(test)]

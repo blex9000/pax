@@ -106,7 +106,10 @@
 .notes-list,
 .notes-list > row {
     background: transparent;
-    padding: 0;
+}
+
+.notes-list > row {
+    padding: 4px 2px;
     min-height: 0;
 }
 
@@ -116,100 +119,106 @@
 
 /* ── Card chrome ─────────────────────────────────────────────────── */
 .note-card {
-    background: @theme_base_color;
-    border: 1px solid alpha(@borders, 0.7);
+    background: @card_bg_color;
+    border: 1px solid alpha(@borders, 0.6);
+    border-left: 3px solid @note_info;
     border-radius: 8px;
-    padding: 10px 12px;
-    transition: background-color 120ms ease, border-color 120ms ease,
-                box-shadow 160ms ease;
+    padding: 6px 10px;
+    transition: border-color 120ms ease, box-shadow 160ms ease;
 }
 
-.note-card:hover {
-    border-color: alpha(@accent_color, 0.55);
-    box-shadow: 0 2px 6px alpha(black, 0.08);
+.notes-list > row:hover .note-card {
+    box-shadow: 0 2px 6px alpha(black, 0.12);
 }
 
-.note-card--important {
-    border-color: alpha(#dc2626, 0.5);
-}
+.note-card.note-card--info        { border-left-color: @note_info; }
+.note-card.note-card--warning     { border-left-color: @note_warning; }
+.note-card.note-card--important   { border-left-color: @note_important; }
 
-.note-card--important:hover {
-    border-color: #dc2626;
-    box-shadow: 0 2px 8px alpha(#dc2626, 0.22);
-}
-
-/* ── Title ───────────────────────────────────────────────────────── */
+/* ── Title + single-line inline preview ──────────────────────────── */
 .note-card-title {
     font-weight: 700;
-    font-size: 14px;
-    color: @theme_fg_color;
+    font-size: 13px;
+    color: @card_fg_color;
     letter-spacing: 0.01em;
 }
 
 .note-card--important .note-card-title {
-    color: #dc2626;
+    color: @note_important;
 }
 
-/* ── Body (rendered markdown preview) ────────────────────────────── */
+.note-card-preview {
+    color: alpha(@card_fg_color, 0.55);
+    font-size: 12px;
+}
+
+/* ── Body (rendered markdown, expanded view only) ────────────────── */
 .note-card-rendered,
 .note-card-rendered text,
 .note-card-rendered.view {
     background: transparent;
-    color: alpha(@theme_fg_color, 0.82);
+    color: alpha(@card_fg_color, 0.78);
     font-size: 12px;
 }
 
-/* ── Footer: severity dot · tags · alert badge ───────────────────── */
-.note-card-severity-dot {
-    font-size: 12px;
-    padding: 0 2px;
-    transition: transform 100ms ease;
-}
-
-.note-card-severity-dot:hover {
-    transform: scale(1.2);
-}
-
-.note-card-severity-dot.note-card--info {
-    color: #4a90e2;
-}
-
-.note-card-severity-dot.note-card--warning {
-    color: #d97706;
-}
-
-.note-card-severity-dot.note-card--important {
-    color: #dc2626;
-}
-
+/* ── Tag chips ───────────────────────────────────────────────────── */
 .tag-chip {
-    background: alpha(@theme_fg_color, 0.1);
-    color: alpha(@theme_fg_color, 0.85);
+    background: alpha(@accent_color, 0.18);
+    color: @accent_color;
     border-radius: 10px;
     padding: 1px 9px;
     font-size: 10px;
-    font-weight: 500;
-    border: 1px solid alpha(@borders, 0.3);
+    font-weight: 600;
+    border: 1px solid alpha(@accent_color, 0.28);
 }
 
+/* ── Alert badge ─────────────────────────────────────────────────── */
 .alert-badge {
-    color: #d97706;
+    color: @note_warning;
     font-size: 10px;
     font-weight: 600;
     padding: 1px 7px;
     border-radius: 10px;
-    background: alpha(#d97706, 0.14);
+    background: alpha(@note_warning, 0.18);
+    border: 1px solid alpha(@note_warning, 0.28);
 }
 
 .note-card--important .alert-badge {
-    color: #dc2626;
-    background: alpha(#dc2626, 0.17);
+    color: @note_important;
+    background: alpha(@note_important, 0.18);
+    border-color: alpha(@note_important, 0.30);
 }
 
-/* ── Card action buttons (edit / delete in the header) ───────────── */
+/* ── Action buttons ──────────────────────────────────────────────── */
 .note-card-action {
-    padding: 3px 10px;
-    font-size: 11px;
+    padding: 2px 10px;
+    font-size: 10px;
+    min-height: 0;
+}
+
+.note-card-expand {
+    padding: 0 2px;
+    min-height: 20px;
+    min-width: 20px;
+    opacity: 0.55;
+}
+
+.note-card-expand:hover {
+    opacity: 1;
+}
+
+/* Edit / Delete are hidden until the row is hovered. Opacity (not
+ * visibility) keeps the layout stable — the buttons reserve their
+ * space so the preview column doesn't jump on hover. */
+.note-card-hover-action {
+    opacity: 0;
+    transition: opacity 120ms ease;
+}
+
+.notes-list > row:hover .note-card-hover-action,
+.note-card-hover-action:focus,
+.note-card-hover-action:hover {
+    opacity: 1;
 }
 
 .note-toast {

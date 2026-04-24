@@ -1,9 +1,14 @@
 //! Single-note card widget.
 //!
-//! Layout:
-//!   header  : title + [edit] [delete] icon buttons (right-aligned)
-//!   body    : rendered markdown preview
-//!   footer  : severity dot · tag chips · alert badge
+//! Two visual states:
+//!   compact   — one line: [title · preview…] [tag][tag] [alert] [expand] [edit][delete]
+//!                Edit / Delete appear only when the row is hovered.
+//!                Expand button is shown only when the note has more content
+//!                than fits on one line.
+//!   expanded  — compact row kept, plus the fully rendered markdown below it.
+//!
+//! Severity is communicated by a colored left border on the card (info uses
+//! the theme accent, warning and important have their own theme tokens).
 
 use gtk4::prelude::*;
 use std::rc::Rc;
@@ -22,24 +27,25 @@ pub struct NoteCardActions {
 }
 
 const SEVERITY_CLASS_PREFIX: &str = "note-card--";
-const NOTE_PREVIEW_MAX_CHARS: usize = 600;
+/// A note "has more" (and therefore shows the expand button) when it
+/// contains multiple lines or a single line longer than this many chars.
+const INLINE_PREVIEW_CHAR_THRESHOLD: usize = 80;
 
 pub fn build_note_card(note: &WorkspaceNote, actions: NoteCardActions) -> gtk4::Widget {
-    let card = gtk4::Box::new(gtk4::Orientation::Vertical, 6);
+    let card = gtk4::Box::new(gtk4::Orientation::Vertical, 4);
     card.add_css_class("note-card");
     card.add_css_class(&severity_class(&note.severity));
-    card.set_margin_top(4);
-    card.set_margin_bottom(4);
-    card.set_margin_start(4);
-    card.set_margin_end(4);
 
     let on_open_editor = Rc::new(actions.on_open_editor);
     let on_delete = Rc::new(actions.on_delete);
-    let on_cycle_severity = Rc::new(actions.on_cycle_severity);
+    // Severity cycling lost its dedicated UI (we no longer render the dot)
+    // but the callback remains in the public API so the list view can still
+    // wire it for future surfaces (keyboard shortcut, dialog, etc.).
+    let _ = actions.on_cycle_severity;
 
-    // ── Header: title + edit/delete buttons ────────────────────────────
-    let header = gtk4::Box::new(gtk4::Orientation::Horizontal, 6);
-    header.set_valign(gtk4::Align::Center);
+    // ── Compact row (always visible) ───────────────────────────────────
+    let compact = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
+    compact.set_valign(gtk4::Align::Center);
 
     let title_label = gtk4::Label::new(None);
     if note.title.trim().is_empty() {
@@ -52,83 +58,91 @@ pub fn build_note_card(note: &WorkspaceNote, actions: NoteCardActions) -> gtk4::
     title_label.set_ellipsize(gtk4::pango::EllipsizeMode::End);
     title_label.set_halign(gtk4::Align::Start);
     title_label.set_xalign(0.0);
-    title_label.set_hexpand(true);
-    header.append(&title_label);
+    compact.append(&title_label);
+
+    let preview_label = gtk4::Label::new(Some(&first_line_preview(&note.text)));
+    preview_label.add_css_class("note-card-preview");
+    preview_label.set_ellipsize(gtk4::pango::EllipsizeMode::End);
+    preview_label.set_halign(gtk4::Align::Start);
+    preview_label.set_xalign(0.0);
+    preview_label.set_hexpand(true);
+    compact.append(&preview_label);
+
+    for tag in &note.tags {
+        let chip = gtk4::Label::new(Some(tag));
+        chip.add_css_class("tag-chip");
+        compact.append(&chip);
+    }
+
+    if let Some(alert_at) = note.alert_at {
+        let badge = gtk4::Label::new(Some(&format_alert_badge(alert_at, note.alert_fired_at)));
+        badge.add_css_class("alert-badge");
+        compact.append(&badge);
+    }
+
+    let has_more = note_has_more_content(&note.text);
+    let expand_btn = gtk4::Button::from_icon_name("pan-down-symbolic");
+    expand_btn.add_css_class("flat");
+    expand_btn.add_css_class("note-card-action");
+    expand_btn.add_css_class("note-card-expand");
+    expand_btn.set_tooltip_text(Some("Expand"));
+    expand_btn.set_valign(gtk4::Align::Center);
+    if !has_more {
+        expand_btn.set_visible(false);
+    }
+    compact.append(&expand_btn);
 
     let edit_btn = gtk4::Button::with_label("Edit");
     edit_btn.add_css_class("note-card-action");
+    edit_btn.add_css_class("note-card-hover-action");
     edit_btn.set_valign(gtk4::Align::Center);
     {
         let on_open = on_open_editor.clone();
         edit_btn.connect_clicked(move |_| on_open());
     }
-    header.append(&edit_btn);
+    compact.append(&edit_btn);
 
     let delete_btn = gtk4::Button::with_label("Delete");
     delete_btn.add_css_class("note-card-action");
+    delete_btn.add_css_class("note-card-hover-action");
     delete_btn.add_css_class("destructive-action");
     delete_btn.set_valign(gtk4::Align::Center);
     {
         let on_del = on_delete.clone();
         delete_btn.connect_clicked(move |_| on_del());
     }
-    header.append(&delete_btn);
+    compact.append(&delete_btn);
 
-    card.append(&header);
+    card.append(&compact);
 
-    // ── Body: rendered markdown ────────────────────────────────────────
+    // ── Expanded body (hidden by default, revealed via expand_btn) ─────
     let rendered_view = gtk4::TextView::new();
     rendered_view.set_editable(false);
     rendered_view.set_cursor_visible(false);
     rendered_view.set_wrap_mode(gtk4::WrapMode::WordChar);
     rendered_view.set_left_margin(0);
     rendered_view.set_right_margin(0);
-    rendered_view.set_top_margin(0);
+    rendered_view.set_top_margin(6);
     rendered_view.set_bottom_margin(0);
     rendered_view.set_can_target(false);
     rendered_view.add_css_class("note-card-rendered");
-    crate::markdown_render::render_markdown_to_view(
-        &rendered_view,
-        &truncate_preview(&note.text),
-    );
+    crate::markdown_render::render_markdown_to_view(&rendered_view, &note.text);
+    rendered_view.set_visible(false);
     card.append(&rendered_view);
 
-    // ── Footer: severity dot · tags · alert badge ──────────────────────
-    let footer = gtk4::Box::new(gtk4::Orientation::Horizontal, 6);
-    footer.set_valign(gtk4::Align::Center);
-    footer.set_margin_top(2);
-
-    let severity_dot = build_severity_dot(&note.severity);
-    footer.append(&severity_dot);
-
-    for tag in &note.tags {
-        let chip = gtk4::Label::new(Some(tag));
-        chip.add_css_class("tag-chip");
-        footer.append(&chip);
-    }
-
-    let spacer = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
-    spacer.set_hexpand(true);
-    footer.append(&spacer);
-
-    if let Some(alert_at) = note.alert_at {
-        let badge = gtk4::Label::new(Some(&format_alert_badge(alert_at, note.alert_fired_at)));
-        badge.add_css_class("alert-badge");
-        footer.append(&badge);
-    }
-
-    card.append(&footer);
-
-    // Click the severity dot to cycle info → warning → important.
     {
-        let gesture = gtk4::GestureClick::new();
-        gesture.set_button(gtk4::gdk::BUTTON_PRIMARY);
-        let cycle = on_cycle_severity.clone();
-        gesture.connect_released(move |g, _, _, _| {
-            g.set_state(gtk4::EventSequenceState::Claimed);
-            cycle();
+        let view = rendered_view.clone();
+        let btn = expand_btn.clone();
+        expand_btn.connect_clicked(move |_| {
+            let expanded = !view.is_visible();
+            view.set_visible(expanded);
+            btn.set_icon_name(if expanded {
+                "pan-up-symbolic"
+            } else {
+                "pan-down-symbolic"
+            });
+            btn.set_tooltip_text(Some(if expanded { "Collapse" } else { "Expand" }));
         });
-        severity_dot.add_controller(gesture);
     }
 
     card.upcast()
@@ -138,23 +152,24 @@ fn severity_class(severity: &str) -> String {
     let suffix = match severity {
         SEVERITY_WARNING => "warning",
         SEVERITY_IMPORTANT => "important",
+        SEVERITY_INFO => "info",
         _ => "info",
     };
     format!("{SEVERITY_CLASS_PREFIX}{suffix}")
 }
 
-fn build_severity_dot(severity: &str) -> gtk4::Widget {
-    let dot = gtk4::Label::new(Some("●"));
-    dot.add_css_class("note-card-severity-dot");
-    dot.add_css_class(&severity_class(severity));
-    let tooltip = match severity {
-        SEVERITY_WARNING => "Warning · click to cycle",
-        SEVERITY_IMPORTANT => "Important · click to cycle",
-        SEVERITY_INFO => "Info · click to cycle",
-        _ => "Severity · click to cycle",
-    };
-    dot.set_tooltip_text(Some(tooltip));
-    dot.upcast()
+fn note_has_more_content(text: &str) -> bool {
+    text.lines().count() > 1 || text.chars().count() > INLINE_PREVIEW_CHAR_THRESHOLD
+}
+
+fn first_line_preview(text: &str) -> String {
+    let first = text.lines().next().unwrap_or("").trim();
+    if first.chars().count() <= INLINE_PREVIEW_CHAR_THRESHOLD {
+        first.to_string()
+    } else {
+        let truncated: String = first.chars().take(INLINE_PREVIEW_CHAR_THRESHOLD).collect();
+        format!("{truncated}…")
+    }
 }
 
 fn format_alert_badge(alert_at: i64, fired_at: Option<i64>) -> String {
@@ -178,12 +193,4 @@ fn format_timestamp(ts: i64) -> String {
     } else {
         dt.format("%Y-%m-%d %H:%M").to_string()
     }
-}
-
-fn truncate_preview(text: &str) -> String {
-    if text.chars().count() <= NOTE_PREVIEW_MAX_CHARS {
-        return text.to_string();
-    }
-    let truncated: String = text.chars().take(NOTE_PREVIEW_MAX_CHARS).collect();
-    format!("{truncated}…")
 }
