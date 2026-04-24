@@ -77,9 +77,12 @@ impl PanelBackend for NotesPanel {
     }
 
     fn on_focus(&self) {
-        // Refresh from DB in case another panel mutated the set (e.g. the
-        // scheduler marked an alert as fired).
-        self.list.reload();
+        // NOTE: do NOT call self.list.reload() here. on_focus fires on every
+        // pointer press (via the panel frame's capture gesture), which would
+        // destroy and rebuild every card on each click — the click press
+        // would land on a widget that's destroyed before release, eating
+        // the event. Alert updates from the scheduler drive their own
+        // targeted refresh; no blanket rebuild is needed on focus.
     }
 
     fn close_confirmation(&self) -> Option<String> {
