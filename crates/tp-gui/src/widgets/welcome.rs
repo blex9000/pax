@@ -186,6 +186,28 @@ pub fn build_welcome(on_choice: WelcomeCallback) -> gtk4::Widget {
 
             row_box.append(&info);
 
+            // "Open in new window" side button — spawns a fresh Pax
+            // process so the welcome stays available. Shown on every
+            // row, disabled when the file is missing.
+            let new_window_btn = gtk4::Button::new();
+            new_window_btn.set_icon_name("window-new-symbolic");
+            new_window_btn.add_css_class("flat");
+            new_window_btn.set_tooltip_text(Some("Open in a new window"));
+            new_window_btn.set_valign(gtk4::Align::Center);
+            new_window_btn.set_sensitive(file_exists);
+            if file_exists {
+                if let Some(path) = config_path_opt.clone() {
+                    new_window_btn.connect_clicked(move |_| {
+                        if let Err(e) = crate::workspace_launcher::open_in_new_window(
+                            std::path::Path::new(&path),
+                        ) {
+                            tracing::warn!("welcome: could not spawn new window: {e}");
+                        }
+                    });
+                }
+            }
+            row_box.append(&new_window_btn);
+
             let row = gtk4::ListBoxRow::new();
             row.set_child(Some(&row_box));
             // Missing-file rows stay inert so a click on a dangling entry

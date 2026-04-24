@@ -14,4 +14,5 @@ pub mod shortcuts;
 pub mod theme;
 pub mod widget_builder;
 pub mod widgets;
+pub mod workspace_launcher;
 pub mod workspace_view;

@@ -456,18 +456,44 @@ pub fn show_recent_dialog(
         stats_label.set_hexpand(true);
         bottom_row.append(&stats_label);
 
-        let open_btn = gtk4::Button::new();
-        open_btn.set_icon_name("document-open-symbolic");
-        open_btn.add_css_class("flat");
-        open_btn.set_tooltip_text(Some("Open this workspace"));
-
-        // Disable the button (and indirectly the row-activated path, via
+        // Disable the row (and indirectly the row-activated path, via
         // set_activatable(false)) when the backing file can't be opened.
         let can_open = record
             .config_path
             .as_ref()
             .map(|p| std::path::PathBuf::from(p).exists())
             .unwrap_or(false);
+
+        let new_window_btn = gtk4::Button::new();
+        new_window_btn.set_icon_name("window-new-symbolic");
+        new_window_btn.add_css_class("flat");
+        new_window_btn.set_tooltip_text(Some("Open in a new window"));
+        if can_open {
+            let record = record.clone();
+            let sb_for_spawn = sb.clone();
+            new_window_btn.connect_clicked(move |_| {
+                if let Some(ref path) = record.config_path {
+                    match crate::workspace_launcher::open_in_new_window(
+                        std::path::Path::new(path),
+                    ) {
+                        Ok(()) => sb_for_spawn
+                            .borrow()
+                            .set_message(&format!("Opened in new window: {}", path)),
+                        Err(e) => sb_for_spawn
+                            .borrow()
+                            .set_message(&format!("Failed to spawn new window: {}", e)),
+                    }
+                }
+            });
+        } else {
+            new_window_btn.set_sensitive(false);
+        }
+        bottom_row.append(&new_window_btn);
+
+        let open_btn = gtk4::Button::new();
+        open_btn.set_icon_name("document-open-symbolic");
+        open_btn.add_css_class("flat");
+        open_btn.set_tooltip_text(Some("Open in this window"));
 
         if can_open {
             let record = record.clone();
@@ -481,7 +507,6 @@ pub fn show_recent_dialog(
                 if record.config_path.is_some() { "File not found" } else { "No config file" },
             ));
         }
-
         bottom_row.append(&open_btn);
         row.append(&bottom_row);
 
