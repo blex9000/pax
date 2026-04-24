@@ -40,7 +40,7 @@ struct ListState {
 
 pub struct NoteListView {
     root: gtk4::Box,
-    list_box: gtk4::ListBox,
+    flow: gtk4::FlowBox,
     search_entry: gtk4::SearchEntry,
     tag_dropdown: gtk4::DropDown,
     toast_revealer: gtk4::Revealer,
@@ -85,22 +85,29 @@ impl NoteListView {
 
         root.append(&header);
 
-        // ── Scrollable list ─────────────────────────────────────────
+        // ── Scrollable fluid grid ───────────────────────────────────
         let scroll = gtk4::ScrolledWindow::new();
         scroll.set_vexpand(true);
         scroll.set_hscrollbar_policy(gtk4::PolicyType::Never);
         scroll.set_vscrollbar_policy(gtk4::PolicyType::Automatic);
 
-        let list_box = gtk4::ListBox::new();
-        list_box.add_css_class("boxed-list");
-        list_box.add_css_class("notes-list");
-        list_box.set_selection_mode(gtk4::SelectionMode::None);
-        list_box.set_margin_start(8);
-        list_box.set_margin_end(8);
-        list_box.set_margin_top(4);
-        list_box.set_margin_bottom(4);
+        // FlowBox wraps cards to columns based on available width; cards
+        // carry a min_width via CSS so the wrap happens at a sensible
+        // breakpoint.
+        let flow = gtk4::FlowBox::new();
+        flow.add_css_class("notes-list");
+        flow.set_selection_mode(gtk4::SelectionMode::None);
+        flow.set_homogeneous(false);
+        flow.set_column_spacing(4);
+        flow.set_row_spacing(4);
+        flow.set_min_children_per_line(1);
+        flow.set_max_children_per_line(4);
+        flow.set_margin_start(6);
+        flow.set_margin_end(6);
+        flow.set_margin_top(4);
+        flow.set_margin_bottom(4);
 
-        scroll.set_child(Some(&list_box));
+        scroll.set_child(Some(&flow));
         root.append(&scroll);
 
         // ── Undo toast (revealer over the bottom edge) ──────────────
@@ -130,7 +137,7 @@ impl NoteListView {
 
         let view = Rc::new(Self {
             root,
-            list_box,
+            flow,
             search_entry,
             tag_dropdown,
             toast_revealer,
@@ -216,9 +223,9 @@ impl NoteListView {
             None => notes,
         };
 
-        // Rebuild list.
-        while let Some(child) = self.list_box.first_child() {
-            self.list_box.remove(&child);
+        // Rebuild grid.
+        while let Some(child) = self.flow.first_child() {
+            self.flow.remove(&child);
         }
 
         if notes.is_empty() {
@@ -228,16 +235,15 @@ impl NoteListView {
             placeholder.add_css_class("dim-label");
             placeholder.set_margin_top(24);
             placeholder.set_margin_bottom(24);
-            let row = gtk4::ListBoxRow::new();
-            row.set_selectable(false);
-            row.set_child(Some(&placeholder));
-            self.list_box.append(&row);
+            let child = gtk4::FlowBoxChild::new();
+            child.set_child(Some(&placeholder));
+            child.set_focusable(false);
+            child.set_hexpand(true);
+            self.flow.insert(&child, -1);
             return;
         }
 
         for note in notes {
-            let row = gtk4::ListBoxRow::new();
-            row.set_selectable(false);
             let id = note.id;
             let severity = note.severity.clone();
             let card = build_note_card(
@@ -263,8 +269,10 @@ impl NoteListView {
                     },
                 },
             );
-            row.set_child(Some(&card));
-            self.list_box.append(&row);
+            let child = gtk4::FlowBoxChild::new();
+            child.set_child(Some(&card));
+            child.set_focusable(false);
+            self.flow.insert(&child, -1);
         }
     }
 
@@ -309,6 +317,7 @@ impl NoteListView {
         let result = db.add_workspace_note(
             &self.record_key,
             &self.panel_id,
+            &draft.title,
             &draft.text,
             &draft.tags,
             &draft.severity,
@@ -346,6 +355,7 @@ impl NoteListView {
         };
         if let Err(e) = db.update_workspace_note(
             id,
+            &draft.title,
             &draft.text,
             &draft.tags,
             &draft.severity,
@@ -372,6 +382,7 @@ impl NoteListView {
         };
         let result = db.update_workspace_note(
             id,
+            &note.title,
             text,
             &note.tags,
             &note.severity,
@@ -410,9 +421,14 @@ impl NoteListView {
         let Some(note) = db.get_workspace_note(id).ok().flatten() else {
             return;
         };
-        if let Err(e) =
-            db.update_workspace_note(id, &note.text, &note.tags, next, note.alert_at)
-        {
+        if let Err(e) = db.update_workspace_note(
+            id,
+            &note.title,
+            &note.text,
+            &note.tags,
+            next,
+            note.alert_at,
+        ) {
             tracing::warn!("notes: could not set severity {next} on {id}: {e}");
             return;
         }
@@ -449,6 +465,7 @@ impl NoteListView {
         let result = db.add_workspace_note(
             &self.record_key,
             &self.panel_id,
+            &snapshot.title,
             &snapshot.text,
             &snapshot.tags,
             &snapshot.severity,

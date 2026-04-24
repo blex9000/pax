@@ -30,6 +30,12 @@ pub fn run_migrations(db: &Database) -> Result<()> {
     apply_sql_migration(db, &applied, "004_app_preferences", MIGRATION_004)?;
     apply_sql_migration(db, &applied, "005_file_metadata", MIGRATION_005_FILE_METADATA)?;
     apply_sql_migration(db, &applied, "006_workspace_notes", MIGRATION_006_WORKSPACE_NOTES)?;
+    apply_sql_migration(
+        db,
+        &applied,
+        "007_workspace_notes_title",
+        MIGRATION_007_WORKSPACE_NOTES_TITLE,
+    )?;
 
     Ok(())
 }
@@ -307,6 +313,39 @@ CREATE TRIGGER IF NOT EXISTS workspace_notes_au AFTER UPDATE ON workspace_notes 
     VALUES ('delete', old.id, old.text, old.tags);
     INSERT INTO workspace_notes_fts(rowid, text, tags) VALUES (new.id, new.text, new.tags);
 END;
+";
+
+const MIGRATION_007_WORKSPACE_NOTES_TITLE: &str = "
+ALTER TABLE workspace_notes ADD COLUMN title TEXT NOT NULL DEFAULT '';
+
+DROP TRIGGER IF EXISTS workspace_notes_ai;
+DROP TRIGGER IF EXISTS workspace_notes_ad;
+DROP TRIGGER IF EXISTS workspace_notes_au;
+DROP TABLE IF EXISTS workspace_notes_fts;
+
+CREATE VIRTUAL TABLE workspace_notes_fts USING fts5(
+    title, text, tags, content='workspace_notes', content_rowid='id'
+);
+
+CREATE TRIGGER workspace_notes_ai AFTER INSERT ON workspace_notes BEGIN
+    INSERT INTO workspace_notes_fts(rowid, title, text, tags)
+    VALUES (new.id, new.title, new.text, new.tags);
+END;
+
+CREATE TRIGGER workspace_notes_ad AFTER DELETE ON workspace_notes BEGIN
+    INSERT INTO workspace_notes_fts(workspace_notes_fts, rowid, title, text, tags)
+    VALUES ('delete', old.id, old.title, old.text, old.tags);
+END;
+
+CREATE TRIGGER workspace_notes_au AFTER UPDATE ON workspace_notes BEGIN
+    INSERT INTO workspace_notes_fts(workspace_notes_fts, rowid, title, text, tags)
+    VALUES ('delete', old.id, old.title, old.text, old.tags);
+    INSERT INTO workspace_notes_fts(rowid, title, text, tags)
+    VALUES (new.id, new.title, new.text, new.tags);
+END;
+
+INSERT INTO workspace_notes_fts (rowid, title, text, tags)
+    SELECT id, title, text, tags FROM workspace_notes;
 ";
 
 #[cfg(test)]

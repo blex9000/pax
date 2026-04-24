@@ -3,7 +3,6 @@
 //! scheduled alert. Inline card edit stays as a quick text-only path;
 //! this dialog is the canonical way to change tags / severity / alert.
 
-use std::cell::RefCell;
 use std::rc::Rc;
 
 use gtk4::prelude::*;
@@ -25,6 +24,7 @@ const DEFAULT_ALERT_MINUTE: i32 = 0;
 /// responsible for persisting — the dialog doesn't touch the database.
 #[derive(Debug, Clone)]
 pub struct NoteDraft {
+    pub title: String,
     pub text: String,
     pub tags: Vec<String>,
     pub severity: String,
@@ -55,10 +55,22 @@ pub fn open_note_dialog(
     root.set_margin_start(14);
     root.set_margin_end(14);
 
+    // Title.
+    let title_label = gtk4::Label::new(Some("Title"));
+    title_label.set_halign(gtk4::Align::Start);
+    title_label.add_css_class("dim-label");
+    root.append(&title_label);
+
+    let title_entry = gtk4::Entry::new();
+    title_entry.set_placeholder_text(Some("Untitled"));
+    title_entry.set_text(&initial.title);
+    root.append(&title_entry);
+
     // Markdown text.
     let text_label = gtk4::Label::new(Some("Text (markdown)"));
     text_label.set_halign(gtk4::Align::Start);
     text_label.add_css_class("dim-label");
+    text_label.set_margin_top(4);
     root.append(&text_label);
 
     let text_scroll = gtk4::ScrolledWindow::new();
@@ -165,49 +177,48 @@ pub fn open_note_dialog(
 
     dialog.set_child(Some(&root));
 
-    // Keep state accessible to save handler.
-    let captured = Rc::new(RefCell::new((
-        text_view.clone(),
-        tags_entry.clone(),
-        severity_dropdown.clone(),
-        alert_toggle.clone(),
-        calendar.clone(),
-        hour_spin.clone(),
-        minute_spin.clone(),
-    )));
-
     {
         let d = dialog.clone();
         cancel_btn.connect_clicked(move |_| d.close());
     }
     {
         let d = dialog.clone();
-        let captured = captured.clone();
+        let title_entry = title_entry.clone();
+        let text_view = text_view.clone();
+        let tags_entry = tags_entry.clone();
+        let severity_dropdown = severity_dropdown.clone();
+        let alert_toggle = alert_toggle.clone();
+        let calendar = calendar.clone();
+        let hour_spin = hour_spin.clone();
+        let minute_spin = minute_spin.clone();
         let on_save = on_save.clone();
         save_btn.connect_clicked(move |_| {
-            let (tv, te, sd, at, cal, hs, ms) = {
-                let r = captured.borrow();
-                (
-                    r.0.clone(),
-                    r.1.clone(),
-                    r.2.clone(),
-                    r.3.clone(),
-                    r.4.clone(),
-                    r.5.clone(),
-                    r.6.clone(),
-                )
-            };
-            let draft = capture_draft(&tv, &te, &sd, &at, &cal, &hs, &ms);
+            let draft = capture_draft(
+                &title_entry,
+                &text_view,
+                &tags_entry,
+                &severity_dropdown,
+                &alert_toggle,
+                &calendar,
+                &hour_spin,
+                &minute_spin,
+            );
             d.close();
             on_save(draft);
         });
     }
 
     dialog.present();
-    text_view.grab_focus();
+    if initial.title.is_empty() {
+        title_entry.grab_focus();
+    } else {
+        text_view.grab_focus();
+    }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn capture_draft(
+    title_entry: &gtk4::Entry,
     text_view: &gtk4::TextView,
     tags_entry: &gtk4::Entry,
     severity_dropdown: &gtk4::DropDown,
@@ -216,6 +227,8 @@ fn capture_draft(
     hour_spin: &gtk4::SpinButton,
     minute_spin: &gtk4::SpinButton,
 ) -> NoteDraft {
+    let title = title_entry.text().trim().to_string();
+
     let buf = text_view.buffer();
     let text = buf.text(&buf.start_iter(), &buf.end_iter(), false).to_string();
 
@@ -239,6 +252,7 @@ fn capture_draft(
     };
 
     NoteDraft {
+        title,
         text,
         tags,
         severity,
@@ -296,6 +310,7 @@ fn compose_alert_ts(
 /// Convenience: build a NoteDraft from an existing stored note.
 pub fn draft_from_note(note: &WorkspaceNote) -> NoteDraft {
     NoteDraft {
+        title: note.title.clone(),
         text: note.text.clone(),
         tags: note.tags.clone(),
         severity: note.severity.clone(),
@@ -306,6 +321,7 @@ pub fn draft_from_note(note: &WorkspaceNote) -> NoteDraft {
 /// Convenience: defaults for a new note.
 pub fn draft_default() -> NoteDraft {
     NoteDraft {
+        title: String::new(),
         text: String::new(),
         tags: Vec::new(),
         severity: SEVERITY_INFO.to_string(),

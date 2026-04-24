@@ -20,6 +20,7 @@ pub struct WorkspaceNote {
     pub id: i64,
     pub record_key: String,
     pub panel_id: String,
+    pub title: String,
     pub text: String,
     pub tags: Vec<String>,
     pub severity: String,
@@ -53,23 +54,24 @@ fn tags_from_json(s: &str) -> Vec<String> {
 }
 
 fn row_to_note(row: &rusqlite::Row<'_>) -> rusqlite::Result<WorkspaceNote> {
-    let tags_json: String = row.get(4)?;
+    let tags_json: String = row.get(5)?;
     Ok(WorkspaceNote {
         id: row.get(0)?,
         record_key: row.get(1)?,
         panel_id: row.get(2)?,
-        text: row.get(3)?,
+        title: row.get(3)?,
+        text: row.get(4)?,
         tags: tags_from_json(&tags_json),
-        severity: row.get(5)?,
-        alert_at: row.get(6)?,
-        alert_fired_at: row.get(7)?,
-        created_at: row.get(8)?,
-        updated_at: row.get(9)?,
+        severity: row.get(6)?,
+        alert_at: row.get(7)?,
+        alert_fired_at: row.get(8)?,
+        created_at: row.get(9)?,
+        updated_at: row.get(10)?,
     })
 }
 
 const SELECT_COLUMNS: &str =
-    "id, record_key, panel_id, text, tags, severity, alert_at, alert_fired_at, created_at, updated_at";
+    "id, record_key, panel_id, title, text, tags, severity, alert_at, alert_fired_at, created_at, updated_at";
 
 /// Sort clause used by both list and search results so the ordering stays
 /// consistent: `important` notes on top, then most recently created first.
@@ -81,6 +83,7 @@ impl Database {
         &self,
         record_key: &str,
         panel_id: &str,
+        title: &str,
         text: &str,
         tags: &[String],
         severity: &str,
@@ -91,9 +94,9 @@ impl Database {
         let tags_json = tags_to_json(tags);
         self.conn.execute(
             "INSERT INTO workspace_notes
-                (record_key, panel_id, text, tags, severity, alert_at, alert_fired_at, created_at, updated_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, NULL, ?7, ?7)",
-            params![record_key, panel_id, text, tags_json, severity, alert_at, now],
+                (record_key, panel_id, title, text, tags, severity, alert_at, alert_fired_at, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, NULL, ?8, ?8)",
+            params![record_key, panel_id, title, text, tags_json, severity, alert_at, now],
         )?;
         let id = self.conn.last_insert_rowid();
         self.get_workspace_note(id)?
@@ -103,6 +106,7 @@ impl Database {
     pub fn update_workspace_note(
         &self,
         id: i64,
+        title: &str,
         text: &str,
         tags: &[String],
         severity: &str,
@@ -114,9 +118,9 @@ impl Database {
         // alert_fired_at so the scheduler can refire.
         self.conn.execute(
             "UPDATE workspace_notes
-             SET text = ?2, tags = ?3, severity = ?4, alert_at = ?5, alert_fired_at = NULL, updated_at = ?6
+             SET title = ?2, text = ?3, tags = ?4, severity = ?5, alert_at = ?6, alert_fired_at = NULL, updated_at = ?7
              WHERE id = ?1",
-            params![id, text, tags_json, severity, alert_at, now_secs()],
+            params![id, title, text, tags_json, severity, alert_at, now_secs()],
         )?;
         Ok(())
     }

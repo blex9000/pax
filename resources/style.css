@@ -114,92 +114,131 @@
 }
 
 .note-card {
-    background: alpha(@theme_fg_color, 0.035);
-    border: 1px solid alpha(@borders, 0.6);
-    border-left: 3px solid alpha(@theme_fg_color, 0.18);
-    border-radius: 6px;
-    padding: 8px 10px;
-    transition: background-color 120ms ease, border-color 120ms ease;
+    background: alpha(@theme_fg_color, 0.04);
+    border: 1px solid alpha(@borders, 0.55);
+    border-radius: 8px;
+    padding: 10px 12px;
+    min-width: 260px;
+    transition: background-color 120ms ease, border-color 120ms ease,
+                box-shadow 120ms ease;
 }
 
 .note-card:hover {
-    background: alpha(@theme_fg_color, 0.06);
-    border-color: alpha(@borders, 0.85);
-}
-
-.note-card--info {
-    border-left-color: #4a90e2;
-}
-
-.note-card--warning {
-    border-left-color: #d97706;
-    background: alpha(#d97706, 0.05);
+    background: alpha(@theme_fg_color, 0.07);
+    border-color: alpha(@borders, 0.9);
 }
 
 .note-card--important {
-    border-left-color: #dc2626;
-    background: alpha(#dc2626, 0.07);
-    box-shadow: 0 0 0 1px alpha(#dc2626, 0.15);
+    border-color: alpha(#dc2626, 0.45);
+    background: alpha(#dc2626, 0.06);
 }
 
+.note-card--important:hover {
+    background: alpha(#dc2626, 0.1);
+    box-shadow: 0 0 0 1px alpha(#dc2626, 0.25);
+}
+
+/* ── Severity indicator (colored dot, clickable to cycle) ────────── */
+.note-card-severity-dot {
+    font-size: 14px;
+    padding: 0 2px;
+    transition: transform 100ms ease;
+}
+
+.note-card-severity-dot:hover {
+    transform: scale(1.15);
+}
+
+.note-card-severity-dot.note-card--info {
+    color: #4a90e2;
+}
+
+.note-card-severity-dot.note-card--warning {
+    color: #d97706;
+}
+
+.note-card-severity-dot.note-card--important {
+    color: #dc2626;
+}
+
+/* ── Title ───────────────────────────────────────────────────────── */
+.note-card-title {
+    font-weight: 600;
+    font-size: 13px;
+    color: @theme_fg_color;
+}
+
+.note-card--important .note-card-title {
+    color: #dc2626;
+}
+
+/* ── Body ────────────────────────────────────────────────────────── */
 .note-card-rendered,
 .note-card-rendered text {
     background: transparent;
+    color: alpha(@theme_fg_color, 0.85);
     font-size: 12px;
 }
 
 .note-card-source,
 .note-card-source text {
-    background: alpha(@theme_fg_color, 0.05);
+    background: alpha(@theme_fg_color, 0.06);
+    color: @theme_fg_color;
     border-radius: 4px;
     font-size: 12px;
 }
 
+/* ── Tag chips ───────────────────────────────────────────────────── */
 .tag-chip {
-    background: alpha(@theme_fg_color, 0.1);
+    background: alpha(@theme_fg_color, 0.12);
     color: @theme_fg_color;
     border-radius: 10px;
-    padding: 1px 8px;
+    padding: 2px 10px;
     font-size: 10px;
     font-weight: 500;
+    border: 1px solid alpha(@borders, 0.35);
 }
 
+/* ── Alert badge ─────────────────────────────────────────────────── */
 .alert-badge {
     color: #d97706;
     font-size: 10px;
     font-weight: 500;
     padding: 1px 6px;
     border-radius: 10px;
-    background: alpha(#d97706, 0.12);
+    background: alpha(#d97706, 0.15);
 }
 
 .note-card--important .alert-badge {
     color: #dc2626;
-    background: alpha(#dc2626, 0.15);
+    background: alpha(#dc2626, 0.18);
 }
 
-.severity-toggle {
-    font-size: 10px;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
-    padding: 2px 8px;
-    min-height: 0;
-    opacity: 0.75;
+/* ── Action buttons: hidden until hover ──────────────────────────── */
+.note-card-actions {
+    opacity: 0;
+    transition: opacity 120ms ease;
 }
 
-.severity-toggle:hover {
+.note-card:hover .note-card-actions,
+.note-card-actions.note-card-actions--editing {
     opacity: 1;
 }
 
-.note-card--important .severity-toggle {
+.note-card-action {
+    padding: 0 4px;
+    min-width: 22px;
+    min-height: 22px;
+    color: @theme_fg_color;
+}
+
+.note-card-action:hover {
+    background: alpha(@theme_fg_color, 0.12);
+}
+
+.note-card-action-danger:hover {
+    background: alpha(#dc2626, 0.18);
     color: #dc2626;
-    opacity: 1;
-}
-
-.note-card--warning .severity-toggle {
-    color: #d97706;
-    opacity: 1;
 }
 
 .note-toast {
