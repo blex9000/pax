@@ -471,14 +471,18 @@ pub fn show_recent_dialog(
         if can_open {
             let record = record.clone();
             let sb_for_spawn = sb.clone();
+            let dialog_for_spawn = dialog.clone();
             new_window_btn.connect_clicked(move |_| {
                 if let Some(ref path) = record.config_path {
                     match crate::workspace_launcher::open_in_new_window(
                         std::path::Path::new(path),
                     ) {
-                        Ok(()) => sb_for_spawn
-                            .borrow()
-                            .set_message(&format!("Opened in new window: {}", path)),
+                        Ok(()) => {
+                            sb_for_spawn
+                                .borrow()
+                                .set_message(&format!("Opened in new window: {}", path));
+                            dialog_for_spawn.close();
+                        }
                         Err(e) => sb_for_spawn
                             .borrow()
                             .set_message(&format!("Failed to spawn new window: {}", e)),
