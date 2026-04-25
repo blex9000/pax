@@ -53,6 +53,29 @@ fn tags_from_json(s: &str) -> Vec<String> {
     serde_json::from_str(s).unwrap_or_default()
 }
 
+/// Translate raw user input into a safe FTS5 query string. Tokenizes on
+/// whitespace, strips characters that FTS5 treats as syntax, and
+/// turns each remaining word into a prefix match (`word*`). Returns
+/// `None` when the query has no searchable tokens (caller falls back
+/// to the unfiltered list rather than running FTS with junk).
+fn fts5_query_for_user_input(query: &str) -> Option<String> {
+    let words: Vec<String> = query
+        .split_whitespace()
+        .map(|w| {
+            w.chars()
+                .filter(|c| c.is_alphanumeric() || *c == '_' || *c == '-')
+                .collect::<String>()
+        })
+        .filter(|w| !w.is_empty())
+        .map(|w| format!("{w}*"))
+        .collect();
+    if words.is_empty() {
+        None
+    } else {
+        Some(words.join(" "))
+    }
+}
+
 fn row_to_note(row: &rusqlite::Row<'_>) -> rusqlite::Result<WorkspaceNote> {
     let tags_json: String = row.get(5)?;
     Ok(WorkspaceNote {
@@ -157,8 +180,9 @@ impl Database {
         Ok(rows.filter_map(|r| r.ok()).collect())
     }
 
-    /// Full-text search over text + tags, constrained to one panel. Empty
-    /// query falls back to the full list so callers can wire a single path.
+    /// Full-text search over title + text + tags, constrained to one
+    /// panel. Empty query (or one with no searchable tokens after
+    /// sanitization) falls back to the full list.
     pub fn search_notes_for_panel(
         &self,
         record_key: &str,
@@ -168,18 +192,26 @@ impl Database {
         if query.trim().is_empty() {
             return self.list_notes_for_panel(record_key, panel_id);
         }
-        let mut stmt = self.conn.prepare(
-            "SELECT wn.id, wn.record_key, wn.panel_id, wn.text, wn.tags, wn.severity,
-                    wn.alert_at, wn.alert_fired_at, wn.created_at, wn.updated_at
+        let Some(fts_query) = fts5_query_for_user_input(query) else {
+            return self.list_notes_for_panel(record_key, panel_id);
+        };
+        let qualified_columns: String = SELECT_COLUMNS
+            .split(", ")
+            .map(|c| format!("wn.{c}"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let sql = format!(
+            "SELECT {qualified_columns}
              FROM workspace_notes wn
              JOIN workspace_notes_fts fts ON wn.id = fts.rowid
              WHERE workspace_notes_fts MATCH ?1
                AND wn.record_key = ?2
                AND wn.panel_id = ?3
              ORDER BY (CASE WHEN wn.severity = 'important' THEN 0 ELSE 1 END) ASC,
-                      wn.created_at DESC, wn.id DESC",
-        )?;
-        let rows = stmt.query_map(params![query, record_key, panel_id], row_to_note)?;
+                      wn.created_at DESC, wn.id DESC"
+        );
+        let mut stmt = self.conn.prepare(&sql)?;
+        let rows = stmt.query_map(params![fts_query, record_key, panel_id], row_to_note)?;
         Ok(rows.filter_map(|r| r.ok()).collect())
     }
 
