@@ -695,6 +695,9 @@ impl WorkspaceView {
             panel_cfg.panel_type = PanelType::Empty;
             panel_cfg.name = "New Panel".to_string();
         }
+        // Chooser doesn't support sync — drop any leftover membership so the
+        // group keeps mirroring only real input panels.
+        self.drop_sync_if_unsupported(panel_id);
         self.dirty = true;
     }
 
@@ -735,6 +738,9 @@ impl WorkspaceView {
                 host.set_backend(backend);
             }
         }
+        // If the new backend doesn't opt into sync, evict the panel from
+        // the synced group rather than leaving a dead member.
+        self.drop_sync_if_unsupported(panel_id);
 
         // Update the model so it saves correctly
         self.dirty = true;
@@ -1011,6 +1017,9 @@ impl WorkspaceView {
     // ── Sync input ───────────────────────────────────────────────────────
 
     /// Toggle sync-input on the focused panel. Returns (panel_id, is_now_synced).
+    /// Returns `None` when the focused panel's backend does not opt into
+    /// the sync feature (`PanelBackend::supports_sync` = false), so that
+    /// Ctrl+Shift+S becomes a no-op on notes/chooser panels.
     pub fn toggle_sync_focused(&mut self) -> Option<(String, bool)> {
         let focused_id = self.focus.focused_panel_id()?.to_string();
         let is_synced = if self.sync_panels.contains(&focused_id) {
@@ -1021,11 +1030,13 @@ impl WorkspaceView {
             }
             false
         } else {
-            self.sync_panels.insert(focused_id.clone());
-            if let Some(host) = self.hosts.get(&focused_id) {
-                host.set_alert_border("yellow");
-                host.set_sync_active(true);
+            let host = self.hosts.get(&focused_id)?;
+            if !host.backend_supports_sync() {
+                return None;
             }
+            self.sync_panels.insert(focused_id.clone());
+            host.set_alert_border("yellow");
+            host.set_sync_active(true);
             true
         };
         Some((focused_id, is_synced))
@@ -1065,6 +1076,22 @@ impl WorkspaceView {
     /// Check if any panels are in sync mode.
     pub fn has_sync(&self) -> bool {
         !self.sync_panels.is_empty()
+    }
+
+    /// If the panel is currently in the synced group but its backend no
+    /// longer supports sync (because the type was changed to chooser /
+    /// notes / etc.), remove it and clear the per-panel visual cues.
+    fn drop_sync_if_unsupported(&mut self, panel_id: &str) {
+        let Some(host) = self.hosts.get(panel_id) else {
+            return;
+        };
+        if host.backend_supports_sync() {
+            return;
+        }
+        if self.sync_panels.remove(panel_id) {
+            host.clear_alert_border();
+            host.set_sync_active(false);
+        }
     }
 
     /// Clear all sync panels.

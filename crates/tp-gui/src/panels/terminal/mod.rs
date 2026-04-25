@@ -197,6 +197,10 @@ impl PanelBackend for TerminalPanel {
         true
     }
 
+    fn supports_sync(&self) -> bool {
+        true
+    }
+
     fn shutdown(&self) {
         self.inner.shutdown();
     }

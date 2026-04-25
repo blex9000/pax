@@ -6,7 +6,7 @@ use std::rc::Rc;
 #[cfg(feature = "sourceview")]
 use sourceview5::prelude::*;
 
-use super::PanelBackend;
+use super::{text_sync, PanelBackend, PanelInputCallback};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum Mode {
@@ -68,7 +68,6 @@ fn install_text_history_shortcuts<W: IsA<gtk4::Widget>>(widget: &W, buffer: &gtk
 /// Markdown viewer/editor panel.
 /// Uses GtkSourceView 5 for edit mode when available (Linux),
 /// falls back to plain TextView on macOS/no-sourceview.
-#[derive(Debug)]
 pub struct MarkdownPanel {
     widget: gtk4::Widget,
     render_view: gtk4::TextView,
@@ -76,8 +75,26 @@ pub struct MarkdownPanel {
     source_view: sourceview5::View,
     #[cfg(not(feature = "sourceview"))]
     source_view: gtk4::TextView,
+    /// Edit buffer — exposed so sync-input can mutate it directly.
+    source_buffer: gtk4::TextBuffer,
+    /// Toggled to Edit mode when remote sync input arrives so the user can
+    /// see the mirrored text take effect.
+    edit_btn: gtk4::ToggleButton,
+    /// Set while applying sync-input from a peer to break the
+    /// `insert-text → input_cb → write_input → insert-text` feedback loop.
+    suppress_emit: Rc<Cell<bool>>,
+    /// Active sync-input observer registered by the host.
+    input_cb: Rc<RefCell<Option<PanelInputCallback>>>,
     #[allow(dead_code)]
     file_path: String,
+}
+
+impl std::fmt::Debug for MarkdownPanel {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("MarkdownPanel")
+            .field("file_path", &self.file_path)
+            .finish()
+    }
 }
 
 impl MarkdownPanel {
@@ -86,6 +103,8 @@ impl MarkdownPanel {
         let mode = Rc::new(Cell::new(Mode::Render));
         let content = Rc::new(RefCell::new(String::new()));
         let modified = Rc::new(Cell::new(false));
+        let suppress_emit: Rc<Cell<bool>> = Rc::new(Cell::new(false));
+        let input_cb: Rc<RefCell<Option<PanelInputCallback>>> = Rc::new(RefCell::new(None));
 
         // ── Main toolbar ─────────────────────────────────────────────────
         let toolbar = gtk4::Box::new(gtk4::Orientation::Horizontal, 3);
@@ -270,6 +289,22 @@ impl MarkdownPanel {
         *edit_buf_ref.borrow_mut() = Some(source_buffer.clone());
         install_text_history_shortcuts(&source_view, &source_buffer);
 
+        // Sync-input outgoing wiring: forward user edits to peer panels via
+        // the input callback. Gated on Edit mode so the buffer's mutations
+        // during render→edit / edit→render transitions don't leak out, and
+        // suppressed during inbound apply to break feedback loops.
+        {
+            let mode_for_gate = mode.clone();
+            let gate: Rc<dyn Fn() -> bool> =
+                Rc::new(move || mode_for_gate.get() == Mode::Edit);
+            text_sync::connect_buffer_emit_input(
+                &source_buffer,
+                input_cb.clone(),
+                suppress_emit.clone(),
+                gate,
+            );
+        }
+
         let source_scroll = gtk4::ScrolledWindow::new();
         source_scroll.set_child(Some(&source_view));
         source_scroll.set_vexpand(true);
@@ -345,13 +380,16 @@ impl MarkdownPanel {
             let sv = source_view.clone();
             let ub = undo_btn.clone();
             let rb = redo_btn.clone();
+            let suppress = suppress_emit.clone();
             edit_btn.connect_toggled(move |btn| {
                 if !btn.is_active() {
                     return;
                 }
                 m.set(Mode::Edit);
                 fb.set_visible(true);
+                suppress.set(true);
                 sbuf.set_text(&ct.borrow());
+                suppress.set(false);
                 ub.set_sensitive(sbuf.can_undo());
                 rb.set_sensitive(sbuf.can_redo());
                 st.set_visible_child_name("edit");
@@ -460,6 +498,7 @@ impl MarkdownPanel {
             let m = mode.clone();
             let mod_flag = modified.clone();
             let sb = save_btn.clone();
+            let suppress = suppress_emit.clone();
             reload_btn.connect_clicked(move |_| {
                 if let Ok(text) = std::fs::read_to_string(&fp) {
                     *ct.borrow_mut() = text.clone();
@@ -468,7 +507,9 @@ impl MarkdownPanel {
                     if m.get() == Mode::Render {
                         crate::markdown_render::render_markdown_to_view(&rv, &text);
                     } else {
+                        suppress.set(true);
                         sbuf.set_text(&text);
+                        suppress.set(false);
                     }
                 }
             });
@@ -503,6 +544,10 @@ impl MarkdownPanel {
             widget,
             render_view,
             source_view,
+            source_buffer,
+            edit_btn,
+            suppress_emit,
+            input_cb,
             file_path: file_path.to_string(),
         }
     }
@@ -526,6 +571,26 @@ impl PanelBackend for MarkdownPanel {
     }
     fn footer_text(&self) -> Option<String> {
         Some(self.file_path.clone())
+    }
+
+    fn supports_sync(&self) -> bool {
+        true
+    }
+
+    fn accepts_input(&self) -> bool {
+        true
+    }
+
+    fn set_input_callback(&self, callback: Option<PanelInputCallback>) {
+        *self.input_cb.borrow_mut() = callback;
+    }
+
+    fn write_input(&self, data: &[u8]) -> bool {
+        if !self.edit_btn.is_active() {
+            self.edit_btn.set_active(true);
+        }
+        text_sync::apply_input_to_buffer(&self.source_buffer, data, &self.suppress_emit);
+        true
     }
 }
 

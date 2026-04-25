@@ -29,12 +29,12 @@ pub mod project_search;
 #[cfg(feature = "sourceview")]
 pub mod task;
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::Arc;
 
-use super::PanelBackend;
+use super::{PanelBackend, PanelInputCallback};
 use gtk4::prelude::*;
 
 /// A position in a file (for navigation history).
@@ -148,12 +148,30 @@ pub enum SidebarMode {
 /// Embedded code editor panel with file tree, tabs, and git integration.
 /// Supports both local directories and remote projects via SSHFS.
 #[cfg(feature = "sourceview")]
-#[derive(Debug)]
 pub struct CodeEditorPanel {
     widget: gtk4::Widget,
     state: Rc<RefCell<EditorState>>,
     /// SSH connection label for remote panels (e.g. "user@host").
     ssh_info: Option<String>,
+    /// Editor's shared SourceView — its buffer is swapped on every tab
+    /// switch. Held so `write_input` can target the currently-visible
+    /// buffer for sync-input mirroring.
+    source_view: sourceview5::View,
+    /// Set while applying inbound sync input so the buffer mutations we
+    /// trigger don't bounce back through the input observer.
+    suppress_emit: Rc<Cell<bool>>,
+    /// Active sync-input observer wired by `PanelHost`.
+    input_cb: Rc<RefCell<Option<PanelInputCallback>>>,
+}
+
+#[cfg(feature = "sourceview")]
+impl std::fmt::Debug for CodeEditorPanel {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("CodeEditorPanel")
+            .field("state", &self.state)
+            .field("ssh_info", &self.ssh_info)
+            .finish()
+    }
 }
 
 #[cfg(feature = "sourceview")]
@@ -967,10 +985,76 @@ impl CodeEditorPanel {
             );
         }
 
+        // Sync-input wiring: re-attach insert/delete observers every time the
+        // SourceView swaps its buffer on tab switch. Only one buffer is
+        // observed at a time — the active one — so cursor-movement and tab
+        // changes never accidentally mirror as sync events to peer panels.
+        let suppress_emit: Rc<Cell<bool>> = Rc::new(Cell::new(false));
+        let input_cb: Rc<RefCell<Option<PanelInputCallback>>> = Rc::new(RefCell::new(None));
+        {
+            use gtk4::glib::SignalHandlerId;
+            let source_view = tabs_rc.source_view.clone();
+            let observed: Rc<RefCell<Option<(gtk4::TextBuffer, SignalHandlerId, SignalHandlerId)>>> =
+                Rc::new(RefCell::new(None));
+            let install = {
+                let input_cb = input_cb.clone();
+                let suppress = suppress_emit.clone();
+                let observed = observed.clone();
+                Rc::new(move |buf: gtk4::TextBuffer| {
+                    if let Some((old_buf, h_insert, h_delete)) = observed.borrow_mut().take() {
+                        old_buf.disconnect(h_insert);
+                        old_buf.disconnect(h_delete);
+                    }
+                    let suppress_i = suppress.clone();
+                    let cb_i = input_cb.clone();
+                    let h_insert = buf.connect_insert_text(move |_buf, _iter, text| {
+                        if suppress_i.get() {
+                            return;
+                        }
+                        let bytes = text.as_bytes();
+                        if bytes.is_empty() {
+                            return;
+                        }
+                        if let Ok(borrowed) = cb_i.try_borrow() {
+                            if let Some(ref cb) = *borrowed {
+                                cb(bytes);
+                            }
+                        }
+                    });
+                    let suppress_d = suppress.clone();
+                    let cb_d = input_cb.clone();
+                    let h_delete = buf.connect_delete_range(move |_buf, start, end| {
+                        if suppress_d.get() {
+                            return;
+                        }
+                        let count = (end.offset() - start.offset()).max(0) as usize;
+                        if count == 0 {
+                            return;
+                        }
+                        let bytes = vec![0x7f_u8; count];
+                        if let Ok(borrowed) = cb_d.try_borrow() {
+                            if let Some(ref cb) = *borrowed {
+                                cb(&bytes);
+                            }
+                        }
+                    });
+                    *observed.borrow_mut() = Some((buf, h_insert, h_delete));
+                })
+            };
+            install(source_view.buffer());
+            let install_for_notify = install.clone();
+            source_view.connect_buffer_notify(move |sv| {
+                install_for_notify(sv.buffer());
+            });
+        }
+
         Self {
             widget,
             state,
             ssh_info: None,
+            source_view: tabs_rc.source_view.clone(),
+            suppress_emit,
+            input_cb,
         }
     }
 }
@@ -1210,6 +1294,31 @@ impl PanelBackend for CodeEditorPanel {
         } else {
             Some(p.into_owned())
         }
+    }
+
+    fn supports_sync(&self) -> bool {
+        true
+    }
+
+    fn accepts_input(&self) -> bool {
+        true
+    }
+
+    fn set_input_callback(&self, callback: Option<PanelInputCallback>) {
+        *self.input_cb.borrow_mut() = callback;
+    }
+
+    fn write_input(&self, data: &[u8]) -> bool {
+        // Only mirror when a tab is open. Without an active source buffer
+        // there's nowhere to apply the keystrokes — drop them quietly so
+        // sync from a peer doesn't throw bytes into the void.
+        let has_active = self.state.borrow().active_tab.is_some();
+        if !has_active {
+            return false;
+        }
+        let buffer = self.source_view.buffer();
+        crate::panels::text_sync::apply_input_to_buffer(&buffer, data, &self.suppress_emit);
+        true
     }
 }
 

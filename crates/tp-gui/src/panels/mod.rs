@@ -4,6 +4,7 @@ pub mod markdown;
 pub mod notes;
 pub mod registry;
 pub mod terminal;
+pub mod text_sync;
 
 pub type PanelInputCallback = std::rc::Rc<dyn Fn(&[u8])>;
 pub type PanelTitleCallback = std::rc::Rc<dyn Fn(&str)>;
@@ -63,6 +64,15 @@ pub trait PanelBackend: std::fmt::Debug {
 
     /// Whether this panel supports text input.
     fn accepts_input(&self) -> bool {
+        false
+    }
+
+    /// Whether this panel type opts into the sync-input feature. Returning
+    /// `false` (default) hides the per-panel sync toggle in the title bar
+    /// and keeps the panel out of any synced group. Backends that mirror
+    /// keystrokes between panels (terminals, code editor, markdown editor)
+    /// override this to return `true`.
+    fn supports_sync(&self) -> bool {
         false
     }
 

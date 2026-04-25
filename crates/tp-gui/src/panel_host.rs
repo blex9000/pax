@@ -584,8 +584,20 @@ impl PanelHost {
             }
         }
 
-        if let Ok(borrowed) = self.sync_input_cb_ref.try_borrow() {
-            backend.set_input_callback(borrowed.clone());
+        // Show the sync toggle only for backends that opt in. Notes,
+        // chooser, and other passive panels keep the title bar clean.
+        // Resetting the visual state on each backend swap also means a
+        // panel that was synced and then converted to a non-sync type
+        // doesn't carry its old `sync-active` styling.
+        let supports_sync = backend.supports_sync();
+        self.sync_button.set_visible(supports_sync);
+        if !supports_sync {
+            self.sync_button.remove_css_class("sync-active");
+        }
+        if supports_sync {
+            if let Ok(borrowed) = self.sync_input_cb_ref.try_borrow() {
+                backend.set_input_callback(borrowed.clone());
+            }
         }
 
         // Reset any leftover OSC title from a previous backend and wire the
@@ -857,6 +869,17 @@ impl PanelHost {
     pub fn accepts_input(&self) -> bool {
         if let Some(ref backend) = *self.backend.borrow() {
             backend.accepts_input()
+        } else {
+            false
+        }
+    }
+
+    /// Whether the currently-installed backend opts into the sync-input
+    /// feature. Used by `WorkspaceView` to avoid adding panels (notes,
+    /// chooser, etc.) to the synced group via Ctrl+Shift+S.
+    pub fn backend_supports_sync(&self) -> bool {
+        if let Some(ref backend) = *self.backend.borrow() {
+            backend.supports_sync()
         } else {
             false
         }
