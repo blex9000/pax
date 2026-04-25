@@ -464,6 +464,43 @@ pub fn show_recent_dialog(
             .map(|p| std::path::PathBuf::from(p).exists())
             .unwrap_or(false);
 
+        // Pin toggle — pinned entries float to the top of the list.
+        // Click rewrites the DB row's `pinned` column and reopens the
+        // dialog so the new ordering takes effect immediately.
+        let pin_btn = gtk4::Button::new();
+        pin_btn.set_icon_name("view-pin-symbolic");
+        pin_btn.add_css_class("flat");
+        if record.pinned {
+            pin_btn.add_css_class("note-card-action");
+            pin_btn.add_css_class("accent");
+            pin_btn.set_tooltip_text(Some("Unpin"));
+        } else {
+            pin_btn.set_tooltip_text(Some("Pin"));
+        }
+        {
+            let record = record.clone();
+            let sb_for_pin = sb.clone();
+            let ws_for_pin = ws.clone();
+            let win_for_pin = window.clone();
+            let sa_for_pin = save_action.clone();
+            let dialog_for_pin = dialog.clone();
+            pin_btn.connect_clicked(move |_| {
+                let key = pax_db::Database::record_key_for(&record);
+                let new_state = !record.pinned;
+                if let Ok(db) = pax_db::Database::open(&pax_db::Database::default_path()) {
+                    if let Err(e) = db.set_workspace_pinned(&key, new_state) {
+                        sb_for_pin
+                            .borrow()
+                            .set_message(&format!("Failed to update pin state: {}", e));
+                        return;
+                    }
+                }
+                dialog_for_pin.close();
+                show_recent_dialog(&ws_for_pin, &sb_for_pin, &win_for_pin, &sa_for_pin);
+            });
+        }
+        bottom_row.append(&pin_btn);
+
         let new_window_btn = gtk4::Button::new();
         new_window_btn.set_icon_name("window-new-symbolic");
         new_window_btn.add_css_class("flat");

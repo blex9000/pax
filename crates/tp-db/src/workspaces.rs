@@ -20,6 +20,9 @@ pub struct WorkspaceRecord {
     pub config_path: Option<String>,
     pub last_opened: String,
     pub open_count: i64,
+    /// True when the user has explicitly pinned this workspace so it
+    /// stays at the top of recent lists regardless of `last_opened`.
+    pub pinned: bool,
 }
 
 impl Database {
@@ -100,19 +103,25 @@ impl Database {
         self.list_workspaces_limit(100)
     }
 
-    /// List recent workspaces with a limit.
+    /// List recent workspaces with a limit. Pinned entries always come
+    /// first regardless of recency, so the user's curated favourites
+    /// don't get pushed off the visible window after lots of opens.
     pub fn list_workspaces_limit(&self, limit: usize) -> Result<Vec<WorkspaceRecord>> {
         let mut stmt = self.conn.prepare(
-            "SELECT id, name, config_path, last_opened, open_count
-             FROM workspace_metadata ORDER BY last_opened DESC LIMIT ?1",
+            "SELECT id, name, config_path, last_opened, open_count, pinned
+             FROM workspace_metadata
+             ORDER BY pinned DESC, last_opened DESC
+             LIMIT ?1",
         )?;
         let rows = stmt.query_map([limit as i64], |row| {
+            let pinned: i64 = row.get(5)?;
             Ok(WorkspaceRecord {
                 id: row.get(0)?,
                 name: row.get(1)?,
                 config_path: row.get(2)?,
                 last_opened: row.get(3)?,
                 open_count: row.get(4)?,
+                pinned: pinned != 0,
             })
         })?;
         Ok(rows.filter_map(|r| r.ok()).collect())
@@ -127,21 +136,41 @@ impl Database {
         record_key: &str,
     ) -> Result<Option<WorkspaceRecord>> {
         let mut stmt = self.conn.prepare(
-            "SELECT id, name, config_path, last_opened, open_count
+            "SELECT id, name, config_path, last_opened, open_count, pinned
              FROM workspace_metadata WHERE record_key = ?1 LIMIT 1",
         )?;
         let row = stmt
             .query_row([record_key], |row| {
+                let pinned: i64 = row.get(5)?;
                 Ok(WorkspaceRecord {
                     id: row.get(0)?,
                     name: row.get(1)?,
                     config_path: row.get(2)?,
                     last_opened: row.get(3)?,
                     open_count: row.get(4)?,
+                    pinned: pinned != 0,
                 })
             })
             .optional()?;
         Ok(row)
+    }
+
+    /// Toggle the pinned flag for a workspace identified by its
+    /// record_key. Returns Ok(()) even if no row matches so callers
+    /// can call this freely without checking existence first.
+    pub fn set_workspace_pinned(&self, record_key: &str, pinned: bool) -> Result<()> {
+        self.conn.execute(
+            "UPDATE workspace_metadata SET pinned = ?1 WHERE record_key = ?2",
+            rusqlite::params![if pinned { 1 } else { 0 }, record_key],
+        )?;
+        Ok(())
+    }
+
+    /// Compute the same record_key the rest of the app uses for a
+    /// given (name, config_path) pair, so callers that have a
+    /// WorkspaceRecord (not the raw key) can still toggle pin state.
+    pub fn record_key_for(record: &WorkspaceRecord) -> String {
+        compute_record_key(&record.name, record.config_path.as_deref())
     }
 
     /// Remove a workspace record.

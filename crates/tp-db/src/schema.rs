@@ -36,6 +36,12 @@ pub fn run_migrations(db: &Database) -> Result<()> {
         "007_workspace_notes_title",
         MIGRATION_007_WORKSPACE_NOTES_TITLE,
     )?;
+    apply_sql_migration(
+        db,
+        &applied,
+        "008_workspace_metadata_pinned",
+        MIGRATION_008_WORKSPACE_METADATA_PINNED,
+    )?;
 
     Ok(())
 }
@@ -346,6 +352,11 @@ END;
 
 INSERT INTO workspace_notes_fts (rowid, title, text, tags)
     SELECT id, title, text, tags FROM workspace_notes;
+";
+
+const MIGRATION_008_WORKSPACE_METADATA_PINNED: &str = "
+ALTER TABLE workspace_metadata ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0;
+CREATE INDEX IF NOT EXISTS idx_workspace_pinned ON workspace_metadata(pinned, last_opened);
 ";
 
 #[cfg(test)]

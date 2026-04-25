@@ -1,4 +1,5 @@
 use gtk4::prelude::*;
+use std::cell::RefCell;
 use std::rc::Rc;
 
 /// Callback when user makes a choice on the welcome screen.
@@ -144,91 +145,37 @@ pub fn build_welcome(on_choice: WelcomeCallback) -> gtk4::Widget {
         list_box.set_selection_mode(gtk4::SelectionMode::None);
         list_box.add_css_class("boxed-list");
 
-        for record in &visible_recents {
-            let config_path_opt = record.config_path.clone();
-            let file_exists = config_path_opt
-                .as_deref()
-                .map(std::path::Path::new)
-                .map(|p| p.exists())
-                .unwrap_or(false);
+        // The recent-list rows are rebuilt on every pin toggle so the
+        // ordering reflects the new state immediately. `repopulate` is
+        // a self-referential Rc<RefCell<...>> so the pin button's
+        // click handler can call back into it without cyclic Rc
+        // ownership.
+        let repopulate: Rc<RefCell<Option<Box<dyn Fn()>>>> = Rc::new(RefCell::new(None));
 
-            let row_box = gtk4::Box::new(gtk4::Orientation::Horizontal, 12);
-            row_box.set_margin_top(6);
-            row_box.set_margin_bottom(6);
-            row_box.set_margin_start(8);
-            row_box.set_margin_end(8);
-
-            let icon = gtk4::Image::from_icon_name("document-open-recent-symbolic");
-            row_box.append(&icon);
-
-            let info = gtk4::Box::new(gtk4::Orientation::Vertical, 2);
-            info.set_hexpand(true);
-
-            let name = gtk4::Label::new(Some(&record.name));
-            name.add_css_class("heading");
-            name.set_halign(gtk4::Align::Start);
-            info.append(&name);
-
-            let path_text = config_path_opt.as_deref().unwrap_or("(no file)");
-            let path_label = gtk4::Label::new(Some(path_text));
-            path_label.add_css_class("dim-label");
-            path_label.add_css_class("caption");
-            path_label.set_halign(gtk4::Align::Start);
-            path_label.set_ellipsize(gtk4::pango::EllipsizeMode::Start);
-            path_label.set_tooltip_text(Some(if file_exists {
-                path_text
-            } else if config_path_opt.is_some() {
-                "File not found"
-            } else {
-                "No config file"
-            }));
-            info.append(&path_label);
-
-            row_box.append(&info);
-
-            // "Open in new window" side button — spawns a fresh Pax
-            // process so the welcome stays available. Shown on every
-            // row, disabled when the file is missing.
-            let new_window_btn = gtk4::Button::new();
-            new_window_btn.set_icon_name("window-new-symbolic");
-            new_window_btn.add_css_class("flat");
-            new_window_btn.set_tooltip_text(Some("Open in a new window"));
-            new_window_btn.set_valign(gtk4::Align::Center);
-            new_window_btn.set_sensitive(file_exists);
-            if file_exists {
-                if let Some(path) = config_path_opt.clone() {
-                    new_window_btn.connect_clicked(move |_| {
-                        if let Err(e) = crate::workspace_launcher::open_in_new_window(
-                            std::path::Path::new(&path),
-                        ) {
-                            tracing::warn!("welcome: could not spawn new window: {e}");
-                        }
-                    });
+        let build_rows: Box<dyn Fn()> = {
+            let list_box = list_box.clone();
+            let on_choice = on_choice.clone();
+            let repopulate_for_pin = repopulate.clone();
+            Box::new(move || {
+                while let Some(child) = list_box.first_child() {
+                    list_box.remove(&child);
                 }
-            }
-            row_box.append(&new_window_btn);
-
-            let row = gtk4::ListBoxRow::new();
-            row.set_child(Some(&row_box));
-            // Missing-file rows stay inert so a click on a dangling entry
-            // can't produce a confused "loading" state, same pattern as
-            // actions::show_recent_dialog.
-            row.set_activatable(file_exists);
-            row.set_selectable(file_exists);
-            if !file_exists {
-                row.add_css_class("dim-label");
-            }
-
-            // Row-activated looks up the config path from the row's widget
-            // name; leave empty for unopenable rows.
-            row_box.set_widget_name(if file_exists {
-                config_path_opt.as_deref().unwrap_or("")
-            } else {
-                ""
-            });
-
-            list_box.append(&row);
-        }
+                let records = pax_db::Database::open(&pax_db::Database::default_path())
+                    .ok()
+                    .and_then(|db| db.list_workspaces_limit(20).ok())
+                    .unwrap_or_default();
+                for record in records {
+                    populate_recent_row(
+                        &list_box,
+                        &record,
+                        &on_choice,
+                        &repopulate_for_pin,
+                    );
+                }
+            })
+        };
+        build_rows();
+        *repopulate.borrow_mut() = Some(build_rows);
 
         // Connect row activation
         let cb = on_choice.clone();
@@ -256,6 +203,124 @@ pub fn build_welcome(on_choice: WelcomeCallback) -> gtk4::Widget {
     }
 
     container.upcast::<gtk4::Widget>()
+}
+
+/// Append a single recent-workspace row to the listbox, including the
+/// pin / new-window action buttons. Factored out of build_welcome so
+/// the pin button can repopulate the whole list on toggle.
+fn populate_recent_row(
+    list_box: &gtk4::ListBox,
+    record: &pax_db::workspaces::WorkspaceRecord,
+    _on_choice: &WelcomeCallback,
+    repopulate: &Rc<RefCell<Option<Box<dyn Fn()>>>>,
+) {
+    let config_path_opt = record.config_path.clone();
+    let file_exists = config_path_opt
+        .as_deref()
+        .map(std::path::Path::new)
+        .map(|p| p.exists())
+        .unwrap_or(false);
+
+    let row_box = gtk4::Box::new(gtk4::Orientation::Horizontal, 12);
+    row_box.set_margin_top(6);
+    row_box.set_margin_bottom(6);
+    row_box.set_margin_start(8);
+    row_box.set_margin_end(8);
+
+    let icon = gtk4::Image::from_icon_name("document-open-recent-symbolic");
+    row_box.append(&icon);
+
+    let info = gtk4::Box::new(gtk4::Orientation::Vertical, 2);
+    info.set_hexpand(true);
+
+    let name = gtk4::Label::new(Some(&record.name));
+    name.add_css_class("heading");
+    name.set_halign(gtk4::Align::Start);
+    info.append(&name);
+
+    let path_text = config_path_opt.as_deref().unwrap_or("(no file)");
+    let path_label = gtk4::Label::new(Some(path_text));
+    path_label.add_css_class("dim-label");
+    path_label.add_css_class("caption");
+    path_label.set_halign(gtk4::Align::Start);
+    path_label.set_ellipsize(gtk4::pango::EllipsizeMode::Start);
+    path_label.set_tooltip_text(Some(if file_exists {
+        path_text
+    } else if config_path_opt.is_some() {
+        "File not found"
+    } else {
+        "No config file"
+    }));
+    info.append(&path_label);
+
+    row_box.append(&info);
+
+    // Pin toggle — pinned entries float to the top of list_workspaces.
+    // Click rewrites DB and asks the parent to repopulate the rows so
+    // the new ordering shows up without restarting the welcome.
+    let pin_btn = gtk4::Button::new();
+    pin_btn.set_icon_name("view-pin-symbolic");
+    pin_btn.add_css_class("flat");
+    pin_btn.set_valign(gtk4::Align::Center);
+    if record.pinned {
+        pin_btn.add_css_class("accent");
+        pin_btn.set_tooltip_text(Some("Unpin"));
+    } else {
+        pin_btn.set_tooltip_text(Some("Pin"));
+    }
+    {
+        let record = record.clone();
+        let repopulate = repopulate.clone();
+        pin_btn.connect_clicked(move |_| {
+            let key = pax_db::Database::record_key_for(&record);
+            let new_state = !record.pinned;
+            if let Ok(db) = pax_db::Database::open(&pax_db::Database::default_path()) {
+                if let Err(e) = db.set_workspace_pinned(&key, new_state) {
+                    tracing::warn!("welcome: failed to update pin state: {e}");
+                    return;
+                }
+            }
+            if let Some(repop) = repopulate.borrow().as_ref() {
+                repop();
+            }
+        });
+    }
+    row_box.append(&pin_btn);
+
+    let new_window_btn = gtk4::Button::new();
+    new_window_btn.set_icon_name("window-new-symbolic");
+    new_window_btn.add_css_class("flat");
+    new_window_btn.set_tooltip_text(Some("Open in a new window"));
+    new_window_btn.set_valign(gtk4::Align::Center);
+    new_window_btn.set_sensitive(file_exists);
+    if file_exists {
+        if let Some(path) = config_path_opt.clone() {
+            new_window_btn.connect_clicked(move |_| {
+                if let Err(e) = crate::workspace_launcher::open_in_new_window(
+                    std::path::Path::new(&path),
+                ) {
+                    tracing::warn!("welcome: could not spawn new window: {e}");
+                }
+            });
+        }
+    }
+    row_box.append(&new_window_btn);
+
+    let row = gtk4::ListBoxRow::new();
+    row.set_child(Some(&row_box));
+    row.set_activatable(file_exists);
+    row.set_selectable(file_exists);
+    if !file_exists {
+        row.add_css_class("dim-label");
+    }
+
+    row_box.set_widget_name(if file_exists {
+        config_path_opt.as_deref().unwrap_or("")
+    } else {
+        ""
+    });
+
+    list_box.append(&row);
 }
 
 #[cfg(test)]
