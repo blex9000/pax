@@ -429,6 +429,13 @@ fn install_window_content_with_alert_tray(
     overlay.add_overlay(quick.widget());
     crate::widgets::quick_switcher::register_global(quick);
 
+    // Command palette (Ctrl+K). Same overlay layer; items are
+    // populated by setup_workspace_ui so each entry can capture the
+    // live ws_view / window / save_action references.
+    let palette = crate::widgets::command_palette::CommandPalette::new();
+    overlay.add_overlay(palette.widget());
+    crate::widgets::command_palette::register_global(palette);
+
     window.set_content(Some(&overlay));
 }
 
@@ -533,6 +540,189 @@ fn handle_alert_click(
             },
         ),
     );
+}
+
+/// Build the command palette's static action set. Items invoke gio
+/// actions (Open / Save / Settings / Recent…) for the menu-equivalent
+/// commands and call WorkspaceView methods directly for layout ops.
+fn build_palette_items(
+    ws: &Rc<RefCell<crate::workspace_view::WorkspaceView>>,
+    window: &Rc<adw::ApplicationWindow>,
+    sb: &Rc<RefCell<crate::widgets::status_bar::StatusBar>>,
+    save_action: &gtk4::gio::SimpleAction,
+) -> Vec<crate::widgets::command_palette::PaletteItem> {
+    use crate::widgets::command_palette::PaletteItem;
+    let mut items: Vec<PaletteItem> = Vec::new();
+
+    // Helper: a palette item that activates a window-scoped gio
+    // action. Routed through WidgetExt::activate_action because
+    // adw::ApplicationWindow derefs to several ActionMap impls and
+    // the unqualified call is ambiguous.
+    let gio = |title: &str, sub: &str, icon: &str, action_name: &'static str| {
+        let win = window.clone();
+        PaletteItem {
+            title: title.to_string(),
+            subtitle: if sub.is_empty() { None } else { Some(sub.to_string()) },
+            icon: Some(icon.to_string()),
+            action: Rc::new(move || {
+                let _ = gtk4::prelude::WidgetExt::activate_action(
+                    win.as_ref(),
+                    action_name,
+                    None::<&gtk4::glib::Variant>,
+                );
+            }),
+        }
+    };
+
+    // ── Workspace ──────────────────────────────────────────────────
+    items.push(gio("New Workspace", "Workspace", "document-new-symbolic", "new"));
+    items.push(gio("Open Workspace…", "Ctrl+O · Workspace", "document-open-symbolic", "open"));
+    items.push(gio(
+        "Recent Workspaces…",
+        "Workspace",
+        "document-open-recent-symbolic",
+        "recent",
+    ));
+    items.push(PaletteItem {
+        title: "Quick-switch Workspace".to_string(),
+        subtitle: Some("Ctrl+Shift+O · Workspace".to_string()),
+        icon: Some("system-switch-user-symbolic".to_string()),
+        action: Rc::new(|| crate::widgets::quick_switcher::toggle()),
+    });
+    items.push(gio(
+        "Save Workspace",
+        "Ctrl+S · Workspace",
+        "document-save-symbolic",
+        "save",
+    ));
+    items.push(gio(
+        "Save Workspace As…",
+        "Workspace",
+        "document-save-as-symbolic",
+        "save-as",
+    ));
+    items.push(gio(
+        "Settings…",
+        "Workspace",
+        "preferences-system-symbolic",
+        "settings",
+    ));
+    items.push(gio(
+        "Workspace Metadata…",
+        "Workspace",
+        "view-list-symbolic",
+        "workspace_metadata",
+    ));
+
+    // ── Layout ─────────────────────────────────────────────────────
+    {
+        let ws = ws.clone();
+        let sb = sb.clone();
+        let win = window.clone();
+        let sa = save_action.clone();
+        items.push(PaletteItem {
+            title: "Split Horizontal".to_string(),
+            subtitle: Some("Ctrl+Shift+H · Layout".to_string()),
+            icon: Some("view-dual-symbolic".to_string()),
+            action: Rc::new(move || {
+                if let Some(new_id) = ws.borrow_mut().split_focused_h() {
+                    sb.borrow().set_message(&format!("Split H → {}", new_id));
+                }
+                actions::update_dirty_ui(&ws, &win, &sa);
+            }),
+        });
+    }
+    {
+        let ws = ws.clone();
+        let sb = sb.clone();
+        let win = window.clone();
+        let sa = save_action.clone();
+        items.push(PaletteItem {
+            title: "Split Vertical".to_string(),
+            subtitle: Some("Ctrl+Shift+J · Layout".to_string()),
+            icon: Some("view-dual-symbolic".to_string()),
+            action: Rc::new(move || {
+                if let Some(new_id) = ws.borrow_mut().split_focused_v() {
+                    sb.borrow().set_message(&format!("Split V → {}", new_id));
+                }
+                actions::update_dirty_ui(&ws, &win, &sa);
+            }),
+        });
+    }
+    {
+        let ws = ws.clone();
+        let sb = sb.clone();
+        let win = window.clone();
+        let sa = save_action.clone();
+        items.push(PaletteItem {
+            title: "New Tab".to_string(),
+            subtitle: Some("Ctrl+Shift+T · Layout".to_string()),
+            icon: Some("tab-new-symbolic".to_string()),
+            action: Rc::new(move || {
+                if let Some(new_id) = ws.borrow_mut().add_tab_focused() {
+                    sb.borrow().set_message(&format!("Tab → {}", new_id));
+                }
+                actions::update_dirty_ui(&ws, &win, &sa);
+            }),
+        });
+    }
+    {
+        let ws = ws.clone();
+        let sb = sb.clone();
+        let win = window.clone();
+        let sa = save_action.clone();
+        items.push(PaletteItem {
+            title: "Close Focused Panel".to_string(),
+            subtitle: Some("Ctrl+Shift+W · Layout".to_string()),
+            icon: Some("window-close-symbolic".to_string()),
+            action: Rc::new(move || {
+                if ws.borrow_mut().close_focused() {
+                    sb.borrow().set_message("Panel closed");
+                }
+                actions::update_dirty_ui(&ws, &win, &sa);
+            }),
+        });
+    }
+    {
+        let ws = ws.clone();
+        let win = window.clone();
+        let sa = save_action.clone();
+        items.push(PaletteItem {
+            title: "Toggle Zoom on Focused Panel".to_string(),
+            subtitle: Some("Ctrl+Shift+Z · Layout".to_string()),
+            icon: Some("view-fullscreen-symbolic".to_string()),
+            action: Rc::new(move || {
+                ws.borrow_mut().toggle_zoom();
+                actions::update_dirty_ui(&ws, &win, &sa);
+            }),
+        });
+    }
+
+    // ── Theme ──────────────────────────────────────────────────────
+    for theme in crate::theme::Theme::all() {
+        let theme = *theme;
+        items.push(PaletteItem {
+            title: format!("Theme: {}", theme.label()),
+            subtitle: Some("Appearance".to_string()),
+            icon: Some("applications-graphics-symbolic".to_string()),
+            action: Rc::new(move || {
+                apply_theme(theme);
+                save_preferred_theme(theme);
+            }),
+        });
+    }
+
+    // ── Help ───────────────────────────────────────────────────────
+    items.push(gio(
+        "Keyboard Shortcuts",
+        "Help",
+        "input-keyboard-symbolic",
+        "shortcuts",
+    ));
+    items.push(gio("About Pax", "Help", "help-about-symbolic", "about"));
+    items.push(gio("Quit", "Ctrl+Q", "application-exit-symbolic", "quit"));
+
+    items
 }
 
 /// Build the theme-picker popover attached to the header bar button.
@@ -1557,6 +1747,15 @@ fn setup_workspace_ui(
         crate::widgets::quick_switcher::register_handlers(open_this, open_new);
     }
 
+    // Build and register the command palette's action set. Each item
+    // captures the live references it needs (window for gio actions,
+    // ws_view for layout ops). Order matters: the first item with no
+    // search query is what Enter activates after Ctrl+K.
+    {
+        let items = build_palette_items(&ws_view, &window_rc, &status_bar, &save_action);
+        crate::widgets::command_palette::set_items(items);
+    }
+
     // Keyboard shortcuts
     let controller = gtk4::EventControllerKey::new();
     controller.set_propagation_phase(gtk4::PropagationPhase::Capture);
@@ -1569,6 +1768,13 @@ fn setup_workspace_ui(
         controller.connect_key_pressed(move |_ctrl, key, _code, modifiers| {
             let ctrl = crate::shortcuts::has_primary(modifiers);
             let shift = modifiers.contains(gdk::ModifierType::SHIFT_MASK);
+
+            if ctrl && !shift && key == gdk::Key::k {
+                // Ctrl+K — open the command palette. Singleton hides
+                // itself on Esc / item activation.
+                crate::widgets::command_palette::toggle();
+                return glib::Propagation::Stop;
+            }
 
             if ctrl && shift {
                 match key {
@@ -2224,6 +2430,7 @@ fn show_shortcuts_dialog(window: &Rc<adw::ApplicationWindow>) {
         (
             "General",
             vec![
+                ("Ctrl+K", "Command palette"),
                 ("Ctrl+S", "Save workspace"),
                 ("Ctrl+O", "Open workspace"),
                 ("Ctrl+Shift+O", "Quick-switch workspace"),
