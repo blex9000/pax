@@ -1686,7 +1686,7 @@ const AURORA_CSS: &str = "\
 @define-color hover_bg #e8f0fa;\n\
 @define-color bg_popover @bg_chrome;\n\
 @define-color border_soft alpha(#5b8def, 0.35);\n\
-@define-color border_hard alpha(#7e6aff, 0.30);\n\
+@define-color border_hard #7e69ff95;\n\
 @define-color window_bg_color @bg_window;\n\
 @define-color window_fg_color @fg_ui;\n\
 @define-color headerbar_bg_color @bg_chrome;\n\
