@@ -1552,6 +1552,31 @@ window.app-dialog dropdown.settings-theme-dropdown > popover.menu row:selected,
 .alert-toast-close:hover {
   opacity: 1;
 }
+
+/* ── Quick-switch popover (Ctrl+Shift+O) ─────────────────────────── */
+.quick-switcher {
+  background-color: @card_bg_color;
+  color: @card_fg_color;
+  border: 1px solid alpha(@borders, 0.7);
+  border-radius: 10px;
+  padding: 10px;
+  box-shadow: 0 8px 28px alpha(black, 0.32);
+}
+
+.quick-switcher-search {
+  margin-bottom: 4px;
+}
+
+.quick-switcher-list,
+.quick-switcher-list > row {
+  background-color: transparent;
+}
+.quick-switcher-list > row {
+  border-radius: 6px;
+}
+.quick-switcher-list > row:selected {
+  background-color: alpha(@accent_color, 0.18);
+}
 ";
 
 const GRAPHITE_CSS: &str = "\

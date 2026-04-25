@@ -422,6 +422,13 @@ fn install_window_content_with_alert_tray(
     overlay.add_overlay(tray.widget());
     crate::widgets::alert_tray::register_global(tray);
 
+    // Quick-switch popover (Ctrl+Shift+O). Same overlay layer as the
+    // alert tray; hidden by default. Action handlers are wired later
+    // by setup_workspace_ui once a WorkspaceView exists.
+    let quick = crate::widgets::quick_switcher::QuickSwitcher::new();
+    overlay.add_overlay(quick.widget());
+    crate::widgets::quick_switcher::register_global(quick);
+
     window.set_content(Some(&overlay));
 }
 
@@ -1504,6 +1511,52 @@ fn setup_workspace_ui(
         crate::widgets::alert_tray::register_note_click_handler(handler);
     }
 
+    // Quick-switch open handlers — same dispatch as the Recent
+    // Workspaces dialog (dirty-check + load) and the alert click flow.
+    {
+        let ws_for_this = ws_view.clone();
+        let win_for_this = window_rc.clone();
+        let sb_for_this = status_bar.clone();
+        let sa_for_this = save_action.clone();
+        let open_this: Rc<dyn Fn(&std::path::Path)> = Rc::new(move |path| {
+            let path = path.to_path_buf();
+            let ws = ws_for_this.clone();
+            let win = win_for_this.clone();
+            let sb = sb_for_this.clone();
+            let sa = sa_for_this.clone();
+            let on_continue: Rc<dyn Fn()> = Rc::new(move || {
+                let load = ws.borrow_mut().load_from_file(&path);
+                match load {
+                    Ok(()) => {
+                        let theme = apply_preferred_theme();
+                        ws.borrow_mut().set_workspace_theme_id_clean(theme.to_id());
+                        actions::update_dirty_ui(&ws, &win, &sa);
+                        sb.borrow().set_message(&format!("Opened: {}", path.display()));
+                    }
+                    Err(e) => sb.borrow().set_message(&format!("Error: {}", e)),
+                }
+            });
+            actions::confirm_discard_workspace_changes(
+                &ws_for_this,
+                &sb_for_this,
+                &win_for_this,
+                &sa_for_this,
+                on_continue,
+            );
+        });
+
+        let sb_for_new = status_bar.clone();
+        let open_new: Rc<dyn Fn(&std::path::Path)> = Rc::new(move |path| {
+            if let Err(e) = crate::workspace_launcher::open_in_new_window(path) {
+                sb_for_new
+                    .borrow()
+                    .set_message(&format!("Failed to spawn new window: {}", e));
+            }
+        });
+
+        crate::widgets::quick_switcher::register_handlers(open_this, open_new);
+    }
+
     // Keyboard shortcuts
     let controller = gtk4::EventControllerKey::new();
     controller.set_propagation_phase(gtk4::PropagationPhase::Capture);
@@ -1519,6 +1572,12 @@ fn setup_workspace_ui(
 
             if ctrl && shift {
                 match key {
+                    gdk::Key::O => {
+                        // Toggle the quick-switch popover. Singleton
+                        // hides itself on Esc / row activation.
+                        crate::widgets::quick_switcher::toggle();
+                        return glib::Propagation::Stop;
+                    }
                     gdk::Key::H => {
                         if let Some(new_id) = ws.borrow_mut().split_focused_h() {
                             sb.borrow().set_message(&format!("Split H → {}", new_id));
@@ -2167,6 +2226,7 @@ fn show_shortcuts_dialog(window: &Rc<adw::ApplicationWindow>) {
             vec![
                 ("Ctrl+S", "Save workspace"),
                 ("Ctrl+O", "Open workspace"),
+                ("Ctrl+Shift+O", "Quick-switch workspace"),
                 ("Ctrl+Q", "Quit"),
             ],
         ),
