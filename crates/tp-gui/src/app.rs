@@ -1343,6 +1343,7 @@ fn setup_workspace_ui(
                 crate::dialogs::settings::AppSettings {
                     workspace_name: view.workspace().name.clone(),
                     theme: load_preferred_theme(),
+                    respect_workspace_theme: load_respect_workspace_theme(),
                     default_shell: view.workspace().settings.default_shell.clone(),
                     scrollback_lines: view.workspace().settings.scrollback_lines,
                     output_retention_days: view.workspace().settings.output_retention_days,
@@ -1354,6 +1355,7 @@ fn setup_workspace_ui(
             crate::dialogs::settings::show_settings_dialog(&*win, &current, move |new_settings| {
                 apply_theme(new_settings.theme);
                 save_preferred_theme(new_settings.theme);
+                save_respect_workspace_theme(new_settings.respect_workspace_theme);
                 {
                     let mut view = ws2.borrow_mut();
                     view.rename_workspace(&new_settings.workspace_name);
@@ -1769,6 +1771,39 @@ fn new_workspace_with_preferred_theme(name: &str) -> Workspace {
 }
 
 fn normalize_workspace_theme(workspace: &mut Workspace, preferred_theme: Theme) -> Theme {
+    normalize_workspace_theme_with_respect(
+        workspace,
+        preferred_theme,
+        load_respect_workspace_theme(),
+    )
+}
+
+/// Pure variant taking the "respect workspace theme" decision as an
+/// argument so tests can exercise both branches without touching the
+/// shared DB. Logic:
+/// - `respect = false` (default): the user's preferred theme wins;
+///   the workspace's stored theme is overwritten so a later save
+///   persists the unified choice.
+/// - `respect = true`: honor the workspace's saved theme — except
+///   when the saved id is empty or unrecognized, in which case we
+///   still fall back to the preferred theme to avoid landing on the
+///   default by accident.
+fn normalize_workspace_theme_with_respect(
+    workspace: &mut Workspace,
+    preferred_theme: Theme,
+    respect: bool,
+) -> Theme {
+    if respect {
+        let saved_id = workspace.settings.theme.trim();
+        if !saved_id.is_empty() {
+            let saved = Theme::from_id(saved_id);
+            // Theme::from_id maps unknown ids to Theme::default(); only
+            // treat the workspace value as "real" when it round-trips.
+            if saved.to_id() == saved_id {
+                return saved;
+            }
+        }
+    }
     workspace.settings.theme = preferred_theme.to_id().to_string();
     preferred_theme
 }
@@ -1800,6 +1835,34 @@ pub(crate) fn save_preferred_theme(theme: Theme) {
         return;
     };
     let _ = db.set_app_preference("theme", theme.to_id());
+}
+
+const PREF_RESPECT_WORKSPACE_THEME: &str = "respect_workspace_theme";
+
+/// Load the user-pref controlling whether opening a workspace adopts
+/// its saved theme. Default `false` means "ignore workspace theme,
+/// always use my pick" — matches pre-toggle behaviour.
+pub(crate) fn load_respect_workspace_theme() -> bool {
+    let db_path = pax_db::Database::default_path();
+    let Ok(db) = pax_db::Database::open(&db_path) else {
+        return false;
+    };
+    db.get_app_preference(PREF_RESPECT_WORKSPACE_THEME)
+        .ok()
+        .flatten()
+        .map(|v| v == "true")
+        .unwrap_or(false)
+}
+
+pub(crate) fn save_respect_workspace_theme(value: bool) {
+    let db_path = pax_db::Database::default_path();
+    let Ok(db) = pax_db::Database::open(&db_path) else {
+        return;
+    };
+    let _ = db.set_app_preference(
+        PREF_RESPECT_WORKSPACE_THEME,
+        if value { "true" } else { "false" },
+    );
 }
 
 pub(crate) fn apply_preferred_theme() -> Theme {
@@ -1927,7 +1990,7 @@ pub(crate) fn apply_theme_with_overrides(
 #[cfg(test)]
 mod tests {
     use super::{
-        load_preferred_theme_from_db, normalize_workspace_theme,
+        load_preferred_theme_from_db, normalize_workspace_theme_with_respect,
         panel_type_uses_text_editing_shortcuts, workspace_with_theme, Theme,
         APP_MENU_AUTOSAVE_ITEM, APP_MENU_FILE_ITEMS, APP_MENU_QUIT_ITEM, APP_MENU_SAVE_ITEM,
         APP_MENU_SAVE_SECONDARY_ITEMS, APP_MENU_SETTINGS_ITEMS,
@@ -1961,7 +2024,14 @@ mod tests {
         let mut workspace = empty_workspace("test");
         workspace.settings.theme = Theme::Aurora.to_id().to_string();
 
-        let theme = normalize_workspace_theme(&mut workspace, Theme::Graphite);
+        // Use the pure variant so the test doesn't depend on the user's
+        // actual DB pref. With respect=false the user's preferred theme
+        // always wins regardless of what the workspace JSON says.
+        let theme = normalize_workspace_theme_with_respect(
+            &mut workspace,
+            Theme::Graphite,
+            false,
+        );
 
         assert_eq!(theme, Theme::Graphite);
         assert_eq!(workspace.settings.theme, Theme::Graphite.to_id());

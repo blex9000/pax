@@ -7,6 +7,11 @@ use crate::theme::Theme;
 pub struct AppSettings {
     pub workspace_name: String,
     pub theme: Theme,
+    /// When true, opening a workspace whose JSON carries its own theme
+    /// will switch Pax to that theme instead of keeping the user's
+    /// current pick. Default `false`: the user's chosen theme always
+    /// wins, matching pre-toggle behaviour.
+    pub respect_workspace_theme: bool,
     pub default_shell: String,
     pub scrollback_lines: usize,
     pub output_retention_days: Option<u32>,
@@ -17,6 +22,7 @@ impl Default for AppSettings {
         Self {
             workspace_name: "untitled".to_string(),
             theme: Theme::default(),
+            respect_workspace_theme: false,
             default_shell: std::env::var("SHELL").unwrap_or_else(|_| "/bin/bash".to_string()),
             scrollback_lines: 10_000,
             output_retention_days: None,
@@ -82,6 +88,20 @@ pub fn show_settings_dialog(
     theme_dropdown.set_selected(current_idx as u32);
     theme_row.append(&theme_dropdown);
     vbox.append(&theme_row);
+
+    // Respect workspace theme — when on, opening a workspace whose
+    // JSON has a different `theme` switches Pax to that theme. When
+    // off (default), the dropdown above wins regardless of which
+    // workspace the user opens.
+    let respect_row = make_row("Respect workspace theme");
+    let respect_check = gtk4::CheckButton::new();
+    respect_check.set_active(current.respect_workspace_theme);
+    respect_check.set_tooltip_text(Some(
+        "When enabled, opening a workspace switches to the theme saved in its JSON.\n\
+         When disabled, your chosen theme above stays active across all workspaces.",
+    ));
+    respect_row.append(&respect_check);
+    vbox.append(&respect_row);
 
     add_separator(&vbox);
 
@@ -172,6 +192,7 @@ pub fn show_settings_dialog(
     let d = dialog.clone();
     let ne = name_entry.clone();
     let td = theme_dropdown.clone();
+    let rc = respect_check.clone();
     let se = shell_entry.clone();
     let ss = scroll_spin.clone();
     let rs = retention_spin.clone();
@@ -183,6 +204,7 @@ pub fn show_settings_dialog(
         on_apply(AppSettings {
             workspace_name: ne.text().to_string(),
             theme,
+            respect_workspace_theme: rc.is_active(),
             default_shell: se.text().to_string(),
             scrollback_lines: ss.value() as usize,
             output_retention_days: if retention == 0 {
