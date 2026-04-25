@@ -105,6 +105,30 @@ pub fn show_settings_dialog(
 
     add_separator(&vbox);
 
+    // ── Keybindings ────────────────────────────────────────
+    let keybind_section = gtk4::Label::new(Some("Keybindings"));
+    keybind_section.add_css_class("title-4");
+    keybind_section.set_halign(gtk4::Align::Start);
+    keybind_section.set_margin_bottom(8);
+    vbox.append(&keybind_section);
+
+    let keybind_row = make_row("Keyboard shortcuts");
+    let keybind_btn = gtk4::Button::with_label("Customize…");
+    keybind_btn.add_css_class("flat");
+    keybind_btn.set_tooltip_text(Some(
+        "Open a dialog to rebind the global keyboard shortcuts",
+    ));
+    {
+        let parent_window = dialog.clone();
+        keybind_btn.connect_clicked(move |_| {
+            crate::dialogs::keybindings::show(&parent_window);
+        });
+    }
+    keybind_row.append(&keybind_btn);
+    vbox.append(&keybind_row);
+
+    add_separator(&vbox);
+
     // ── Terminal ────────────────────────────────────────
 
     let section_label3 = gtk4::Label::new(Some("Terminal"));

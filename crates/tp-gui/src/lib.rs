@@ -5,6 +5,7 @@ pub mod dialogs;
 pub mod focus;
 mod fonts;
 mod icons;
+pub mod keymap;
 pub mod layout_ops;
 pub mod markdown_render;
 pub mod notifications;

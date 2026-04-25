@@ -542,6 +542,136 @@ fn handle_alert_click(
     );
 }
 
+/// Dispatch a [`crate::keymap::Action`] resolved from the keymap. The
+/// previous inline `match` blocks lived directly in
+/// `connect_key_pressed`; centralising them here keeps the keymap
+/// dispatcher concise and makes new actions a one-line addition.
+fn run_keymap_action(
+    action: crate::keymap::Action,
+    ws: &Rc<RefCell<crate::workspace_view::WorkspaceView>>,
+    sb: &Rc<RefCell<crate::widgets::status_bar::StatusBar>>,
+    win: &Rc<adw::ApplicationWindow>,
+    sa: &gtk4::gio::SimpleAction,
+) {
+    use crate::keymap::Action as A;
+    match action {
+        A::CommandPalette => crate::widgets::command_palette::toggle(),
+        A::QuickSwitchWorkspace => crate::widgets::quick_switcher::toggle(),
+        A::OpenWorkspace => actions::do_open(ws, sb, win, sa),
+        A::SaveWorkspace => actions::do_save(ws, sb, win, sa, false),
+        A::Quit => {
+            ws.borrow().run_all_before_close();
+            ws.borrow().shutdown_all_backends();
+            std::process::exit(0);
+        }
+        A::FocusNextPanel => {
+            ws.borrow_mut().focus_next();
+            if let Some(id) = ws.borrow().focused_panel_id() {
+                sb.borrow().set_panel(id);
+            }
+        }
+        A::FocusPrevPanel => {
+            ws.borrow_mut().focus_prev();
+            if let Some(id) = ws.borrow().focused_panel_id() {
+                sb.borrow().set_panel(id);
+            }
+        }
+        A::SplitHorizontal => {
+            if let Some(new_id) = ws.borrow_mut().split_focused_h() {
+                sb.borrow().set_message(&format!("Split H → {}", new_id));
+            }
+            actions::update_dirty_ui(ws, win, sa);
+        }
+        A::SplitVertical => {
+            if let Some(new_id) = ws.borrow_mut().split_focused_v() {
+                sb.borrow().set_message(&format!("Split V → {}", new_id));
+            }
+            actions::update_dirty_ui(ws, win, sa);
+        }
+        A::NewTab => {
+            if let Some(new_id) = ws.borrow_mut().add_tab_focused() {
+                sb.borrow().set_message(&format!("Tab → {}", new_id));
+            }
+            actions::update_dirty_ui(ws, win, sa);
+        }
+        A::ClosePanel => {
+            let prompt = ws.borrow().close_focused_prompt();
+            let do_close: Rc<dyn Fn()> = {
+                let ws = ws.clone();
+                let sb = sb.clone();
+                let win = win.clone();
+                let sa = sa.clone();
+                Rc::new(move || {
+                    if ws.borrow_mut().close_focused() {
+                        if let Some(id) = ws.borrow().focused_panel_id() {
+                            sb.borrow().set_panel(id);
+                        }
+                        sb.borrow().set_message("Panel closed");
+                    }
+                    actions::update_dirty_ui(&ws, &win, &sa);
+                })
+            };
+            match prompt {
+                Some(text) => {
+                    crate::actions::show_close_confirm_dialog(win, &text, move || do_close())
+                }
+                None => do_close(),
+            }
+        }
+        A::ToggleZoom => {
+            ws.borrow_mut().toggle_zoom();
+            let zoomed = ws.borrow().is_zoomed();
+            if zoomed {
+                if let Some(id) = ws.borrow().focused_panel_id() {
+                    sb.borrow().set_message(&format!("Zoom: {}", id));
+                }
+            } else {
+                sb.borrow().set_message("Zoom off");
+            }
+        }
+        A::ToggleSync => {
+            let result = ws.borrow_mut().toggle_sync_focused();
+            if let Some((panel_id, is_synced)) = result {
+                let count = ws.borrow().sync_count();
+                if is_synced {
+                    sb.borrow().set_message(&format!(
+                        "Sync ON: {} ({} panels)",
+                        panel_id, count
+                    ));
+                } else {
+                    sb.borrow().set_message(&format!(
+                        "Sync OFF: {} ({} panels)",
+                        panel_id, count
+                    ));
+                }
+            }
+        }
+        A::ScrollUp | A::ScrollDown | A::ScrollLeft | A::ScrollRight => {
+            const STEP: f64 = 80.0;
+            let widget = ws.borrow().widget().clone();
+            match action {
+                A::ScrollUp => {
+                    let adj = widget.vadjustment();
+                    adj.set_value(adj.value() - STEP);
+                }
+                A::ScrollDown => {
+                    let adj = widget.vadjustment();
+                    adj.set_value(adj.value() + STEP);
+                }
+                A::ScrollLeft => {
+                    let adj = widget.hadjustment();
+                    adj.set_value(adj.value() - STEP);
+                }
+                A::ScrollRight => {
+                    let adj = widget.hadjustment();
+                    adj.set_value(adj.value() + STEP);
+                }
+                _ => unreachable!(),
+            }
+        }
+    }
+}
+
 /// Build the command palette's static action set. Items invoke gio
 /// actions (Open / Save / Settings / Recent…) for the menu-equivalent
 /// commands and call WorkspaceView methods directly for layout ops.
@@ -1769,179 +1899,44 @@ fn setup_workspace_ui(
             let ctrl = crate::shortcuts::has_primary(modifiers);
             let shift = modifiers.contains(gdk::ModifierType::SHIFT_MASK);
 
-            if ctrl && !shift && key == gdk::Key::k {
-                // Ctrl+K — open the command palette. Singleton hides
-                // itself on Esc / item activation.
-                crate::widgets::command_palette::toggle();
-                return glib::Propagation::Stop;
-            }
-
-            if ctrl && shift {
-                match key {
-                    gdk::Key::O => {
-                        // Toggle the quick-switch popover. Singleton
-                        // hides itself on Esc / row activation.
-                        crate::widgets::quick_switcher::toggle();
-                        return glib::Propagation::Stop;
-                    }
-                    gdk::Key::H => {
-                        if let Some(new_id) = ws.borrow_mut().split_focused_h() {
-                            sb.borrow().set_message(&format!("Split H → {}", new_id));
-                        }
-                        actions::update_dirty_ui(&ws, &win, &sa);
-                        return glib::Propagation::Stop;
-                    }
-                    gdk::Key::J => {
-                        if let Some(new_id) = ws.borrow_mut().split_focused_v() {
-                            sb.borrow().set_message(&format!("Split V → {}", new_id));
-                        }
-                        actions::update_dirty_ui(&ws, &win, &sa);
-                        return glib::Propagation::Stop;
-                    }
-                    gdk::Key::T => {
-                        if let Some(new_id) = ws.borrow_mut().add_tab_focused() {
-                            sb.borrow().set_message(&format!("Tab → {}", new_id));
-                        }
-                        actions::update_dirty_ui(&ws, &win, &sa);
-                        return glib::Propagation::Stop;
-                    }
-                    gdk::Key::W => {
-                        let prompt = ws.borrow().close_focused_prompt();
-                        let do_close: Rc<dyn Fn()> = {
-                            let ws = ws.clone();
-                            let sb = sb.clone();
-                            let win = win.clone();
-                            let sa = sa.clone();
-                            Rc::new(move || {
-                                if ws.borrow_mut().close_focused() {
-                                    if let Some(id) = ws.borrow().focused_panel_id() {
-                                        sb.borrow().set_panel(id);
-                                    }
-                                    sb.borrow().set_message("Panel closed");
-                                }
-                                actions::update_dirty_ui(&ws, &win, &sa);
-                            })
-                        };
-                        match prompt {
-                            Some(text) => crate::actions::show_close_confirm_dialog(
-                                &win,
-                                &text,
-                                move || do_close(),
-                            ),
-                            None => do_close(),
-                        }
-                        return glib::Propagation::Stop;
-                    }
-                    gdk::Key::S => {
-                        let result = ws.borrow_mut().toggle_sync_focused();
-                        if let Some((panel_id, is_synced)) = result {
-                            let count = ws.borrow().sync_count();
-                            if is_synced {
-                                sb.borrow().set_message(&format!(
-                                    "Sync ON: {} ({} panels)",
-                                    panel_id, count
-                                ));
-                            } else {
-                                sb.borrow().set_message(&format!(
-                                    "Sync OFF: {} ({} panels)",
-                                    panel_id, count
-                                ));
-                            }
-                        }
-                        return glib::Propagation::Stop;
-                    }
-                    gdk::Key::Z => {
-                        if focused_panel_uses_text_editing_shortcuts(&ws.borrow()) {
-                            return glib::Propagation::Proceed;
-                        }
-                        ws.borrow_mut().toggle_zoom();
-                        let zoomed = ws.borrow().is_zoomed();
-                        if zoomed {
-                            if let Some(id) = ws.borrow().focused_panel_id() {
-                                sb.borrow().set_message(&format!("Zoom: {}", id));
-                            }
-                        } else {
-                            sb.borrow().set_message("Zoom off");
-                        }
-                        return glib::Propagation::Stop;
-                    }
-                    gdk::Key::C | gdk::Key::V => {
-                        return glib::Propagation::Proceed;
-                    }
-                    _ => {}
-                }
-            }
-
+            // Pass-through cases — keys that LOOK like global shortcuts
+            // but should actually reach the focused panel: Ctrl+R for
+            // bash reverse-search, Ctrl+Z/Y for text undo/redo,
+            // Ctrl+Shift+C/V for terminal copy/paste, Ctrl+S/Ctrl+Z in
+            // editors. Resolved before we look at the keymap so user
+            // bindings can't accidentally hijack them.
             if ctrl && !shift {
                 match key {
-                    gdk::Key::q => {
-                        ws.borrow().run_all_before_close();
-                        ws.borrow().shutdown_all_backends();
-                        std::process::exit(0);
-                    }
-                    gdk::Key::n => {
-                        ws.borrow_mut().focus_next();
-                        if let Some(id) = ws.borrow().focused_panel_id() {
-                            sb.borrow().set_panel(id);
-                        }
-                        return glib::Propagation::Stop;
-                    }
-                    gdk::Key::p => {
-                        // If focused panel is a code editor, let Ctrl+P propagate
-                        // to the editor's fuzzy finder
-                        let is_code_editor = focused_panel_is_code_editor(&ws.borrow());
-                        if is_code_editor {
-                            return glib::Propagation::Proceed;
-                        }
-                        ws.borrow_mut().focus_prev();
-                        if let Some(id) = ws.borrow().focused_panel_id() {
-                            sb.borrow().set_panel(id);
-                        }
-                        return glib::Propagation::Stop;
-                    }
-                    gdk::Key::s => {
-                        // Let editor/markdown panels handle file save themselves.
-                        if focused_panel_uses_text_editing_shortcuts(&ws.borrow()) {
-                            return glib::Propagation::Proceed;
-                        }
-                        actions::do_save(&ws, &sb, &win, &sa, false);
-                        return glib::Propagation::Stop;
-                    }
-                    gdk::Key::o => {
-                        actions::do_open(&ws, &sb, &win, &sa);
-                        return glib::Propagation::Stop;
-                    }
-                    // Ctrl+R is reserved for terminal reverse-search (bash)
-                    gdk::Key::r => {
+                    gdk::Key::r | gdk::Key::z | gdk::Key::y => {
                         return glib::Propagation::Proceed;
                     }
-                    gdk::Key::z | gdk::Key::y => return glib::Propagation::Proceed,
-                    gdk::Key::Up | gdk::Key::Down | gdk::Key::Left | gdk::Key::Right => {
-                        let ws_widget = ws.borrow().widget().clone();
-                        let step = 80.0;
-                        match key {
-                            gdk::Key::Up => {
-                                let adj = ws_widget.vadjustment();
-                                adj.set_value(adj.value() - step);
-                            }
-                            gdk::Key::Down => {
-                                let adj = ws_widget.vadjustment();
-                                adj.set_value(adj.value() + step);
-                            }
-                            gdk::Key::Left => {
-                                let adj = ws_widget.hadjustment();
-                                adj.set_value(adj.value() - step);
-                            }
-                            gdk::Key::Right => {
-                                let adj = ws_widget.hadjustment();
-                                adj.set_value(adj.value() + step);
-                            }
-                            _ => {}
-                        }
-                        return glib::Propagation::Stop;
+                    gdk::Key::s
+                        if focused_panel_uses_text_editing_shortcuts(&ws.borrow()) =>
+                    {
+                        return glib::Propagation::Proceed;
+                    }
+                    gdk::Key::p if focused_panel_is_code_editor(&ws.borrow()) => {
+                        return glib::Propagation::Proceed;
                     }
                     _ => {}
                 }
+            }
+            if ctrl && shift {
+                match key {
+                    gdk::Key::C | gdk::Key::V => return glib::Propagation::Proceed,
+                    gdk::Key::Z if focused_panel_uses_text_editing_shortcuts(&ws.borrow()) => {
+                        return glib::Propagation::Proceed;
+                    }
+                    _ => {}
+                }
+            }
+
+            // Look the keystroke up in the user-configurable keymap
+            // and dispatch the matching Action. Any combo without a
+            // binding falls through to the GTK default propagation.
+            if let Some(action) = crate::keymap::lookup(key, modifiers) {
+                run_keymap_action(action, &ws, &sb, &win, &sa);
+                return glib::Propagation::Stop;
             }
 
             glib::Propagation::Proceed
