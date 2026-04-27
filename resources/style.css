@@ -265,24 +265,31 @@
     font-size: 0.9em;
     color: #e06c75;
 }
-/* Header right-side meta (watch, last-run timestamp) — light + small. */
+/* Header right-side meta (last-run timestamp) — light + small. */
 .notebook-meta {
     color: alpha(currentColor, 0.55);
     font-size: 0.78em;
     font-weight: normal;
     font-family: monospace;
 }
-.notebook-status-running { color: @accent_color; }
-.notebook-status-error   { color: #e06c75; }
-/* Run/stop buttons: light hover treatment + pointer cursor. */
+/* Status icon: also transparent so it visually pairs with the timestamp. */
+.notebook-status-icon {
+    -gtk-icon-size: 12px;
+    opacity: 0.55;
+}
+.notebook-status-running { color: @accent_color; opacity: 0.85; }
+.notebook-status-error   { color: #e06c75; opacity: 0.85; }
+.notebook-status-ok      { color: #98c379; opacity: 0.85; }
+/* Run/stop buttons: matched transparency + pointer cursor. */
 button.notebook-cell-btn {
     min-width: 22px;
     min-height: 22px;
     padding: 1px 4px;
     -gtk-icon-size: 14px;
-    opacity: 0.75;
+    opacity: 0.55;
 }
 button.notebook-cell-btn:hover { opacity: 1; }
+button.notebook-cell-btn:disabled { opacity: 0.25; }
 button.notebook-cell-btn,
 button.notebook-cell-btn * {
     cursor: pointer;

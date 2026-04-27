@@ -12,9 +12,9 @@ use std::rc::Rc;
 
 use gtk4::glib;
 use gtk4::prelude::*;
-use gtk4::{Box as GtkBox, Button, Label, Orientation, Picture};
+use gtk4::{Box as GtkBox, Button, Image, Label, Orientation, Picture};
 
-use pax_core::notebook_tag::{ExecMode, Lang};
+use pax_core::notebook_tag::Lang;
 
 use super::engine::{CellId, NotebookEngine};
 use super::output::{ImageSource, OutputItem};
@@ -71,15 +71,21 @@ impl NotebookCell {
         spacer.set_hexpand(true);
         header.append(&spacer);
 
-        if let ExecMode::Watch { interval } = spec.mode {
-            let label = Label::new(Some(&format!("watch {}s", interval.as_secs_f64())));
-            label.add_css_class("notebook-meta");
-            header.append(&label);
-        }
-
-        let status = Label::new(None);
-        status.add_css_class("notebook-meta");
-        header.append(&status);
+        // Status: [icon] [HH:MM:SS]. Held in a Box with a fixed width
+        // request so swapping idle ↔ running ↔ ok ↔ error doesn't shift
+        // the run/stop buttons sideways (was visible as flicker on every
+        // watch tick).
+        let status_box = GtkBox::new(Orientation::Horizontal, 4);
+        status_box.add_css_class("notebook-status");
+        status_box.set_size_request(86, -1);
+        status_box.set_halign(gtk4::Align::End);
+        let status_icon = Image::from_icon_name("emblem-default-symbolic");
+        status_icon.add_css_class("notebook-status-icon");
+        let status_text = Label::new(None);
+        status_text.add_css_class("notebook-meta");
+        status_box.append(&status_icon);
+        status_box.append(&status_text);
+        header.append(&status_box);
 
         let run_btn = Button::new();
         run_btn.set_icon_name("media-playback-start-symbolic");
@@ -139,14 +145,21 @@ impl NotebookCell {
         {
             let engine_weak: std::rc::Weak<NotebookEngine> = Rc::downgrade(&engine);
             let output_box = output_box.clone();
-            let status = status.clone();
+            let status_icon = status_icon.clone();
+            let status_text = status_text.clone();
             let stop_btn = stop_btn.clone();
             let cb: Rc<dyn Fn()> = Rc::new(move || {
                 let Some(engine) = engine_weak.upgrade() else { return };
                 let snapshot = engine.output_snapshot(id);
                 rebuild_output_box(&output_box, &snapshot);
                 let running = engine.is_running(id);
-                update_status(&status, &snapshot, running, engine.last_finished_at(id));
+                update_status(
+                    &status_icon,
+                    &status_text,
+                    &snapshot,
+                    running,
+                    engine.last_finished_at(id),
+                );
                 stop_btn.set_sensitive(running);
             });
             engine.subscribe_output(id, cb);
@@ -252,30 +265,37 @@ fn flush_markdown(container: &GtkBox, buf: &mut String) {
 }
 
 fn update_status(
-    label: &Label,
+    icon: &Image,
+    text: &Label,
     items: &[OutputItem],
     running: bool,
     last_finished_at: Option<chrono::DateTime<chrono::Local>>,
 ) {
-    label.remove_css_class("notebook-status-running");
-    label.remove_css_class("notebook-status-error");
+    icon.remove_css_class("notebook-status-running");
+    icon.remove_css_class("notebook-status-error");
+    icon.remove_css_class("notebook-status-ok");
+    text.remove_css_class("notebook-status-running");
+    text.remove_css_class("notebook-status-error");
+    let stamp = last_finished_at
+        .map(|t| t.format("%H:%M:%S").to_string())
+        .unwrap_or_else(|| "—".into());
     if running {
-        label.set_text("running…");
-        label.add_css_class("notebook-status-running");
-        return;
-    }
-    let stamp = last_finished_at.map(|t| t.format("%H:%M:%S").to_string());
-    if items.iter().any(|i| matches!(i, OutputItem::Error(_))) {
-        label.set_text(&match stamp {
-            Some(t) => format!("error · {}", t),
-            None => "error".to_string(),
-        });
-        label.add_css_class("notebook-status-error");
+        icon.set_icon_name(Some("content-loading-symbolic"));
+        icon.add_css_class("notebook-status-running");
+        text.add_css_class("notebook-status-running");
+        text.set_text(&stamp);
+    } else if items.iter().any(|i| matches!(i, OutputItem::Error(_))) {
+        icon.set_icon_name(Some("dialog-error-symbolic"));
+        icon.add_css_class("notebook-status-error");
+        text.add_css_class("notebook-status-error");
+        text.set_text(&stamp);
+    } else if last_finished_at.is_some() {
+        icon.set_icon_name(Some("emblem-ok-symbolic"));
+        icon.add_css_class("notebook-status-ok");
+        text.set_text(&stamp);
     } else {
-        label.set_text(&match stamp {
-            Some(t) => format!("last run · {}", t),
-            None => "—".to_string(),
-        });
+        icon.set_icon_name(Some("emblem-default-symbolic"));
+        text.set_text("—");
     }
 }
 
