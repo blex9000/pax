@@ -111,11 +111,11 @@ impl NotebookCell {
         root.append(&output_box);
 
         // ── Wire run target picker + stop button ───────────────────
-        // The popover is owned by the MenuButton (canonical GTK4 pattern
-        // — `Button::set_parent(popover)` confuses Button's own click
-        // handling and produces invisible popups + "snapshot without
-        // allocation" warnings). The popover's `show` signal rebuilds
-        // the body so MRU + Available reflect the current registry.
+        // The popover is owned by the MenuButton. Body rebuilt in
+        // `set_create_popup_func` (called BEFORE the popup appears, so
+        // size negotiation sees the real content on the very first
+        // click — `connect_show` would fire too late and the first
+        // click would render an empty popover).
         let target_popover = gtk4::Popover::new();
         target_popover.set_position(gtk4::PositionType::Bottom);
         target_popover.add_css_class("notebook-target-popover");
@@ -126,7 +126,7 @@ impl NotebookCell {
             let stop_btn = stop_btn.clone();
             let spec_for_confirm = spec.clone();
             let popover = target_popover.clone();
-            target_popover.connect_show(move |_| {
+            run_btn.set_create_popup_func(move |_| {
                 let engine_for_pick = engine.clone();
                 let stop_btn_for_pick = stop_btn.clone();
                 let spec_for_pick = spec_for_confirm.clone();
