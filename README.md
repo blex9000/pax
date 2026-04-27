@@ -325,6 +325,12 @@ git push origin v0.1.0
 # → GitHub Actions builda l'AppImage e crea la release
 ───────
 
+Markdown Notebook
+
+I fenced code blocks marcati con tag eseguibile (`run`, `watch=5s`, …) sono
+eseguiti inline dal pannello Markdown. Vedi [`docs/notebook.md`](docs/notebook.md)
+per la sintassi completa.
+
 Licenza
 
 MIT

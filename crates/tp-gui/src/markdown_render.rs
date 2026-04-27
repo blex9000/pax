@@ -21,7 +21,18 @@ const HEADING_PAD_LG: i32 = 14;
 const HEADING_PAD_MD: i32 = 8;
 const HEADING_PAD_SM: i32 = 4;
 
+pub type NotebookHook<'a> =
+    &'a mut dyn FnMut(&pax_core::notebook_tag::NotebookCellSpec, &str, &gtk4::TextChildAnchor);
+
 pub(crate) fn render_markdown_to_view(tv: &gtk4::TextView, content: &str) {
+    render_markdown_to_view_with_hook(tv, content, None);
+}
+
+pub(crate) fn render_markdown_to_view_with_hook(
+    tv: &gtk4::TextView,
+    content: &str,
+    mut hook: Option<NotebookHook<'_>>,
+) {
     let buf = tv.buffer();
     buf.set_text("");
     let tt = buf.tag_table();
@@ -118,6 +129,42 @@ pub(crate) fn render_markdown_to_view(tv: &gtk4::TextView, content: &str) {
     let mut state = RenderState::default();
     let mut it = buf.end_iter();
     for (event, range) in parser {
+        // ── notebook-cell capture branch ─────────────────────────────
+        if let Some(cap) = state.notebook_collecting.as_mut() {
+            match &event {
+                Event::Text(t) => {
+                    cap.body.push_str(t);
+                    continue;
+                }
+                Event::End(TagEnd::CodeBlock) => {
+                    let cap = state.notebook_collecting.take().unwrap();
+                    if let Some(ref mut cb) = hook {
+                        let anchor = buf.create_child_anchor(&mut it);
+                        cb(&cap.spec, &cap.body, &anchor);
+                    }
+                    buf.insert(&mut it, "\n");
+                    state.in_code_block = false;
+                    continue;
+                }
+                _ => continue, // swallow other inline events inside the cell
+            }
+        }
+
+        // ── notebook-cell start branch (skip dispatch for the header) ─
+        if hook.is_some() {
+            if let Event::Start(Tag::CodeBlock(CodeBlockKind::Fenced(info))) = &event {
+                if let Some(spec) = pax_core::notebook_tag::NotebookCellSpec::parse(info) {
+                    state.in_code_block = true;
+                    state.notebook_collecting = Some(NotebookCapture {
+                        spec,
+                        body: String::new(),
+                    });
+                    continue;
+                }
+            }
+        }
+
+        // ── normal dispatch (existing behaviour for non-notebook blocks) ─
         let starts_block = is_block_marker_start(&event);
 
         if starts_block
@@ -189,6 +236,11 @@ fn is_block_marker_start(ev: &Event) -> bool {
 }
 
 
+struct NotebookCapture {
+    spec: pax_core::notebook_tag::NotebookCellSpec,
+    body: String,
+}
+
 /// Inline formatting and structural state carried across events.
 struct RenderState {
     /// Inline tag names currently active (bold/italic/strike/link).
@@ -210,6 +262,10 @@ struct RenderState {
     /// use a `_flush` tag so it doesn't paint padding above itself when
     /// nothing precedes it in the document.
     pending_first_block: bool,
+    /// When set, we're inside a fenced code block whose info string parsed as
+    /// a `NotebookCellSpec`. Body text events accumulate here until End(CodeBlock),
+    /// at which point the hook (if any) is invoked with the captured spec/body.
+    notebook_collecting: Option<NotebookCapture>,
 }
 
 impl Default for RenderState {
@@ -223,6 +279,7 @@ impl Default for RenderState {
             item_needs_marker: false,
             table: None,
             pending_first_block: true,
+            notebook_collecting: None,
         }
     }
 }
@@ -280,17 +337,10 @@ fn handle_start(buf: &gtk4::TextBuffer, it: &mut gtk4::TextIter, st: &mut Render
         Tag::BlockQuote(_) => {
             st.bq_depth += 1;
         }
-        Tag::CodeBlock(kind) => {
+        Tag::CodeBlock(_) => {
+            // No language banner — the `code_block` tag's monospace +
+            // background already distinguishes the block visually.
             st.in_code_block = true;
-            let hint = match kind {
-                CodeBlockKind::Fenced(s) => s.to_string(),
-                CodeBlockKind::Indented => String::new(),
-            };
-            if hint.is_empty() {
-                buf.insert_with_tags_by_name(it, "───────\n", &["sep"]);
-            } else {
-                buf.insert_with_tags_by_name(it, &format!("─── {} ───\n", hint), &["sep"]);
-            }
         }
         Tag::List(start) => {
             // A list nested inside an item needs to start on a fresh line.
@@ -365,7 +415,6 @@ fn handle_end(
         }
         TagEnd::CodeBlock => {
             st.in_code_block = false;
-            buf.insert_with_tags_by_name(it, "───────\n", &["sep"]);
         }
         TagEnd::List(_) => {
             st.lists.pop();

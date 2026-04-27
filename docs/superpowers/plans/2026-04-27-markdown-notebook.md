@@ -284,7 +284,7 @@ Aggiungi in fondo a `crates/tp-core/src/safety.rs`, prima del `#[cfg(test)] mod 
 /// false-negatives appear in practice.
 pub fn notebook_blocklist() -> Vec<String> {
     vec![
-        r"\brm\s+-rf\s+/(\s|$)".to_string(),
+        r"\brm\s+-rf\s+/".to_string(),
         r"\brm\s+-rf\s+\$HOME".to_string(),
         r"\brm\s+-rf\s+~(\s|/|$)".to_string(),
         r"\bmkfs\b".to_string(),

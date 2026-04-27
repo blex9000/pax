@@ -41,6 +41,41 @@ pub fn check_command_all_groups(command: &str, groups: &[&Group]) -> Result<Safe
     Ok(SafetyCheck::Allowed)
 }
 
+/// Default blocklist applied to notebook cell code (markdown notebook
+/// feature). Patterns are regex strings, matched as `regex::Regex::is_match`
+/// against the full block body. Conservative defaults — extend if real
+/// false-negatives appear in practice.
+pub fn notebook_blocklist() -> Vec<String> {
+    vec![
+        r"\brm\s+-rf\s+/".to_string(),
+        r"\brm\s+-rf\s+\$HOME".to_string(),
+        r"\brm\s+-rf\s+~(\s|/|$)".to_string(),
+        r"\bmkfs\b".to_string(),
+        r"\bdd\s+if=.*of=/dev/".to_string(),
+        r":\(\)\s*\{\s*:\|:&\s*\};:".to_string(), // fork bomb
+        r"\bshutdown\b".to_string(),
+        r"\breboot\b".to_string(),
+        r"\bhalt\b".to_string(),
+    ]
+}
+
+/// Apply the notebook blocklist to a piece of code about to be run by the
+/// markdown notebook engine. Returns `Allowed` or `Blocked(reason)`. Never
+/// returns `NeedsConfirmation` (notebook cells use the `confirm` tag, not
+/// the group-level confirmation flow).
+pub fn check_notebook_command(code: &str) -> Result<SafetyCheck> {
+    for pattern_str in notebook_blocklist() {
+        let re = Regex::new(&pattern_str)?;
+        if re.is_match(code) {
+            return Ok(SafetyCheck::Blocked(format!(
+                "Code matches blocked pattern '{}'",
+                pattern_str
+            )));
+        }
+    }
+    Ok(SafetyCheck::Allowed)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -82,5 +117,44 @@ mod tests {
         };
         let result = check_command("ls -la", &g).unwrap();
         assert!(matches!(result, SafetyCheck::Allowed));
+    }
+
+    #[test]
+    fn notebook_blocks_rm_rf_root() {
+        let r = check_notebook_command("rm -rf /").unwrap();
+        assert!(matches!(r, SafetyCheck::Blocked(_)));
+    }
+
+    #[test]
+    fn notebook_blocks_fork_bomb() {
+        let r = check_notebook_command(":(){ :|:& };:").unwrap();
+        assert!(matches!(r, SafetyCheck::Blocked(_)));
+    }
+
+    #[test]
+    fn notebook_blocks_shutdown() {
+        let r = check_notebook_command("sudo shutdown -h now").unwrap();
+        assert!(matches!(r, SafetyCheck::Blocked(_)));
+    }
+
+    #[test]
+    fn notebook_allows_normal_python() {
+        let r = check_notebook_command("import sys\nprint(sys.version)").unwrap();
+        assert!(matches!(r, SafetyCheck::Allowed));
+    }
+
+    #[test]
+    fn notebook_allows_rm_in_subdir() {
+        // Relative paths (./, ../) do not start with `/` and are not matched.
+        let r = check_notebook_command("rm -rf ./build").unwrap();
+        assert!(matches!(r, SafetyCheck::Allowed));
+    }
+
+    #[test]
+    fn notebook_blocks_rm_rf_absolute_paths() {
+        for cmd in &["rm -rf /home/user", "rm -rf /tmp", "rm -rf /etc", "rm -rf /var/log"] {
+            let r = check_notebook_command(cmd).unwrap();
+            assert!(matches!(r, SafetyCheck::Blocked(_)), "should block: {}", cmd);
+        }
     }
 }

@@ -7,6 +7,8 @@ use std::rc::Rc;
 use sourceview5::prelude::*;
 
 use super::{text_sync, PanelBackend, PanelInputCallback};
+use crate::notebook::cell::NotebookCell;
+use crate::notebook::engine::NotebookEngine;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum Mode {
@@ -87,6 +89,11 @@ pub struct MarkdownPanel {
     input_cb: Rc<RefCell<Option<PanelInputCallback>>>,
     #[allow(dead_code)]
     file_path: String,
+    /// Lazily-created notebook engine. Created on the first render that
+    /// encounters a notebook cell, dropped (and recreated) when render mode
+    /// is re-entered or the file is reloaded so watch timers don't pile up.
+    #[allow(dead_code)]
+    notebook_engine: Rc<RefCell<Option<Rc<NotebookEngine>>>>,
 }
 
 impl std::fmt::Debug for MarkdownPanel {
@@ -99,6 +106,7 @@ impl std::fmt::Debug for MarkdownPanel {
 
 impl MarkdownPanel {
     pub fn new(file_path: &str) -> Self {
+        crate::recent_markdown::record(file_path);
         let container = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
         let mode = Rc::new(Cell::new(Mode::Render));
         let content = Rc::new(RefCell::new(String::new()));
@@ -147,6 +155,11 @@ impl MarkdownPanel {
         reload_btn.set_icon_name("view-refresh-symbolic");
         reload_btn.add_css_class("flat");
 
+        let help_btn = gtk4::Button::new();
+        help_btn.set_icon_name("help-about-symbolic");
+        help_btn.add_css_class("flat");
+        help_btn.set_tooltip_text(Some("Markdown notebook help"));
+
         let file_label = gtk4::Label::new(Some(file_path));
         file_label.add_css_class("dim-label");
         file_label.add_css_class("caption");
@@ -162,8 +175,17 @@ impl MarkdownPanel {
         toolbar.append(&gtk4::Separator::new(gtk4::Orientation::Vertical));
         toolbar.append(&save_btn);
         toolbar.append(&reload_btn);
+        toolbar.append(&help_btn);
         toolbar.append(&file_label);
         container.append(&toolbar);
+
+        // Help button: opens the notebook help dialog.
+        {
+            let parent = container.clone();
+            help_btn.connect_clicked(move |_| {
+                crate::dialogs::notebook_help::show(parent.upcast_ref::<gtk4::Widget>());
+            });
+        }
 
         // ── Formatting toolbar (edit mode only) ──────────────────────────
         let fmt_bar = gtk4::Box::new(gtk4::Orientation::Horizontal, 2);
@@ -177,6 +199,7 @@ impl MarkdownPanel {
         let fmt_items: Vec<(&str, &str, &str)> = vec![
             ("format-text-bold-symbolic", "Bold", "**"),
             ("format-text-italic-symbolic", "Italic", "*"),
+            ("format-text-strikethrough-symbolic", "Strikethrough", "~~"),
             ("accessories-text-editor-symbolic", "Code", "`"),
         ];
         for (icon, tooltip, marker) in &fmt_items {
@@ -215,6 +238,87 @@ impl MarkdownPanel {
                 "view-grid-symbolic",
                 "Table",
                 "| Column 1 | Column 2 | Column 3 |\n|----------|----------|----------|\n| cell     | cell     | cell     |\n",
+            ),
+        ] {
+            let btn = gtk4::Button::new();
+            btn.set_icon_name(icon);
+            btn.add_css_class("flat");
+            btn.set_tooltip_text(Some(tooltip));
+            let t = text.to_string();
+            let br = edit_buf_ref.clone();
+            btn.connect_clicked(move |_| {
+                if let Some(ref buf) = *br.borrow() {
+                    insert_at_cursor_buf(buf, &t);
+                }
+            });
+            fmt_bar.append(&btn);
+        }
+
+        // ── Media / extras group ─────────────────────────────────────
+        // Image button opens a file dialog and inserts a relative path,
+        // so the user gets a working `![](path)` immediately. The other
+        // entries are template-insert helpers like the existing group.
+        fmt_bar.append(&gtk4::Separator::new(gtk4::Orientation::Vertical));
+        {
+            let img_btn = gtk4::Button::new();
+            img_btn.set_icon_name("insert-image-symbolic");
+            img_btn.add_css_class("flat");
+            img_btn.set_tooltip_text(Some("Insert image (file picker)"));
+            let br = edit_buf_ref.clone();
+            let parent_for_dialog = container.clone();
+            let host_path = file_path.to_string();
+            img_btn.connect_clicked(move |_| {
+                let dialog = gtk4::FileDialog::builder()
+                    .title("Select image")
+                    .modal(true)
+                    .build();
+                let filter = gtk4::FileFilter::new();
+                filter.set_name(Some("Images"));
+                for pat in ["*.png", "*.jpg", "*.jpeg", "*.gif", "*.webp", "*.svg"] {
+                    filter.add_pattern(pat);
+                }
+                let filters = gtk4::gio::ListStore::new::<gtk4::FileFilter>();
+                filters.append(&filter);
+                dialog.set_filters(Some(&filters));
+                let host_dir = std::path::Path::new(&host_path)
+                    .parent()
+                    .map(|p| p.to_path_buf());
+                let br = br.clone();
+                let parent_window = parent_for_dialog
+                    .root()
+                    .and_then(|r| r.downcast::<gtk4::Window>().ok());
+                dialog.open(parent_window.as_ref(), gtk4::gio::Cancellable::NONE, move |result| {
+                    if let Ok(file) = result {
+                        if let Some(path) = file.path() {
+                            // Relative path if the image lives under the
+                            // markdown file's directory; absolute otherwise.
+                            let rel = host_dir
+                                .as_ref()
+                                .and_then(|hd| path.strip_prefix(hd).ok())
+                                .map(|p| p.to_path_buf())
+                                .unwrap_or(path);
+                            let alt = rel
+                                .file_stem()
+                                .and_then(|s| s.to_str())
+                                .unwrap_or("image");
+                            let snippet = format!("![{}]({})", alt, rel.to_string_lossy());
+                            if let Some(ref buf) = *br.borrow() {
+                                insert_at_cursor_buf(buf, &snippet);
+                            }
+                        }
+                    }
+                });
+            });
+            fmt_bar.append(&img_btn);
+        }
+        for (icon, tooltip, text) in &[
+            ("format-indent-more-symbolic", "Quote", "> "),
+            ("list-remove-symbolic", "Horizontal rule", "\n---\n"),
+            ("emblem-ok-symbolic", "Task item", "- [ ] "),
+            (
+                "system-run-symbolic",
+                "Notebook cell (python run)",
+                "```python run\n\n```\n",
             ),
         ] {
             let btn = gtk4::Button::new();
@@ -315,27 +419,44 @@ impl MarkdownPanel {
 
         let widget = container.upcast::<gtk4::Widget>();
 
+        // Lazy notebook engine — created on the first render that encounters
+        // a notebook cell, dropped (and recreated) on render-mode re-entry
+        // and reload so watch timers don't pile up across re-renders.
+        let notebook_engine: Rc<RefCell<Option<Rc<NotebookEngine>>>> =
+            Rc::new(RefCell::new(None));
+
+        // Render closure that wires the notebook hook via the shared
+        // `render_with_engine` free function (also reused by the file-watch
+        // timer and the public `reload` method, so cells survive every
+        // re-render path consistently).
+        let render_with_notebook: Rc<dyn Fn(&str)> = {
+            let rv = render_view.clone();
+            let nb_engine_holder = notebook_engine.clone();
+            Rc::new(move |content: &str| {
+                render_with_engine(&rv, &nb_engine_holder, content);
+            })
+        };
+
         // Load initial content
         let initial = std::fs::read_to_string(file_path)
             .unwrap_or_else(|e| format!("Error loading {}: {}", file_path, e));
         *content.borrow_mut() = initial.clone();
-        crate::markdown_render::render_markdown_to_view(&render_view, &initial);
+        render_with_notebook(&initial);
 
         // Re-render on theme change so code blocks pick up the new palette.
         {
-            let rv = render_view.clone();
             let ct = content.clone();
             let m = mode.clone();
+            let r = render_with_notebook.clone();
             crate::theme::register_theme_observer(Rc::new(move || {
                 if m.get() == Mode::Render {
-                    crate::markdown_render::render_markdown_to_view(&rv, &ct.borrow());
+                    r(&ct.borrow());
                 }
             }));
         }
 
         // ── Render button ────────────────────────────────────────────────
         {
-            let rv = render_view.clone();
             let ct = content.clone();
             let m = mode.clone();
             let fb = fmt_bar.clone();
@@ -346,6 +467,8 @@ impl MarkdownPanel {
             let sbuf = source_buffer.clone();
             let ub = undo_btn.clone();
             let rb = redo_btn.clone();
+            let r = render_with_notebook.clone();
+            let nb_engine = notebook_engine.clone();
             render_btn.connect_toggled(move |btn| {
                 if !btn.is_active() {
                     return;
@@ -366,7 +489,10 @@ impl MarkdownPanel {
                 ub.set_sensitive(false);
                 rb.set_sensitive(false);
                 st.set_visible_child_name("render");
-                crate::markdown_render::render_markdown_to_view(&rv, &ct.borrow());
+                // Drop the previous engine so watch timers cancel and a
+                // fresh set of cells is constructed against the new buffer.
+                *nb_engine.borrow_mut() = None;
+                r(&ct.borrow());
             });
         }
 
@@ -493,19 +619,24 @@ impl MarkdownPanel {
         {
             let fp = file_path.to_string();
             let ct = content.clone();
-            let rv = render_view.clone();
             let sbuf = source_buffer.clone();
             let m = mode.clone();
             let mod_flag = modified.clone();
             let sb = save_btn.clone();
             let suppress = suppress_emit.clone();
+            let r = render_with_notebook.clone();
+            let nb_engine = notebook_engine.clone();
             reload_btn.connect_clicked(move |_| {
                 if let Ok(text) = std::fs::read_to_string(&fp) {
                     *ct.borrow_mut() = text.clone();
                     mod_flag.set(false);
                     sb.set_sensitive(false);
                     if m.get() == Mode::Render {
-                        crate::markdown_render::render_markdown_to_view(&rv, &text);
+                        // Drop the previous engine so watch timers cancel
+                        // and a fresh set of cells is built from the
+                        // reloaded content.
+                        *nb_engine.borrow_mut() = None;
+                        r(&text);
                     } else {
                         suppress.set(true);
                         sbuf.set_text(&text);
@@ -521,6 +652,7 @@ impl MarkdownPanel {
             let ct = content.clone();
             let rv = render_view.clone();
             let m = mode.clone();
+            let nb_engine = notebook_engine.clone();
             let last_mtime = Rc::new(Cell::new(get_mtime(file_path)));
             glib::timeout_add_local(std::time::Duration::from_millis(500), move || {
                 if m.get() == Mode::Edit {
@@ -532,7 +664,11 @@ impl MarkdownPanel {
                     if let Ok(text) = std::fs::read_to_string(&fp) {
                         if text != *ct.borrow() {
                             *ct.borrow_mut() = text.clone();
-                            crate::markdown_render::render_markdown_to_view(&rv, &text);
+                            // External edit: drop old engine so stale cells +
+                            // their watch timers don't survive past the new
+                            // markdown body, then re-render through the hook.
+                            *nb_engine.borrow_mut() = None;
+                            render_with_engine(&rv, &nb_engine, &text);
                         }
                     }
                 }
@@ -549,14 +685,42 @@ impl MarkdownPanel {
             suppress_emit,
             input_cb,
             file_path: file_path.to_string(),
+            notebook_engine,
         }
     }
 
     pub fn reload(&mut self) {
         if let Ok(text) = std::fs::read_to_string(&self.file_path) {
-            crate::markdown_render::render_markdown_to_view(&self.render_view, &text);
+            *self.notebook_engine.borrow_mut() = None;
+            render_with_engine(&self.render_view, &self.notebook_engine, &text);
         }
     }
+}
+
+/// Render `content` into `rv` while routing notebook cells through the
+/// engine: each fenced block whose info string parses as a notebook spec
+/// gets registered in (the lazily-created) engine, materialised as a
+/// `NotebookCell` widget, and anchored at the renderer-provided
+/// `TextChildAnchor`. Used by every render path (initial, theme observer,
+/// mode toggle, reload, file watch) so cells survive consistently.
+fn render_with_engine(
+    rv: &gtk4::TextView,
+    engine_holder: &Rc<RefCell<Option<Rc<NotebookEngine>>>>,
+    content: &str,
+) {
+    let engine_holder = engine_holder.clone();
+    let rv_for_hook = rv.clone();
+    let mut hook = move |spec: &pax_core::notebook_tag::NotebookCellSpec,
+                         body: &str,
+                         anchor: &gtk4::TextChildAnchor| {
+        let mut holder = engine_holder.borrow_mut();
+        let engine = holder.get_or_insert_with(NotebookEngine::new).clone();
+        drop(holder);
+        let id = engine.register_cell(spec.clone(), body.to_string());
+        let cell = NotebookCell::new(engine, id, &rv_for_hook);
+        rv_for_hook.add_child_at_anchor(&cell.root, anchor);
+    };
+    crate::markdown_render::render_markdown_to_view_with_hook(rv, content, Some(&mut hook));
 }
 
 impl PanelBackend for MarkdownPanel {

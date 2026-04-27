@@ -235,3 +235,98 @@
     padding: 0 4px;
     min-height: 0;
 }
+
+/* ── Notebook cell ────────────────────────────────────────────── */
+.notebook-cell {
+    border-left: 3px solid alpha(@accent_color, 0.5);
+    padding: 6px 8px;
+    background: alpha(@card_bg_color, 0.6);
+    border-radius: 4px;
+}
+.notebook-cell-header {
+    margin-bottom: 4px;
+}
+.notebook-lang-badge {
+    font-family: monospace;
+    font-size: 0.85em;
+    padding: 1px 6px;
+    background: alpha(@accent_color, 0.15);
+    border-radius: 3px;
+}
+.notebook-text-output {
+    background: transparent;
+    font-size: 0.95em;
+}
+.notebook-text-output text {
+    background: transparent;
+}
+.notebook-error-line {
+    font-family: monospace;
+    font-size: 0.9em;
+    color: #e06c75;
+}
+/* Header right-side meta (last-run timestamp) — light + small. */
+.notebook-meta {
+    color: alpha(currentColor, 0.55);
+    font-size: 0.78em;
+    font-weight: normal;
+    font-family: monospace;
+}
+/* Status icon: also transparent so it visually pairs with the timestamp. */
+.notebook-status-icon {
+    -gtk-icon-size: 12px;
+    opacity: 0.55;
+}
+.notebook-status-running { color: @accent_color; opacity: 0.85; }
+.notebook-status-error   { color: #e06c75; opacity: 0.85; }
+.notebook-status-ok      { color: #98c379; opacity: 0.85; }
+/* Recent-files list inside the Markdown panel config dialog */
+.recent-files-list {
+    border: 1px solid alpha(@borders, 0.6);
+    border-radius: 4px;
+    padding: 2px;
+}
+button.recent-files-row {
+    padding: 4px 6px;
+    border-radius: 3px;
+}
+button.recent-files-row:hover {
+    background: alpha(@accent_color, 0.10);
+}
+
+/* Run-target picker dialog (consolidated Run/Send button) */
+window.notebook-target-dialog {
+    min-width: 320px;
+}
+button.notebook-target-row {
+    padding: 6px 8px;
+    border-radius: 4px;
+}
+button.notebook-target-row:hover {
+    background: alpha(@accent_color, 0.12);
+}
+.notebook-target-icon {
+    -gtk-icon-size: 14px;
+    opacity: 0.75;
+}
+.notebook-target-section label {
+    font-size: 0.75em;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    opacity: 0.55;
+}
+
+/* Run/stop buttons: matched transparency + pointer cursor. */
+button.notebook-cell-btn {
+    min-width: 22px;
+    min-height: 22px;
+    padding: 1px 4px;
+    -gtk-icon-size: 14px;
+    opacity: 0.55;
+}
+button.notebook-cell-btn:hover { opacity: 1; }
+button.notebook-cell-btn:disabled { opacity: 0.25; }
+button.notebook-cell-btn,
+button.notebook-cell-btn * {
+    cursor: pointer;
+}

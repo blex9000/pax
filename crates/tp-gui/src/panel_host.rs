@@ -136,7 +136,7 @@ pub struct PanelHost {
     pub(crate) footer_label: gtk4::Label,
     widget: gtk4::Widget,
     panel_id: String,
-    backend: RefCell<Option<Box<dyn PanelBackend>>>,
+    backend: Rc<RefCell<Option<Box<dyn PanelBackend>>>>,
     focused: RefCell<bool>,
     /// Shared callback ref — updated by set_action_callback, read by button handlers.
     action_cb_ref: Rc<RefCell<Option<PanelActionCallback>>>,
@@ -148,6 +148,15 @@ pub struct PanelHost {
     /// Last known waiting state. Replayed to new listeners on registration
     /// so mirrors added after a layout rebuild match the current shell state.
     last_waiting: Rc<std::cell::Cell<bool>>,
+}
+
+impl Drop for PanelHost {
+    fn drop(&mut self) {
+        // Best-effort cleanup of the terminal registry — if this host was
+        // currently exposing a terminal, the entry would otherwise outlive
+        // the panel and feed stale closures.
+        crate::panels::terminal_registry::unregister(&self.panel_id);
+    }
 }
 
 impl std::fmt::Debug for PanelHost {
@@ -483,7 +492,7 @@ impl PanelHost {
             footer_label,
             widget,
             panel_id: panel_id.to_string(),
-            backend: RefCell::new(None),
+            backend: Rc::new(RefCell::new(None)),
             focused: RefCell::new(false),
             action_cb_ref,
             sync_input_cb_ref: Rc::new(RefCell::new(None)),
@@ -659,6 +668,32 @@ impl PanelHost {
         backend.set_cwd_callback(Some(cwd_cb));
 
         *self.backend.borrow_mut() = Some(backend);
+
+        // Terminal-registry hookup: expose this panel to the markdown
+        // notebook "Send to terminal" picker. Re-registered on every
+        // backend swap so the entry reflects the *current* backend; the
+        // `send` closure routes through the same Rc<RefCell> the host
+        // owns, so a future swap is reflected without re-register.
+        let panel_type = self
+            .backend
+            .borrow()
+            .as_ref()
+            .map(|b| b.panel_type().to_string())
+            .unwrap_or_default();
+        if panel_type == "terminal" {
+            let backend_for_send = self.backend.clone();
+            let send: Rc<dyn Fn(&[u8]) -> bool> = Rc::new(move |data| {
+                backend_for_send
+                    .borrow()
+                    .as_ref()
+                    .map(|b| b.write_input(data))
+                    .unwrap_or(false)
+            });
+            let label = self.title_label.text().to_string();
+            crate::panels::terminal_registry::register(&self.panel_id, &label, send);
+        } else {
+            crate::panels::terminal_registry::unregister(&self.panel_id);
+        }
     }
 
     pub fn widget(&self) -> &gtk4::Widget {

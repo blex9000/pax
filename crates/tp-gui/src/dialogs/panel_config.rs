@@ -900,7 +900,23 @@ fn show_markdown_config(
     vbox.set_margin_end(16);
 
     let name_entry = add_field(&vbox, "Name:", panel_name, "Markdown");
-    let file_entry = add_field(&vbox, "File:", file, "path/to/file.md");
+
+    // Build the File row inline so the Browse button sits to the right of
+    // the entry on the same row (instead of taking its own line below).
+    let file_row = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
+    let file_lbl = gtk4::Label::new(Some("File:"));
+    file_lbl.set_width_chars(15);
+    file_lbl.set_halign(gtk4::Align::Start);
+    let file_entry = gtk4::Entry::new();
+    file_entry.set_text(file);
+    file_entry.set_placeholder_text(Some("path/to/file.md"));
+    file_entry.set_hexpand(true);
+    let browse_btn = gtk4::Button::with_label("Browse...");
+    browse_btn.add_css_class("flat");
+    file_row.append(&file_lbl);
+    file_row.append(&file_entry);
+    file_row.append(&browse_btn);
+    vbox.append(&file_row);
 
     // Keep the panel name in sync with the file stem: if the user picks
     // "notes.md" as the file, the tab should read "notes" — unless they've
@@ -939,9 +955,6 @@ fn show_markdown_config(
         });
     }
 
-    let browse_btn = gtk4::Button::with_label("Browse...");
-    browse_btn.add_css_class("flat");
-    browse_btn.set_halign(gtk4::Align::Start);
     let fe = file_entry.clone();
     let d = dialog.clone();
     browse_btn.connect_clicked(move |_| {
@@ -966,9 +979,100 @@ fn show_markdown_config(
             }
         });
     });
-    vbox.append(&browse_btn);
+
+    // ── Recent files ───────────────────────────────────────────────
+    // Click a row to drop the path into the File entry. List is the
+    // last 20 markdown files opened by `MarkdownPanel::new`, persisted
+    // across app restarts.
+    let recent = crate::recent_markdown::list();
+    if !recent.is_empty() {
+        let recent_label = gtk4::Label::new(Some("Recent files"));
+        recent_label.add_css_class("dim-label");
+        recent_label.add_css_class("caption");
+        recent_label.set_halign(gtk4::Align::Start);
+        recent_label.set_margin_top(8);
+        vbox.append(&recent_label);
+
+        let recent_scroll = gtk4::ScrolledWindow::new();
+        recent_scroll.set_min_content_height(120);
+        recent_scroll.set_max_content_height(220);
+        recent_scroll.set_policy(gtk4::PolicyType::Never, gtk4::PolicyType::Automatic);
+        recent_scroll.set_vexpand(false);
+
+        let recent_box = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
+        recent_box.add_css_class("recent-files-list");
+
+        for entry in &recent {
+            let row = gtk4::Button::new();
+            row.add_css_class("flat");
+            row.add_css_class("recent-files-row");
+            row.set_halign(gtk4::Align::Fill);
+            row.set_tooltip_text(Some(entry));
+
+            let body = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
+            let icon = gtk4::Image::from_icon_name("text-x-generic-symbolic");
+            icon.add_css_class("dim-label");
+            body.append(&icon);
+
+            let stack = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
+            let basename = std::path::Path::new(entry)
+                .file_name()
+                .map(|s| s.to_string_lossy().into_owned())
+                .unwrap_or_else(|| entry.clone());
+            let primary = gtk4::Label::new(Some(&basename));
+            primary.set_halign(gtk4::Align::Start);
+            primary.set_ellipsize(gtk4::pango::EllipsizeMode::End);
+            stack.append(&primary);
+
+            let secondary = gtk4::Label::new(Some(entry));
+            secondary.add_css_class("dim-label");
+            secondary.add_css_class("caption");
+            secondary.set_halign(gtk4::Align::Start);
+            secondary.set_ellipsize(gtk4::pango::EllipsizeMode::Start);
+            stack.append(&secondary);
+            stack.set_hexpand(true);
+            body.append(&stack);
+            row.set_child(Some(&body));
+
+            let fe = file_entry.clone();
+            let path = entry.clone();
+            row.connect_clicked(move |_| {
+                fe.set_text(&path);
+            });
+
+            recent_box.append(&row);
+        }
+        recent_scroll.set_child(Some(&recent_box));
+        vbox.append(&recent_scroll);
+    }
 
     let (mw_spin, mh_spin) = add_min_size_fields(&vbox, min_width, min_height);
+
+    // ── Documentazione ────────────────────────────────────────────
+    // Collapsible section with the same help text as the in-panel `?`
+    // dialog, so users discovering the notebook feature don't have to
+    // open a panel first to know it exists.
+    let doc_expander = gtk4::Expander::new(Some("Documentazione — Markdown notebook"));
+    doc_expander.set_expanded(false);
+    let doc_scroll = gtk4::ScrolledWindow::new();
+    doc_scroll.set_min_content_height(220);
+    doc_scroll.set_max_content_height(360);
+    doc_scroll.set_vexpand(false);
+    let doc_view = gtk4::TextView::new();
+    doc_view.set_editable(false);
+    doc_view.set_cursor_visible(false);
+    doc_view.set_wrap_mode(gtk4::WrapMode::Word);
+    doc_view.set_monospace(true);
+    doc_view.set_left_margin(8);
+    doc_view.set_right_margin(8);
+    doc_view.set_top_margin(6);
+    doc_view.set_bottom_margin(6);
+    doc_view
+        .buffer()
+        .set_text(crate::dialogs::notebook_help::HELP_TEXT);
+    doc_scroll.set_child(Some(&doc_view));
+    doc_expander.set_child(Some(&doc_scroll));
+    vbox.append(&doc_expander);
 
     finalize_dialog(&dialog, &vbox, move || {
         let name = name_entry.text().to_string();
