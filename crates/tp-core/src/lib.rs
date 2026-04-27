@@ -1,7 +1,7 @@
 pub mod alert;
 pub mod build_info;
-pub mod notebook_tag;
 pub mod config;
+pub mod notebook_tag;
 pub mod safety;
 pub mod ssh;
 pub mod template;
