@@ -235,3 +235,34 @@
     padding: 0 4px;
     min-height: 0;
 }
+
+/* ── Notebook cell ────────────────────────────────────────────── */
+.notebook-cell {
+    border-left: 3px solid alpha(@accent_color, 0.5);
+    padding: 6px 8px;
+    background: alpha(@card_bg_color, 0.6);
+    border-radius: 4px;
+}
+.notebook-cell-header {
+    margin-bottom: 4px;
+}
+.notebook-lang-badge {
+    font-family: monospace;
+    font-size: 0.85em;
+    padding: 1px 6px;
+    background: alpha(@accent_color, 0.15);
+    border-radius: 3px;
+}
+.notebook-text-line {
+    font-family: monospace;
+    font-size: 0.9em;
+}
+.notebook-error-line {
+    font-family: monospace;
+    font-size: 0.9em;
+    color: #e06c75;
+}
+.notebook-status-idle  { color: #888; }
+.notebook-status-running { color: @accent_color; }
+.notebook-status-ok    { color: #98c379; }
+.notebook-status-error { color: #e06c75; }

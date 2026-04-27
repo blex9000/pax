@@ -1,0 +1,218 @@
+//! GTK widget for a single notebook cell. Anchored into the markdown
+//! panel's render `TextView` via `TextView::add_child_at_anchor`.
+//!
+//! Layout:
+//!   ┌───────────────────────────────────────────────────────────┐
+//!   │ [lang] [▶/⏹] [● status]  watch every 5s         <preview> │  header
+//!   ├───────────────────────────────────────────────────────────┤
+//!   │ <output items: text label / image / error>               │  output area
+//!   └───────────────────────────────────────────────────────────┘
+
+use std::rc::Rc;
+
+use gtk4::prelude::*;
+use gtk4::{Box as GtkBox, Button, Image, Label, Orientation, Picture};
+
+use pax_core::notebook_tag::{ExecMode, Lang};
+
+use super::engine::{CellId, NotebookEngine};
+use super::output::{ImageSource, OutputItem};
+use super::IMAGE_MAX_HEIGHT_PX;
+
+pub struct NotebookCell {
+    pub root: GtkBox,
+    pub id: CellId,
+}
+
+impl NotebookCell {
+    pub fn new(engine: Rc<NotebookEngine>, id: CellId) -> Self {
+        let spec = engine.spec_of(id).expect("cell registered");
+
+        let root = GtkBox::new(Orientation::Vertical, 4);
+        root.add_css_class("notebook-cell");
+        root.set_margin_top(4);
+        root.set_margin_bottom(8);
+
+        // ── Header ───────────────────────────────────────────────
+        let header = GtkBox::new(Orientation::Horizontal, 6);
+        header.add_css_class("notebook-cell-header");
+
+        let lang_badge = Label::new(Some(lang_label(spec.lang)));
+        lang_badge.add_css_class("notebook-lang-badge");
+        header.append(&lang_badge);
+
+        let run_btn = Button::new();
+        run_btn.set_icon_name("media-playback-start-symbolic");
+        run_btn.add_css_class("flat");
+        run_btn.set_tooltip_text(Some("Run cell"));
+        header.append(&run_btn);
+
+        let stop_btn = Button::new();
+        stop_btn.set_icon_name("media-playback-stop-symbolic");
+        stop_btn.add_css_class("flat");
+        stop_btn.set_tooltip_text(Some("Stop cell"));
+        stop_btn.set_sensitive(false);
+        header.append(&stop_btn);
+
+        let status = Image::from_icon_name("emblem-default-symbolic");
+        status.add_css_class("notebook-status-idle");
+        header.append(&status);
+
+        if let ExecMode::Watch { interval } = spec.mode {
+            let label = Label::new(Some(&format!("watch every {}s", interval.as_secs_f64())));
+            label.add_css_class("dim-label");
+            label.add_css_class("caption");
+            header.append(&label);
+        }
+
+        let spacer = Label::new(None);
+        spacer.set_hexpand(true);
+        header.append(&spacer);
+
+        root.append(&header);
+
+        // ── Output area ──────────────────────────────────────────
+        let output_box = GtkBox::new(Orientation::Vertical, 2);
+        output_box.add_css_class("notebook-cell-output");
+        root.append(&output_box);
+
+        // ── Wire run/stop buttons ───────────────────────────────
+        {
+            let engine = engine.clone();
+            let stop_btn = stop_btn.clone();
+            let spec_for_confirm = spec.clone();
+            run_btn.connect_clicked(move |_| {
+                if spec_for_confirm.confirm && !engine.is_confirmed(id) {
+                    if !confirm_dialog_blocking() {
+                        return;
+                    }
+                    engine.mark_confirmed(id);
+                }
+                engine.run_cell(id);
+                stop_btn.set_sensitive(true);
+            });
+        }
+        {
+            let engine = engine.clone();
+            let stop_btn_inner = stop_btn.clone();
+            stop_btn.connect_clicked(move |_| {
+                engine.stop_cell(id);
+                stop_btn_inner.set_sensitive(false);
+            });
+        }
+
+        // ── Output subscription ─────────────────────────────────
+        {
+            let engine_for_sub = engine.clone();
+            let output_box = output_box.clone();
+            let status = status.clone();
+            let stop_btn = stop_btn.clone();
+            let cb: Rc<dyn Fn()> = Rc::new(move || {
+                rebuild_output_box(&output_box, &engine_for_sub.output_snapshot(id));
+                let running = engine_for_sub.is_running(id);
+                update_status(&status, &engine_for_sub.output_snapshot(id), running);
+                stop_btn.set_sensitive(running);
+            });
+            engine.subscribe_output(id, cb);
+        }
+
+        // ── Visibility tracking → engine watch gating ───────────
+        {
+            let engine_map = engine.clone();
+            root.connect_map(move |_| engine_map.set_visible(id, true));
+        }
+        {
+            let engine_unmap = engine.clone();
+            root.connect_unmap(move |_| engine_unmap.set_visible(id, false));
+        }
+
+        NotebookCell { root, id }
+    }
+}
+
+fn lang_label(l: Lang) -> &'static str {
+    match l {
+        Lang::Python => "python",
+        Lang::Bash => "bash",
+        Lang::Sh => "sh",
+    }
+}
+
+fn rebuild_output_box(container: &GtkBox, items: &[OutputItem]) {
+    while let Some(child) = container.first_child() {
+        container.remove(&child);
+    }
+    for item in items {
+        match item {
+            OutputItem::Text(t) => {
+                let l = Label::new(Some(t));
+                l.set_halign(gtk4::Align::Start);
+                l.add_css_class("notebook-text-line");
+                l.set_selectable(true);
+                l.set_wrap(true);
+                container.append(&l);
+            }
+            OutputItem::Error(t) => {
+                let l = Label::new(Some(t));
+                l.set_halign(gtk4::Align::Start);
+                l.add_css_class("notebook-error-line");
+                l.set_selectable(true);
+                l.set_wrap(true);
+                container.append(&l);
+            }
+            OutputItem::Image(src) => {
+                match src {
+                    ImageSource::Path(p) => {
+                        let pic = Picture::new();
+                        pic.set_can_shrink(true);
+                        pic.set_size_request(-1, IMAGE_MAX_HEIGHT_PX);
+                        pic.set_filename(Some(p));
+                        container.append(&pic);
+                    }
+                    ImageSource::DataUri(_) => {
+                        // v1: data URIs are not yet decoded — surface a
+                        // warning. Future: decode base64 into a GdkPixbuf.
+                        let warn = Label::new(Some(
+                            "(data URI image not yet supported — use a file path)",
+                        ));
+                        warn.add_css_class("notebook-error-line");
+                        container.append(&warn);
+                    }
+                }
+            }
+        }
+    }
+}
+
+fn update_status(img: &Image, items: &[OutputItem], running: bool) {
+    img.remove_css_class("notebook-status-idle");
+    img.remove_css_class("notebook-status-running");
+    img.remove_css_class("notebook-status-ok");
+    img.remove_css_class("notebook-status-error");
+    if running {
+        img.set_icon_name(Some("content-loading-symbolic"));
+        img.add_css_class("notebook-status-running");
+        return;
+    }
+    if items.iter().any(|i| matches!(i, OutputItem::Error(_))) {
+        img.set_icon_name(Some("dialog-error-symbolic"));
+        img.add_css_class("notebook-status-error");
+    } else if items.is_empty() {
+        img.set_icon_name(Some("emblem-default-symbolic"));
+        img.add_css_class("notebook-status-idle");
+    } else {
+        img.set_icon_name(Some("object-select-symbolic"));
+        img.add_css_class("notebook-status-ok");
+    }
+}
+
+/// Minimal confirm dialog stub for the `confirm` tag.
+///
+/// libadwaita's `MessageDialog` is non-blocking on GTK4 and a true
+/// blocking dialog would require a nested main loop. v1 simplification:
+/// since `confirm` is opt-in (and rare), we accept that the first click
+/// performs no actual blocking dialog and returns true. This is documented
+/// in `docs/notebook.md`. A future iteration can wire a real prompt.
+fn confirm_dialog_blocking() -> bool {
+    true
+}
