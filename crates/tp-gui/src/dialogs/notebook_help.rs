@@ -17,12 +17,11 @@ ps aux | head
 
 Tags
   • python | bash | sh
-  • run / once       — manual one-shot (▶ button)
+  • run / once       — auto-runs once on first render; click ▶ to re-run
   • watch=Ns | Nm | Nms — cyclic; auto-starts when the panel is visible
   • timeout=Ns       — wall-clock cap (default 30s for run/once)
-  • confirm          — gate watch auto-runs until ▶ is clicked once
-                       (v1: the manual ▶ click confirms silently; a real
-                       prompt dialog will arrive in a later iteration)
+  • confirm          — block the auto-run until ▶ is clicked once
+                       (v1: the manual ▶ click confirms silently)
 
 Rich output (Python)
   import pax

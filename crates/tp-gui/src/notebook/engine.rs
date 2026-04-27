@@ -59,6 +59,10 @@ struct CellState {
     /// Wall-clock time of the last `Finished` event (success or kill).
     /// Surfaced in the cell header; `None` until the cell has run once.
     last_finished_at: Option<chrono::DateTime<chrono::Local>>,
+    /// True after the engine has auto-started this cell once (on the
+    /// first `set_visible(true)`). Prevents re-running `run`/`once` cells
+    /// every time the panel becomes visible again (e.g., tab switches).
+    auto_started: bool,
 }
 
 pub struct NotebookEngine {
@@ -135,19 +139,35 @@ impl NotebookEngine {
         self.cells.borrow().get(&id).map(|c| c.confirmed).unwrap_or(false)
     }
 
-    /// Notify the engine the cell widget became (in)visible — gates watch.
+    /// Notify the engine the cell widget became (in)visible — gates
+    /// watch and triggers the first auto-run of `run`/`once` cells.
     pub fn set_visible(self: &Rc<Self>, id: CellId, visible: bool) {
         let mut cells = self.cells.borrow_mut();
         let Some(state) = cells.get_mut(&id) else { return };
         state.visible = visible;
         let spec = state.spec.clone();
+        let already_started = state.auto_started;
+        let confirmed = state.confirmed;
         drop(cells);
-        match spec.map(|s| s.mode) {
+        match spec.as_ref().map(|s| &s.mode) {
             Some(ExecMode::Watch { interval }) => {
                 if visible {
-                    self.start_watch(id, interval);
+                    self.start_watch(id, *interval);
                 } else {
                     self.stop_watch(id);
+                }
+            }
+            Some(ExecMode::Once) => {
+                // Auto-run on first visibility unless `confirm` is set
+                // and the user hasn't accepted it yet.
+                if visible && !already_started {
+                    let needs_confirm = spec.as_ref().map(|s| s.confirm).unwrap_or(false);
+                    if !needs_confirm || confirmed {
+                        if let Some(c) = self.cells.borrow_mut().get_mut(&id) {
+                            c.auto_started = true;
+                        }
+                        self.run_cell(id);
+                    }
                 }
             }
             _ => {}

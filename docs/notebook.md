@@ -47,20 +47,24 @@ pax.show("/tmp/static.png")   # solo file path
 In v1 le immagini su file sono renderizzate inline; le `data:image/...` URI
 sono visualizzate come warning (decoding base64 da implementare).
 
-## Lifecycle watch
+## Lifecycle esecuzione
 
-- `watch=Ns` parte automaticamente al primo render, in modo non bloccante.
-- Si mette in pausa quando il pannello non è visibile (tab cambio,
-  pannello chiuso).
+- **`run` / `once`**: auto-eseguito una volta sola al primo rendering del
+  pannello. Per ri-eseguire manualmente, clicca ▶. (Cambi di tab non
+  ri-triggerano il run.)
+- **`watch=Ns`**: parte automaticamente al primo render, in modo non
+  bloccante; cicla finché il pannello è visibile.
+- Entrambe rispettano `confirm`: se la cella ha il tag, l'auto-start è
+  bloccato finché l'utente non clicca ▶ almeno una volta.
+- `watch` si mette in pausa quando il pannello non è visibile (tab
+  cambio, pannello chiuso).
 - In v1, **passare a Edit mode e tornare a Render rebuilda l'engine**:
-  l'output finora accumulato viene scartato e i `watch` ripartono da
-  zero. Stesso comportamento per il pulsante ↻ (reload) e per modifiche
-  esterne al file. (Una iterazione futura potrà preservare l'engine
-  attraverso il toggle.)
-- Per le celle marcate `confirm`, l'auto-start del watch è bloccato
-  finché l'utente non clicca ▶ almeno una volta — questo è il safety
-  net del tag.
-- Salta un tick se il run precedente è ancora vivo (no accodamento).
+  l'output finora accumulato viene scartato. Stesso comportamento per il
+  pulsante ↻ (reload) e per modifiche esterne al file. I `run`/`once`
+  vengono ri-eseguiti automaticamente perché l'engine è nuovo. (Una
+  iterazione futura potrà preservare l'engine attraverso il toggle.)
+- `watch` salta un tick se il run precedente è ancora vivo (no
+  accodamento).
 - Chiusura pannello → SIGTERM al subprocess, SIGKILL dopo 2s.
 
 ## Pannello standalone vs editor
