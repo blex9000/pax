@@ -47,7 +47,7 @@ pub fn check_command_all_groups(command: &str, groups: &[&Group]) -> Result<Safe
 /// false-negatives appear in practice.
 pub fn notebook_blocklist() -> Vec<String> {
     vec![
-        r"\brm\s+-rf\s+/(\s|$)".to_string(),
+        r"\brm\s+-rf\s+/".to_string(),
         r"\brm\s+-rf\s+\$HOME".to_string(),
         r"\brm\s+-rf\s+~(\s|/|$)".to_string(),
         r"\bmkfs\b".to_string(),
@@ -145,8 +145,16 @@ mod tests {
 
     #[test]
     fn notebook_allows_rm_in_subdir() {
-        // Only the dangerous root/home cases match; this should not.
+        // Relative paths (./, ../) do not start with `/` and are not matched.
         let r = check_notebook_command("rm -rf ./build").unwrap();
         assert!(matches!(r, SafetyCheck::Allowed));
+    }
+
+    #[test]
+    fn notebook_blocks_rm_rf_absolute_paths() {
+        for cmd in &["rm -rf /home/user", "rm -rf /tmp", "rm -rf /etc", "rm -rf /var/log"] {
+            let r = check_notebook_command(cmd).unwrap();
+            assert!(matches!(r, SafetyCheck::Blocked(_)), "should block: {}", cmd);
+        }
     }
 }
