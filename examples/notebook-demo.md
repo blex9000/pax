@@ -43,7 +43,7 @@ try:
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 except ModuleNotFoundError:
-    print("matplotlib non installato — salta questa cella o installa con `pip install --user matplotlib`.")
+    print("matplotlib not installed — skip this cell or install with `pip install --user matplotlib`.")
 else:
     plt.figure()
     plt.plot([1, 2, 4, 8, 16])

@@ -32,6 +32,11 @@ impl NotebookCell {
         root.add_css_class("notebook-cell");
         root.set_margin_top(4);
         root.set_margin_bottom(8);
+        // Anchored child widgets in a TextView default to their content's
+        // natural width — without hexpand, a child TextView with WrapMode::Word
+        // wraps every word onto its own line. Force the cell to fill the
+        // parent TextView's text area; same for output_box below.
+        root.set_hexpand(true);
 
         // ── Header ───────────────────────────────────────────────
         let header = GtkBox::new(Orientation::Horizontal, 6);
@@ -74,6 +79,7 @@ impl NotebookCell {
         // ── Output area ──────────────────────────────────────────
         let output_box = GtkBox::new(Orientation::Vertical, 2);
         output_box.add_css_class("notebook-cell-output");
+        output_box.set_hexpand(true);
         root.append(&output_box);
 
         // ── Wire run/stop buttons ───────────────────────────────
@@ -207,9 +213,13 @@ fn flush_markdown(container: &GtkBox, buf: &mut String) {
     let tv = gtk4::TextView::new();
     tv.set_editable(false);
     tv.set_cursor_visible(false);
-    tv.set_wrap_mode(gtk4::WrapMode::Word);
+    tv.set_wrap_mode(gtk4::WrapMode::WordChar);
     tv.set_left_margin(2);
     tv.set_right_margin(2);
+    // Anchored TextView's natural width is its longest token, which makes
+    // word-wrap fire on every space. Force hexpand so it stretches to the
+    // parent TextView's text area.
+    tv.set_hexpand(true);
     tv.add_css_class("notebook-text-output");
     crate::markdown_render::render_markdown_to_view(&tv, buf);
     container.append(&tv);
