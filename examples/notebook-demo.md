@@ -5,7 +5,7 @@ Apri questo file nel pannello Markdown di Pax in modalità Render.
 ## Bash one-shot
 
 ```bash run
-echo "Hello from bash"
+echo "## Hello from bash"
 date
 ```
 
@@ -19,7 +19,7 @@ print("ciao")
 
 ## Watch — un orologio ogni 1s
 
-```bash watch=1s
+```bash watch=2s
 date '+%H:%M:%S'
 ```
 
@@ -32,15 +32,23 @@ print(f"random = {random.random():.4f}")
 
 ## Plot inline (richiede matplotlib)
 
+> **Pre-requisito**: `pip install --user matplotlib` (oppure equivalente
+> nel tuo venv/pipx). Senza il pacchetto la cella restituisce
+> `ModuleNotFoundError: No module named 'matplotlib'`.
+
 ```python run
 import pax
-import matplotlib
-matplotlib.use("Agg")
-import matplotlib.pyplot as plt
-plt.figure()
-plt.plot([1, 2, 4, 8, 16])
-plt.title("powers of 2")
-pax.show_plot(plt)
+try:
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+except ModuleNotFoundError:
+    print("matplotlib non installato — salta questa cella o installa con `pip install --user matplotlib`.")
+else:
+    plt.figure()
+    plt.plot([1, 2, 4, 8, 16])
+    plt.title("powers of 2")
+    pax.show_plot(plt)
 ```
 
 ## Bloccato dalla blocklist
