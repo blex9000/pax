@@ -3,7 +3,7 @@
 
 use gtk4::prelude::*;
 
-const HELP_TEXT: &str = r#"# Markdown Notebook — quick help
+pub const HELP_TEXT: &str = r#"# Markdown Notebook — quick help
 
 Mark a fenced code block with an exec tag to run it inline.
 

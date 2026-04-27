@@ -79,8 +79,9 @@ impl NotebookCell {
         status_box.add_css_class("notebook-status");
         status_box.set_size_request(86, -1);
         status_box.set_halign(gtk4::Align::End);
-        let status_icon = Image::from_icon_name("emblem-default-symbolic");
+        let status_icon = Image::new();
         status_icon.add_css_class("notebook-status-icon");
+        status_icon.set_visible(false);
         let status_text = Label::new(None);
         status_text.add_css_class("notebook-meta");
         status_box.append(&status_icon);
@@ -280,22 +281,29 @@ fn update_status(
         .map(|t| t.format("%H:%M:%S").to_string())
         .unwrap_or_else(|| "—".into());
     if running {
+        icon.set_visible(true);
         icon.set_icon_name(Some("content-loading-symbolic"));
         icon.add_css_class("notebook-status-running");
         text.add_css_class("notebook-status-running");
         text.set_text(&stamp);
     } else if items.iter().any(|i| matches!(i, OutputItem::Error(_))) {
+        icon.set_visible(true);
         icon.set_icon_name(Some("dialog-error-symbolic"));
         icon.add_css_class("notebook-status-error");
         text.add_css_class("notebook-status-error");
         text.set_text(&stamp);
     } else if last_finished_at.is_some() {
+        icon.set_visible(true);
         icon.set_icon_name(Some("emblem-ok-symbolic"));
         icon.add_css_class("notebook-status-ok");
         text.set_text(&stamp);
     } else {
-        icon.set_icon_name(Some("emblem-default-symbolic"));
-        text.set_text("—");
+        // Never executed — hide the icon entirely (no idle/check shown
+        // before the first run). Timestamp slot stays empty for layout
+        // stability.
+        icon.set_visible(false);
+        icon.set_icon_name(None);
+        text.set_text("");
     }
 }
 

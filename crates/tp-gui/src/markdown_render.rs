@@ -337,17 +337,10 @@ fn handle_start(buf: &gtk4::TextBuffer, it: &mut gtk4::TextIter, st: &mut Render
         Tag::BlockQuote(_) => {
             st.bq_depth += 1;
         }
-        Tag::CodeBlock(kind) => {
+        Tag::CodeBlock(_) => {
+            // No language banner — the `code_block` tag's monospace +
+            // background already distinguishes the block visually.
             st.in_code_block = true;
-            let hint = match kind {
-                CodeBlockKind::Fenced(s) => s.to_string(),
-                CodeBlockKind::Indented => String::new(),
-            };
-            if hint.is_empty() {
-                buf.insert_with_tags_by_name(it, "───────\n", &["sep"]);
-            } else {
-                buf.insert_with_tags_by_name(it, &format!("─── {} ───\n", hint), &["sep"]);
-            }
         }
         Tag::List(start) => {
             // A list nested inside an item needs to start on a fresh line.
@@ -422,7 +415,6 @@ fn handle_end(
         }
         TagEnd::CodeBlock => {
             st.in_code_block = false;
-            buf.insert_with_tags_by_name(it, "───────\n", &["sep"]);
         }
         TagEnd::List(_) => {
             st.lists.pop();

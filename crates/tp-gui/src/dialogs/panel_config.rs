@@ -982,6 +982,32 @@ fn show_markdown_config(
 
     let (mw_spin, mh_spin) = add_min_size_fields(&vbox, min_width, min_height);
 
+    // ── Documentazione ────────────────────────────────────────────
+    // Collapsible section with the same help text as the in-panel `?`
+    // dialog, so users discovering the notebook feature don't have to
+    // open a panel first to know it exists.
+    let doc_expander = gtk4::Expander::new(Some("Documentazione — Markdown notebook"));
+    doc_expander.set_expanded(false);
+    let doc_scroll = gtk4::ScrolledWindow::new();
+    doc_scroll.set_min_content_height(220);
+    doc_scroll.set_max_content_height(360);
+    doc_scroll.set_vexpand(false);
+    let doc_view = gtk4::TextView::new();
+    doc_view.set_editable(false);
+    doc_view.set_cursor_visible(false);
+    doc_view.set_wrap_mode(gtk4::WrapMode::Word);
+    doc_view.set_monospace(true);
+    doc_view.set_left_margin(8);
+    doc_view.set_right_margin(8);
+    doc_view.set_top_margin(6);
+    doc_view.set_bottom_margin(6);
+    doc_view
+        .buffer()
+        .set_text(crate::dialogs::notebook_help::HELP_TEXT);
+    doc_scroll.set_child(Some(&doc_view));
+    doc_expander.set_child(Some(&doc_scroll));
+    vbox.append(&doc_expander);
+
     finalize_dialog(&dialog, &vbox, move || {
         let name = name_entry.text().to_string();
         let file = file_entry.text().to_string();
