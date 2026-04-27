@@ -7,4 +7,8 @@
 //! first executable cell.
 
 pub mod output;
-// modules added in later tasks: runner, engine, cell.
+pub mod runner;
+// modules added in later tasks: engine, cell.
+
+pub const DEFAULT_RUN_TIMEOUT_SECS: u64 = 30;
+pub const MAX_NOTEBOOK_PROCESSES: usize = 8;
