@@ -900,7 +900,23 @@ fn show_markdown_config(
     vbox.set_margin_end(16);
 
     let name_entry = add_field(&vbox, "Name:", panel_name, "Markdown");
-    let file_entry = add_field(&vbox, "File:", file, "path/to/file.md");
+
+    // Build the File row inline so the Browse button sits to the right of
+    // the entry on the same row (instead of taking its own line below).
+    let file_row = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
+    let file_lbl = gtk4::Label::new(Some("File:"));
+    file_lbl.set_width_chars(15);
+    file_lbl.set_halign(gtk4::Align::Start);
+    let file_entry = gtk4::Entry::new();
+    file_entry.set_text(file);
+    file_entry.set_placeholder_text(Some("path/to/file.md"));
+    file_entry.set_hexpand(true);
+    let browse_btn = gtk4::Button::with_label("Browse...");
+    browse_btn.add_css_class("flat");
+    file_row.append(&file_lbl);
+    file_row.append(&file_entry);
+    file_row.append(&browse_btn);
+    vbox.append(&file_row);
 
     // Keep the panel name in sync with the file stem: if the user picks
     // "notes.md" as the file, the tab should read "notes" — unless they've
@@ -939,9 +955,6 @@ fn show_markdown_config(
         });
     }
 
-    let browse_btn = gtk4::Button::with_label("Browse...");
-    browse_btn.add_css_class("flat");
-    browse_btn.set_halign(gtk4::Align::Start);
     let fe = file_entry.clone();
     let d = dialog.clone();
     browse_btn.connect_clicked(move |_| {
@@ -966,7 +979,6 @@ fn show_markdown_config(
             }
         });
     });
-    vbox.append(&browse_btn);
 
     let (mw_spin, mh_spin) = add_min_size_fields(&vbox, min_width, min_height);
 
