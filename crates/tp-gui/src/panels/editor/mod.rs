@@ -82,6 +82,18 @@ pub struct EditorState {
     /// scope workspace metadata (notes, future types). Empty when the
     /// editor is spawned outside a workspace (tests, standalone runs).
     pub record_key: String,
+    /// Sync-input infrastructure (always allocated even when no peer is
+    /// listening, so the active tab's buffer hooks can be wired up
+    /// unconditionally). `suppress` is set while applying inbound sync
+    /// or doing programmatic full-buffer rewrites (file watcher reload)
+    /// so those mutations don't bounce back through the input callback.
+    #[cfg(feature = "sourceview")]
+    pub sync_suppress: Rc<std::cell::Cell<bool>>,
+    /// Sync-input observer wired by `PanelHost`. The active tab's
+    /// `insert-text` / `delete-range` handlers read this on every edit
+    /// and forward bytes to peer panels when set.
+    #[cfg(feature = "sourceview")]
+    pub sync_input_cb: Rc<RefCell<Option<PanelInputCallback>>>,
 }
 
 /// Invoke the nav-state callback if one is installed, swallowing borrow
@@ -229,6 +241,9 @@ impl CodeEditorPanel {
         // the file-tree's "Git History" context entry — there's nothing
         // useful behind them and showing them is misleading.
         let is_git_repo = std::path::Path::new(root_dir).join(".git").exists();
+        let sync_suppress: Rc<Cell<bool>> = Rc::new(Cell::new(false));
+        let sync_input_cb: Rc<RefCell<Option<PanelInputCallback>>> =
+            Rc::new(RefCell::new(None));
         let state = Rc::new(RefCell::new(EditorState {
             root_dir: PathBuf::from(root_dir),
             open_files: Vec::new(),
@@ -242,6 +257,8 @@ impl CodeEditorPanel {
             recent_files: Vec::new(),
             on_nav_state_changed: None,
             record_key,
+            sync_suppress: sync_suppress.clone(),
+            sync_input_cb: sync_input_cb.clone(),
         }));
 
         let tabs = editor_tabs::EditorTabs::new(state.clone());
@@ -985,26 +1002,25 @@ impl CodeEditorPanel {
             );
         }
 
-        // Sync-input wiring: re-attach insert/delete observers every time the
-        // SourceView swaps its buffer on tab switch. Only one buffer is
-        // observed at a time — the active one — so cursor-movement and tab
-        // changes never accidentally mirror as sync events to peer panels.
-        let suppress_emit: Rc<Cell<bool>> = Rc::new(Cell::new(false));
-        let input_cb: Rc<RefCell<Option<PanelInputCallback>>> = Rc::new(RefCell::new(None));
+        // Sync-input wiring: observe the active tab's writable buffer and
+        // re-attach on every tab switch so both Source tabs (shared
+        // sourceview buffer) and Markdown tabs (their own per-tab
+        // `MarkdownTab::buffer`) participate. Only one buffer is observed
+        // at a time, so background tab mutations don't leak as sync events.
         {
             use gtk4::glib::SignalHandlerId;
-            let source_view = tabs_rc.source_view.clone();
             let observed: Rc<RefCell<Option<(gtk4::TextBuffer, SignalHandlerId, SignalHandlerId)>>> =
                 Rc::new(RefCell::new(None));
-            let install = {
-                let input_cb = input_cb.clone();
-                let suppress = suppress_emit.clone();
+            let install: Rc<dyn Fn(Option<gtk4::TextBuffer>)> = {
+                let input_cb = sync_input_cb.clone();
+                let suppress = sync_suppress.clone();
                 let observed = observed.clone();
-                Rc::new(move |buf: gtk4::TextBuffer| {
+                Rc::new(move |buf: Option<gtk4::TextBuffer>| {
                     if let Some((old_buf, h_insert, h_delete)) = observed.borrow_mut().take() {
                         old_buf.disconnect(h_insert);
                         old_buf.disconnect(h_delete);
                     }
+                    let Some(buf) = buf else { return };
                     let suppress_i = suppress.clone();
                     let cb_i = input_cb.clone();
                     let h_insert = buf.connect_insert_text(move |_buf, _iter, text| {
@@ -1041,11 +1057,36 @@ impl CodeEditorPanel {
                     *observed.borrow_mut() = Some((buf, h_insert, h_delete));
                 })
             };
-            install(source_view.buffer());
-            let install_for_notify = install.clone();
-            source_view.connect_buffer_notify(move |sv| {
-                install_for_notify(sv.buffer());
-            });
+
+            let resolve_active_writable = {
+                let state_c = state.clone();
+                move |idx: usize| -> Option<gtk4::TextBuffer> {
+                    let st = state_c.borrow();
+                    st.open_files
+                        .get(idx)
+                        .and_then(|f| f.content.writable_buffer().cloned())
+                        .map(|b| b.upcast::<gtk4::TextBuffer>())
+                }
+            };
+
+            // Active tab can change without notebook::switch_page firing
+            // (e.g. closing the last tab leaves no active tab); rely on the
+            // signal for the live cases and accept the observer briefly
+            // pointing at a stale buffer in transient zero-tab states.
+            let install_for_switch = install.clone();
+            let resolver_for_switch = resolve_active_writable.clone();
+            tabs_rc
+                .notebook
+                .connect_switch_page(move |_nb, _page, page_num| {
+                    install_for_switch(resolver_for_switch(page_num as usize));
+                });
+
+            // Cover the case where the panel is built atop an already-open
+            // tab (rare today, but keeps the wiring symmetric with the
+            // switch_page handler).
+            if let Some(idx) = state.borrow().active_tab {
+                install(resolve_active_writable(idx));
+            }
         }
 
         Self {
@@ -1053,8 +1094,8 @@ impl CodeEditorPanel {
             state,
             ssh_info: None,
             source_view: tabs_rc.source_view.clone(),
-            suppress_emit,
-            input_cb,
+            suppress_emit: sync_suppress,
+            input_cb: sync_input_cb,
         }
     }
 }
@@ -1309,14 +1350,20 @@ impl PanelBackend for CodeEditorPanel {
     }
 
     fn write_input(&self, data: &[u8]) -> bool {
-        // Only mirror when a tab is open. Without an active source buffer
-        // there's nowhere to apply the keystrokes — drop them quietly so
-        // sync from a peer doesn't throw bytes into the void.
-        let has_active = self.state.borrow().active_tab.is_some();
-        if !has_active {
+        // Mirror onto the active tab's writable buffer — this is either the
+        // shared sourceview buffer (Source tab) or the markdown tab's own
+        // per-tab buffer (Markdown tab in either Render or Source mode).
+        // Without an open tab there's nothing to apply against.
+        let buffer = {
+            let st = self.state.borrow();
+            st.active_tab
+                .and_then(|idx| st.open_files.get(idx))
+                .and_then(|f| f.content.writable_buffer().cloned())
+        };
+        let Some(buffer) = buffer else {
             return false;
-        }
-        let buffer = self.source_view.buffer();
+        };
+        let buffer: gtk4::TextBuffer = buffer.upcast();
         crate::panels::text_sync::apply_input_to_buffer(&buffer, data, &self.suppress_emit);
         true
     }

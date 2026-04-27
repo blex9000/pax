@@ -104,6 +104,7 @@ fn start_open_file_watcher(
                 in_flight_c.set(false);
 
                 let mut st = state_c.borrow_mut();
+                let sync_suppress = st.sync_suppress.clone();
                 for change in changes {
                     let Some(open_file) = st.open_files.iter_mut().find(|f| f.path == change.path)
                     else {
@@ -125,7 +126,9 @@ fn start_open_file_watcher(
                         }
                         if !open_file.modified() {
                             *saved_cell.borrow_mut() = change.content.clone();
+                            sync_suppress.set(true);
                             buffer.set_text(&change.content);
+                            sync_suppress.set(false);
                             buffer.set_enable_undo(false);
                             buffer.set_enable_undo(true);
                             open_file.set_modified(false);
@@ -149,7 +152,9 @@ fn start_open_file_watcher(
                     open_file.last_disk_mtime = change.last_disk_mtime;
                     if !open_file.modified() {
                         *saved_cell.borrow_mut() = change.content.clone();
+                        sync_suppress.set(true);
                         buffer.set_text(&change.content);
+                        sync_suppress.set(false);
                         buffer.set_enable_undo(false);
                         buffer.set_enable_undo(true);
                         open_file.set_modified(false);
