@@ -17,8 +17,13 @@
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::rc::Rc;
+use std::rc::{Rc, Weak};
 use std::time::Duration;
+
+/// Drain bound for `attach_rx` per idle tick. Caps the work done in a
+/// single GTK main-loop iteration so a fast-emitting subprocess can't
+/// freeze the UI; lines beyond this are picked up on the next tick.
+const MAX_DRAIN_PER_TICK: usize = 32;
 
 use gtk4::glib;
 
@@ -157,10 +162,12 @@ impl NotebookEngine {
         let helpers = self.ensure_helpers();
         match runner::spawn(&spec, &code, helpers.as_deref(), Some(&self.output_dir)) {
             Ok((handle, rx)) => {
-                self.clear_output(id);
+                // Install handle first so subscribers fired by clear_output
+                // observe is_running == true (the runner is already alive).
                 if let Some(c) = self.cells.borrow_mut().get_mut(&id) {
                     c.handle = Some(handle);
                 }
+                self.clear_output(id);
                 self.attach_rx(id, rx);
             }
             Err(reason) => {
@@ -177,10 +184,15 @@ impl NotebookEngine {
     }
 
     fn attach_rx(self: &Rc<Self>, id: CellId, rx: std::sync::mpsc::Receiver<RunMsg>) {
-        let me = self.clone();
+        // Capture a `Weak` so the engine can be dropped while glib still
+        // holds this idle source: the next tick `upgrade()` returns None
+        // and the source returns Break, releasing the closure cleanly.
+        let me_weak: Weak<Self> = Rc::downgrade(self);
         glib::idle_add_local(move || {
-            // Drain at most a few messages per tick to keep UI snappy.
-            for _ in 0..32 {
+            let Some(me) = me_weak.upgrade() else {
+                return glib::ControlFlow::Break;
+            };
+            for _ in 0..MAX_DRAIN_PER_TICK {
                 match rx.try_recv() {
                     Ok(RunMsg::Output(item)) => me.push_output(id, item),
                     Ok(RunMsg::Finished { .. }) => {
@@ -241,8 +253,14 @@ impl NotebookEngine {
     fn start_watch(self: &Rc<Self>, id: CellId, interval: Duration) {
         // Cancel any existing timer first (re-entry).
         self.stop_watch(id);
-        let me = self.clone();
+        // Capture a `Weak` so the engine isn't kept alive solely by this
+        // periodic timer — when the panel drops its Rc, upgrade() fails
+        // and the timer naturally tears itself down.
+        let me_weak: Weak<Self> = Rc::downgrade(self);
         let source = glib::timeout_add_local(interval, move || {
+            let Some(me) = me_weak.upgrade() else {
+                return glib::ControlFlow::Break;
+            };
             // Skip tick if a run is still alive (no queueing).
             if me.is_running(id) {
                 return glib::ControlFlow::Continue;
