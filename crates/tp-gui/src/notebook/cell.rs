@@ -14,8 +14,6 @@ use gtk4::glib;
 use gtk4::prelude::*;
 use gtk4::{Box as GtkBox, Button, Image, Label, Orientation, Picture};
 
-use pax_core::notebook_tag::Lang;
-
 use super::engine::{CellId, NotebookEngine};
 use super::output::{ImageSource, OutputItem};
 use super::IMAGE_MAX_HEIGHT_PX;
@@ -59,13 +57,11 @@ impl NotebookCell {
         });
 
         // ── Header ───────────────────────────────────────────────
-        // Layout: [badge]  ··· spacer ···  [watch info] [last-run] [▶] [⏹]
+        // Layout: ··· spacer ···  [last-run] [▶] [⏹]
+        // Language type isn't surfaced — the user hides it via the run
+        // tag in the source markdown; no need to repeat it visually.
         let header = GtkBox::new(Orientation::Horizontal, 6);
         header.add_css_class("notebook-cell-header");
-
-        let lang_badge = Label::new(Some(lang_label(spec.lang)));
-        lang_badge.add_css_class("notebook-lang-badge");
-        header.append(&lang_badge);
 
         let spacer = Label::new(None);
         spacer.set_hexpand(true);
@@ -177,14 +173,6 @@ impl NotebookCell {
         }
 
         NotebookCell { root, id }
-    }
-}
-
-fn lang_label(l: Lang) -> &'static str {
-    match l {
-        Lang::Python => "python",
-        Lang::Bash => "bash",
-        Lang::Sh => "sh",
     }
 }
 
