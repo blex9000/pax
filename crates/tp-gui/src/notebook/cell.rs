@@ -12,7 +12,7 @@ use std::rc::Rc;
 
 use gtk4::glib;
 use gtk4::prelude::*;
-use gtk4::{Box as GtkBox, Button, Image, Label, Orientation, Picture};
+use gtk4::{Box as GtkBox, Button, Image, Label, MenuButton, Orientation, Picture};
 
 use crate::panels::terminal_registry;
 
@@ -86,8 +86,9 @@ impl NotebookCell {
         status_box.append(&status_text);
         header.append(&status_box);
 
-        let run_btn = Button::new();
+        let run_btn = MenuButton::new();
         run_btn.set_icon_name("media-playback-start-symbolic");
+        run_btn.set_always_show_arrow(false);
         run_btn.add_css_class("flat");
         run_btn.add_css_class("notebook-cell-btn");
         run_btn.set_tooltip_text(Some("Run cell — choose target (Host or terminal panel)"));
@@ -109,26 +110,23 @@ impl NotebookCell {
         output_box.set_hexpand(true);
         root.append(&output_box);
 
-        // ── Wire run/stop buttons ───────────────────────────────
-        // Run button opens a target picker (Host = local subprocess, or
-        // any registered terminal panel). Stop button kills the local
-        // run if any (terminals can't be "stopped" from here — they own
-        // their own subprocesses).
-        //
-        // The popover is created ONCE here and reused on every click —
-        // creating a fresh one each time leaks orphan widgets (and GTK4
-        // logs "Trying to snapshot ... without a current allocation").
+        // ── Wire run target picker + stop button ───────────────────
+        // The popover is owned by the MenuButton (canonical GTK4 pattern
+        // — `Button::set_parent(popover)` confuses Button's own click
+        // handling and produces invisible popups + "snapshot without
+        // allocation" warnings). The popover's `show` signal rebuilds
+        // the body so MRU + Available reflect the current registry.
         let target_popover = gtk4::Popover::new();
-        target_popover.set_parent(&run_btn);
         target_popover.set_position(gtk4::PositionType::Bottom);
         target_popover.add_css_class("notebook-target-popover");
         crate::theme::configure_popover(&target_popover);
+        run_btn.set_popover(Some(&target_popover));
         {
             let engine = engine.clone();
             let stop_btn = stop_btn.clone();
             let spec_for_confirm = spec.clone();
             let popover = target_popover.clone();
-            run_btn.connect_clicked(move |_| {
+            target_popover.connect_show(move |_| {
                 let engine_for_pick = engine.clone();
                 let stop_btn_for_pick = stop_btn.clone();
                 let spec_for_pick = spec_for_confirm.clone();
@@ -159,15 +157,6 @@ impl NotebookCell {
                 });
                 let body = build_run_target_body(&popover, on_pick);
                 popover.set_child(Some(&body));
-                popover.popup();
-            });
-        }
-        // Make sure the popover detaches when the cell widget goes away,
-        // otherwise GTK leaks the parent pointer across re-renders.
-        {
-            let popover = target_popover.clone();
-            root.connect_destroy(move |_| {
-                popover.unparent();
             });
         }
         {
