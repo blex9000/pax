@@ -980,6 +980,72 @@ fn show_markdown_config(
         });
     });
 
+    // ── Recent files ───────────────────────────────────────────────
+    // Click a row to drop the path into the File entry. List is the
+    // last 20 markdown files opened by `MarkdownPanel::new`, persisted
+    // across app restarts.
+    let recent = crate::recent_markdown::list();
+    if !recent.is_empty() {
+        let recent_label = gtk4::Label::new(Some("Recent files"));
+        recent_label.add_css_class("dim-label");
+        recent_label.add_css_class("caption");
+        recent_label.set_halign(gtk4::Align::Start);
+        recent_label.set_margin_top(8);
+        vbox.append(&recent_label);
+
+        let recent_scroll = gtk4::ScrolledWindow::new();
+        recent_scroll.set_min_content_height(120);
+        recent_scroll.set_max_content_height(220);
+        recent_scroll.set_policy(gtk4::PolicyType::Never, gtk4::PolicyType::Automatic);
+        recent_scroll.set_vexpand(false);
+
+        let recent_box = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
+        recent_box.add_css_class("recent-files-list");
+
+        for entry in &recent {
+            let row = gtk4::Button::new();
+            row.add_css_class("flat");
+            row.add_css_class("recent-files-row");
+            row.set_halign(gtk4::Align::Fill);
+            row.set_tooltip_text(Some(entry));
+
+            let body = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
+            let icon = gtk4::Image::from_icon_name("text-x-generic-symbolic");
+            icon.add_css_class("dim-label");
+            body.append(&icon);
+
+            let stack = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
+            let basename = std::path::Path::new(entry)
+                .file_name()
+                .map(|s| s.to_string_lossy().into_owned())
+                .unwrap_or_else(|| entry.clone());
+            let primary = gtk4::Label::new(Some(&basename));
+            primary.set_halign(gtk4::Align::Start);
+            primary.set_ellipsize(gtk4::pango::EllipsizeMode::End);
+            stack.append(&primary);
+
+            let secondary = gtk4::Label::new(Some(entry));
+            secondary.add_css_class("dim-label");
+            secondary.add_css_class("caption");
+            secondary.set_halign(gtk4::Align::Start);
+            secondary.set_ellipsize(gtk4::pango::EllipsizeMode::Start);
+            stack.append(&secondary);
+            stack.set_hexpand(true);
+            body.append(&stack);
+            row.set_child(Some(&body));
+
+            let fe = file_entry.clone();
+            let path = entry.clone();
+            row.connect_clicked(move |_| {
+                fe.set_text(&path);
+            });
+
+            recent_box.append(&row);
+        }
+        recent_scroll.set_child(Some(&recent_box));
+        vbox.append(&recent_scroll);
+    }
+
     let (mw_spin, mh_spin) = add_min_size_fields(&vbox, min_width, min_height);
 
     // ── Documentazione ────────────────────────────────────────────

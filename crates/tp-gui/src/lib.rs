@@ -12,6 +12,7 @@ pub mod notebook;
 pub mod notifications;
 pub mod panel_host;
 pub mod panels;
+pub mod recent_markdown;
 pub mod shortcuts;
 pub mod theme;
 pub mod widget_builder;

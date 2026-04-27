@@ -106,6 +106,7 @@ impl std::fmt::Debug for MarkdownPanel {
 
 impl MarkdownPanel {
     pub fn new(file_path: &str) -> Self {
+        crate::recent_markdown::record(file_path);
         let container = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
         let mode = Rc::new(Cell::new(Mode::Render));
         let content = Rc::new(RefCell::new(String::new()));

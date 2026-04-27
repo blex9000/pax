@@ -280,6 +280,20 @@
 .notebook-status-running { color: @accent_color; opacity: 0.85; }
 .notebook-status-error   { color: #e06c75; opacity: 0.85; }
 .notebook-status-ok      { color: #98c379; opacity: 0.85; }
+/* Recent-files list inside the Markdown panel config dialog */
+.recent-files-list {
+    border: 1px solid alpha(@borders, 0.6);
+    border-radius: 4px;
+    padding: 2px;
+}
+button.recent-files-row {
+    padding: 4px 6px;
+    border-radius: 3px;
+}
+button.recent-files-row:hover {
+    background: alpha(@accent_color, 0.10);
+}
+
 /* Run-target picker dialog (consolidated Run/Send button) */
 window.notebook-target-dialog {
     min-width: 320px;
