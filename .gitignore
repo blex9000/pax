@@ -9,3 +9,5 @@ build-tools/
 AppDir/
 *.AppImage
 pax.log
+
+__pycache__/
