@@ -4,10 +4,13 @@ pub mod markdown;
 pub mod notes;
 pub mod registry;
 pub mod terminal;
+pub mod terminal_registry;
 pub mod text_sync;
 
 pub type PanelInputCallback = std::rc::Rc<dyn Fn(&[u8])>;
 pub type PanelTitleCallback = std::rc::Rc<dyn Fn(&str)>;
+
+pub use terminal_registry::TerminalRef;
 /// Invoked with `true` when the panel signals it is waiting for user input
 /// (shell at prompt, no command running) and `false` when a command starts.
 pub type PanelStatusCallback = std::rc::Rc<dyn Fn(bool)>;

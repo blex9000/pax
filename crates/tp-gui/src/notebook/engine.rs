@@ -121,6 +121,11 @@ impl NotebookEngine {
         self.cells.borrow().get(&id).and_then(|c| c.last_finished_at)
     }
 
+    /// Snapshot of the cell's source code (used by "Send to terminal").
+    pub fn cell_code(&self, id: CellId) -> Option<String> {
+        self.cells.borrow().get(&id).map(|c| c.code.clone())
+    }
+
     pub fn is_running(&self, id: CellId) -> bool {
         self.cells
             .borrow()

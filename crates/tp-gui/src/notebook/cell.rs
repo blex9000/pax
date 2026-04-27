@@ -14,6 +14,8 @@ use gtk4::glib;
 use gtk4::prelude::*;
 use gtk4::{Box as GtkBox, Button, Image, Label, Orientation, Picture};
 
+use crate::panels::terminal_registry;
+
 use super::engine::{CellId, NotebookEngine};
 use super::output::{ImageSource, OutputItem};
 use super::IMAGE_MAX_HEIGHT_PX;
@@ -98,6 +100,25 @@ impl NotebookCell {
         stop_btn.set_tooltip_text(Some("Stop cell"));
         stop_btn.set_sensitive(false);
         header.append(&stop_btn);
+
+        // ── Send to terminal — opens a popover listing every terminal
+        //     panel currently registered in the workspace. Hidden if the
+        //     registry is empty when the cell is built (refreshed each
+        //     time the popover opens, so terminals added later appear).
+        let send_btn = Button::new();
+        send_btn.set_icon_name("mail-send-symbolic");
+        send_btn.add_css_class("flat");
+        send_btn.add_css_class("notebook-cell-btn");
+        send_btn.set_tooltip_text(Some("Send code to terminal panel…"));
+        header.append(&send_btn);
+        {
+            let engine_for_send = engine.clone();
+            let send_btn_inner = send_btn.clone();
+            send_btn.connect_clicked(move |btn| {
+                let code = engine_for_send.cell_code(id).unwrap_or_default();
+                show_terminal_picker(btn, &code, &send_btn_inner);
+            });
+        }
 
         root.append(&header);
 
@@ -297,6 +318,66 @@ fn update_status(
         icon.set_icon_name(None);
         text.set_text("");
     }
+}
+
+/// Build and show a popover anchored to `anchor_btn` listing every
+/// terminal panel in the workspace. Clicking a row sends `code` (with a
+/// trailing newline) into that panel via `terminal_registry::send`.
+fn show_terminal_picker(anchor_btn: &Button, code: &str, send_btn: &Button) {
+    let popover = gtk4::Popover::new();
+    popover.set_parent(anchor_btn);
+    popover.set_position(gtk4::PositionType::Bottom);
+
+    let list = terminal_registry::list();
+    let vbox = GtkBox::new(Orientation::Vertical, 2);
+    vbox.set_margin_top(6);
+    vbox.set_margin_bottom(6);
+    vbox.set_margin_start(6);
+    vbox.set_margin_end(6);
+
+    if list.is_empty() {
+        let l = Label::new(Some("No terminal panels in this workspace"));
+        l.add_css_class("dim-label");
+        l.set_margin_top(4);
+        l.set_margin_bottom(4);
+        l.set_margin_start(4);
+        l.set_margin_end(4);
+        vbox.append(&l);
+    } else {
+        let header = Label::new(Some("Send code to:"));
+        header.add_css_class("dim-label");
+        header.add_css_class("caption");
+        header.set_halign(gtk4::Align::Start);
+        vbox.append(&header);
+        let payload: Rc<Vec<u8>> = {
+            let mut v = Vec::with_capacity(code.len() + 1);
+            v.extend_from_slice(code.as_bytes());
+            if !code.ends_with('\n') {
+                v.push(b'\n');
+            }
+            Rc::new(v)
+        };
+        for term in list {
+            let row = Button::with_label(&term.label);
+            row.add_css_class("flat");
+            row.set_halign(gtk4::Align::Fill);
+            let popover_for_close = popover.clone();
+            let payload_for_send = payload.clone();
+            let send_btn_for_flash = send_btn.clone();
+            let term_id = term.id.clone();
+            row.connect_clicked(move |_| {
+                let ok = terminal_registry::send(&term_id, &payload_for_send);
+                if !ok {
+                    send_btn_for_flash.add_css_class("error");
+                }
+                popover_for_close.popdown();
+            });
+            vbox.append(&row);
+        }
+    }
+
+    popover.set_child(Some(&vbox));
+    popover.popup();
 }
 
 /// Minimal confirm dialog stub for the `confirm` tag.
