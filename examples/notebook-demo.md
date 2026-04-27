@@ -7,7 +7,7 @@ Apri questo file nel pannello Markdown di Pax in modalità Render.
 ## Bash one-shot
 
 ```bash run
-echo "## Hello from bash"
+echo "## Hello from bash ernesto"
 date
 ```
 
@@ -16,7 +16,7 @@ date
 ```python run
 import sys
 print(f"Python {sys.version}")
-print("#ciao")
+print("# ciao")
 ```
 
 ## Bash — output markdown multilinea
