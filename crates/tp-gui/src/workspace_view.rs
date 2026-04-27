@@ -86,6 +86,10 @@ impl WorkspaceView {
             hosts.insert(panel_cfg.id.clone(), host);
         }
 
+        // Populate the terminal-registry breadcrumbs once the layout is
+        // settled — used by the notebook run-target picker.
+        publish_terminal_breadcrumbs(&workspace);
+
         // Build layout widget tree
         let root_widget = build_layout_widget(&workspace.layout, &hosts, &workspace.panels, None);
         root_widget.set_vexpand(true);
@@ -2113,3 +2117,49 @@ mod tests {
 }
 
 // Free functions moved to widget_builder.rs and backend_factory.rs
+
+/// Walk the workspace layout and write a breadcrumb (e.g. "tab1 ›
+/// shells › left-shell") into `terminal_registry` for each terminal
+/// panel, so the notebook run-target picker can disambiguate them.
+/// Re-run after any layout mutation to keep entries fresh.
+pub(crate) fn publish_terminal_breadcrumbs(workspace: &Workspace) {
+    use pax_core::workspace::{LayoutNode, PanelType};
+    fn walk(node: &LayoutNode, trail: &mut Vec<String>, out: &mut HashMap<String, Vec<String>>) {
+        match node {
+            LayoutNode::Panel { id } => {
+                out.insert(id.clone(), trail.clone());
+            }
+            LayoutNode::Tabs { children, labels, .. } => {
+                for (i, child) in children.iter().enumerate() {
+                    let label = labels
+                        .get(i)
+                        .cloned()
+                        .filter(|s| !s.is_empty())
+                        .unwrap_or_else(|| format!("tab{}", i + 1));
+                    trail.push(label);
+                    walk(child, trail, out);
+                    trail.pop();
+                }
+            }
+            LayoutNode::Hsplit { children, .. } | LayoutNode::Vsplit { children, .. } => {
+                for child in children {
+                    walk(child, trail, out);
+                }
+            }
+        }
+    }
+    let mut trails: HashMap<String, Vec<String>> = HashMap::new();
+    walk(&workspace.layout, &mut Vec::new(), &mut trails);
+    for cfg in &workspace.panels {
+        if cfg.effective_type() != PanelType::Terminal {
+            continue;
+        }
+        let trail = trails.get(&cfg.id).cloned().unwrap_or_default();
+        let mut path = trail;
+        if !cfg.name.is_empty() {
+            path.push(cfg.name.clone());
+        }
+        let breadcrumb = path.join(" › ");
+        crate::panels::terminal_registry::set_breadcrumb(&cfg.id, &breadcrumb);
+    }
+}

@@ -90,7 +90,7 @@ impl NotebookCell {
         run_btn.set_icon_name("media-playback-start-symbolic");
         run_btn.add_css_class("flat");
         run_btn.add_css_class("notebook-cell-btn");
-        run_btn.set_tooltip_text(Some("Run cell"));
+        run_btn.set_tooltip_text(Some("Run cell — choose target (Host or terminal panel)"));
         header.append(&run_btn);
 
         let stop_btn = Button::new();
@@ -101,25 +101,6 @@ impl NotebookCell {
         stop_btn.set_sensitive(false);
         header.append(&stop_btn);
 
-        // ── Send to terminal — opens a popover listing every terminal
-        //     panel currently registered in the workspace. Hidden if the
-        //     registry is empty when the cell is built (refreshed each
-        //     time the popover opens, so terminals added later appear).
-        let send_btn = Button::new();
-        send_btn.set_icon_name("mail-send-symbolic");
-        send_btn.add_css_class("flat");
-        send_btn.add_css_class("notebook-cell-btn");
-        send_btn.set_tooltip_text(Some("Send code to terminal panel…"));
-        header.append(&send_btn);
-        {
-            let engine_for_send = engine.clone();
-            let send_btn_inner = send_btn.clone();
-            send_btn.connect_clicked(move |btn| {
-                let code = engine_for_send.cell_code(id).unwrap_or_default();
-                show_terminal_picker(btn, &code, &send_btn_inner);
-            });
-        }
-
         root.append(&header);
 
         // ── Output area ──────────────────────────────────────────
@@ -129,19 +110,41 @@ impl NotebookCell {
         root.append(&output_box);
 
         // ── Wire run/stop buttons ───────────────────────────────
+        // Run button opens a target picker (Host = local subprocess, or
+        // any registered terminal panel). Stop button kills the local
+        // run if any (terminals can't be "stopped" from here — they own
+        // their own subprocesses).
         {
             let engine = engine.clone();
             let stop_btn = stop_btn.clone();
             let spec_for_confirm = spec.clone();
-            run_btn.connect_clicked(move |_| {
-                if spec_for_confirm.confirm && !engine.is_confirmed(id) {
-                    if !confirm_dialog_blocking() {
-                        return;
+            run_btn.connect_clicked(move |btn| {
+                let engine = engine.clone();
+                let stop_btn = stop_btn.clone();
+                let spec = spec_for_confirm.clone();
+                show_run_target_picker(btn, move |target| match target {
+                    RunTarget::Host => {
+                        if spec.confirm && !engine.is_confirmed(id) {
+                            if !confirm_dialog_blocking() {
+                                return;
+                            }
+                            engine.mark_confirmed(id);
+                        }
+                        engine.run_cell(id);
+                        stop_btn.set_sensitive(true);
                     }
-                    engine.mark_confirmed(id);
-                }
-                engine.run_cell(id);
-                stop_btn.set_sensitive(true);
+                    RunTarget::Terminal(term_id) => {
+                        let code = engine.cell_code(id).unwrap_or_default();
+                        let mut payload = Vec::with_capacity(code.len() + 1);
+                        payload.extend_from_slice(code.as_bytes());
+                        if !code.ends_with('\n') {
+                            payload.push(b'\n');
+                        }
+                        if terminal_registry::send(&term_id, &payload) {
+                            terminal_registry::mru_record(&term_id);
+                        }
+                    }
+                });
             });
         }
         {
@@ -320,64 +323,186 @@ fn update_status(
     }
 }
 
-/// Build and show a popover anchored to `anchor_btn` listing every
-/// terminal panel in the workspace. Clicking a row sends `code` (with a
-/// trailing newline) into that panel via `terminal_registry::send`.
-fn show_terminal_picker(anchor_btn: &Button, code: &str, send_btn: &Button) {
+/// Where to dispatch the cell's code when the user picks a row in the
+/// run-target popover.
+#[derive(Clone, Debug)]
+enum RunTarget {
+    /// Local subprocess via the notebook engine.
+    Host,
+    /// One of the terminal panels currently registered in the workspace.
+    Terminal(String),
+}
+
+/// Build and show the run-target picker anchored to `anchor_btn`.
+///
+/// Layout (top to bottom):
+///   ┌──────────────────────────────────────┐
+///   │ Run on…                              │
+///   ├──────────────────────────────────────┤
+///   │ ⌂  Host                              │ ← always first
+///   ├ Suggested ───────────────────────────┤ (only if MRU non-empty)
+///   │ ⌗  <terminal in MRU>                 │ … up to 6
+///   ├ Available ───────────────────────────┤
+///   │ ⌗  <terminal not in MRU>             │ … all remaining
+///   └──────────────────────────────────────┘
+///
+/// `on_pick` is called with the chosen target after the popover closes.
+fn show_run_target_picker<F>(anchor_btn: &Button, on_pick: F)
+where
+    F: Fn(RunTarget) + 'static,
+{
     let popover = gtk4::Popover::new();
     popover.set_parent(anchor_btn);
     popover.set_position(gtk4::PositionType::Bottom);
+    popover.add_css_class("notebook-target-popover");
+    crate::theme::configure_popover(&popover);
 
-    let list = terminal_registry::list();
-    let vbox = GtkBox::new(Orientation::Vertical, 2);
-    vbox.set_margin_top(6);
-    vbox.set_margin_bottom(6);
-    vbox.set_margin_start(6);
-    vbox.set_margin_end(6);
+    let on_pick = Rc::new(on_pick);
 
-    if list.is_empty() {
-        let l = Label::new(Some("No terminal panels in this workspace"));
-        l.add_css_class("dim-label");
-        l.set_margin_top(4);
-        l.set_margin_bottom(4);
-        l.set_margin_start(4);
-        l.set_margin_end(4);
-        vbox.append(&l);
-    } else {
-        let header = Label::new(Some("Send code to:"));
-        header.add_css_class("dim-label");
-        header.add_css_class("caption");
-        header.set_halign(gtk4::Align::Start);
-        vbox.append(&header);
-        let payload: Rc<Vec<u8>> = {
-            let mut v = Vec::with_capacity(code.len() + 1);
-            v.extend_from_slice(code.as_bytes());
-            if !code.ends_with('\n') {
-                v.push(b'\n');
-            }
-            Rc::new(v)
-        };
-        for term in list {
-            let row = Button::with_label(&term.label);
-            row.add_css_class("flat");
-            row.set_halign(gtk4::Align::Fill);
-            let popover_for_close = popover.clone();
-            let payload_for_send = payload.clone();
-            let send_btn_for_flash = send_btn.clone();
+    let vbox = GtkBox::new(Orientation::Vertical, 0);
+    vbox.set_margin_top(4);
+    vbox.set_margin_bottom(4);
+    vbox.set_margin_start(4);
+    vbox.set_margin_end(4);
+
+    // Header
+    {
+        let h = Label::new(Some("Run on…"));
+        h.add_css_class("dim-label");
+        h.add_css_class("caption");
+        h.set_halign(gtk4::Align::Start);
+        h.set_margin_start(8);
+        h.set_margin_top(4);
+        h.set_margin_bottom(4);
+        vbox.append(&h);
+    }
+
+    // Host row (always available)
+    {
+        let row = build_target_row(
+            "computer-symbolic",
+            "Host",
+            Some("Run as a local subprocess (this machine)"),
+        );
+        let popover_close = popover.clone();
+        let cb = on_pick.clone();
+        row.connect_clicked(move |_| {
+            popover_close.popdown();
+            cb(RunTarget::Host);
+        });
+        vbox.append(&row);
+    }
+
+    let mru = terminal_registry::mru_list();
+    let mru_ids: std::collections::HashSet<String> =
+        mru.iter().map(|t| t.id.clone()).collect();
+
+    if !mru.is_empty() {
+        vbox.append(&section_separator("Suggested"));
+        for term in &mru {
+            let row = build_terminal_row(&term.id, &term.label);
+            let popover_close = popover.clone();
+            let cb = on_pick.clone();
             let term_id = term.id.clone();
             row.connect_clicked(move |_| {
-                let ok = terminal_registry::send(&term_id, &payload_for_send);
-                if !ok {
-                    send_btn_for_flash.add_css_class("error");
-                }
-                popover_for_close.popdown();
+                popover_close.popdown();
+                cb(RunTarget::Terminal(term_id.clone()));
             });
             vbox.append(&row);
         }
     }
 
+    let all = terminal_registry::list();
+    let available: Vec<_> = all.into_iter().filter(|t| !mru_ids.contains(&t.id)).collect();
+
+    if !available.is_empty() {
+        vbox.append(&section_separator("Available"));
+        for term in &available {
+            let row = build_terminal_row(&term.id, &term.label);
+            let popover_close = popover.clone();
+            let cb = on_pick.clone();
+            let term_id = term.id.clone();
+            row.connect_clicked(move |_| {
+                popover_close.popdown();
+                cb(RunTarget::Terminal(term_id.clone()));
+            });
+            vbox.append(&row);
+        }
+    } else if mru.is_empty() {
+        let none = Label::new(Some("No terminal panels in this workspace"));
+        none.add_css_class("dim-label");
+        none.set_margin_start(8);
+        none.set_margin_end(8);
+        none.set_margin_top(4);
+        none.set_margin_bottom(4);
+        none.set_halign(gtk4::Align::Start);
+        vbox.append(&none);
+    }
+
     popover.set_child(Some(&vbox));
     popover.popup();
+}
+
+fn section_separator(text: &str) -> GtkBox {
+    let row = GtkBox::new(Orientation::Horizontal, 6);
+    row.add_css_class("notebook-target-section");
+    row.set_margin_top(4);
+    let l = Label::new(Some(text));
+    l.add_css_class("dim-label");
+    l.add_css_class("caption");
+    l.set_margin_start(8);
+    l.set_halign(gtk4::Align::Start);
+    row.append(&l);
+    row
+}
+
+fn build_target_row(icon_name: &str, label: &str, tooltip: Option<&str>) -> Button {
+    let row = Button::new();
+    row.add_css_class("flat");
+    row.add_css_class("notebook-target-row");
+    row.set_halign(gtk4::Align::Fill);
+    if let Some(t) = tooltip {
+        row.set_tooltip_text(Some(t));
+    }
+    let body = GtkBox::new(Orientation::Horizontal, 8);
+    let icon = Image::from_icon_name(icon_name);
+    icon.add_css_class("notebook-target-icon");
+    body.append(&icon);
+    let l = Label::new(Some(label));
+    l.set_halign(gtk4::Align::Start);
+    l.set_hexpand(true);
+    body.append(&l);
+    row.set_child(Some(&body));
+    row
+}
+
+/// Build a row for a terminal entry. Uses the breadcrumb if available
+/// (rendered on a second muted line) and a terminal icon.
+fn build_terminal_row(id: &str, name: &str) -> Button {
+    let row = Button::new();
+    row.add_css_class("flat");
+    row.add_css_class("notebook-target-row");
+    row.set_halign(gtk4::Align::Fill);
+    let body = GtkBox::new(Orientation::Horizontal, 8);
+    let icon = Image::from_icon_name("utilities-terminal-symbolic");
+    icon.add_css_class("notebook-target-icon");
+    body.append(&icon);
+
+    let stack = GtkBox::new(Orientation::Vertical, 0);
+    let primary = Label::new(Some(name));
+    primary.set_halign(gtk4::Align::Start);
+    stack.append(&primary);
+    if let Some(crumb) = terminal_registry::breadcrumb_of(id) {
+        let secondary = Label::new(Some(&crumb));
+        secondary.add_css_class("dim-label");
+        secondary.add_css_class("caption");
+        secondary.set_halign(gtk4::Align::Start);
+        stack.append(&secondary);
+    }
+    stack.set_hexpand(true);
+    body.append(&stack);
+    row.set_child(Some(&body));
+    row
 }
 
 /// Minimal confirm dialog stub for the `confirm` tag.
