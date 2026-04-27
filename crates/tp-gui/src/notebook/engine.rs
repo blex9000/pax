@@ -18,12 +18,18 @@ use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::rc::{Rc, Weak};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
 /// Drain bound for `attach_rx` per idle tick. Caps the work done in a
 /// single GTK main-loop iteration so a fast-emitting subprocess can't
 /// freeze the UI; lines beyond this are picked up on the next tick.
 const MAX_DRAIN_PER_TICK: usize = 32;
+
+/// Process-wide count of currently-running notebook subprocesses, summed
+/// across every `NotebookEngine` instance. Enforces `MAX_NOTEBOOK_PROCESSES`
+/// at the right scope (per-Pax-process, not per-panel).
+static ACTIVE_NOTEBOOK_PROCESSES: AtomicUsize = AtomicUsize::new(0);
 
 use gtk4::glib;
 
@@ -141,22 +147,37 @@ impl NotebookEngine {
         if self.is_running(id) {
             return;
         }
-        // Global concurrency cap.
-        let active = self.cells.borrow().values().filter(|c| c.handle.is_some()).count();
-        if active >= MAX_NOTEBOOK_PROCESSES {
-            self.push_output(
-                id,
-                OutputItem::Error(format!(
-                    "notebook process limit reached ({})",
-                    MAX_NOTEBOOK_PROCESSES
-                )),
-            );
-            return;
+        // Global (process-wide) concurrency cap. Reserve a slot via CAS-loop
+        // so two engines racing the limit can't both succeed.
+        loop {
+            let cur = ACTIVE_NOTEBOOK_PROCESSES.load(Ordering::SeqCst);
+            if cur >= MAX_NOTEBOOK_PROCESSES {
+                self.push_output(
+                    id,
+                    OutputItem::Error(format!(
+                        "notebook process limit reached ({})",
+                        MAX_NOTEBOOK_PROCESSES
+                    )),
+                );
+                return;
+            }
+            if ACTIVE_NOTEBOOK_PROCESSES
+                .compare_exchange(cur, cur + 1, Ordering::SeqCst, Ordering::SeqCst)
+                .is_ok()
+            {
+                break;
+            }
         }
         let (spec, code) = {
             let cells = self.cells.borrow();
-            let Some(state) = cells.get(&id) else { return };
-            let Some(spec) = state.spec.clone() else { return };
+            let Some(state) = cells.get(&id) else {
+                ACTIVE_NOTEBOOK_PROCESSES.fetch_sub(1, Ordering::SeqCst);
+                return;
+            };
+            let Some(spec) = state.spec.clone() else {
+                ACTIVE_NOTEBOOK_PROCESSES.fetch_sub(1, Ordering::SeqCst);
+                return;
+            };
             (spec, state.code.clone())
         };
         let helpers = self.ensure_helpers();
@@ -171,6 +192,7 @@ impl NotebookEngine {
                 self.attach_rx(id, rx);
             }
             Err(reason) => {
+                ACTIVE_NOTEBOOK_PROCESSES.fetch_sub(1, Ordering::SeqCst);
                 self.push_output(id, OutputItem::Error(format!("blocked: {}", reason)));
             }
         }
@@ -178,8 +200,10 @@ impl NotebookEngine {
 
     pub fn stop_cell(&self, id: CellId) {
         if let Some(c) = self.cells.borrow_mut().get_mut(&id) {
-            // Dropping the handle triggers SIGTERM/SIGKILL via RunHandle::drop.
-            c.handle = None;
+            if c.handle.take().is_some() {
+                // Dropping the handle triggers SIGTERM/SIGKILL via RunHandle::drop.
+                ACTIVE_NOTEBOOK_PROCESSES.fetch_sub(1, Ordering::SeqCst);
+            }
         }
     }
 
@@ -214,7 +238,9 @@ impl NotebookEngine {
 
     fn detach_handle(&self, id: CellId) {
         if let Some(c) = self.cells.borrow_mut().get_mut(&id) {
-            c.handle = None;
+            if c.handle.take().is_some() {
+                ACTIVE_NOTEBOOK_PROCESSES.fetch_sub(1, Ordering::SeqCst);
+            }
         }
         self.notify(id);
     }
@@ -275,6 +301,18 @@ impl NotebookEngine {
             {
                 return glib::ControlFlow::Continue;
             }
+            // Skip auto-runs for `confirm` cells until the user has clicked
+            // ▶ at least once — the confirm flag is the spec's safety net
+            // for downloaded notebooks and would be a no-op otherwise.
+            let needs_confirm = me
+                .cells
+                .borrow()
+                .get(&id)
+                .and_then(|c| c.spec.as_ref().map(|s| s.confirm))
+                .unwrap_or(false);
+            if needs_confirm && !me.is_confirmed(id) {
+                return glib::ControlFlow::Continue;
+            }
             me.run_cell(id);
             glib::ControlFlow::Continue
         });
@@ -329,7 +367,9 @@ impl Drop for NotebookEngine {
         }
         // Drop each handle: RunHandle::drop sends SIGTERM + SIGKILL fallback.
         for state in self.cells.borrow_mut().values_mut() {
-            state.handle = None;
+            if state.handle.take().is_some() {
+                ACTIVE_NOTEBOOK_PROCESSES.fetch_sub(1, Ordering::SeqCst);
+            }
         }
         // Best-effort cleanup of the per-engine output dir.
         let _ = std::fs::remove_dir_all(&self.output_dir);

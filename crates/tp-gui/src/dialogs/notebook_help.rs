@@ -20,7 +20,9 @@ Tags
   • run / once       — manual one-shot (▶ button)
   • watch=Ns | Nm | Nms — cyclic; auto-starts when the panel is visible
   • timeout=Ns       — wall-clock cap (default 30s for run/once)
-  • confirm          — ask before first run this session
+  • confirm          — gate watch auto-runs until ▶ is clicked once
+                       (v1: the manual ▶ click confirms silently; a real
+                       prompt dialog will arrive in a later iteration)
 
 Rich output (Python)
   import pax
@@ -32,8 +34,9 @@ Markers (any language)
 
 Safety
   A small blocklist (rm -rf /, mkfs, fork bombs, shutdown, …) blocks
-  obvious destructive commands. Otherwise cells run with your user
-  privileges — only open trusted notebooks.
+  obvious destructive commands on bash/sh cells (Python is excluded
+  to avoid false positives like executor.shutdown()). Otherwise cells
+  run with your user privileges — only open trusted notebooks.
 
 Output is in-memory only — closing the panel discards it.
 "#;

@@ -51,9 +51,23 @@ sono visualizzate come warning (decoding base64 da implementare).
 
 - `watch=Ns` parte automaticamente al primo render, in modo non bloccante.
 - Si mette in pausa quando il pannello non è visibile (tab cambio,
-  passaggio in Edit mode, pannello chiuso).
+  pannello chiuso).
+- In v1, **passare a Edit mode e tornare a Render rebuilda l'engine**:
+  l'output finora accumulato viene scartato e i `watch` ripartono da
+  zero. Stesso comportamento per il pulsante ↻ (reload) e per modifiche
+  esterne al file. (Una iterazione futura potrà preservare l'engine
+  attraverso il toggle.)
+- Per le celle marcate `confirm`, l'auto-start del watch è bloccato
+  finché l'utente non clicca ▶ almeno una volta — questo è il safety
+  net del tag.
 - Salta un tick se il run precedente è ancora vivo (no accodamento).
 - Chiusura pannello → SIGTERM al subprocess, SIGKILL dopo 2s.
+
+## Pannello standalone vs editor
+
+L'esecuzione delle celle notebook è abilitata solo nel pannello Markdown
+standalone (apri un `.md` come pannello principale). La tab Markdown del
+Code Editor renderizza i tag come blocchi codice statici senza eseguirli.
 
 ## Sicurezza
 
