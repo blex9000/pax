@@ -223,6 +223,12 @@ fn spawn_supervisor(
 
 #[cfg(test)]
 mod tests {
+    // NOTE: these tests spawn real subprocesses. They MUST run serially or
+    // the documented PID-reuse window in `RunHandle::Drop` triggers spurious
+    // failures (test A's drop SIGTERMs test B's freshly-spawned PID). In
+    // production this is harmless because no panel spawns and tears down
+    // multiple cells in <50 ms. Run with `cargo test -- --test-threads=1`
+    // (or just `cargo test --package pax-gui notebook -- --test-threads=1`).
     use super::*;
     use std::time::Duration;
 
