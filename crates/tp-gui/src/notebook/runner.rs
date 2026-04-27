@@ -6,6 +6,19 @@
 //! and a stop flag, plus a separate `Receiver<RunMsg>`. Two dedicated
 //! reader threads drain stdout and stderr; a third "supervisor" thread
 //! enforces wall-clock timeout. Handle dropped → SIGTERM, 2s grace, SIGKILL.
+//!
+//! Contract notes for consumers (engine):
+//! - `Output` items may arrive shortly *after* `Finished` because reader
+//!   threads keep draining buffered pipe content until EOF. Be tolerant.
+//! - Dropping only the `Receiver` does NOT terminate the subprocess —
+//!   you must drop the `RunHandle` as well (`stop_flag` triggers the
+//!   supervisor). The two are decoupled by design.
+//! - PID-reuse window: `Drop` polls `kill(pid, 0)` and then issues
+//!   SIGKILL. On a busy system the kernel could in theory reuse the PID
+//!   between probes, but the 50 ms grain + 2 s window makes this an
+//!   accepted v1 risk; engine-level cleanup also enforces termination.
+//! - `confirm` flag is NOT consulted here — confirmation is the engine's
+//!   responsibility before calling `spawn`.
 
 use std::io::{BufRead, BufReader};
 use std::process::{Child, Command, Stdio};
@@ -67,8 +80,10 @@ pub fn spawn(
     output_dir: Option<&std::path::Path>,
 ) -> Result<(RunHandle, Receiver<RunMsg>), String> {
     // Safety blocklist applies only to shell languages — its patterns are
-    // shell-specific and would produce false positives on Python source
-    // (e.g. `executor.shutdown(...)`, `asyncio.shutdown()`).
+    // shell-specific (rm -rf /, mkfs, dd if=…of=/dev/, shutdown, reboot, …)
+    // and produce false positives on Python source where method names like
+    // `executor.shutdown()` or `asyncio.shutdown()` would trigger \bshutdown\b.
+    // Do NOT widen this gate without revisiting safety::notebook_blocklist().
     if matches!(spec.lang, Lang::Bash | Lang::Sh) {
         if let Ok(SafetyCheck::Blocked(reason)) = check_notebook_command(code) {
             return Err(reason);
