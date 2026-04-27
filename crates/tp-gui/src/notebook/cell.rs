@@ -114,37 +114,60 @@ impl NotebookCell {
         // any registered terminal panel). Stop button kills the local
         // run if any (terminals can't be "stopped" from here — they own
         // their own subprocesses).
+        //
+        // The popover is created ONCE here and reused on every click —
+        // creating a fresh one each time leaks orphan widgets (and GTK4
+        // logs "Trying to snapshot ... without a current allocation").
+        let target_popover = gtk4::Popover::new();
+        target_popover.set_parent(&run_btn);
+        target_popover.set_position(gtk4::PositionType::Bottom);
+        target_popover.add_css_class("notebook-target-popover");
+        crate::theme::configure_popover(&target_popover);
         {
             let engine = engine.clone();
             let stop_btn = stop_btn.clone();
             let spec_for_confirm = spec.clone();
-            run_btn.connect_clicked(move |btn| {
-                let engine = engine.clone();
-                let stop_btn = stop_btn.clone();
-                let spec = spec_for_confirm.clone();
-                show_run_target_picker(btn, move |target| match target {
-                    RunTarget::Host => {
-                        if spec.confirm && !engine.is_confirmed(id) {
-                            if !confirm_dialog_blocking() {
-                                return;
+            let popover = target_popover.clone();
+            run_btn.connect_clicked(move |_| {
+                let engine_for_pick = engine.clone();
+                let stop_btn_for_pick = stop_btn.clone();
+                let spec_for_pick = spec_for_confirm.clone();
+                let on_pick: Rc<dyn Fn(RunTarget)> = Rc::new(move |target: RunTarget| {
+                    match target {
+                        RunTarget::Host => {
+                            if spec_for_pick.confirm && !engine_for_pick.is_confirmed(id) {
+                                if !confirm_dialog_blocking() {
+                                    return;
+                                }
+                                engine_for_pick.mark_confirmed(id);
                             }
-                            engine.mark_confirmed(id);
+                            engine_for_pick.run_cell(id);
+                            stop_btn_for_pick.set_sensitive(true);
                         }
-                        engine.run_cell(id);
-                        stop_btn.set_sensitive(true);
-                    }
-                    RunTarget::Terminal(term_id) => {
-                        let code = engine.cell_code(id).unwrap_or_default();
-                        let mut payload = Vec::with_capacity(code.len() + 1);
-                        payload.extend_from_slice(code.as_bytes());
-                        if !code.ends_with('\n') {
-                            payload.push(b'\n');
-                        }
-                        if terminal_registry::send(&term_id, &payload) {
-                            terminal_registry::mru_record(&term_id);
+                        RunTarget::Terminal(term_id) => {
+                            let code = engine_for_pick.cell_code(id).unwrap_or_default();
+                            let mut payload = Vec::with_capacity(code.len() + 1);
+                            payload.extend_from_slice(code.as_bytes());
+                            if !code.ends_with('\n') {
+                                payload.push(b'\n');
+                            }
+                            if terminal_registry::send(&term_id, &payload) {
+                                terminal_registry::mru_record(&term_id);
+                            }
                         }
                     }
                 });
+                let body = build_run_target_body(&popover, on_pick);
+                popover.set_child(Some(&body));
+                popover.popup();
+            });
+        }
+        // Make sure the popover detaches when the cell widget goes away,
+        // otherwise GTK leaks the parent pointer across re-renders.
+        {
+            let popover = target_popover.clone();
+            root.connect_destroy(move |_| {
+                popover.unparent();
             });
         }
         {
@@ -333,7 +356,10 @@ enum RunTarget {
     Terminal(String),
 }
 
-/// Build and show the run-target picker anchored to `anchor_btn`.
+/// Build (re-build) the body widget for the run-target picker. Called
+/// fresh on every popover open so the MRU + Available sections reflect
+/// the current registry state. The popover itself is owned and reused
+/// by the cell (creating a popover per click leaked parents).
 ///
 /// Layout (top to bottom):
 ///   ┌──────────────────────────────────────┐
@@ -345,20 +371,7 @@ enum RunTarget {
 ///   ├ Available ───────────────────────────┤
 ///   │ ⌗  <terminal not in MRU>             │ … all remaining
 ///   └──────────────────────────────────────┘
-///
-/// `on_pick` is called with the chosen target after the popover closes.
-fn show_run_target_picker<F>(anchor_btn: &Button, on_pick: F)
-where
-    F: Fn(RunTarget) + 'static,
-{
-    let popover = gtk4::Popover::new();
-    popover.set_parent(anchor_btn);
-    popover.set_position(gtk4::PositionType::Bottom);
-    popover.add_css_class("notebook-target-popover");
-    crate::theme::configure_popover(&popover);
-
-    let on_pick = Rc::new(on_pick);
-
+fn build_run_target_body(popover: &gtk4::Popover, on_pick: Rc<dyn Fn(RunTarget)>) -> GtkBox {
     let vbox = GtkBox::new(Orientation::Vertical, 0);
     vbox.set_margin_top(4);
     vbox.set_margin_bottom(4);
@@ -439,8 +452,7 @@ where
         vbox.append(&none);
     }
 
-    popover.set_child(Some(&vbox));
-    popover.popup();
+    vbox
 }
 
 fn section_separator(text: &str) -> GtkBox {
