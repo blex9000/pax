@@ -51,6 +51,11 @@ struct CellState {
     confirmed: bool, // for `confirm` tag, sticky once user accepts
     watch_source: Option<glib::SourceId>,
     subscribers: Vec<Rc<dyn Fn()>>,
+    /// On the next `push_output`, drop the existing `output` first. Set
+    /// when a new run starts (watch tick or manual click) so the user keeps
+    /// seeing the previous run's content until the new one produces its
+    /// first item — eliminates the empty-then-refill flicker on `watch`.
+    replace_on_next_push: bool,
 }
 
 pub struct NotebookEngine {
@@ -183,16 +188,24 @@ impl NotebookEngine {
         let helpers = self.ensure_helpers();
         match runner::spawn(&spec, &code, helpers.as_deref(), Some(&self.output_dir)) {
             Ok((handle, rx)) => {
-                // Install handle first so subscribers fired by clear_output
-                // observe is_running == true (the runner is already alive).
+                // Install handle and arm `replace_on_next_push` instead of
+                // clearing now: the previous run's output stays visible
+                // until the new one starts streaming, killing the flicker.
                 if let Some(c) = self.cells.borrow_mut().get_mut(&id) {
                     c.handle = Some(handle);
+                    c.replace_on_next_push = true;
                 }
-                self.clear_output(id);
+                self.notify(id); // status indicator → running, but content unchanged
                 self.attach_rx(id, rx);
             }
             Err(reason) => {
                 ACTIVE_NOTEBOOK_PROCESSES.fetch_sub(1, Ordering::SeqCst);
+                // Errors should always replace prior output immediately
+                // (so a broken cell doesn't keep showing yesterday's data).
+                if let Some(c) = self.cells.borrow_mut().get_mut(&id) {
+                    c.output.clear();
+                    c.replace_on_next_push = false;
+                }
                 self.push_output(id, OutputItem::Error(format!("blocked: {}", reason)));
             }
         }
@@ -249,19 +262,16 @@ impl NotebookEngine {
         let subs = {
             let mut cells = self.cells.borrow_mut();
             let Some(state) = cells.get_mut(&id) else { return };
+            if state.replace_on_next_push {
+                state.output.clear();
+                state.replace_on_next_push = false;
+            }
             state.output.push(item);
             state.subscribers.clone()
         };
         for s in subs {
             s();
         }
-    }
-
-    fn clear_output(&self, id: CellId) {
-        if let Some(c) = self.cells.borrow_mut().get_mut(&id) {
-            c.output.clear();
-        }
-        self.notify(id);
     }
 
     fn notify(&self, id: CellId) {

@@ -149,17 +149,21 @@ fn rebuild_output_box(container: &GtkBox, items: &[OutputItem]) {
     while let Some(child) = container.first_child() {
         container.remove(&child);
     }
+    // Group consecutive `Text` items into a single markdown-rendered
+    // TextView, so the cell's stdout supports headings, lists, links, code
+    // fences, etc. Images and Errors break the run and render as their own
+    // widgets between markdown segments.
+    let mut text_buf = String::new();
     for item in items {
         match item {
             OutputItem::Text(t) => {
-                let l = Label::new(Some(t));
-                l.set_halign(gtk4::Align::Start);
-                l.add_css_class("notebook-text-line");
-                l.set_selectable(true);
-                l.set_wrap(true);
-                container.append(&l);
+                if !text_buf.is_empty() {
+                    text_buf.push('\n');
+                }
+                text_buf.push_str(t);
             }
             OutputItem::Error(t) => {
+                flush_markdown(container, &mut text_buf);
                 let l = Label::new(Some(t));
                 l.set_halign(gtk4::Align::Start);
                 l.add_css_class("notebook-error-line");
@@ -168,6 +172,7 @@ fn rebuild_output_box(container: &GtkBox, items: &[OutputItem]) {
                 container.append(&l);
             }
             OutputItem::Image(src) => {
+                flush_markdown(container, &mut text_buf);
                 match src {
                     ImageSource::Path(p) => {
                         let pic = Picture::new();
@@ -189,6 +194,26 @@ fn rebuild_output_box(container: &GtkBox, items: &[OutputItem]) {
             }
         }
     }
+    flush_markdown(container, &mut text_buf);
+}
+
+/// Render the accumulated markdown source into a fresh read-only TextView
+/// and append it to `container`. No-op if `buf` is empty. Resets `buf` on
+/// success so the caller can keep grouping subsequent `Text` items.
+fn flush_markdown(container: &GtkBox, buf: &mut String) {
+    if buf.is_empty() {
+        return;
+    }
+    let tv = gtk4::TextView::new();
+    tv.set_editable(false);
+    tv.set_cursor_visible(false);
+    tv.set_wrap_mode(gtk4::WrapMode::Word);
+    tv.set_left_margin(2);
+    tv.set_right_margin(2);
+    tv.add_css_class("notebook-text-output");
+    crate::markdown_render::render_markdown_to_view(&tv, buf);
+    container.append(&tv);
+    buf.clear();
 }
 
 fn update_status(img: &Image, items: &[OutputItem], running: bool) {
