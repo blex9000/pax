@@ -196,14 +196,18 @@ fn rebuild_output_box(container: &GtkBox, items: &[OutputItem]) {
     // TextView, so the cell's stdout supports headings, lists, links, code
     // fences, etc. Images and Errors break the run and render as their own
     // widgets between markdown segments.
+    //
+    // Each stdout line is appended with a trailing `  \n` (CommonMark
+    // hard break) so consecutive `print()`s render on their own visual
+    // lines instead of being joined by soft-break spaces. Markdown
+    // structures (`#`, `-`, ```` ``` ```` …) still parse normally because
+    // the leading characters of each line are unchanged.
     let mut text_buf = String::new();
     for item in items {
         match item {
             OutputItem::Text(t) => {
-                if !text_buf.is_empty() {
-                    text_buf.push('\n');
-                }
                 text_buf.push_str(t);
+                text_buf.push_str("  \n");
             }
             OutputItem::Error(t) => {
                 flush_markdown(container, &mut text_buf);
