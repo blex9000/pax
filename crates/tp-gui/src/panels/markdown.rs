@@ -178,9 +178,13 @@ impl MarkdownPanel {
         toolbar.append(&file_label);
         container.append(&toolbar);
 
-        // Help button: opens the notebook help dialog. The dialog module
-        // is wired up in Task 10. For now this is a stub click handler.
-        help_btn.connect_clicked(|_| {});
+        // Help button: opens the notebook help dialog.
+        {
+            let parent = container.clone();
+            help_btn.connect_clicked(move |_| {
+                crate::dialogs::notebook_help::show(parent.upcast_ref::<gtk4::Widget>());
+            });
+        }
 
         // ── Formatting toolbar (edit mode only) ──────────────────────────
         let fmt_bar = gtk4::Box::new(gtk4::Orientation::Horizontal, 2);
