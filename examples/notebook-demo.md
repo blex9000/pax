@@ -32,10 +32,6 @@ print(f"random = {random.random():.4f}")
 
 ## Plot inline (richiede matplotlib)
 
-> **Pre-requisito**: `pip install --user matplotlib` (oppure equivalente
-> nel tuo venv/pipx). Senza il pacchetto la cella restituisce
-> `ModuleNotFoundError: No module named 'matplotlib'`.
-
 ```python run
 import pax
 try:

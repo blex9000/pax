@@ -10,6 +10,7 @@
 
 use std::rc::Rc;
 
+use gtk4::glib;
 use gtk4::prelude::*;
 use gtk4::{Box as GtkBox, Button, Image, Label, Orientation, Picture};
 
@@ -25,18 +26,37 @@ pub struct NotebookCell {
 }
 
 impl NotebookCell {
-    pub fn new(engine: Rc<NotebookEngine>, id: CellId) -> Self {
+    pub fn new(engine: Rc<NotebookEngine>, id: CellId, parent_view: &gtk4::TextView) -> Self {
         let spec = engine.spec_of(id).expect("cell registered");
 
         let root = GtkBox::new(Orientation::Vertical, 4);
         root.add_css_class("notebook-cell");
         root.set_margin_top(4);
         root.set_margin_bottom(8);
-        // Anchored child widgets in a TextView default to their content's
-        // natural width — without hexpand, a child TextView with WrapMode::Word
-        // wraps every word onto its own line. Force the cell to fill the
-        // parent TextView's text area; same for output_box below.
-        root.set_hexpand(true);
+        // Anchored child widgets in a TextView do NOT honour hexpand — they
+        // get exactly their natural width. There is no public "size
+        // changed" signal on TextView in GTK4, so poll the parent's
+        // allocated width every 300 ms via WeakRef and propagate to the
+        // cell's size_request. The Weak handles auto-stop the loop once
+        // either the cell or the panel goes away (no leak).
+        const SIDE_MARGIN: i32 = 24;
+        const POLL_MS: u64 = 300;
+        let root_weak = root.downgrade();
+        let parent_weak = parent_view.downgrade();
+        glib::timeout_add_local(std::time::Duration::from_millis(POLL_MS), move || {
+            let (Some(root), Some(parent)) = (root_weak.upgrade(), parent_weak.upgrade()) else {
+                return glib::ControlFlow::Break;
+            };
+            let w = parent.width();
+            if w > 0 {
+                let target = (w - SIDE_MARGIN).max(200);
+                let cur = root.width_request();
+                if (target - cur).abs() > 8 {
+                    root.set_size_request(target, -1);
+                }
+            }
+            glib::ControlFlow::Continue
+        });
 
         // ── Header ───────────────────────────────────────────────
         let header = GtkBox::new(Orientation::Horizontal, 6);
@@ -183,6 +203,8 @@ fn rebuild_output_box(container: &GtkBox, items: &[OutputItem]) {
                     ImageSource::Path(p) => {
                         let pic = Picture::new();
                         pic.set_can_shrink(true);
+                        pic.set_hexpand(true);
+                        pic.set_content_fit(gtk4::ContentFit::Contain);
                         pic.set_size_request(-1, IMAGE_MAX_HEIGHT_PX);
                         pic.set_filename(Some(p));
                         container.append(&pic);

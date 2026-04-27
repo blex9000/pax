@@ -634,7 +634,7 @@ fn render_with_engine(
         let engine = holder.get_or_insert_with(NotebookEngine::new).clone();
         drop(holder);
         let id = engine.register_cell(spec.clone(), body.to_string());
-        let cell = NotebookCell::new(engine, id);
+        let cell = NotebookCell::new(engine, id, &rv_for_hook);
         rv_for_hook.add_child_at_anchor(&cell.root, anchor);
     };
     crate::markdown_render::render_markdown_to_view_with_hook(rv, content, Some(&mut hook));
