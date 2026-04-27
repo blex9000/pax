@@ -12,7 +12,7 @@ use std::rc::Rc;
 
 use gtk4::glib;
 use gtk4::prelude::*;
-use gtk4::{Box as GtkBox, Button, Image, Label, MenuButton, Orientation, Picture};
+use gtk4::{Box as GtkBox, Button, Image, Label, Orientation, Picture};
 
 use crate::panels::terminal_registry;
 
@@ -86,9 +86,8 @@ impl NotebookCell {
         status_box.append(&status_text);
         header.append(&status_box);
 
-        let run_btn = MenuButton::new();
+        let run_btn = Button::new();
         run_btn.set_icon_name("media-playback-start-symbolic");
-        run_btn.set_always_show_arrow(false);
         run_btn.add_css_class("flat");
         run_btn.add_css_class("notebook-cell-btn");
         run_btn.set_tooltip_text(Some("Run cell — choose target (Host or terminal panel)"));
@@ -111,22 +110,18 @@ impl NotebookCell {
         root.append(&output_box);
 
         // ── Wire run target picker + stop button ───────────────────
-        // The popover is owned by the MenuButton. Body rebuilt in
-        // `set_create_popup_func` (called BEFORE the popup appears, so
-        // size negotiation sees the real content on the very first
-        // click — `connect_show` would fire too late and the first
-        // click would render an empty popover).
-        let target_popover = gtk4::Popover::new();
-        target_popover.set_position(gtk4::PositionType::Bottom);
-        target_popover.add_css_class("notebook-target-popover");
-        crate::theme::configure_popover(&target_popover);
-        run_btn.set_popover(Some(&target_popover));
+        // We use a small modal `gtk::Window` instead of a `gtk::Popover`
+        // because anchored TextView children produce inconsistent
+        // popover allocations (warnings: "Trying to snapshot GtkPopover
+        // without a current allocation"). A standalone window with
+        // `configure_dialog_window` sidesteps the issue and follows the
+        // app's custom dialog pattern.
         {
             let engine = engine.clone();
             let stop_btn = stop_btn.clone();
             let spec_for_confirm = spec.clone();
-            let popover = target_popover.clone();
-            run_btn.set_create_popup_func(move |_| {
+            let parent_for_dialog = parent_view.clone();
+            run_btn.connect_clicked(move |_| {
                 let engine_for_pick = engine.clone();
                 let stop_btn_for_pick = stop_btn.clone();
                 let spec_for_pick = spec_for_confirm.clone();
@@ -155,8 +150,7 @@ impl NotebookCell {
                         }
                     }
                 });
-                let body = build_run_target_body(&popover, on_pick);
-                popover.set_child(Some(&body));
+                show_run_target_dialog(parent_for_dialog.upcast_ref::<gtk4::Widget>(), on_pick);
             });
         }
         {
@@ -345,39 +339,35 @@ enum RunTarget {
     Terminal(String),
 }
 
-/// Build (re-build) the body widget for the run-target picker. Called
-/// fresh on every popover open so the MRU + Available sections reflect
-/// the current registry state. The popover itself is owned and reused
-/// by the cell (creating a popover per click leaked parents).
+/// Open a small modal dialog with the run-target picker.
 ///
 /// Layout (top to bottom):
 ///   ┌──────────────────────────────────────┐
-///   │ Run on…                              │
-///   ├──────────────────────────────────────┤
 ///   │ ⌂  Host                              │ ← always first
 ///   ├ Suggested ───────────────────────────┤ (only if MRU non-empty)
 ///   │ ⌗  <terminal in MRU>                 │ … up to 6
 ///   ├ Available ───────────────────────────┤
 ///   │ ⌗  <terminal not in MRU>             │ … all remaining
 ///   └──────────────────────────────────────┘
-fn build_run_target_body(popover: &gtk4::Popover, on_pick: Rc<dyn Fn(RunTarget)>) -> GtkBox {
-    let vbox = GtkBox::new(Orientation::Vertical, 0);
-    vbox.set_margin_top(4);
-    vbox.set_margin_bottom(4);
-    vbox.set_margin_start(4);
-    vbox.set_margin_end(4);
-
-    // Header
-    {
-        let h = Label::new(Some("Run on…"));
-        h.add_css_class("dim-label");
-        h.add_css_class("caption");
-        h.set_halign(gtk4::Align::Start);
-        h.set_margin_start(8);
-        h.set_margin_top(4);
-        h.set_margin_bottom(4);
-        vbox.append(&h);
+fn show_run_target_dialog(parent: &gtk4::Widget, on_pick: Rc<dyn Fn(RunTarget)>) {
+    let window = gtk4::Window::new();
+    window.set_title(Some("Run target"));
+    window.set_default_size(360, -1);
+    window.set_modal(true);
+    window.set_resizable(false);
+    window.add_css_class("notebook-target-dialog");
+    if let Some(root) = parent.root() {
+        if let Ok(w) = root.downcast::<gtk4::Window>() {
+            window.set_transient_for(Some(&w));
+        }
     }
+    crate::theme::configure_dialog_window(&window);
+
+    let vbox = GtkBox::new(Orientation::Vertical, 0);
+    vbox.set_margin_top(8);
+    vbox.set_margin_bottom(8);
+    vbox.set_margin_start(8);
+    vbox.set_margin_end(8);
 
     // Host row (always available)
     {
@@ -386,10 +376,10 @@ fn build_run_target_body(popover: &gtk4::Popover, on_pick: Rc<dyn Fn(RunTarget)>
             "Host",
             Some("Run as a local subprocess (this machine)"),
         );
-        let popover_close = popover.clone();
+        let win_close = window.clone();
         let cb = on_pick.clone();
         row.connect_clicked(move |_| {
-            popover_close.popdown();
+            win_close.close();
             cb(RunTarget::Host);
         });
         vbox.append(&row);
@@ -403,11 +393,11 @@ fn build_run_target_body(popover: &gtk4::Popover, on_pick: Rc<dyn Fn(RunTarget)>
         vbox.append(&section_separator("Suggested"));
         for term in &mru {
             let row = build_terminal_row(&term.id, &term.label);
-            let popover_close = popover.clone();
+            let win_close = window.clone();
             let cb = on_pick.clone();
             let term_id = term.id.clone();
             row.connect_clicked(move |_| {
-                popover_close.popdown();
+                win_close.close();
                 cb(RunTarget::Terminal(term_id.clone()));
             });
             vbox.append(&row);
@@ -421,11 +411,11 @@ fn build_run_target_body(popover: &gtk4::Popover, on_pick: Rc<dyn Fn(RunTarget)>
         vbox.append(&section_separator("Available"));
         for term in &available {
             let row = build_terminal_row(&term.id, &term.label);
-            let popover_close = popover.clone();
+            let win_close = window.clone();
             let cb = on_pick.clone();
             let term_id = term.id.clone();
             row.connect_clicked(move |_| {
-                popover_close.popdown();
+                win_close.close();
                 cb(RunTarget::Terminal(term_id.clone()));
             });
             vbox.append(&row);
@@ -433,15 +423,26 @@ fn build_run_target_body(popover: &gtk4::Popover, on_pick: Rc<dyn Fn(RunTarget)>
     } else if mru.is_empty() {
         let none = Label::new(Some("No terminal panels in this workspace"));
         none.add_css_class("dim-label");
-        none.set_margin_start(8);
-        none.set_margin_end(8);
         none.set_margin_top(4);
         none.set_margin_bottom(4);
         none.set_halign(gtk4::Align::Start);
         vbox.append(&none);
     }
 
-    vbox
+    // Escape closes the dialog.
+    let key_ctrl = gtk4::EventControllerKey::new();
+    let win_for_esc = window.clone();
+    key_ctrl.connect_key_pressed(move |_, key, _, _| {
+        if key == gtk4::gdk::Key::Escape {
+            win_for_esc.close();
+            return gtk4::glib::Propagation::Stop;
+        }
+        gtk4::glib::Propagation::Proceed
+    });
+    window.add_controller(key_ctrl);
+
+    window.set_child(Some(&vbox));
+    window.present();
 }
 
 fn section_separator(text: &str) -> GtkBox {

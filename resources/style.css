@@ -280,10 +280,9 @@
 .notebook-status-running { color: @accent_color; opacity: 0.85; }
 .notebook-status-error   { color: #e06c75; opacity: 0.85; }
 .notebook-status-ok      { color: #98c379; opacity: 0.85; }
-/* Run-target picker popover (consolidated Run/Send button) */
-popover.notebook-target-popover > contents {
-    padding: 0;
-    min-width: 240px;
+/* Run-target picker dialog (consolidated Run/Send button) */
+window.notebook-target-dialog {
+    min-width: 320px;
 }
 button.notebook-target-row {
     padding: 6px 8px;
