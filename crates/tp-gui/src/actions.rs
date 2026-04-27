@@ -531,6 +531,36 @@ pub fn show_recent_dialog(
         }
         bottom_row.append(&new_window_btn);
 
+        // Forget this entry — purges only the recents-list metadata. The
+        // workspace's JSON file on disk is untouched. Closes and reopens
+        // the dialog so the deleted row disappears.
+        let delete_btn = gtk4::Button::new();
+        delete_btn.set_icon_name("user-trash-symbolic");
+        delete_btn.add_css_class("flat");
+        delete_btn.set_tooltip_text(Some("Remove from recent workspaces"));
+        {
+            let record = record.clone();
+            let sb_for_del = sb.clone();
+            let ws_for_del = ws.clone();
+            let win_for_del = window.clone();
+            let sa_for_del = save_action.clone();
+            let dialog_for_del = dialog.clone();
+            delete_btn.connect_clicked(move |_| {
+                let key = pax_db::Database::record_key_for(&record);
+                if let Ok(db) = pax_db::Database::open(&pax_db::Database::default_path()) {
+                    if let Err(e) = db.remove_workspace_by_key(&key) {
+                        sb_for_del
+                            .borrow()
+                            .set_message(&format!("Failed to remove recent: {}", e));
+                        return;
+                    }
+                }
+                dialog_for_del.close();
+                show_recent_dialog(&ws_for_del, &sb_for_del, &win_for_del, &sa_for_del);
+            });
+        }
+        bottom_row.append(&delete_btn);
+
         let open_btn = gtk4::Button::new();
         open_btn.set_icon_name("document-open-symbolic");
         open_btn.add_css_class("flat");

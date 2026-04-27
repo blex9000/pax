@@ -181,6 +181,18 @@ impl Database {
         )?;
         Ok(())
     }
+
+    /// Remove a single workspace record by its `record_key`. Preferred over
+    /// `remove_workspace(name)` when the caller has a `WorkspaceRecord` in
+    /// hand, because two records can share a name (different config paths)
+    /// and a name-based delete would wipe both.
+    pub fn remove_workspace_by_key(&self, record_key: &str) -> Result<()> {
+        self.conn.execute(
+            "DELETE FROM workspace_metadata WHERE record_key = ?1",
+            [record_key],
+        )?;
+        Ok(())
+    }
 }
 
 #[cfg(test)]

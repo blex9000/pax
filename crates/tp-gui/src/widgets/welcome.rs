@@ -306,6 +306,32 @@ fn populate_recent_row(
     }
     row_box.append(&new_window_btn);
 
+    // Forget this entry — purges only the recents-list metadata, the
+    // workspace's JSON file on disk is untouched. Triggers a repopulate so
+    // the row disappears immediately.
+    let delete_btn = gtk4::Button::new();
+    delete_btn.set_icon_name("user-trash-symbolic");
+    delete_btn.add_css_class("flat");
+    delete_btn.set_valign(gtk4::Align::Center);
+    delete_btn.set_tooltip_text(Some("Remove from recent workspaces"));
+    {
+        let record = record.clone();
+        let repopulate = repopulate.clone();
+        delete_btn.connect_clicked(move |_| {
+            let key = pax_db::Database::record_key_for(&record);
+            if let Ok(db) = pax_db::Database::open(&pax_db::Database::default_path()) {
+                if let Err(e) = db.remove_workspace_by_key(&key) {
+                    tracing::warn!("welcome: failed to remove recent workspace: {e}");
+                    return;
+                }
+            }
+            if let Some(repop) = repopulate.borrow().as_ref() {
+                repop();
+            }
+        });
+    }
+    row_box.append(&delete_btn);
+
     let row = gtk4::ListBoxRow::new();
     row.set_child(Some(&row_box));
     row.set_activatable(file_exists);
