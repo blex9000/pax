@@ -14,6 +14,8 @@ use gtk4::glib;
 use gtk4::prelude::*;
 use gtk4::{Box as GtkBox, Button, Image, Label, Orientation, Picture};
 
+use pax_core::notebook_tag::Lang;
+
 use crate::panels::terminal_registry;
 
 use super::engine::{CellId, NotebookEngine};
@@ -139,12 +141,8 @@ impl NotebookCell {
                         }
                         RunTarget::Terminal(term_id) => {
                             let code = engine_for_pick.cell_code(id).unwrap_or_default();
-                            let mut payload = Vec::with_capacity(code.len() + 1);
-                            payload.extend_from_slice(code.as_bytes());
-                            if !code.ends_with('\n') {
-                                payload.push(b'\n');
-                            }
-                            if terminal_registry::send(&term_id, &payload) {
+                            let payload = format_for_terminal(&code, spec_for_pick.lang);
+                            if terminal_registry::send(&term_id, payload.as_bytes()) {
                                 terminal_registry::mru_record(&term_id);
                             }
                         }
@@ -505,6 +503,22 @@ fn build_terminal_row(id: &str, name: &str) -> Button {
     body.append(&stack);
     row.set_child(Some(&body));
     row
+}
+
+/// Wrap the cell's source so it executes in the right interpreter no
+/// matter what shell the destination terminal is running. Uses a quoted
+/// heredoc (`<<'PAX_EOF'`) so the body is verbatim — no $-expansion, no
+/// backtick eval inside the user's terminal — and runs in a sub-shell
+/// (env mutations don't bleed). The trailing newline forces immediate
+/// execution as soon as bytes are fed into the PTY.
+fn format_for_terminal(code: &str, lang: Lang) -> String {
+    let interp = match lang {
+        Lang::Python => "python3",
+        Lang::Bash => "bash",
+        Lang::Sh => "sh",
+    };
+    let body = code.trim_end_matches('\n');
+    format!("{interp} <<'PAX_EOF'\n{body}\nPAX_EOF\n")
 }
 
 /// Minimal confirm dialog stub for the `confirm` tag.
