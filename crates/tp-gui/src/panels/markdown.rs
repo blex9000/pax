@@ -198,6 +198,7 @@ impl MarkdownPanel {
         let fmt_items: Vec<(&str, &str, &str)> = vec![
             ("format-text-bold-symbolic", "Bold", "**"),
             ("format-text-italic-symbolic", "Italic", "*"),
+            ("format-text-strikethrough-symbolic", "Strikethrough", "~~"),
             ("accessories-text-editor-symbolic", "Code", "`"),
         ];
         for (icon, tooltip, marker) in &fmt_items {
@@ -236,6 +237,87 @@ impl MarkdownPanel {
                 "view-grid-symbolic",
                 "Table",
                 "| Column 1 | Column 2 | Column 3 |\n|----------|----------|----------|\n| cell     | cell     | cell     |\n",
+            ),
+        ] {
+            let btn = gtk4::Button::new();
+            btn.set_icon_name(icon);
+            btn.add_css_class("flat");
+            btn.set_tooltip_text(Some(tooltip));
+            let t = text.to_string();
+            let br = edit_buf_ref.clone();
+            btn.connect_clicked(move |_| {
+                if let Some(ref buf) = *br.borrow() {
+                    insert_at_cursor_buf(buf, &t);
+                }
+            });
+            fmt_bar.append(&btn);
+        }
+
+        // ── Media / extras group ─────────────────────────────────────
+        // Image button opens a file dialog and inserts a relative path,
+        // so the user gets a working `![](path)` immediately. The other
+        // entries are template-insert helpers like the existing group.
+        fmt_bar.append(&gtk4::Separator::new(gtk4::Orientation::Vertical));
+        {
+            let img_btn = gtk4::Button::new();
+            img_btn.set_icon_name("insert-image-symbolic");
+            img_btn.add_css_class("flat");
+            img_btn.set_tooltip_text(Some("Insert image (file picker)"));
+            let br = edit_buf_ref.clone();
+            let parent_for_dialog = container.clone();
+            let host_path = file_path.to_string();
+            img_btn.connect_clicked(move |_| {
+                let dialog = gtk4::FileDialog::builder()
+                    .title("Select image")
+                    .modal(true)
+                    .build();
+                let filter = gtk4::FileFilter::new();
+                filter.set_name(Some("Images"));
+                for pat in ["*.png", "*.jpg", "*.jpeg", "*.gif", "*.webp", "*.svg"] {
+                    filter.add_pattern(pat);
+                }
+                let filters = gtk4::gio::ListStore::new::<gtk4::FileFilter>();
+                filters.append(&filter);
+                dialog.set_filters(Some(&filters));
+                let host_dir = std::path::Path::new(&host_path)
+                    .parent()
+                    .map(|p| p.to_path_buf());
+                let br = br.clone();
+                let parent_window = parent_for_dialog
+                    .root()
+                    .and_then(|r| r.downcast::<gtk4::Window>().ok());
+                dialog.open(parent_window.as_ref(), gtk4::gio::Cancellable::NONE, move |result| {
+                    if let Ok(file) = result {
+                        if let Some(path) = file.path() {
+                            // Relative path if the image lives under the
+                            // markdown file's directory; absolute otherwise.
+                            let rel = host_dir
+                                .as_ref()
+                                .and_then(|hd| path.strip_prefix(hd).ok())
+                                .map(|p| p.to_path_buf())
+                                .unwrap_or(path);
+                            let alt = rel
+                                .file_stem()
+                                .and_then(|s| s.to_str())
+                                .unwrap_or("image");
+                            let snippet = format!("![{}]({})", alt, rel.to_string_lossy());
+                            if let Some(ref buf) = *br.borrow() {
+                                insert_at_cursor_buf(buf, &snippet);
+                            }
+                        }
+                    }
+                });
+            });
+            fmt_bar.append(&img_btn);
+        }
+        for (icon, tooltip, text) in &[
+            ("format-indent-more-symbolic", "Quote", "> "),
+            ("list-remove-symbolic", "Horizontal rule", "\n---\n"),
+            ("emblem-ok-symbolic", "Task item", "- [ ] "),
+            (
+                "system-run-symbolic",
+                "Notebook cell (python run)",
+                "```python run\n\n```\n",
             ),
         ] {
             let btn = gtk4::Button::new();
