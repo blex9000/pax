@@ -338,33 +338,15 @@ impl MarkdownPanel {
         let notebook_engine: Rc<RefCell<Option<Rc<NotebookEngine>>>> =
             Rc::new(RefCell::new(None));
 
-        // Render closure that wires the notebook hook: each notebook cell
-        // encountered by the markdown renderer is registered with the engine
-        // (creating it lazily) and a `NotebookCell` widget is anchored at
-        // the renderer-provided `TextChildAnchor`.
+        // Render closure that wires the notebook hook via the shared
+        // `render_with_engine` free function (also reused by the file-watch
+        // timer and the public `reload` method, so cells survive every
+        // re-render path consistently).
         let render_with_notebook: Rc<dyn Fn(&str)> = {
             let rv = render_view.clone();
             let nb_engine_holder = notebook_engine.clone();
             Rc::new(move |content: &str| {
-                let engine_for_hook = nb_engine_holder.clone();
-                let rv_for_hook = rv.clone();
-                let mut hook = move |spec: &pax_core::notebook_tag::NotebookCellSpec,
-                                     body: &str,
-                                     anchor: &gtk4::TextChildAnchor| {
-                    let mut holder = engine_for_hook.borrow_mut();
-                    let engine = holder
-                        .get_or_insert_with(NotebookEngine::new)
-                        .clone();
-                    drop(holder);
-                    let id = engine.register_cell(spec.clone(), body.to_string());
-                    let cell = NotebookCell::new(engine, id);
-                    rv_for_hook.add_child_at_anchor(&cell.root, anchor);
-                };
-                crate::markdown_render::render_markdown_to_view_with_hook(
-                    &rv,
-                    content,
-                    Some(&mut hook),
-                );
+                render_with_engine(&rv, &nb_engine_holder, content);
             })
         };
 
@@ -583,6 +565,7 @@ impl MarkdownPanel {
             let ct = content.clone();
             let rv = render_view.clone();
             let m = mode.clone();
+            let nb_engine = notebook_engine.clone();
             let last_mtime = Rc::new(Cell::new(get_mtime(file_path)));
             glib::timeout_add_local(std::time::Duration::from_millis(500), move || {
                 if m.get() == Mode::Edit {
@@ -594,7 +577,11 @@ impl MarkdownPanel {
                     if let Ok(text) = std::fs::read_to_string(&fp) {
                         if text != *ct.borrow() {
                             *ct.borrow_mut() = text.clone();
-                            crate::markdown_render::render_markdown_to_view(&rv, &text);
+                            // External edit: drop old engine so stale cells +
+                            // their watch timers don't survive past the new
+                            // markdown body, then re-render through the hook.
+                            *nb_engine.borrow_mut() = None;
+                            render_with_engine(&rv, &nb_engine, &text);
                         }
                     }
                 }
@@ -617,9 +604,36 @@ impl MarkdownPanel {
 
     pub fn reload(&mut self) {
         if let Ok(text) = std::fs::read_to_string(&self.file_path) {
-            crate::markdown_render::render_markdown_to_view(&self.render_view, &text);
+            *self.notebook_engine.borrow_mut() = None;
+            render_with_engine(&self.render_view, &self.notebook_engine, &text);
         }
     }
+}
+
+/// Render `content` into `rv` while routing notebook cells through the
+/// engine: each fenced block whose info string parses as a notebook spec
+/// gets registered in (the lazily-created) engine, materialised as a
+/// `NotebookCell` widget, and anchored at the renderer-provided
+/// `TextChildAnchor`. Used by every render path (initial, theme observer,
+/// mode toggle, reload, file watch) so cells survive consistently.
+fn render_with_engine(
+    rv: &gtk4::TextView,
+    engine_holder: &Rc<RefCell<Option<Rc<NotebookEngine>>>>,
+    content: &str,
+) {
+    let engine_holder = engine_holder.clone();
+    let rv_for_hook = rv.clone();
+    let mut hook = move |spec: &pax_core::notebook_tag::NotebookCellSpec,
+                         body: &str,
+                         anchor: &gtk4::TextChildAnchor| {
+        let mut holder = engine_holder.borrow_mut();
+        let engine = holder.get_or_insert_with(NotebookEngine::new).clone();
+        drop(holder);
+        let id = engine.register_cell(spec.clone(), body.to_string());
+        let cell = NotebookCell::new(engine, id);
+        rv_for_hook.add_child_at_anchor(&cell.root, anchor);
+    };
+    crate::markdown_render::render_markdown_to_view_with_hook(rv, content, Some(&mut hook));
 }
 
 impl PanelBackend for MarkdownPanel {
