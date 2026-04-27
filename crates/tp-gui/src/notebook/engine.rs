@@ -56,6 +56,9 @@ struct CellState {
     /// seeing the previous run's content until the new one produces its
     /// first item — eliminates the empty-then-refill flicker on `watch`.
     replace_on_next_push: bool,
+    /// Wall-clock time of the last `Finished` event (success or kill).
+    /// Surfaced in the cell header; `None` until the cell has run once.
+    last_finished_at: Option<chrono::DateTime<chrono::Local>>,
 }
 
 pub struct NotebookEngine {
@@ -108,6 +111,10 @@ impl NotebookEngine {
         if let Some(c) = self.cells.borrow_mut().get_mut(&id) {
             c.subscribers.push(cb);
         }
+    }
+
+    pub fn last_finished_at(&self, id: CellId) -> Option<chrono::DateTime<chrono::Local>> {
+        self.cells.borrow().get(&id).and_then(|c| c.last_finished_at)
     }
 
     pub fn is_running(&self, id: CellId) -> bool {
@@ -254,6 +261,7 @@ impl NotebookEngine {
             if c.handle.take().is_some() {
                 ACTIVE_NOTEBOOK_PROCESSES.fetch_sub(1, Ordering::SeqCst);
             }
+            c.last_finished_at = Some(chrono::Local::now());
         }
         self.notify(id);
     }

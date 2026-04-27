@@ -12,7 +12,7 @@ use std::rc::Rc;
 
 use gtk4::glib;
 use gtk4::prelude::*;
-use gtk4::{Box as GtkBox, Button, Image, Label, Orientation, Picture};
+use gtk4::{Box as GtkBox, Button, Label, Orientation, Picture};
 
 use pax_core::notebook_tag::{ExecMode, Lang};
 
@@ -59,6 +59,7 @@ impl NotebookCell {
         });
 
         // ── Header ───────────────────────────────────────────────
+        // Layout: [badge]  ··· spacer ···  [watch info] [last-run] [▶] [⏹]
         let header = GtkBox::new(Orientation::Horizontal, 6);
         header.add_css_class("notebook-cell-header");
 
@@ -66,33 +67,34 @@ impl NotebookCell {
         lang_badge.add_css_class("notebook-lang-badge");
         header.append(&lang_badge);
 
+        let spacer = Label::new(None);
+        spacer.set_hexpand(true);
+        header.append(&spacer);
+
+        if let ExecMode::Watch { interval } = spec.mode {
+            let label = Label::new(Some(&format!("watch {}s", interval.as_secs_f64())));
+            label.add_css_class("notebook-meta");
+            header.append(&label);
+        }
+
+        let status = Label::new(None);
+        status.add_css_class("notebook-meta");
+        header.append(&status);
+
         let run_btn = Button::new();
         run_btn.set_icon_name("media-playback-start-symbolic");
         run_btn.add_css_class("flat");
+        run_btn.add_css_class("notebook-cell-btn");
         run_btn.set_tooltip_text(Some("Run cell"));
         header.append(&run_btn);
 
         let stop_btn = Button::new();
         stop_btn.set_icon_name("media-playback-stop-symbolic");
         stop_btn.add_css_class("flat");
+        stop_btn.add_css_class("notebook-cell-btn");
         stop_btn.set_tooltip_text(Some("Stop cell"));
         stop_btn.set_sensitive(false);
         header.append(&stop_btn);
-
-        let status = Image::from_icon_name("emblem-default-symbolic");
-        status.add_css_class("notebook-status-idle");
-        header.append(&status);
-
-        if let ExecMode::Watch { interval } = spec.mode {
-            let label = Label::new(Some(&format!("watch every {}s", interval.as_secs_f64())));
-            label.add_css_class("dim-label");
-            label.add_css_class("caption");
-            header.append(&label);
-        }
-
-        let spacer = Label::new(None);
-        spacer.set_hexpand(true);
-        header.append(&spacer);
 
         root.append(&header);
 
@@ -141,9 +143,10 @@ impl NotebookCell {
             let stop_btn = stop_btn.clone();
             let cb: Rc<dyn Fn()> = Rc::new(move || {
                 let Some(engine) = engine_weak.upgrade() else { return };
-                rebuild_output_box(&output_box, &engine.output_snapshot(id));
+                let snapshot = engine.output_snapshot(id);
+                rebuild_output_box(&output_box, &snapshot);
                 let running = engine.is_running(id);
-                update_status(&status, &engine.output_snapshot(id), running);
+                update_status(&status, &snapshot, running, engine.last_finished_at(id));
                 stop_btn.set_sensitive(running);
             });
             engine.subscribe_output(id, cb);
@@ -248,25 +251,31 @@ fn flush_markdown(container: &GtkBox, buf: &mut String) {
     buf.clear();
 }
 
-fn update_status(img: &Image, items: &[OutputItem], running: bool) {
-    img.remove_css_class("notebook-status-idle");
-    img.remove_css_class("notebook-status-running");
-    img.remove_css_class("notebook-status-ok");
-    img.remove_css_class("notebook-status-error");
+fn update_status(
+    label: &Label,
+    items: &[OutputItem],
+    running: bool,
+    last_finished_at: Option<chrono::DateTime<chrono::Local>>,
+) {
+    label.remove_css_class("notebook-status-running");
+    label.remove_css_class("notebook-status-error");
     if running {
-        img.set_icon_name(Some("content-loading-symbolic"));
-        img.add_css_class("notebook-status-running");
+        label.set_text("running…");
+        label.add_css_class("notebook-status-running");
         return;
     }
+    let stamp = last_finished_at.map(|t| t.format("%H:%M:%S").to_string());
     if items.iter().any(|i| matches!(i, OutputItem::Error(_))) {
-        img.set_icon_name(Some("dialog-error-symbolic"));
-        img.add_css_class("notebook-status-error");
-    } else if items.is_empty() {
-        img.set_icon_name(Some("emblem-default-symbolic"));
-        img.add_css_class("notebook-status-idle");
+        label.set_text(&match stamp {
+            Some(t) => format!("error · {}", t),
+            None => "error".to_string(),
+        });
+        label.add_css_class("notebook-status-error");
     } else {
-        img.set_icon_name(Some("object-select-symbolic"));
-        img.add_css_class("notebook-status-ok");
+        label.set_text(&match stamp {
+            Some(t) => format!("last run · {}", t),
+            None => "—".to_string(),
+        });
     }
 }
 
