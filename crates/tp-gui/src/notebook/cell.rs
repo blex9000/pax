@@ -102,15 +102,22 @@ impl NotebookCell {
         }
 
         // ── Output subscription ─────────────────────────────────
+        // The engine stores subscriber `Rc<dyn Fn()>` inside its own state,
+        // so capturing a strong `Rc<NotebookEngine>` here would form a
+        // self-cycle (engine → subscribers → engine). Capture a `Weak` and
+        // upgrade per fire — when the panel drops the last external Rc,
+        // upgrade fails and the callback becomes a no-op until the engine
+        // is fully destroyed.
         {
-            let engine_for_sub = engine.clone();
+            let engine_weak: std::rc::Weak<NotebookEngine> = Rc::downgrade(&engine);
             let output_box = output_box.clone();
             let status = status.clone();
             let stop_btn = stop_btn.clone();
             let cb: Rc<dyn Fn()> = Rc::new(move || {
-                rebuild_output_box(&output_box, &engine_for_sub.output_snapshot(id));
-                let running = engine_for_sub.is_running(id);
-                update_status(&status, &engine_for_sub.output_snapshot(id), running);
+                let Some(engine) = engine_weak.upgrade() else { return };
+                rebuild_output_box(&output_box, &engine.output_snapshot(id));
+                let running = engine.is_running(id);
+                update_status(&status, &engine.output_snapshot(id), running);
                 stop_btn.set_sensitive(running);
             });
             engine.subscribe_output(id, cb);
