@@ -8,7 +8,8 @@
 
 pub mod output;
 pub mod runner;
-// modules added in later tasks: engine, cell.
+pub mod engine;
+// added in later task: cell.
 
 pub const DEFAULT_RUN_TIMEOUT_SECS: u64 = 30;
 pub const MAX_NOTEBOOK_PROCESSES: usize = 8;
