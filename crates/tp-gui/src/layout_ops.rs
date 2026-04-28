@@ -1,5 +1,22 @@
 use pax_core::workspace::{new_tab_id, LayoutNode};
 
+/// Kind of immediate parent that contains a panel's siblings.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SiblingKind {
+    Hsplit,
+    Vsplit,
+    Tabs,
+}
+
+/// A panel's position within the innermost split/tabs that directly
+/// contains it. `None` from `panel_sibling_info` means root or only-child.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SiblingInfo {
+    pub kind: SiblingKind,
+    pub index: usize,
+    pub len: usize,
+}
+
 /// Log the full layout tree with paths for debugging.
 pub fn debug_layout_tree(node: &LayoutNode, path: &str) {
     match node {
@@ -620,6 +637,137 @@ pub fn move_tab_in_layout_steps(node: &mut LayoutNode, panel_id: &str, offset: i
         moved = true;
     }
     moved
+}
+
+/// Walk the tree and return the sibling info for the innermost
+/// split/tabs node that DIRECTLY contains the given panel as one of its
+/// children (a Panel node, not nested deeper). Returns `None` if the
+/// panel is the root, isn't found, or is the only child of its parent.
+pub fn panel_sibling_info(node: &LayoutNode, panel_id: &str) -> Option<SiblingInfo> {
+    fn walk(node: &LayoutNode, panel_id: &str) -> Option<SiblingInfo> {
+        match node {
+            LayoutNode::Panel { .. } => None,
+            LayoutNode::Hsplit { children, .. } => {
+                walk_container(children, panel_id, SiblingKind::Hsplit)
+            }
+            LayoutNode::Vsplit { children, .. } => {
+                walk_container(children, panel_id, SiblingKind::Vsplit)
+            }
+            LayoutNode::Tabs { children, .. } => {
+                walk_container(children, panel_id, SiblingKind::Tabs)
+            }
+        }
+    }
+    fn walk_container(
+        children: &[LayoutNode],
+        panel_id: &str,
+        kind: SiblingKind,
+    ) -> Option<SiblingInfo> {
+        // Recurse first so we always return the innermost match.
+        for c in children {
+            if let Some(info) = walk(c, panel_id) {
+                return Some(info);
+            }
+        }
+        // No deeper match — does this container directly hold the panel?
+        if children.len() < 2 {
+            return None;
+        }
+        for (i, c) in children.iter().enumerate() {
+            if matches!(c, LayoutNode::Panel { id } if id == panel_id) {
+                return Some(SiblingInfo {
+                    kind,
+                    index: i,
+                    len: children.len(),
+                });
+            }
+        }
+        None
+    }
+    walk(node, panel_id)
+}
+
+/// Swap the panel's position in its innermost containing
+/// Hsplit/Vsplit/Tabs with its previous (delta=-1) or next (delta=+1)
+/// sibling. For splits, ratios are reordered in lockstep; for tabs,
+/// labels and tab_ids too. Returns true on success.
+pub fn move_panel_in_split(node: &mut LayoutNode, panel_id: &str, delta: i32) -> bool {
+    if delta == 0 {
+        return false;
+    }
+    match node {
+        LayoutNode::Panel { .. } => false,
+        LayoutNode::Hsplit { children, ratios } => {
+            for child in children.iter_mut() {
+                if move_panel_in_split(child, panel_id, delta) {
+                    return true;
+                }
+            }
+            swap_direct_panel_in_split(children, Some(ratios), panel_id, delta)
+        }
+        LayoutNode::Vsplit { children, ratios } => {
+            for child in children.iter_mut() {
+                if move_panel_in_split(child, panel_id, delta) {
+                    return true;
+                }
+            }
+            swap_direct_panel_in_split(children, Some(ratios), panel_id, delta)
+        }
+        LayoutNode::Tabs {
+            children,
+            labels,
+            tab_ids,
+        } => {
+            for child in children.iter_mut() {
+                if move_panel_in_split(child, panel_id, delta) {
+                    return true;
+                }
+            }
+            for (i, c) in children.iter().enumerate() {
+                if matches!(c, LayoutNode::Panel { id } if id == panel_id) {
+                    let target = i as i32 + delta;
+                    if !(0..children.len() as i32).contains(&target) {
+                        return false;
+                    }
+                    let target = target as usize;
+                    children.swap(i, target);
+                    if i < labels.len() && target < labels.len() {
+                        labels.swap(i, target);
+                    }
+                    if i < tab_ids.len() && target < tab_ids.len() {
+                        tab_ids.swap(i, target);
+                    }
+                    return true;
+                }
+            }
+            false
+        }
+    }
+}
+
+fn swap_direct_panel_in_split(
+    children: &mut [LayoutNode],
+    ratios: Option<&mut Vec<f64>>,
+    panel_id: &str,
+    delta: i32,
+) -> bool {
+    for (i, c) in children.iter().enumerate() {
+        if matches!(c, LayoutNode::Panel { id } if id == panel_id) {
+            let target = i as i32 + delta;
+            if !(0..children.len() as i32).contains(&target) {
+                return false;
+            }
+            let target = target as usize;
+            children.swap(i, target);
+            if let Some(r) = ratios {
+                if i < r.len() && target < r.len() {
+                    r.swap(i, target);
+                }
+            }
+            return true;
+        }
+    }
+    false
 }
 
 #[cfg(test)]
