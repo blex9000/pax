@@ -119,6 +119,17 @@ fn start_open_file_watcher(
                         continue;
                     };
 
+                    let make_apply_reload = || -> Rc<dyn Fn(&str)> {
+                        let buf = buffer.clone();
+                        let saved = saved_cell.clone();
+                        Rc::new(move |content: &str| {
+                            *saved.borrow_mut() = content.to_string();
+                            buf.set_text(content);
+                            buf.set_enable_undo(false);
+                            buf.set_enable_undo(true);
+                        })
+                    };
+
                     if is_remote {
                         let disk_changed = change.content != *saved_cell.borrow();
                         if !disk_changed {
@@ -136,9 +147,8 @@ fn start_open_file_watcher(
                             show_conflict_bar(
                                 &info_bar_container_c,
                                 &open_file.path,
-                                &buffer,
-                                saved_cell.clone(),
                                 backend_for_apply.clone(),
+                                make_apply_reload(),
                             );
                         }
                         continue;
@@ -162,9 +172,8 @@ fn start_open_file_watcher(
                         show_conflict_bar(
                             &info_bar_container_c,
                             &open_file.path,
-                            &buffer,
-                            saved_cell.clone(),
                             backend_for_apply.clone(),
+                            make_apply_reload(),
                         );
                     }
                 }
@@ -320,11 +329,10 @@ fn collect_open_file_changes(
 fn show_conflict_bar(
     container: &gtk4::Box,
     path: &Path,
-    buffer: &sourceview5::Buffer,
-    saved_content: Rc<RefCell<String>>,
     backend: Arc<dyn FileBackend>,
+    apply_reload: Rc<dyn Fn(&str)>,
 ) {
-    // Remove any existing info bar
+    // Remove any existing info bar so we never stack two for the same tab.
     while let Some(child) = container.first_child() {
         container.remove(&child);
     }
@@ -345,24 +353,19 @@ fn show_conflict_bar(
     bar.add_button("Keep Mine", gtk4::ResponseType::Reject);
 
     let path_c = path.to_path_buf();
-    let buf_c = buffer.clone();
     let container_c = container.clone();
-    let saved_content_c = saved_content.clone();
     let backend_c = backend.clone();
+    let apply_reload_c = apply_reload.clone();
     bar.connect_response(move |bar, response| {
         if response == gtk4::ResponseType::Accept {
             let path_reload = path_c.clone();
-            let buf_reload = buf_c.clone();
-            let saved_reload = saved_content_c.clone();
             let backend_reload = backend_c.clone();
+            let apply = apply_reload_c.clone();
             run_blocking(
                 move || backend_reload.read_file(&path_reload),
                 move |result| {
                     if let Ok(content) = result {
-                        *saved_reload.borrow_mut() = content.clone();
-                        buf_reload.set_text(&content);
-                        buf_reload.set_enable_undo(false);
-                        buf_reload.set_enable_undo(true);
+                        apply(&content);
                     }
                 },
             );
