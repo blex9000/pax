@@ -10,10 +10,18 @@ use super::task::run_blocking;
 use super::EditorState;
 
 #[derive(Clone)]
+enum WatchedKind {
+    /// Source / Markdown tab — both have a writable buffer and saved content.
+    Text { saved_content: String },
+    /// Image tab — no content compare, mtime-only.
+    Image,
+}
+
+#[derive(Clone)]
 struct WatchedFileSnapshot {
     path: PathBuf,
-    saved_content: String,
     last_disk_mtime: u64,
+    kind: WatchedKind,
 }
 
 #[derive(Debug, Clone)]
@@ -21,6 +29,19 @@ struct FileChange {
     path: PathBuf,
     content: String,
     last_disk_mtime: u64,
+}
+
+/// Per-tab apply payload carried out of the immutable borrow on
+/// `open_file.content` so we can subsequently mutate `open_file` itself.
+enum ApplyKind {
+    Source {
+        buffer: sourceview5::Buffer,
+        saved: Rc<RefCell<String>>,
+    },
+    Markdown {
+        tab: super::tab_content::MarkdownTab,
+    },
+    Image,
 }
 
 /// Start all file watchers. Call once during CodeEditorPanel construction.
@@ -75,15 +96,22 @@ fn start_open_file_watcher(
             let st = state.borrow();
             st.open_files
                 .iter()
-                .filter_map(|open_file| {
-                    // Only source tabs participate in watcher-driven reload.
-                    // Markdown/Image tabs manage their own content separately.
-                    let saved = open_file.content.saved_content()?;
-                    Some(WatchedFileSnapshot {
+                .map(|open_file| {
+                    use super::tab_content::TabContent;
+                    let kind = match &open_file.content {
+                        TabContent::Source(s) => WatchedKind::Text {
+                            saved_content: s.saved_content.borrow().clone(),
+                        },
+                        TabContent::Markdown(m) => WatchedKind::Text {
+                            saved_content: m.saved_content.borrow().clone(),
+                        },
+                        TabContent::Image(_) => WatchedKind::Image,
+                    };
+                    WatchedFileSnapshot {
                         path: open_file.path.clone(),
-                        saved_content: saved.borrow().clone(),
                         last_disk_mtime: open_file.last_disk_mtime,
-                    })
+                        kind,
+                    }
                 })
                 .collect()
         };
@@ -111,70 +139,106 @@ fn start_open_file_watcher(
                         continue;
                     };
 
-                    // Non-source tabs (Markdown/Image) opt out of watcher reload.
-                    let Some(buffer) = open_file.content.source_buffer().cloned() else {
-                        continue;
-                    };
-                    let Some(saved_cell) = open_file.content.saved_content().cloned() else {
-                        continue;
-                    };
-
-                    let make_apply_reload = || -> Rc<dyn Fn(&str)> {
-                        let buf = buffer.clone();
-                        let saved = saved_cell.clone();
-                        Rc::new(move |content: &str| {
-                            *saved.borrow_mut() = content.to_string();
-                            buf.set_text(content);
-                            buf.set_enable_undo(false);
-                            buf.set_enable_undo(true);
-                        })
+                    use super::tab_content::TabContent;
+                    // Clone per-kind handles out so the borrow on
+                    // open_file.content ends before we mutate open_file
+                    // (last_disk_mtime, set_modified) below.
+                    let apply_kind = match &open_file.content {
+                        TabContent::Source(s) => ApplyKind::Source {
+                            buffer: s.buffer.clone(),
+                            saved: s.saved_content.clone(),
+                        },
+                        TabContent::Markdown(m) => ApplyKind::Markdown { tab: m.clone() },
+                        TabContent::Image(_) => ApplyKind::Image,
                     };
 
-                    if is_remote {
-                        let disk_changed = change.content != *saved_cell.borrow();
-                        if !disk_changed {
-                            continue;
+                    match apply_kind {
+                        ApplyKind::Source { buffer, saved } => {
+                            let disk_changed = if is_remote {
+                                change.content != *saved.borrow()
+                            } else if change.last_disk_mtime == 0
+                                || change.last_disk_mtime == open_file.last_disk_mtime
+                            {
+                                false
+                            } else {
+                                open_file.last_disk_mtime = change.last_disk_mtime;
+                                true
+                            };
+                            if !disk_changed {
+                                continue;
+                            }
+                            if !open_file.modified() {
+                                *saved.borrow_mut() = change.content.clone();
+                                sync_suppress.set(true);
+                                buffer.set_text(&change.content);
+                                sync_suppress.set(false);
+                                buffer.set_enable_undo(false);
+                                buffer.set_enable_undo(true);
+                                open_file.set_modified(false);
+                            } else {
+                                let apply_reload: Rc<dyn Fn(&str)> = {
+                                    let buf = buffer.clone();
+                                    let saved_c = saved.clone();
+                                    Rc::new(move |content: &str| {
+                                        *saved_c.borrow_mut() = content.to_string();
+                                        buf.set_text(content);
+                                        buf.set_enable_undo(false);
+                                        buf.set_enable_undo(true);
+                                    })
+                                };
+                                show_conflict_bar(
+                                    &info_bar_container_c,
+                                    &open_file.path,
+                                    backend_for_apply.clone(),
+                                    apply_reload,
+                                );
+                            }
                         }
-                        if !open_file.modified() {
-                            *saved_cell.borrow_mut() = change.content.clone();
-                            sync_suppress.set(true);
-                            buffer.set_text(&change.content);
-                            sync_suppress.set(false);
-                            buffer.set_enable_undo(false);
-                            buffer.set_enable_undo(true);
-                            open_file.set_modified(false);
-                        } else {
-                            show_conflict_bar(
-                                &info_bar_container_c,
-                                &open_file.path,
-                                backend_for_apply.clone(),
-                                make_apply_reload(),
-                            );
+                        ApplyKind::Markdown { tab } => {
+                            let disk_changed = if is_remote {
+                                change.content != *tab.saved_content.borrow()
+                            } else if change.last_disk_mtime == 0
+                                || change.last_disk_mtime == open_file.last_disk_mtime
+                            {
+                                false
+                            } else {
+                                open_file.last_disk_mtime = change.last_disk_mtime;
+                                true
+                            };
+                            if !disk_changed {
+                                continue;
+                            }
+                            if !open_file.modified() {
+                                super::markdown_view::reload_from_disk(&tab, &change.content);
+                                open_file.set_modified(false);
+                            } else {
+                                let md = tab.clone();
+                                let apply_reload: Rc<dyn Fn(&str)> = Rc::new(move |content: &str| {
+                                    super::markdown_view::reload_from_disk(&md, content);
+                                });
+                                show_conflict_bar(
+                                    &info_bar_container_c,
+                                    &open_file.path,
+                                    backend_for_apply.clone(),
+                                    apply_reload,
+                                );
+                            }
                         }
-                        continue;
-                    }
-
-                    if change.last_disk_mtime == 0
-                        || change.last_disk_mtime == open_file.last_disk_mtime
-                    {
-                        continue;
-                    }
-                    open_file.last_disk_mtime = change.last_disk_mtime;
-                    if !open_file.modified() {
-                        *saved_cell.borrow_mut() = change.content.clone();
-                        sync_suppress.set(true);
-                        buffer.set_text(&change.content);
-                        sync_suppress.set(false);
-                        buffer.set_enable_undo(false);
-                        buffer.set_enable_undo(true);
-                        open_file.set_modified(false);
-                    } else {
-                        show_conflict_bar(
-                            &info_bar_container_c,
-                            &open_file.path,
-                            backend_for_apply.clone(),
-                            make_apply_reload(),
-                        );
+                        ApplyKind::Image => {
+                            if is_remote {
+                                continue;
+                            }
+                            if change.last_disk_mtime == 0
+                                || change.last_disk_mtime == open_file.last_disk_mtime
+                            {
+                                continue;
+                            }
+                            open_file.last_disk_mtime = change.last_disk_mtime;
+                            // Re-borrow content to access the picture handle.
+                            if let TabContent::Image(img) = &open_file.content {
+                                super::image_view::reload_from_disk(img, &open_file.path);
+                            }
+                        }
                     }
                 }
             },
@@ -296,29 +360,48 @@ fn collect_open_file_changes(
     let mut changes = Vec::new();
 
     for snapshot in snapshots {
-        if is_remote {
-            if let Ok(content) = backend.read_file(&snapshot.path) {
-                if content != snapshot.saved_content {
+        match &snapshot.kind {
+            WatchedKind::Text { saved_content } => {
+                if is_remote {
+                    if let Ok(content) = backend.read_file(&snapshot.path) {
+                        if &content != saved_content {
+                            changes.push(FileChange {
+                                path: snapshot.path.clone(),
+                                content,
+                                last_disk_mtime: 0,
+                            });
+                        }
+                    }
+                    continue;
+                }
+
+                let current_mtime = get_mtime(&snapshot.path);
+                if current_mtime == 0 || current_mtime == snapshot.last_disk_mtime {
+                    continue;
+                }
+                if let Ok(content) = backend.read_file(&snapshot.path) {
                     changes.push(FileChange {
                         path: snapshot.path.clone(),
                         content,
-                        last_disk_mtime: 0,
+                        last_disk_mtime: current_mtime,
                     });
                 }
             }
-            continue;
-        }
-
-        let current_mtime = get_mtime(&snapshot.path);
-        if current_mtime == 0 || current_mtime == snapshot.last_disk_mtime {
-            continue;
-        }
-        if let Ok(content) = backend.read_file(&snapshot.path) {
-            changes.push(FileChange {
-                path: snapshot.path.clone(),
-                content,
-                last_disk_mtime: current_mtime,
-            });
+            WatchedKind::Image => {
+                // Image tabs are local-only (open_image_file refuses remote).
+                if is_remote {
+                    continue;
+                }
+                let current_mtime = get_mtime(&snapshot.path);
+                if current_mtime == 0 || current_mtime == snapshot.last_disk_mtime {
+                    continue;
+                }
+                changes.push(FileChange {
+                    path: snapshot.path.clone(),
+                    content: String::new(),
+                    last_disk_mtime: current_mtime,
+                });
+            }
         }
     }
 
@@ -501,8 +584,10 @@ mod tests {
         let changes = collect_open_file_changes(
             &[WatchedFileSnapshot {
                 path: path.clone(),
-                saved_content: "before\n".to_string(),
                 last_disk_mtime: 0,
+                kind: WatchedKind::Text {
+                    saved_content: "before\n".to_string(),
+                },
             }],
             &backend,
             false,
@@ -522,8 +607,10 @@ mod tests {
         let changes = collect_open_file_changes(
             &[WatchedFileSnapshot {
                 path: path.clone(),
-                saved_content: "local\n".to_string(),
                 last_disk_mtime: 0,
+                kind: WatchedKind::Text {
+                    saved_content: "local\n".to_string(),
+                },
             }],
             &backend,
             true,
