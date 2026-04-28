@@ -2,7 +2,7 @@
 Name=Pax
 Comment=Pax bundled application icon theme
 Inherits=Adwaita,hicolor
-Directories=scalable/apps,symbolic/actions,symbolic/apps,symbolic/categories,symbolic/devices,symbolic/emblems,symbolic/legacy,symbolic/mimetypes,symbolic/places,symbolic/status,symbolic/ui
+Directories=scalable/apps,symbolic/actions,symbolic/apps,symbolic/categories,symbolic/devices,symbolic/emblems,symbolic/emotes,symbolic/legacy,symbolic/mimetypes,symbolic/places,symbolic/status,symbolic/ui
 
 [scalable/apps]
 Size=128
@@ -43,6 +43,13 @@ MinSize=16
 MaxSize=16
 Type=Scalable
 Context=Emblems
+
+[symbolic/emotes]
+Size=16
+MinSize=16
+MaxSize=16
+Type=Scalable
+Context=Emotes
 
 [symbolic/legacy]
 Size=16
