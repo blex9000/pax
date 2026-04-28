@@ -372,3 +372,17 @@ fn prepend_line(buf: &gtk4::TextBuffer, prefix: &str) {
 fn insert_at_cursor(buf: &gtk4::TextBuffer, text: &str) {
     buf.insert(&mut buf.iter_at_mark(&buf.get_insert()), text);
 }
+
+/// Apply external file content to a markdown tab: update the saved snapshot,
+/// replace the source buffer, clear undo, and re-render the rendered view if
+/// currently in Rendered mode. The connect_changed handler wired in
+/// editor_tabs.rs sees `current == saved` and clears the dirty flag.
+pub fn reload_from_disk(tab: &MarkdownTab, content: &str) {
+    *tab.saved_content.borrow_mut() = content.to_string();
+    tab.buffer.set_text(content);
+    tab.buffer.set_enable_undo(false);
+    tab.buffer.set_enable_undo(true);
+    if tab.mode.get() == MarkdownMode::Rendered {
+        crate::markdown_render::render_markdown_to_view(&tab.rendered_view, content);
+    }
+}

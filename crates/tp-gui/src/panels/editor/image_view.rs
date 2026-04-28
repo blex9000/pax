@@ -261,3 +261,11 @@ fn human_size(bytes: u64) -> String {
         format!("{} B", bytes)
     }
 }
+
+/// Re-point the tab's `Picture` at the (possibly changed) file on disk.
+/// Image tabs have no local-edits concept, so this is always a silent reload.
+/// `natural_width`/`natural_height` and zoom are intentionally left alone:
+/// re-querying the paintable here would race the new pixbuf load.
+pub fn reload_from_disk(tab: &ImageTab, path: &std::path::Path) {
+    tab.picture.set_filename(Some(path));
+}
