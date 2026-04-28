@@ -10,7 +10,7 @@ use crate::backend_factory::{
 };
 use crate::focus::FocusManager;
 use crate::layout_ops::{remove_from_layout, replace_in_layout};
-use crate::panel_host::{PanelActionCallback, PanelHost};
+use crate::panel_host::{PanelActionCallback, PanelHost, SiblingInfoProvider};
 use crate::panels::chooser::{ChooserPanel, OnTypeChosen};
 use crate::panels::registry::{self, PanelCreateConfig, PanelRegistry};
 use crate::widget_builder::*;
@@ -51,6 +51,7 @@ pub struct WorkspaceView {
     config_path: Option<PathBuf>,
     next_panel_id: usize,
     action_cb: Option<PanelActionCallback>,
+    sibling_info_provider: Option<SiblingInfoProvider>,
     registry: PanelRegistry,
     on_type_chosen: Option<OnTypeChosen>,
     layout_change_cb: Option<Rc<dyn Fn()>>,
@@ -140,6 +141,7 @@ impl WorkspaceView {
             config_path: config_path.map(|p| p.to_path_buf()),
             next_panel_id,
             action_cb: None,
+            sibling_info_provider: None,
             registry,
             on_type_chosen: None,
             layout_change_cb: None,
@@ -203,6 +205,7 @@ impl WorkspaceView {
 
         for panel_cfg in &ws.panels {
             let host = PanelHost::new(&panel_cfg.id, &panel_cfg.name, self.action_cb.clone());
+            self.wire_sibling_info_provider_on(&host);
             if panel_cfg.effective_type() == PanelType::Empty {
                 let chooser =
                     ChooserPanel::new(&panel_cfg.id, &registry, self.on_type_chosen.clone());
@@ -854,6 +857,25 @@ impl WorkspaceView {
         &self.registry
     }
 
+    /// Install the SiblingInfoProvider on all current and future hosts so
+    /// the panel menu reflects the live layout.
+    pub fn set_sibling_info_provider(&mut self, provider: SiblingInfoProvider) {
+        self.sibling_info_provider = Some(provider.clone());
+        for host in self.hosts.values() {
+            host.set_sibling_info_provider(provider.clone());
+        }
+    }
+
+    /// Install the currently-stored sibling info provider on a freshly
+    /// created `PanelHost`. Callers (split, add_tab, etc.) invoke this
+    /// after `PanelHost::new` so the new host's ⋮ menu shows Move items
+    /// with up-to-date layout context.
+    fn wire_sibling_info_provider_on(&self, host: &PanelHost) {
+        if let Some(ref provider) = self.sibling_info_provider {
+            host.set_sibling_info_provider(provider.clone());
+        }
+    }
+
     /// Set the action callback for panel menus. Must be called after wrapping in Rc<RefCell<>>.
     /// Propagates to all existing hosts and updates notebook widgets.
     pub fn set_action_callback(&mut self, cb: PanelActionCallback) {
@@ -1195,6 +1217,7 @@ impl WorkspaceView {
             ssh: None,
         };
         let host = PanelHost::new(&new_id, &new_name, self.action_cb.clone());
+        self.wire_sibling_info_provider_on(&host);
         let backend = self.create_chooser_backend(&new_id);
         host.set_backend(backend);
 
@@ -1225,6 +1248,7 @@ impl WorkspaceView {
 
         let new_cfg = self.make_empty_config(&new_id, &new_name);
         let host = PanelHost::new(&new_id, &new_name, self.action_cb.clone());
+        self.wire_sibling_info_provider_on(&host);
         let backend = self.create_chooser_backend(&new_id);
         host.set_backend(backend);
 
@@ -1259,6 +1283,7 @@ impl WorkspaceView {
 
         let new_cfg = self.make_empty_config(&new_id, &new_name);
         let host = PanelHost::new(&new_id, &new_name, self.action_cb.clone());
+        self.wire_sibling_info_provider_on(&host);
         let backend = self.create_chooser_backend(&new_id);
         host.set_backend(backend);
 
@@ -1297,6 +1322,7 @@ impl WorkspaceView {
 
         let new_cfg = self.make_empty_config(&new_id, &new_name);
         let host = PanelHost::new(&new_id, &new_name, self.action_cb.clone());
+        self.wire_sibling_info_provider_on(&host);
         let backend = self.create_chooser_backend(&new_id);
         host.set_backend(backend);
 
@@ -1410,6 +1436,7 @@ impl WorkspaceView {
             });
             let backend = self.create_chooser_backend(&new_id);
             let host = PanelHost::new(&new_id, &new_config.name, self.action_cb.clone());
+            self.wire_sibling_info_provider_on(&host);
             host.set_backend(backend);
             self.hosts.insert(new_id.clone(), host);
             self.workspace.panels.push(new_config);

@@ -1485,15 +1485,54 @@ fn setup_workspace_ui(
                 | PanelAction::PreviewTabMove { .. }
                 | PanelAction::CommitTabEdit { .. }
                 | PanelAction::CancelTabEdit { .. } => {}
-                // Wired in Task 5 (panel sibling reordering plan).
-                PanelAction::MoveLeft
-                | PanelAction::MoveRight
-                | PanelAction::MoveUp
-                | PanelAction::MoveDown => {}
+                PanelAction::MoveLeft => {
+                    if ws_for_cb
+                        .borrow_mut()
+                        .move_focused_panel(crate::workspace_view::MoveDirection::Left)
+                    {
+                        sb_for_cb.borrow().set_message("Move Left");
+                    }
+                }
+                PanelAction::MoveRight => {
+                    if ws_for_cb
+                        .borrow_mut()
+                        .move_focused_panel(crate::workspace_view::MoveDirection::Right)
+                    {
+                        sb_for_cb.borrow().set_message("Move Right");
+                    }
+                }
+                PanelAction::MoveUp => {
+                    if ws_for_cb
+                        .borrow_mut()
+                        .move_focused_panel(crate::workspace_view::MoveDirection::Up)
+                    {
+                        sb_for_cb.borrow().set_message("Move Up");
+                    }
+                }
+                PanelAction::MoveDown => {
+                    if ws_for_cb
+                        .borrow_mut()
+                        .move_focused_panel(crate::workspace_view::MoveDirection::Down)
+                    {
+                        sb_for_cb.borrow().set_message("Move Down");
+                    }
+                }
             }
             actions::update_dirty_ui(&ws_for_cb, &win_for_cb, &sa_for_cb);
         });
         ws_view.borrow_mut().set_action_callback(cb);
+
+        // Install the sibling-info provider so each panel's ⋮ menu can
+        // ask the workspace which Move items to show, based on the panel's
+        // current parent kind and position.
+        {
+            let ws_for_provider = ws_view.clone();
+            let provider: crate::panel_host::SiblingInfoProvider =
+                Rc::new(move |panel_id: &str| {
+                    ws_for_provider.borrow().panel_sibling_info(panel_id)
+                });
+            ws_view.borrow_mut().set_sibling_info_provider(provider);
+        }
     }
 
     {
