@@ -1194,38 +1194,36 @@ fn setup_paned_ratio(paned: &gtk4::Paned, ratio: f64, orientation: gtk4::Orienta
     //   - self-disable after the first successful application so the user
     //     can subsequently drag without us fighting them.
     paned.set_position((ratio * 800.0).round() as i32);
+    tracing::debug!(
+        "setup_paned_ratio: ratio={} placeholder_pos={} orient={:?}",
+        ratio,
+        (ratio * 800.0).round() as i32,
+        orientation,
+    );
 
-    let applied = std::rc::Rc::new(std::cell::Cell::new(false));
-    let try_apply: std::rc::Rc<dyn Fn(&gtk4::Paned)> = {
-        let applied = applied.clone();
-        std::rc::Rc::new(move |paned: &gtk4::Paned| {
-            if applied.get() {
-                return;
-            }
-            let alloc = paned.allocation();
-            let total = match orientation {
-                gtk4::Orientation::Horizontal => alloc.width(),
-                _ => alloc.height(),
-            };
-            if total > 0 {
-                applied.set(true);
-                paned.set_position((ratio * total as f64).round() as i32);
-            }
-        })
-    };
-
-    {
-        let f = try_apply.clone();
-        paned.connect_realize(move |p| f(p));
-    }
-    {
-        let f = try_apply.clone();
-        paned.connect_notify_local(Some("allocated-width"), move |p, _| f(p));
-    }
-    {
-        let f = try_apply.clone();
-        paned.connect_notify_local(Some("allocated-height"), move |p, _| f(p));
-    }
+    // Tick-callback fires every frame while the paned is mapped. We poll
+    // until we see a non-zero allocation, apply round(ratio * total),
+    // then stop. This is the most robust pattern in gtk4-rs because
+    // `allocated-width` / `allocated-height` are not property notifications
+    // and `connect_realize` fires before the first allocation pass.
+    paned.add_tick_callback(move |paned, _| {
+        let alloc = paned.allocation();
+        let total = match orientation {
+            gtk4::Orientation::Horizontal => alloc.width(),
+            _ => alloc.height(),
+        };
+        if total > 0 {
+            let pos = (ratio * total as f64).round() as i32;
+            paned.set_position(pos);
+            tracing::debug!(
+                "setup_paned_ratio APPLIED: ratio={} total={} pos={}",
+                ratio, total, pos,
+            );
+            gtk4::glib::ControlFlow::Break
+        } else {
+            gtk4::glib::ControlFlow::Continue
+        }
+    });
 }
 
 fn build_paned(
@@ -1971,10 +1969,22 @@ pub fn sync_ratios_recursive(widget: &gtk4::Widget, node: &mut LayoutNode) {
                 } else {
                     alloc.height()
                 };
+                tracing::debug!(
+                    "sync_ratios: paned orient={:?} pos={} total={} children={} model_ratios={:?}",
+                    paned.orientation(),
+                    paned.position(),
+                    total,
+                    children.len(),
+                    ratios,
+                );
                 if total > 0 {
                     let pos = paned.position();
                     let r1 = pos as f64 / total as f64;
                     let r2 = 1.0 - r1;
+                    tracing::debug!(
+                        "sync_ratios: writing ratios=[{}, {}]",
+                        r1, r2
+                    );
                     if children.len() == 2 {
                         if ratios.len() >= 2 {
                             ratios[0] = r1;
