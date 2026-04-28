@@ -8,6 +8,7 @@
 
 use gtk4::prelude::*;
 use pulldown_cmark::{CodeBlockKind, Event, HeadingLevel, Options, Parser, Tag, TagEnd};
+use unicode_width::UnicodeWidthStr;
 
 // Code block backgrounds — slight contrast against each theme family's main
 // surface, without overriding the default text foreground (so GTK keeps
@@ -106,13 +107,17 @@ pub(crate) fn render_markdown_to_view_with_hook(
         t.set_foreground(Some("#666666"));
         t.set_size_points(6.0);
     });
+    // Use character-level background (set_background) instead of
+    // paragraph_background so the highlight covers exactly the table's
+    // width — the box-drawing chars plus padded cell text — not the full
+    // viewport row.
     ensure("table", &|t| {
         t.set_family(Some("monospace"));
-        t.set_paragraph_background(Some(code_bg));
+        t.set_background(Some(code_bg));
     });
     ensure("table_header", &|t| {
         t.set_family(Some("monospace"));
-        t.set_paragraph_background(Some(code_bg));
+        t.set_background(Some(code_bg));
         t.set_weight(700);
     });
 
@@ -588,7 +593,7 @@ fn render_table(buf: &gtk4::TextBuffer, it: &mut gtk4::TextIter, t: &TableState)
     let mut widths = vec![0_usize; n_cols];
     for row in &t.rows {
         for (c, cell) in row.iter().enumerate() {
-            widths[c] = widths[c].max(cell.chars().count());
+            widths[c] = widths[c].max(cell.width());
         }
     }
 
@@ -596,7 +601,7 @@ fn render_table(buf: &gtk4::TextBuffer, it: &mut gtk4::TextIter, t: &TableState)
         let mut out = String::from("│ ");
         for c in 0..n_cols {
             let cell = row.get(c).map(String::as_str).unwrap_or("");
-            let pad = widths[c].saturating_sub(cell.chars().count());
+            let pad = widths[c].saturating_sub(cell.width());
             out.push_str(cell);
             out.push_str(&" ".repeat(pad));
             out.push_str(if c + 1 == n_cols { " │" } else { " │ " });
