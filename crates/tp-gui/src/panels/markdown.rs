@@ -179,6 +179,12 @@ impl MarkdownPanel {
         toolbar.append(&file_label);
         container.append(&toolbar);
 
+        // Conflict bar slot: shown only when an external change collides with
+        // a dirty edit-mode buffer. Lives between the toolbar and the content
+        // stack so it stays out of the way until needed.
+        let conflict_bar_slot = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
+        container.append(&conflict_bar_slot);
+
         // Help button: opens the notebook help dialog.
         {
             let parent = container.clone();
@@ -646,32 +652,65 @@ impl MarkdownPanel {
             });
         }
 
-        // ── File watch (500ms, render mode only) ─────────────────────────
+        // ── File watch (500ms): silent reload when clean, conflict bar when dirty ─
         {
             let fp = file_path.to_string();
             let ct = content.clone();
             let rv = render_view.clone();
             let m = mode.clone();
+            let mod_flag = modified.clone();
+            let sbuf = source_buffer.clone();
+            let sb = save_btn.clone();
+            let suppress = suppress_emit.clone();
             let nb_engine = notebook_engine.clone();
+            let bar_slot = conflict_bar_slot.clone();
             let last_mtime = Rc::new(Cell::new(get_mtime(file_path)));
             glib::timeout_add_local(std::time::Duration::from_millis(500), move || {
-                if m.get() == Mode::Edit {
+                let mtime = get_mtime(&fp);
+                if mtime == 0 || mtime == last_mtime.get() {
                     return glib::ControlFlow::Continue;
                 }
-                let mtime = get_mtime(&fp);
-                if mtime != last_mtime.get() {
-                    last_mtime.set(mtime);
-                    if let Ok(text) = std::fs::read_to_string(&fp) {
-                        if text != *ct.borrow() {
-                            *ct.borrow_mut() = text.clone();
-                            // External edit: drop old engine so stale cells +
-                            // their watch timers don't survive past the new
-                            // markdown body, then re-render through the hook.
-                            *nb_engine.borrow_mut() = None;
-                            render_with_engine(&rv, &nb_engine, &text);
-                        }
-                    }
+                last_mtime.set(mtime);
+                let Ok(text) = std::fs::read_to_string(&fp) else {
+                    return glib::ControlFlow::Continue;
+                };
+                if text == *ct.borrow() {
+                    return glib::ControlFlow::Continue;
                 }
+
+                let dirty_in_edit = m.get() == Mode::Edit && mod_flag.get();
+                if !dirty_in_edit {
+                    // Silent reload: update content + the appropriate view.
+                    *ct.borrow_mut() = text.clone();
+                    if m.get() == Mode::Render {
+                        *nb_engine.borrow_mut() = None;
+                        render_with_engine(&rv, &nb_engine, &text);
+                    } else {
+                        // Edit mode but clean: replace buffer text. The
+                        // connect_changed handler clears dirty when text == content.
+                        suppress.set(true);
+                        sbuf.set_text(&text);
+                        suppress.set(false);
+                        mod_flag.set(false);
+                        sb.set_sensitive(false);
+                    }
+                    return glib::ControlFlow::Continue;
+                }
+
+                // Conflict: surface the InfoBar.
+                show_markdown_conflict_bar(
+                    &bar_slot,
+                    &fp,
+                    text.clone(),
+                    ct.clone(),
+                    sbuf.clone(),
+                    mod_flag.clone(),
+                    sb.clone(),
+                    suppress.clone(),
+                    rv.clone(),
+                    nb_engine.clone(),
+                    m.clone(),
+                );
                 glib::ControlFlow::Continue
             });
         }
@@ -795,4 +834,69 @@ fn get_mtime(path: &str) -> u64 {
                 .as_secs()
         })
         .unwrap_or(0)
+}
+
+#[allow(clippy::too_many_arguments)]
+#[allow(deprecated)]
+fn show_markdown_conflict_bar(
+    slot: &gtk4::Box,
+    file_path: &str,
+    new_content: String,
+    content: Rc<RefCell<String>>,
+    source_buffer: gtk4::TextBuffer,
+    mod_flag: Rc<Cell<bool>>,
+    save_btn: gtk4::Button,
+    suppress: Rc<Cell<bool>>,
+    render_view: gtk4::TextView,
+    notebook_engine: Rc<RefCell<Option<Rc<NotebookEngine>>>>,
+    mode: Rc<Cell<Mode>>,
+) {
+    // Replace any previous bar so we don't stack one per tick.
+    while let Some(child) = slot.first_child() {
+        slot.remove(&child);
+    }
+
+    let bar = gtk4::InfoBar::new();
+    bar.set_message_type(gtk4::MessageType::Warning);
+    bar.set_show_close_button(true);
+
+    let name = std::path::Path::new(file_path)
+        .file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        .unwrap_or_default();
+    let label = gtk4::Label::new(Some(&format!("\"{}\" changed on disk.", name)));
+    bar.add_child(&label);
+    bar.add_button("Reload", gtk4::ResponseType::Accept);
+    bar.add_button("Keep Mine", gtk4::ResponseType::Reject);
+
+    let slot_c = slot.clone();
+    bar.connect_response(move |bar, response| {
+        if response == gtk4::ResponseType::Accept {
+            *content.borrow_mut() = new_content.clone();
+            mod_flag.set(false);
+            save_btn.set_sensitive(false);
+            if mode.get() == Mode::Render {
+                *notebook_engine.borrow_mut() = None;
+                render_with_engine(&render_view, &notebook_engine, &new_content);
+            } else {
+                suppress.set(true);
+                source_buffer.set_text(&new_content);
+                suppress.set(false);
+            }
+        }
+        // "Keep Mine" path falls through: just dismiss the bar.
+        // last_mtime was already advanced by the caller, so the bar won't
+        // reappear until the file changes again.
+        slot_c.remove(bar);
+    });
+
+    bar.connect_close(move |bar| {
+        if let Some(parent) = bar.parent() {
+            if let Some(bx) = parent.downcast_ref::<gtk4::Box>() {
+                bx.remove(bar);
+            }
+        }
+    });
+
+    slot.append(&bar);
 }
