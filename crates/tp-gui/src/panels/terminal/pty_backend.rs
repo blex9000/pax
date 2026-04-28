@@ -1087,11 +1087,15 @@ fn measure_cell_metrics<W: IsA<gtk4::Widget>>(widget: &W) -> Option<CellMetrics>
 }
 
 fn install_shell_bootstrap(writer: &Arc<Mutex<Box<dyn Write + Send>>>) {
-    // Shared payload with the VTE backend. Both switches on: the PTY
-    // reader scans OSC 7 from the raw stream to drive the footer, and
-    // the minimal `$:` prompt matches what VTE shows.
+    // Shared payload with the VTE backend. PTY runs the bootstrap
+    // BEFORE the user's shell rc has loaded (we write directly to the
+    // master fd), so any PS1 we set here gets clobbered by .bashrc /
+    // .zshrc — and on zsh the bash-style escapes in the override would
+    // render as literal text. Keep the user's prompt; we still want the
+    // OSC 7 emission for the footer and the OSC 133 hooks for the
+    // command-running indicator.
     let cfg = BootstrapConfig {
-        override_ps1: true,
+        override_ps1: false,
         emit_osc7: true,
     };
     for command in bootstrap_lines(&cfg) {
