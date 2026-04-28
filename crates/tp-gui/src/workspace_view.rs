@@ -768,41 +768,18 @@ impl WorkspaceView {
                 _ => PanelType::Terminal,
             };
             panel_cfg.name = format!("{}", type_id);
-            // Update tab label in layout model
-            crate::layout_ops::update_tab_label_in_layout(
-                &mut self.workspace.layout,
-                panel_id,
-                type_id,
-            );
+            // Note: we deliberately do NOT touch tab labels here. Tab names
+            // are user-controlled (renamed via the tab UI), and
+            // update_tab_label_in_layout walks ancestors via is_panel_with_id
+            // — picking a chooser type for a panel inside a Hsplit inside a
+            // Tabs would clobber the outer tab's label. Panel type vs tab
+            // label are separate concerns.
         }
 
         // Update host title and icon (no rebuild — would destroy the new backend)
         if let Some(host) = self.hosts.get(panel_id) {
             host.set_title(type_id);
             host.set_type_icon(type_id);
-            // Update tab label in Notebook widget if inside one
-            let widget = host.widget().clone();
-            if let Some(notebook) = find_notebook_ancestor(&widget) {
-                let edit_state = self.current_tab_label_edit_state();
-                let tab_id = notebook
-                    .tab_label(&widget)
-                    .and_then(|label| {
-                        crate::widget_builder::decode_tab_label_metadata(&label.widget_name())
-                            .map(|(tab_id, _, _)| tab_id)
-                    })
-                    .unwrap_or_else(new_tab_id);
-                let new_label = build_tab_label(
-                    type_id,
-                    type_id,
-                    &self.action_cb,
-                    &widget,
-                    edit_state.as_ref(),
-                    &tab_id,
-                    &[],
-                    Some(host),
-                );
-                notebook.set_tab_label(&widget, Some(&new_label));
-            }
         }
         // markdown and code_editor need configuration first
         matches!(type_id, "markdown" | "code_editor")
