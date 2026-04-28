@@ -302,12 +302,11 @@ impl WorkspaceView {
             panel_cfg.min_height = min_height;
         }
 
-        // Update title + tab label
-        crate::layout_ops::update_tab_label_in_layout(
-            &mut self.workspace.layout,
-            panel_id,
-            &new_name,
-        );
+        // Update host title only — tab labels are user-controlled (renamed
+        // via the tab UI) and update_tab_label_in_layout walks ancestors via
+        // is_panel_with_id (recursive), so a rename here would clobber the
+        // outer tab when the panel is nested inside Hsplit/Vsplit. Panel
+        // name vs tab label are separate concerns.
         if let Some(host) = self.hosts.get(panel_id) {
             host.set_title(&new_name);
         }
@@ -1633,8 +1632,11 @@ impl WorkspaceView {
 }
 
 fn rename_panel_model(workspace: &mut Workspace, panel_id: &str, new_name: &str) -> bool {
-    let mut changed = false;
-
+    // Only touches `panel_cfg.name` (the panel's own display name shown in
+    // the host title bar). Tab labels are user-controlled via the tab
+    // rename UI and intentionally not synced here — `update_tab_label_in_layout`
+    // walks ancestors recursively, so syncing would clobber an outer Tabs
+    // label whenever the panel is nested inside Hsplit/Vsplit.
     if let Some(panel_cfg) = workspace
         .panels
         .iter_mut()
@@ -1642,15 +1644,10 @@ fn rename_panel_model(workspace: &mut Workspace, panel_id: &str, new_name: &str)
     {
         if panel_cfg.name != new_name {
             panel_cfg.name = new_name.to_string();
-            changed = true;
+            return true;
         }
     }
-
-    if rename_tab_label_model(&mut workspace.layout, panel_id, new_name) {
-        changed = true;
-    }
-
-    changed
+    false
 }
 
 fn rename_tab_label_model(layout: &mut LayoutNode, panel_id: &str, new_name: &str) -> bool {
@@ -1831,7 +1828,7 @@ mod tests {
     }
 
     #[test]
-    fn rename_panel_model_updates_panel_name_and_tab_label() {
+    fn rename_panel_model_updates_panel_name_only() {
         let mut workspace = sample_workspace();
 
         let changed = rename_panel_model(&mut workspace, "a", "Renamed A");
@@ -1846,8 +1843,9 @@ mod tests {
                 .name,
             "Renamed A"
         );
+        // Tab label must not be touched by panel rename — it's user-owned.
         match &workspace.layout {
-            LayoutNode::Tabs { labels, .. } => assert_eq!(labels[0], "Renamed A"),
+            LayoutNode::Tabs { labels, .. } => assert_eq!(labels[0], "tab-a"),
             _ => panic!("expected tabs layout"),
         }
     }
