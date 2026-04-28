@@ -1288,6 +1288,7 @@ dependencies = [
  "tokio",
  "tracing",
  "trash",
+ "unicode-width",
  "uuid",
  "vte4",
 ]
