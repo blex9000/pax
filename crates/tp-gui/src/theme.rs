@@ -611,7 +611,7 @@ notebook.workspace-tabs > header > tabs {
   background-color: transparent;
   box-shadow: none;
   min-height: 14px;
-  padding-left: 15px;
+  padding-left: 10px;
   padding-right: 0;
   /* Force tabs flush against each other so the per-tab bottom borders
      join into a single continuous line (no inherited GTK tab spacing). */
