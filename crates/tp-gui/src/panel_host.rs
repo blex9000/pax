@@ -383,11 +383,13 @@ impl PanelHost {
         end_box.append(&zoom_button);
         end_box.append(&menu_button);
 
-        // Center slot holds [status_icon][osc_title_label] so the waiting
-        // indicator appears just before the OSC title, both centered as a
-        // group by CenterBox.
+        // Center slot holds the OSC 0/2 title pushed by the shell. The
+        // OSC 133 "command running" status_icon used to live here too but
+        // it duplicates the per-tab indicator and is just visual noise on
+        // top of the title text — keep the field for set_status_callback
+        // so listeners (tab labels) still get notified, but don't show it
+        // in the panel header itself.
         let center_box = gtk4::Box::new(gtk4::Orientation::Horizontal, 4);
-        center_box.append(&status_icon);
         center_box.append(&osc_title_label);
 
         title_bar.set_start_widget(Some(&start_box));
