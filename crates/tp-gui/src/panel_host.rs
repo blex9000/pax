@@ -129,6 +129,12 @@ pub enum PanelAction {
 /// Callback type for panel menu actions.
 pub type PanelActionCallback = Rc<dyn Fn(&str, PanelAction)>;
 
+/// Callback that returns the current `SiblingInfo` for a panel — used by
+/// the panel menu to decide which Move items to show. Returning `None`
+/// hides all Move items (e.g. root or only-child).
+pub type SiblingInfoProvider =
+    Rc<dyn Fn(&str) -> Option<crate::layout_ops::SiblingInfo>>;
+
 /// Container widget that hosts a PanelBackend with title bar.
 pub struct PanelHost {
     pub(crate) outer: gtk4::Box,
@@ -152,6 +158,10 @@ pub struct PanelHost {
     focused: RefCell<bool>,
     /// Shared callback ref — updated by set_action_callback, read by button handlers.
     action_cb_ref: Rc<RefCell<Option<PanelActionCallback>>>,
+    /// Shared provider ref — `WorkspaceView` installs a closure that
+    /// computes the panel's current `SiblingInfo` so the menu (rebuilt
+    /// on every ⋮ open) reflects the live layout.
+    sibling_info_provider_ref: Rc<RefCell<Option<SiblingInfoProvider>>>,
     /// Shared input callback used by terminal-like backends for sync propagation.
     sync_input_cb_ref: Rc<RefCell<Option<crate::panels::PanelInputCallback>>>,
     /// External observers of OSC 133 waiting-state transitions. Used so
@@ -184,6 +194,8 @@ impl PanelHost {
         let container = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
         let action_cb_ref: Rc<RefCell<Option<PanelActionCallback>>> =
             Rc::new(RefCell::new(action_cb.clone()));
+        let sibling_info_provider_ref: Rc<RefCell<Option<SiblingInfoProvider>>> =
+            Rc::new(RefCell::new(None));
 
         // Title bar: CenterBox so the OSC title sits in the geometric center
         // of the bar regardless of the widths of start/end content.
@@ -330,6 +342,20 @@ impl PanelHost {
         // Build popover menu
         let popover = build_panel_menu(panel_id, action_cb, None);
         menu_button.set_popover(Some(&popover));
+
+        // Rebuild the menu on every ⋮ click so Move items reflect the
+        // current layout (which the static popover above can't see).
+        {
+            let panel_id_c = panel_id.to_string();
+            let action_ref = action_cb_ref.clone();
+            let sib_ref = sibling_info_provider_ref.clone();
+            menu_button.set_create_popup_func(move |btn| {
+                let action_cb = action_ref.borrow().clone();
+                let sibling_info = sib_ref.borrow().as_ref().and_then(|f| f(&panel_id_c));
+                let popover = build_panel_menu(&panel_id_c, action_cb, sibling_info);
+                btn.set_popover(Some(&popover));
+            });
+        }
 
         // SSH indicator (hidden by default, shown for remote panels)
         let ssh_indicator = gtk4::Box::new(gtk4::Orientation::Horizontal, 3);
@@ -507,6 +533,7 @@ impl PanelHost {
             backend: Rc::new(RefCell::new(None)),
             focused: RefCell::new(false),
             action_cb_ref,
+            sibling_info_provider_ref,
             sync_input_cb_ref: Rc::new(RefCell::new(None)),
             status_listeners: Rc::new(RefCell::new(Vec::new())),
             last_waiting: Rc::new(std::cell::Cell::new(false)),
@@ -529,6 +556,15 @@ impl PanelHost {
         }
         let popover = build_panel_menu(&self.panel_id, Some(cb), None);
         self.menu_button.set_popover(Some(&popover));
+    }
+
+    /// Install a closure that the menu uses (on each ⋮ open) to compute
+    /// the current panel's `SiblingInfo`. Pass through the `WorkspaceView`
+    /// so the rebuilt menu reflects the live layout.
+    pub fn set_sibling_info_provider(&self, provider: SiblingInfoProvider) {
+        if let Ok(mut r) = self.sibling_info_provider_ref.try_borrow_mut() {
+            *r = Some(provider);
+        }
     }
 
     /// Shut down the current backend (terminate child processes).
