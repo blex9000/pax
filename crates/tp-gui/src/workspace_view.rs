@@ -15,6 +15,17 @@ use crate::panels::chooser::{ChooserPanel, OnTypeChosen};
 use crate::panels::registry::{self, PanelCreateConfig, PanelRegistry};
 use crate::widget_builder::*;
 
+/// Direction for `WorkspaceView::move_focused_panel`. The dispatcher
+/// picks the appropriate axis given the focused panel's parent kind;
+/// directions that don't match the parent silently no-op.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MoveDirection {
+    Left,
+    Right,
+    Up,
+    Down,
+}
+
 #[derive(Clone)]
 struct ActiveTabEdit {
     tab_id: String,
@@ -565,6 +576,59 @@ impl WorkspaceView {
         }
         self.select_workspace_tab_for_panel(&state.panel_id);
         self.dirty = state.original_dirty;
+        true
+    }
+
+    /// Compute the sibling info for a panel — used by the panel menu to
+    /// decide which Move items to show.
+    pub fn panel_sibling_info(
+        &self,
+        panel_id: &str,
+    ) -> Option<crate::layout_ops::SiblingInfo> {
+        crate::layout_ops::panel_sibling_info(&self.workspace.layout, panel_id)
+    }
+
+    /// Move the focused panel by one position in its parent split or
+    /// tabs node. Returns true if the move happened. Picks the correct
+    /// container kind by inspecting the parent — directions that don't
+    /// match the parent (e.g. `Up` on an Hsplit) silently no-op so the
+    /// caller doesn't need to dispatch by kind.
+    pub fn move_focused_panel(&mut self, direction: MoveDirection) -> bool {
+        let Some(focused_id) = self.focused_panel_id().map(|s| s.to_string()) else {
+            return false;
+        };
+        let Some(info) = self.panel_sibling_info(&focused_id) else {
+            return false;
+        };
+
+        use crate::layout_ops::SiblingKind;
+        let delta = match (info.kind, direction) {
+            (SiblingKind::Hsplit, MoveDirection::Left) => -1,
+            (SiblingKind::Hsplit, MoveDirection::Right) => 1,
+            (SiblingKind::Tabs, MoveDirection::Left) => -1,
+            (SiblingKind::Tabs, MoveDirection::Right) => 1,
+            (SiblingKind::Vsplit, MoveDirection::Up) => -1,
+            (SiblingKind::Vsplit, MoveDirection::Down) => 1,
+            _ => return false,
+        };
+
+        let moved = crate::layout_ops::move_panel_in_split(
+            &mut self.workspace.layout,
+            &focused_id,
+            delta,
+        );
+        if !moved {
+            return false;
+        }
+
+        self.rebuild_layout();
+        self.rebuild_focus_order();
+        if let Some(index) = self.focus.order.iter().position(|id| id == &focused_id) {
+            self.focus.index = index;
+            self.focus.focus_current_pub(&self.hosts);
+        }
+        self.select_workspace_tab_for_panel(&focused_id);
+        self.dirty = true;
         true
     }
 
