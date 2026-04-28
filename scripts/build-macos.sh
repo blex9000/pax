@@ -73,6 +73,21 @@ else
     echo "    Warning: Adwaita icon theme not found; symbolic icons may be missing on macOS"
 fi
 
+# Regenerate the bundled Pax theme's icon cache so any new SVGs added to
+# resources/share/icons/Pax are discovered by GTK on first run. Without
+# this, GTK on macOS sometimes only resolves names that were present
+# when the previous cache was generated.
+if command -v gtk4-update-icon-cache &>/dev/null || command -v gtk-update-icon-cache &>/dev/null; then
+    UPDATE_ICON_CACHE="$(command -v gtk4-update-icon-cache || command -v gtk-update-icon-cache)"
+    PAX_THEME="$APP_DIR/Contents/Resources/share/icons/Pax"
+    if [ -d "$PAX_THEME" ]; then
+        echo "    Regenerating Pax icon cache..."
+        "$UPDATE_ICON_CACHE" --force --ignore-theme-index "$PAX_THEME"
+    fi
+else
+    echo "    Warning: gtk-update-icon-cache not found; bundled icon discovery may rely on directory scan only"
+fi
+
 # Info.plist
 VERSION=$(grep '^version' "$ROOT_DIR/Cargo.toml" | head -1 | sed 's/.*"\(.*\)"/\1/')
 cat > "$APP_DIR/Contents/Info.plist" << EOF
