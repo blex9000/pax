@@ -1194,12 +1194,6 @@ fn setup_paned_ratio(paned: &gtk4::Paned, ratio: f64, orientation: gtk4::Orienta
     //   - self-disable after the first successful application so the user
     //     can subsequently drag without us fighting them.
     paned.set_position((ratio * 800.0).round() as i32);
-    tracing::debug!(
-        "setup_paned_ratio: ratio={} placeholder_pos={} orient={:?}",
-        ratio,
-        (ratio * 800.0).round() as i32,
-        orientation,
-    );
 
     // Tick-callback fires every frame while the paned is mapped. We poll
     // until we see a non-zero allocation, apply round(ratio * total),
@@ -1215,10 +1209,6 @@ fn setup_paned_ratio(paned: &gtk4::Paned, ratio: f64, orientation: gtk4::Orienta
         if total > 0 {
             let pos = (ratio * total as f64).round() as i32;
             paned.set_position(pos);
-            tracing::debug!(
-                "setup_paned_ratio APPLIED: ratio={} total={} pos={}",
-                ratio, total, pos,
-            );
             gtk4::glib::ControlFlow::Break
         } else {
             gtk4::glib::ControlFlow::Continue
@@ -1969,22 +1959,10 @@ pub fn sync_ratios_recursive(widget: &gtk4::Widget, node: &mut LayoutNode) {
                 } else {
                     alloc.height()
                 };
-                tracing::debug!(
-                    "sync_ratios: paned orient={:?} pos={} total={} children={} model_ratios={:?}",
-                    paned.orientation(),
-                    paned.position(),
-                    total,
-                    children.len(),
-                    ratios,
-                );
                 if total > 0 {
                     let pos = paned.position();
                     let r1 = pos as f64 / total as f64;
                     let r2 = 1.0 - r1;
-                    tracing::debug!(
-                        "sync_ratios: writing ratios=[{}, {}]",
-                        r1, r2
-                    );
                     if children.len() == 2 {
                         if ratios.len() >= 2 {
                             ratios[0] = r1;

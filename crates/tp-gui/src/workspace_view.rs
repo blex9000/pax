@@ -1576,9 +1576,16 @@ impl WorkspaceView {
         if self.workspace.layout == synced_layout {
             return false;
         }
+        // f64 → i32 (paned position) → f64 round-trip introduces sub-pixel
+        // ratio drift on every layout settle, which would otherwise mark
+        // the workspace dirty the moment it opens. Only flip the dirty
+        // flag for user-meaningful changes; always update the model.
+        let meaningful = layout_differs_meaningfully(&self.workspace.layout, &synced_layout);
         self.workspace.layout = synced_layout;
-        self.dirty = true;
-        true
+        if meaningful {
+            self.dirty = true;
+        }
+        meaningful
     }
 
     fn update_layout_split(
@@ -1751,6 +1758,68 @@ fn select_workspace_tabs_for_panel(
         }
     }
     selected_any
+}
+
+/// Whether two layout trees differ in any way a user would notice. Same
+/// shape as `PartialEq` except split ratios compare with a small epsilon
+/// so f64 → pixel → f64 round-trip drift doesn't count as a real change.
+/// Anything else (children identity, tab labels/ids, nesting) compares
+/// exactly.
+fn layout_differs_meaningfully(a: &LayoutNode, b: &LayoutNode) -> bool {
+    const RATIO_EPS: f64 = 1e-4;
+    match (a, b) {
+        (LayoutNode::Panel { id: ai }, LayoutNode::Panel { id: bi }) => ai != bi,
+        (
+            LayoutNode::Hsplit {
+                children: ac,
+                ratios: ar,
+            },
+            LayoutNode::Hsplit {
+                children: bc,
+                ratios: br,
+            },
+        )
+        | (
+            LayoutNode::Vsplit {
+                children: ac,
+                ratios: ar,
+            },
+            LayoutNode::Vsplit {
+                children: bc,
+                ratios: br,
+            },
+        ) => {
+            if ac.len() != bc.len() || ar.len() != br.len() {
+                return true;
+            }
+            if ar.iter().zip(br.iter()).any(|(x, y)| (x - y).abs() > RATIO_EPS) {
+                return true;
+            }
+            ac.iter()
+                .zip(bc.iter())
+                .any(|(x, y)| layout_differs_meaningfully(x, y))
+        }
+        (
+            LayoutNode::Tabs {
+                children: ac,
+                labels: al,
+                tab_ids: at,
+            },
+            LayoutNode::Tabs {
+                children: bc,
+                labels: bl,
+                tab_ids: bt,
+            },
+        ) => {
+            if al != bl || at != bt || ac.len() != bc.len() {
+                return true;
+            }
+            ac.iter()
+                .zip(bc.iter())
+                .any(|(x, y)| layout_differs_meaningfully(x, y))
+        }
+        _ => true,
+    }
 }
 
 fn connect_paned_position_watchers(widget: &gtk4::Widget, callback: &Rc<dyn Fn()>) {
