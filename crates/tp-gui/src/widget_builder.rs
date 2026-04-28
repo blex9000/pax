@@ -1183,20 +1183,49 @@ pub fn build_layout_widget_inner(
 }
 
 fn setup_paned_ratio(paned: &gtk4::Paned, ratio: f64, orientation: gtk4::Orientation) {
-    use gtk4::glib;
-    paned.set_position((ratio * 800.0) as i32);
-    let r = ratio;
-    let p = paned.clone();
-    glib::idle_add_local_once(move || {
-        let alloc = p.allocation();
-        let total = match orientation {
-            gtk4::Orientation::Horizontal => alloc.width(),
-            _ => alloc.height(),
-        };
-        if total > 0 {
-            p.set_position((r * total as f64) as i32);
-        }
-    });
+    // The Paned's position is an absolute pixel value, not a ratio, so we
+    // can only translate `ratio` once we know the actual allocation. GTK
+    // first builds the widget (allocation 0), then realizes / allocates
+    // it (one or more passes), then maps it. We:
+    //   - set a placeholder position so the divider isn't visually pinned
+    //     to 0 between construction and first allocation,
+    //   - listen for the first non-zero allocation on the relevant axis
+    //     and translate `ratio` into the matching pixel position,
+    //   - self-disable after the first successful application so the user
+    //     can subsequently drag without us fighting them.
+    paned.set_position((ratio * 800.0).round() as i32);
+
+    let applied = std::rc::Rc::new(std::cell::Cell::new(false));
+    let try_apply: std::rc::Rc<dyn Fn(&gtk4::Paned)> = {
+        let applied = applied.clone();
+        std::rc::Rc::new(move |paned: &gtk4::Paned| {
+            if applied.get() {
+                return;
+            }
+            let alloc = paned.allocation();
+            let total = match orientation {
+                gtk4::Orientation::Horizontal => alloc.width(),
+                _ => alloc.height(),
+            };
+            if total > 0 {
+                applied.set(true);
+                paned.set_position((ratio * total as f64).round() as i32);
+            }
+        })
+    };
+
+    {
+        let f = try_apply.clone();
+        paned.connect_realize(move |p| f(p));
+    }
+    {
+        let f = try_apply.clone();
+        paned.connect_notify_local(Some("allocated-width"), move |p, _| f(p));
+    }
+    {
+        let f = try_apply.clone();
+        paned.connect_notify_local(Some("allocated-height"), move |p, _| f(p));
+    }
 }
 
 fn build_paned(
