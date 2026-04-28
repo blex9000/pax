@@ -1485,6 +1485,11 @@ fn setup_workspace_ui(
                 | PanelAction::PreviewTabMove { .. }
                 | PanelAction::CommitTabEdit { .. }
                 | PanelAction::CancelTabEdit { .. } => {}
+                // Wired in Task 5 (panel sibling reordering plan).
+                PanelAction::MoveLeft
+                | PanelAction::MoveRight
+                | PanelAction::MoveUp
+                | PanelAction::MoveDown => {}
             }
             actions::update_dirty_ui(&ws_for_cb, &win_for_cb, &sa_for_cb);
         });

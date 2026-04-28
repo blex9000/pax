@@ -112,6 +112,18 @@ pub enum PanelAction {
     Collapse,
     /// Focus this panel
     Focus,
+    /// Move the panel one step toward the previous sibling in its parent
+    /// Hsplit (left) or Tabs (left).
+    MoveLeft,
+    /// Move the panel one step toward the next sibling in its parent
+    /// Hsplit (right) or Tabs (right).
+    MoveRight,
+    /// Move the panel one step toward the previous sibling in its
+    /// parent Vsplit (up).
+    MoveUp,
+    /// Move the panel one step toward the next sibling in its parent
+    /// Vsplit (down).
+    MoveDown,
 }
 
 /// Callback type for panel menu actions.
@@ -316,7 +328,7 @@ impl PanelHost {
         menu_button.set_tooltip_text(Some("Panel actions"));
 
         // Build popover menu
-        let popover = build_panel_menu(panel_id, action_cb);
+        let popover = build_panel_menu(panel_id, action_cb, None);
         menu_button.set_popover(Some(&popover));
 
         // SSH indicator (hidden by default, shown for remote panels)
@@ -515,7 +527,7 @@ impl PanelHost {
         if let Ok(mut r) = self.action_cb_ref.try_borrow_mut() {
             *r = Some(cb.clone());
         }
-        let popover = build_panel_menu(&self.panel_id, Some(cb));
+        let popover = build_panel_menu(&self.panel_id, Some(cb), None);
         self.menu_button.set_popover(Some(&popover));
     }
 
@@ -922,14 +934,18 @@ impl PanelHost {
 }
 
 /// Build the ⋮ popover menu with panel actions.
-fn build_panel_menu(panel_id: &str, action_cb: Option<PanelActionCallback>) -> gtk4::Popover {
+fn build_panel_menu(
+    panel_id: &str,
+    action_cb: Option<PanelActionCallback>,
+    sibling_info: Option<crate::layout_ops::SiblingInfo>,
+) -> gtk4::Popover {
     let vbox = gtk4::Box::new(gtk4::Orientation::Vertical, 2);
     vbox.set_margin_top(4);
     vbox.set_margin_bottom(4);
     vbox.set_margin_start(4);
     vbox.set_margin_end(4);
 
-    let items: Vec<(&str, &str, PanelAction)> = vec![
+    let mut items: Vec<(&str, &str, PanelAction)> = vec![
         ("Configure…", "Panel settings", PanelAction::Configure),
         ("Split Horizontal", "New panel below", PanelAction::SplitH),
         (
@@ -951,6 +967,46 @@ fn build_panel_menu(panel_id: &str, action_cb: Option<PanelActionCallback>) -> g
         ("Reset Panel", "Reset to type chooser", PanelAction::Reset),
         ("Close Panel", "Close this panel", PanelAction::Close),
     ];
+
+    // Append Move items based on the current parent kind + position.
+    // Only directions with a valid target are shown — no disabled rows.
+    if let Some(info) = sibling_info {
+        use crate::layout_ops::SiblingKind;
+        match info.kind {
+            SiblingKind::Hsplit | SiblingKind::Tabs => {
+                if info.index > 0 {
+                    items.push((
+                        "Move Left",
+                        "Swap with previous sibling",
+                        PanelAction::MoveLeft,
+                    ));
+                }
+                if info.index + 1 < info.len {
+                    items.push((
+                        "Move Right",
+                        "Swap with next sibling",
+                        PanelAction::MoveRight,
+                    ));
+                }
+            }
+            SiblingKind::Vsplit => {
+                if info.index > 0 {
+                    items.push((
+                        "Move Up",
+                        "Swap with previous sibling",
+                        PanelAction::MoveUp,
+                    ));
+                }
+                if info.index + 1 < info.len {
+                    items.push((
+                        "Move Down",
+                        "Swap with next sibling",
+                        PanelAction::MoveDown,
+                    ));
+                }
+            }
+        }
+    }
 
     let popover = gtk4::Popover::new();
     let pid = panel_id.to_string();
@@ -985,6 +1041,10 @@ fn build_panel_menu(panel_id: &str, action_cb: Option<PanelActionCallback>) -> g
             PanelAction::RenameTab(_) => "document-edit-symbolic",
             PanelAction::Collapse => "go-previous-symbolic",
             PanelAction::Focus => "radio-symbolic",
+            PanelAction::MoveLeft => "go-previous-symbolic",
+            PanelAction::MoveRight => "go-next-symbolic",
+            PanelAction::MoveUp => "go-up-symbolic",
+            PanelAction::MoveDown => "go-down-symbolic",
         };
         let icon = gtk4::Image::from_icon_name(icon_name);
         let lbl = gtk4::Label::new(Some(label));
@@ -1014,6 +1074,10 @@ fn build_panel_menu(panel_id: &str, action_cb: Option<PanelActionCallback>) -> g
             PanelAction::RenameTab(_) => "Dbl-click",
             PanelAction::Collapse => "",
             PanelAction::Focus => "",
+            PanelAction::MoveLeft => "",
+            PanelAction::MoveRight => "",
+            PanelAction::MoveUp => "",
+            PanelAction::MoveDown => "",
         };
         let hint = gtk4::Label::new(Some(hint_text));
         hint.add_css_class("dim-label");
