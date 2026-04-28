@@ -11,3 +11,7 @@ AppDir/
 pax.log
 
 __pycache__/
+
+# GTK icon-theme cache files are regenerated at build time
+# (scripts/build-macos.sh) — never check them in.
+icon-theme.cache
