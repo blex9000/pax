@@ -155,6 +155,11 @@ impl MarkdownPanel {
         reload_btn.set_icon_name("view-refresh-symbolic");
         reload_btn.add_css_class("flat");
 
+        let export_pdf_btn = gtk4::Button::new();
+        export_pdf_btn.set_icon_name("document-save-as-symbolic");
+        export_pdf_btn.add_css_class("flat");
+        export_pdf_btn.set_tooltip_text(Some("Export to PDF"));
+
         let help_btn = gtk4::Button::new();
         help_btn.set_icon_name("help-about-symbolic");
         help_btn.add_css_class("flat");
@@ -175,6 +180,7 @@ impl MarkdownPanel {
         toolbar.append(&gtk4::Separator::new(gtk4::Orientation::Vertical));
         toolbar.append(&save_btn);
         toolbar.append(&reload_btn);
+        toolbar.append(&export_pdf_btn);
         toolbar.append(&help_btn);
         toolbar.append(&file_label);
         container.append(&toolbar);
@@ -430,6 +436,33 @@ impl MarkdownPanel {
         // and reload so watch timers don't pile up across re-renders.
         let notebook_engine: Rc<RefCell<Option<Rc<NotebookEngine>>>> =
             Rc::new(RefCell::new(None));
+
+        // Export PDF: pull current markdown source from buffer (edit
+        // mode) or saved content cell (render mode) and run gtk's
+        // PrintOperation in Export mode through markdown_export.
+        {
+            let parent_box: gtk4::Widget = export_pdf_btn.clone().upcast();
+            let ct = content.clone();
+            let m = mode.clone();
+            let sbuf = source_buffer.clone();
+            let fp = file_path.to_string();
+            export_pdf_btn.connect_clicked(move |_| {
+                let source = if m.get() == Mode::Edit {
+                    sbuf.text(&sbuf.start_iter(), &sbuf.end_iter(), false)
+                        .to_string()
+                } else {
+                    ct.borrow().clone()
+                };
+                let parent = parent_box
+                    .root()
+                    .and_then(|r| r.downcast::<gtk4::Window>().ok());
+                let suggested =
+                    crate::markdown_export::suggested_pdf_name(std::path::Path::new(&fp));
+                if let Some(win) = parent.as_ref() {
+                    crate::markdown_export::export_markdown_to_pdf(win, &source, &suggested);
+                }
+            });
+        }
 
         // Render closure that wires the notebook hook via the shared
         // `render_with_engine` free function (also reused by the file-watch

@@ -7,6 +7,7 @@ mod fonts;
 mod icons;
 pub mod keymap;
 pub mod layout_ops;
+pub mod markdown_export;
 pub mod markdown_render;
 pub mod notebook;
 pub mod notifications;
