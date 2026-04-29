@@ -117,6 +117,7 @@ pub fn show_workspace_notes_dialog(
         let list_box = list_box.clone();
         let all_notes = all_notes.clone();
         let record_key = record_key.clone();
+        let workspace_root = workspace_root.clone();
         let search = search.clone();
         let on_edit = on_edit.clone();
         let on_delete = on_delete.clone();
@@ -128,9 +129,17 @@ pub fn show_workspace_notes_dialog(
             let Ok(db) = Database::open(&db_path) else {
                 return;
             };
-            let notes = db
+            // Note keys are absolute file paths (see metadata_file_key in
+            // editor_tabs.rs). Restrict to entries inside the code
+            // editor's project root so two editors on different projects
+            // don't see each other's notes.
+            let root_str = workspace_root.to_string_lossy().to_string();
+            let notes: Vec<FileNote> = db
                 .list_notes_for_workspace(&record_key)
-                .unwrap_or_default();
+                .unwrap_or_default()
+                .into_iter()
+                .filter(|note| path_under(&note.file_path, &root_str))
+                .collect();
             *all_notes.borrow_mut() = notes.clone();
 
             let query = search.text().to_string().to_lowercase();
@@ -267,4 +276,19 @@ fn preview_of(text: &str) -> String {
     } else {
         first.to_string()
     }
+}
+
+/// True when `file_path` is the same as `root_dir` or sits inside it.
+/// Both must be absolute. Trailing slash on `root_dir` is normalised so
+/// `/projects/A` doesn't match `/projects/Abis/foo`.
+fn path_under(file_path: &str, root_dir: &str) -> bool {
+    if file_path == root_dir {
+        return true;
+    }
+    let prefix = if root_dir.ends_with('/') {
+        root_dir.to_string()
+    } else {
+        format!("{}/", root_dir)
+    };
+    file_path.starts_with(&prefix)
 }
