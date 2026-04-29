@@ -106,6 +106,11 @@ pub(crate) fn render_markdown_to_view_with_hook(
         t.set_left_margin(20);
         t.set_indent(-20);
     });
+    ensure("list_marker", &|t| {
+        // Slightly heavier weight so the bullet / number stands out
+        // from the surrounding item text.
+        t.set_weight(600);
+    });
     ensure("bq", &|t| {
         t.set_left_margin(20);
         t.set_style(gtk4::pango::Style::Italic);
@@ -555,7 +560,7 @@ fn emit_list_marker(buf: &gtk4::TextBuffer, it: &mut gtk4::TextIter, st: &mut Re
         _ => "• ".to_string(),
     };
     let full = format!("  {}{}", indent, marker_body);
-    buf.insert_with_tags_by_name(it, &full, &["bullet"]);
+    buf.insert_with_tags_by_name(it, &full, &["bullet", "list_marker"]);
 }
 
 fn heading_tag(level: HeadingLevel, first_block: bool) -> &'static str {

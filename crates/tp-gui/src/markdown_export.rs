@@ -325,12 +325,20 @@ fn list_item_layout(
     layout.set_font_description(Some(&body_font()));
     layout.set_width((page_width * gtk4::pango::SCALE as f64) as i32);
     layout.set_wrap(gtk4::pango::WrapMode::WordChar);
-    layout.set_markup(&format!("{}{}", escape(bullet), item_markup));
+    // Bold marker so '1.', '•', etc. read as headers for the item rather
+    // than disappearing into the body text.
+    layout.set_markup(&format!(
+        "<span weight=\"600\">{}</span>{}",
+        escape(bullet),
+        item_markup
+    ));
 
     // Measure the bullet on its own to get the hanging-indent amount.
+    // Bold can be a hair wider than regular weight, so probe with the
+    // same weight that draw uses.
     let probe = ctx.create_pango_layout();
     probe.set_font_description(Some(&body_font()));
-    probe.set_text(bullet);
+    probe.set_markup(&format!("<span weight=\"600\">{}</span>", escape(bullet)));
     let bullet_width_pu = probe.size().0;
     layout.set_indent(-bullet_width_pu);
 
