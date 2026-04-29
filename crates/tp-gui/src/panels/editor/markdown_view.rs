@@ -234,6 +234,7 @@ pub fn build_markdown_tab(content: &str) -> MarkdownTab {
     content_row.append(&notes_ruler.widget);
 
     let outer = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
+    outer.add_css_class("editor-markdown-pane");
     outer.set_vexpand(true);
     outer.set_hexpand(true);
     outer.append(&mode_bar);
