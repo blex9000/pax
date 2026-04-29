@@ -360,20 +360,16 @@ fn code_layout(ctx: &gtk4::PrintContext, text: &str, max_width_pt: f64) -> gtk4:
     let natural_pt = pu_to_pt(layout.size().0);
     if natural_pt > max_width_pt && natural_pt > 0.0 && max_width_pt > 0.0 {
         let scale = max_width_pt / natural_pt;
-        let scaled_size = (MONO_BASE_PT * scale).max(MONO_MIN_PT);
-        let scaled = gtk4::pango::FontDescription::from_string(&format!(
-            "Monospace {}",
-            format_pt(scaled_size)
-        ));
+        let scaled_pt = (MONO_BASE_PT * scale).max(MONO_MIN_PT);
+        // Build the description manually rather than via from_string —
+        // the latter parses point sizes with the user's LC_NUMERIC
+        // decimal separator, so on locales like it_IT 'Monospace 6.5'
+        // is mis-parsed and the font silently stays at the base size.
+        let mut scaled = mono_font();
+        scaled.set_size((scaled_pt * gtk4::pango::SCALE as f64) as i32);
         layout.set_font_description(Some(&scaled));
     }
     layout
-}
-
-fn format_pt(pt: f64) -> String {
-    // Pango parses both "9" and "9.5" as a font size — use one
-    // decimal so we don't lose precision after the auto-shrink ratio.
-    format!("{:.1}", pt)
 }
 
 /// Force "no hinting / no metrics hinting" on the print context's
