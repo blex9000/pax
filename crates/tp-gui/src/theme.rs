@@ -1929,18 +1929,21 @@ mod tests {
         assert!(BASE_CSS.contains("\"JetBrains Mono\""));
         assert!(BASE_CSS.contains("min-height: 28px;"));
         assert!(BASE_CSS.contains("headerbar.app-headerbar"));
-        assert!(BASE_CSS.contains("headerbar.app-headerbar windowhandle { min-height: 28px; }"));
+        // The selector group folds windowhandle, windowhandle:backdrop and
+        // > windowhandle into a single rule — match the anchor selector
+        // and rely on the min-height assertion above for the value.
+        assert!(BASE_CSS.contains("headerbar.app-headerbar windowhandle,"));
         assert!(BASE_CSS.contains("button.flat,\ntogglebutton.flat"));
         assert!(BASE_CSS.contains("min-height: 18px;\n  min-width: 18px;"));
         assert!(BASE_CSS.contains("min-height: 16px;\n  min-width: 16px;"));
         assert!(BASE_CSS.contains("-gtk-icon-size: 14px;"));
         assert!(BASE_CSS.contains("-gtk-icon-size: 12px;"));
         assert!(BASE_CSS.contains("box.panel-title-bar { padding: 0 4px;"));
-        assert!(BASE_CSS.contains(".panel-title { font-size: 9px;"));
+        assert!(BASE_CSS.contains(".panel-title { font-size: 10px;"));
         assert!(BASE_CSS.contains(".panel-title-type-icon"));
         assert!(BASE_CSS.contains("margin-left: 14px;"));
         assert!(BASE_CSS.contains(".panel-action-btn { min-height: 9px;"));
-        assert!(BASE_CSS.contains(".tab-close-btn { min-height: 15px;"));
+        assert!(BASE_CSS.contains(".tab-close-btn { min-height: 11px;"));
         assert!(BASE_CSS.contains(".panel-collapsed-overlay {\n  background-color: @window_bg_color;"));
         assert!(BASE_CSS.contains(".panel-collapsed-chip"));
         assert!(BASE_CSS.contains(".panel-collapsed-drag-strip"));
@@ -1997,9 +2000,9 @@ mod tests {
         assert!(BASE_CSS.contains("min-height: 14px;"));
         assert!(BASE_CSS.contains("padding-top: 0;"));
         assert!(BASE_CSS.contains("notebook.workspace-tabs > header > tabs > tab label"));
-        assert!(BASE_CSS.contains("font-size: 9px;"));
+        assert!(BASE_CSS.contains("font-size: 10px;"));
         assert!(BASE_CSS.contains("notebook.workspace-tabs > header > tabs > tab image"));
-        assert!(BASE_CSS.contains("-gtk-icon-size: 9px;"));
+        assert!(BASE_CSS.contains("-gtk-icon-size: 13px;"));
         assert!(BASE_CSS.contains("box.workspace-tab-page-shell {"));
     }
 
@@ -2033,7 +2036,13 @@ mod tests {
 
     #[test]
     fn progressive_chrome_css_distinguishes_root_nested_and_focus_path() {
-        assert!(BASE_CSS.contains("notebook.workspace-tabs > header {\n  border-bottom: none;\n  box-shadow: none;\n  min-height: 16px;"));
+        // The header rule has a multi-line comment between the brace and
+        // the first declaration (documents how the bottom border is laid
+        // out), so use multiple smaller anchors instead of a brittle
+        // multi-property substring.
+        assert!(BASE_CSS.contains("notebook.workspace-tabs > header {"));
+        assert!(BASE_CSS.contains("  border-bottom: none;\n  box-shadow: none;"));
+        assert!(BASE_CSS.contains("  padding: 0;\n  min-height: 0;\n}"));
         assert!(BASE_CSS.contains("notebook.workspace-tabs-root {\n  margin-top: 6px;"));
         assert!(BASE_CSS.contains("notebook.workspace-tabs-nested {\n  margin-top: 6px;"));
         assert!(BASE_CSS.contains("background-color: @window_bg_color;"));
