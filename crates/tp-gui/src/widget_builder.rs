@@ -1300,8 +1300,12 @@ fn build_paned(
         let c2_fixed = subtree_has_min_size(&children[1], panels);
         paned.set_start_child(Some(&w1));
         paned.set_end_child(Some(&w2));
-        paned.set_shrink_start_child(true);
-        paned.set_shrink_end_child(true);
+        // shrink=true lets GTK ignore the child's measured min-size when
+        // the user drags the separator past it, which silently defeats
+        // any min_width/min_height the user configured. Disable shrink
+        // on the side(s) whose subtree actually carries a min-size.
+        paned.set_shrink_start_child(!c1_fixed);
+        paned.set_shrink_end_child(!c2_fixed);
         paned.set_resize_start_child(true);
         paned.set_resize_end_child(true);
         setup_paned_ratio(&paned, normalized[0], orientation);
@@ -1336,8 +1340,8 @@ fn build_paned(
     let rest_fixed = rest_nodes.iter().any(|n| subtree_has_min_size(n, panels));
     paned.set_start_child(Some(&w1));
     paned.set_end_child(Some(&rest));
-    paned.set_shrink_start_child(true);
-    paned.set_shrink_end_child(true);
+    paned.set_shrink_start_child(!c1_fixed);
+    paned.set_shrink_end_child(!rest_fixed);
     paned.set_resize_start_child(true);
     paned.set_resize_end_child(true);
     setup_paned_ratio(&paned, normalized[0], orientation);
