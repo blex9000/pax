@@ -10,6 +10,121 @@ use gtk4::prelude::*;
 use pulldown_cmark::{CodeBlockKind, Event, HeadingLevel, Options, Parser, Tag, TagEnd};
 use unicode_width::UnicodeWidthStr;
 
+/// Wrap `text_view` (currently the only child of `scrolled`) in a
+/// `gtk4::Overlay` containing a transparent `DrawingArea` that paints
+/// a blockquote-style left bar next to every range tagged `bq`. The
+/// bar is the visual cue the on-screen viewer was missing — TextTag
+/// has no border-left attribute, so we paint it ourselves.
+///
+/// Bar redraws on:
+/// - buffer changes (text edits / re-render replaces tag ranges)
+/// - vertical scroll (paragraph y-coordinates shift)
+/// - widget resize (wrap re-flows ranges to new heights)
+pub(crate) fn attach_blockquote_bar_overlay(
+    scrolled: &gtk4::ScrolledWindow,
+    text_view: &gtk4::TextView,
+) {
+    // Detach the text view from the scrolled window so we can re-parent
+    // it inside a gtk4::Overlay that sits between them.
+    scrolled.set_child(None::<&gtk4::Widget>);
+
+    let overlay = gtk4::Overlay::new();
+    overlay.set_hexpand(true);
+    overlay.set_vexpand(true);
+    overlay.set_child(Some(text_view));
+
+    let bars = gtk4::DrawingArea::new();
+    bars.set_can_target(false); // pointer events fall through to the text view
+    bars.set_hexpand(true);
+    bars.set_vexpand(true);
+    overlay.add_overlay(&bars);
+    scrolled.set_child(Some(&overlay));
+
+    {
+        let tv = text_view.clone();
+        bars.set_draw_func(move |_da, cr, _w, _h| {
+            paint_blockquote_bars(&tv, cr);
+        });
+    }
+
+    // Trigger a repaint whenever anything that might shift bar
+    // positions changes. queue_draw is cheap; the draw_func only walks
+    // the bq tag toggles.
+    {
+        let bars_c = bars.clone();
+        text_view.buffer().connect_changed(move |_| {
+            bars_c.queue_draw();
+        });
+    }
+    {
+        let bars_c = bars.clone();
+        scrolled.vadjustment().connect_value_changed(move |_| {
+            bars_c.queue_draw();
+        });
+    }
+    {
+        let bars_c = bars.clone();
+        text_view.connect_notify_local(Some("height-request"), move |_, _| {
+            bars_c.queue_draw();
+        });
+    }
+}
+
+const BQ_BAR_X: f64 = 6.0;
+const BQ_BAR_WIDTH: f64 = 2.0;
+const BQ_BAR_RGB: (f64, f64, f64) = (0.55, 0.55, 0.55);
+
+fn paint_blockquote_bars(tv: &gtk4::TextView, cr: &gtk4::cairo::Context) {
+    let buffer = tv.buffer();
+    let Some(tag) = buffer.tag_table().lookup("bq") else { return };
+
+    cr.set_source_rgb(BQ_BAR_RGB.0, BQ_BAR_RGB.1, BQ_BAR_RGB.2);
+    cr.set_line_width(BQ_BAR_WIDTH);
+
+    // Walk every tag-toggle in the buffer, tracking whether we're
+    // currently inside a `bq` run. Each open→close pair is one bar.
+    let mut iter = buffer.start_iter();
+    let mut inside = iter.has_tag(&tag);
+    let mut run_start: Option<gtk4::TextIter> = inside.then(|| iter.clone());
+
+    loop {
+        if !iter.forward_to_tag_toggle(Some(&tag)) {
+            break;
+        }
+        if inside {
+            if let Some(start) = run_start.take() {
+                draw_bar(tv, cr, &start, &iter);
+            }
+            inside = false;
+        } else {
+            run_start = Some(iter.clone());
+            inside = true;
+        }
+    }
+    // Open run that runs to end-of-buffer (rare — typically tags close).
+    if let Some(start) = run_start {
+        let end = buffer.end_iter();
+        draw_bar(tv, cr, &start, &end);
+    }
+    cr.stroke().ok();
+}
+
+fn draw_bar(
+    tv: &gtk4::TextView,
+    cr: &gtk4::cairo::Context,
+    start: &gtk4::TextIter,
+    end: &gtk4::TextIter,
+) {
+    let start_loc = tv.iter_location(start);
+    let end_loc = tv.iter_location(end);
+    let buf_y_top = start_loc.y();
+    let buf_y_bot = end_loc.y() + end_loc.height();
+    let (_, win_y_top) = tv.buffer_to_window_coords(gtk4::TextWindowType::Widget, 0, buf_y_top);
+    let (_, win_y_bot) = tv.buffer_to_window_coords(gtk4::TextWindowType::Widget, 0, buf_y_bot);
+    cr.move_to(BQ_BAR_X, win_y_top as f64);
+    cr.line_to(BQ_BAR_X, win_y_bot as f64);
+}
+
 // Code block backgrounds — slight contrast against each theme family's main
 // surface, without overriding the default text foreground (so GTK keeps
 // contrast for us as the theme changes).

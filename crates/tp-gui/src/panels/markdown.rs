@@ -159,6 +159,7 @@ impl MarkdownPanel {
         export_pdf_btn.set_icon_name("document-save-as-symbolic");
         export_pdf_btn.add_css_class("flat");
         export_pdf_btn.set_tooltip_text(Some("Export to PDF"));
+        export_pdf_btn.set_margin_end(8);
 
         let help_btn = gtk4::Button::new();
         help_btn.set_icon_name("help-about-symbolic");
@@ -365,6 +366,7 @@ impl MarkdownPanel {
         render_scroll.set_child(Some(&render_view));
         render_scroll.set_vexpand(true);
         render_scroll.set_hexpand(true);
+        crate::markdown_render::attach_blockquote_bar_overlay(&render_scroll, &render_view);
         stack.add_named(&render_scroll, Some("render"));
 
         // Edit view — sourceview5 or plain TextView

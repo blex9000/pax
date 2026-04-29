@@ -108,6 +108,7 @@ pub fn build_markdown_tab(content: &str) -> MarkdownTab {
     rendered_scroll.set_child(Some(&rendered_view));
     rendered_scroll.set_vexpand(true);
     rendered_scroll.set_hexpand(true);
+    crate::markdown_render::attach_blockquote_bar_overlay(&rendered_scroll, &rendered_view);
 
     let inner_stack = gtk4::Stack::new();
     inner_stack.add_named(&rendered_scroll, Some("rendered"));
@@ -135,6 +136,7 @@ pub fn build_markdown_tab(content: &str) -> MarkdownTab {
     let export_pdf_btn = gtk4::Button::from_icon_name("document-save-as-symbolic");
     export_pdf_btn.add_css_class("flat");
     export_pdf_btn.set_tooltip_text(Some("Export to PDF"));
+    export_pdf_btn.set_margin_end(8);
     {
         let buf = buffer.clone();
         let parent_widget: gtk4::Widget = export_pdf_btn.clone().upcast();
