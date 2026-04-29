@@ -1985,8 +1985,16 @@ pub fn sync_ratios_recursive(widget: &gtk4::Widget, node: &mut LayoutNode) {
                     //     the saved ratio rounds to: writing back would
                     //     just inject sub-pixel f64 drift.
                     let still_settling = paned.has_css_class(PANED_SETTLING_CLASS);
+                    // ±1 pixel tolerance: GTK's allocator distributes the
+                    // extra space across resize:true children using
+                    // integer rounding, so a window resize (especially
+                    // fullscreen toggle) often leaves the divider 1 px
+                    // off from the saved ratio's exact target. Without
+                    // tolerance, every resize re-marks the workspace
+                    // dirty.
                     let saved_pos_matches = ratios.first().map_or(false, |saved| {
-                        (saved * total as f64).round() as i32 == pos
+                        let target = (saved * total as f64).round() as i32;
+                        (pos - target).abs() <= 1
                     });
                     let skip_write = still_settling || saved_pos_matches;
                     if children.len() == 2 {
