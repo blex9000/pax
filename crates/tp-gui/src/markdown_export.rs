@@ -457,6 +457,11 @@ struct BlockBuilder {
     table_row: Vec<String>,
     /// Code block accumulator.
     code_buf: String,
+    /// Nesting depth of the active blockquote(s). pulldown-cmark
+    /// emits blockquote paragraphs as nested Paragraph events, so we
+    /// flip emitted Paragraph blocks to BlockQuote when this is > 0.
+    /// Plain End(BlockQuote) doesn't emit any block of its own.
+    blockquote_depth: usize,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -464,7 +469,6 @@ enum InlineTarget {
     None,
     Paragraph,
     Heading(HeadingLevel),
-    BlockQuote,
     ListItem,
     TableCell,
     CodeBlock,
@@ -503,17 +507,23 @@ fn markdown_to_blocks(content: &str) -> Vec<Block> {
             }
             Event::End(TagEnd::Paragraph) => {
                 let markup = std::mem::take(&mut b.inline_buf);
-                b.blocks.push(Block::Paragraph { markup });
+                if b.blockquote_depth > 0 {
+                    b.blocks.push(Block::BlockQuote { markup });
+                } else {
+                    b.blocks.push(Block::Paragraph { markup });
+                }
                 b.inline_target = InlineTarget::None;
             }
             Event::Start(Tag::BlockQuote(_)) => {
-                b.inline_buf.clear();
-                b.inline_target = InlineTarget::BlockQuote;
+                // Just bump depth — pulldown-cmark wraps the quoted
+                // content in nested Paragraph events that we promote
+                // to BlockQuote on flush. Emitting a separate block
+                // here would leave a leftover empty BlockQuote at
+                // End(BlockQuote) (a 0-height bar artifact).
+                b.blockquote_depth += 1;
             }
             Event::End(TagEnd::BlockQuote(_)) => {
-                let markup = std::mem::take(&mut b.inline_buf);
-                b.blocks.push(Block::BlockQuote { markup });
-                b.inline_target = InlineTarget::None;
+                b.blockquote_depth = b.blockquote_depth.saturating_sub(1);
             }
             Event::Start(Tag::CodeBlock(_)) => {
                 b.code_buf.clear();
