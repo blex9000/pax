@@ -1065,6 +1065,10 @@ row:selected .editor-note-row-actions,
   margin-left: 1px;
   margin-right: 1px;
 }
+/* In the code editor, the markdown mode-toggle and formatting toolbars sit
+ * directly under the open-files tab bar (.editor-tabs). Match its
+ * @view_bg_color so the two surfaces read as one continuous strip. */
+.editor-markdown-toolbar { background-color: @view_bg_color; color: @view_fg_color; }
 .tab-close-btn { min-height: 11px; min-width: 11px; padding: 0; }
 .tab-close-btn image {
   -gtk-icon-size: 14px;
