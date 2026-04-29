@@ -61,6 +61,19 @@ if [ -d "/usr/share/icons/Adwaita" ] && [ ! -d "$APPDIR/usr/share/icons/Adwaita"
     cp -r /usr/share/icons/Adwaita "$APPDIR/usr/share/icons/Adwaita"
 fi
 
+# Bundled Pax icon theme — contains every symbolic icon name the UI
+# references (Export PDF's document-save-as, the Notes / Quote / Task
+# items, etc.). Lives at usr/share/icons/Pax inside the AppImage so
+# `icons.rs` resolves it via the bundled-theme search path.
+if [ -d "$ROOT_DIR/resources/share/icons/Pax" ]; then
+    echo "    Bundling Pax icon theme..."
+    cp -r "$ROOT_DIR/resources/share/icons/Pax" "$APPDIR/usr/share/icons/Pax"
+    if command -v gtk4-update-icon-cache &>/dev/null || command -v gtk-update-icon-cache &>/dev/null; then
+        UPDATE_ICON_CACHE="$(command -v gtk4-update-icon-cache || command -v gtk-update-icon-cache)"
+        "$UPDATE_ICON_CACHE" --force --ignore-theme-index "$APPDIR/usr/share/icons/Pax"
+    fi
+fi
+
 echo "==> Downloading linuxdeploy tools..."
 mkdir -p "$BUILD_TOOLS"
 
