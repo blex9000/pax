@@ -256,6 +256,30 @@ pub(crate) fn render_markdown_to_view_with_hook(
     let mut state = RenderState::default();
     let mut it = buf.end_iter();
     for (event, range) in parser {
+        // ── highlighted code-block capture branch ────────────────────
+        // Runs before the notebook branches so a snippet that opened with a
+        // recognised language keeps collecting until End(CodeBlock) regardless
+        // of what other events arrive in between (pulldown emits Text events
+        // inside the block; nothing else for fenced code).
+        #[cfg(feature = "sourceview")]
+        if let Some(cap) = state.code_capture.as_mut() {
+            match &event {
+                Event::Text(t) => {
+                    cap.body.push_str(t);
+                    continue;
+                }
+                Event::End(TagEnd::CodeBlock) => {
+                    let cap = state.code_capture.take().unwrap();
+                    let anchor = buf.create_child_anchor(&mut it);
+                    anchor_highlighted_code(tv, &anchor, &cap.lang, &cap.body);
+                    buf.insert(&mut it, "\n");
+                    state.in_code_block = false;
+                    continue;
+                }
+                _ => continue,
+            }
+        }
+
         // ── notebook-cell capture branch ─────────────────────────────
         if let Some(cap) = state.notebook_collecting.as_mut() {
             match &event {
@@ -288,6 +312,22 @@ pub(crate) fn render_markdown_to_view_with_hook(
                     });
                     continue;
                 }
+            }
+        }
+
+        // ── highlighted code-block start branch ──────────────────────
+        // Runs after the notebook check so a notebook spec wins. If the fence
+        // info string resolves to a known sourceview language we switch into
+        // capture mode and let the embedded view do the rendering.
+        #[cfg(feature = "sourceview")]
+        if let Event::Start(Tag::CodeBlock(CodeBlockKind::Fenced(info))) = &event {
+            if let Some(lang) = resolve_sourceview_language(info) {
+                state.in_code_block = true;
+                state.code_capture = Some(CodeCapture {
+                    lang,
+                    body: String::new(),
+                });
+                continue;
             }
         }
 
@@ -368,6 +408,16 @@ struct NotebookCapture {
     body: String,
 }
 
+#[cfg(feature = "sourceview")]
+struct CodeCapture {
+    /// The GtkSourceView language id we resolved from the fence info string
+    /// (e.g. "json", "rust"). Stored as String because pulldown-cmark's info
+    /// string borrows from the source content, but we accumulate body text
+    /// across events and need an owned id at finalization time.
+    lang: String,
+    body: String,
+}
+
 /// Inline formatting and structural state carried across events.
 struct RenderState {
     /// Inline tag names currently active (bold/italic/strike/link).
@@ -393,6 +443,12 @@ struct RenderState {
     /// a `NotebookCellSpec`. Body text events accumulate here until End(CodeBlock),
     /// at which point the hook (if any) is invoked with the captured spec/body.
     notebook_collecting: Option<NotebookCapture>,
+    /// When set, we're inside a fenced code block whose language was recognised
+    /// by the GtkSourceView5 LanguageManager. Body text accumulates until
+    /// End(CodeBlock), at which point a read-only sourceview is anchored at the
+    /// current insertion point.
+    #[cfg(feature = "sourceview")]
+    code_capture: Option<CodeCapture>,
 }
 
 impl Default for RenderState {
@@ -407,6 +463,8 @@ impl Default for RenderState {
             table: None,
             pending_first_block: true,
             notebook_collecting: None,
+            #[cfg(feature = "sourceview")]
+            code_capture: None,
         }
     }
 }
@@ -755,4 +813,105 @@ fn render_table(buf: &gtk4::TextBuffer, it: &mut gtk4::TextIter, t: &TableState)
         }
     }
     buf.insert_with_tags_by_name(it, &border_row('└', '┴', '┘'), &["table"]);
+}
+
+/// Resolve a fence info string ("```json", "```rust", etc.) to a GtkSourceView5
+/// language id, or `None` if the language isn't recognised — in which case the
+/// renderer falls back to the plain `code_block` text path.
+///
+/// The first whitespace-separated token is used (some authors append per-block
+/// options after the language name). Common shorthands that the manager doesn't
+/// expose under their popular names are mapped to their canonical id.
+#[cfg(feature = "sourceview")]
+fn resolve_sourceview_language(info: &str) -> Option<String> {
+    let token = info.split(|c: char| c.is_whitespace() || c == ',').next()?;
+    if token.is_empty() {
+        return None;
+    }
+    let manager = sourceview5::LanguageManager::default();
+    let lower = token.to_lowercase();
+    if manager.language(token).is_some() {
+        return Some(token.to_string());
+    }
+    if manager.language(&lower).is_some() {
+        return Some(lower);
+    }
+    let alias: &str = match lower.as_str() {
+        "js" => "javascript",
+        "ts" => "typescript",
+        "py" => "python",
+        "rb" => "ruby",
+        "yml" => "yaml",
+        "md" => "markdown",
+        "shell" | "bash" | "zsh" => "sh",
+        "c++" => "cpp",
+        "c#" => "c-sharp",
+        _ => return None,
+    };
+    manager.language(alias).map(|_| alias.to_string())
+}
+
+/// Materialise a syntax-highlighted code snippet at `anchor` inside `tv`.
+/// The view is read-only, non-focusable (clicking it would otherwise trigger
+/// Viewport scroll-to-focus on the parent — same trap the rendered_view side
+/// avoids in `editor::markdown_view`), and transparent so it doesn't reintroduce
+/// the contrast block we explicitly removed from prose code blocks.
+#[cfg(feature = "sourceview")]
+fn anchor_highlighted_code(
+    tv: &gtk4::TextView,
+    anchor: &gtk4::TextChildAnchor,
+    lang: &str,
+    body: &str,
+) {
+    use sourceview5::prelude::*;
+    const SIDE_MARGIN: i32 = 24;
+    const POLL_MS: u64 = 300;
+    const MIN_WIDTH: i32 = 200;
+    const SIZE_HYSTERESIS: i32 = 8;
+
+    let buffer = sourceview5::Buffer::new(None::<&gtk4::TextTagTable>);
+    if let Some(language) = sourceview5::LanguageManager::default().language(lang) {
+        buffer.set_language(Some(&language));
+    }
+    buffer.set_highlight_syntax(true);
+    // Pulldown-cmark closes Text events with a trailing "\n". Strip it so the
+    // rendered widget doesn't end with an empty visual line.
+    let trimmed = body.strip_suffix('\n').unwrap_or(body);
+    buffer.set_text(trimmed);
+    crate::theme::register_sourceview_buffer(&buffer);
+
+    let view = sourceview5::View::with_buffer(&buffer);
+    view.add_css_class("editor-markdown-code-snippet");
+    view.set_editable(false);
+    view.set_cursor_visible(false);
+    view.set_can_focus(false);
+    view.set_monospace(true);
+    view.set_show_line_numbers(false);
+    view.set_left_margin(8);
+    view.set_right_margin(8);
+    view.set_top_margin(4);
+    view.set_bottom_margin(4);
+    view.set_wrap_mode(gtk4::WrapMode::None);
+
+    tv.add_child_at_anchor(&view, anchor);
+
+    // Anchored children in a TextView ignore `hexpand`, so poll the parent
+    // width and propagate it as a `size_request`. Same trick `NotebookCell`
+    // uses; the WeakRefs auto-stop the loop when either widget goes away.
+    let view_weak = view.downgrade();
+    let parent_weak = tv.downgrade();
+    gtk4::glib::timeout_add_local(std::time::Duration::from_millis(POLL_MS), move || {
+        let (Some(view), Some(parent)) = (view_weak.upgrade(), parent_weak.upgrade()) else {
+            return gtk4::glib::ControlFlow::Break;
+        };
+        let w = parent.width();
+        if w > 0 {
+            let target = (w - SIDE_MARGIN).max(MIN_WIDTH);
+            let cur = view.width_request();
+            if (target - cur).abs() > SIZE_HYSTERESIS {
+                view.set_size_request(target, -1);
+            }
+        }
+        gtk4::glib::ControlFlow::Continue
+    });
 }

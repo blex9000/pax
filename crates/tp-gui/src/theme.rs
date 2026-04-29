@@ -1072,6 +1072,14 @@ row:selected .editor-note-row-actions,
  * old @window_bg_color around them. */
 .editor-markdown-toolbar,
 .editor-markdown-pane { background-color: @view_bg_color; color: @view_fg_color; }
+/* Highlighted code snippets embedded in the rendered markdown view: keep the
+ * widget transparent so the syntax colors carry the differentiation without
+ * reintroducing a contrast block on top of the prose surface. */
+.editor-markdown-code-snippet,
+.editor-markdown-code-snippet text {
+  background: transparent;
+  background-color: transparent;
+}
 .tab-close-btn { min-height: 11px; min-width: 11px; padding: 0; }
 .tab-close-btn image {
   -gtk-icon-size: 14px;
