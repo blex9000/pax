@@ -1777,7 +1777,16 @@ fn build_tree_snapshot(
             snapshot
                 .entries
                 .iter()
-                .filter(|entry| entry.is_dir && entry.depth == 0)
+                .filter(|entry| {
+                    // Skip hidden (`.git`, `.cache`, …) and gitignored
+                    // dirs from auto-expand: they're rarely what the
+                    // user wants to browse and bloat the visible tree.
+                    // The user can still click to expand them manually.
+                    entry.is_dir
+                        && entry.depth == 0
+                        && !entry.is_ignored
+                        && !entry.name.starts_with('.')
+                })
                 .map(|entry| entry.path.clone()),
         );
         dirs_to_expand.sort();
@@ -1869,7 +1878,12 @@ fn build_file_entries(
     let auto_expand_depth = if backend.is_remote() { 0 } else { 1 };
 
     for (path, name, is_ignored) in dirs {
-        let auto_expand = depth < auto_expand_depth;
+        // Don't auto-expand hidden (.git, .cache, …) or gitignored dirs:
+        // they're rarely useful while browsing and would inflate the
+        // visible tree on every parent expand. The user can still
+        // click them to open them.
+        let hidden = name.starts_with('.');
+        let auto_expand = depth < auto_expand_depth && !hidden && !is_ignored;
         entries.push(FileEntry {
             path: path.clone(),
             name,
