@@ -26,6 +26,13 @@ use std::time::Duration;
 /// freeze the UI; lines beyond this are picked up on the next tick.
 const MAX_DRAIN_PER_TICK: usize = 32;
 
+/// Empty-recv ticks tolerated *after* `RunMsg::Finished` arrives before
+/// we abandon the receiver. Reader threads keep flushing buffered pipe
+/// content until EOF, and the supervisor's `Finished` can race ahead of
+/// the last few `Output` items. ~20 idle ticks (≈ ms granularity, very
+/// short on an active main loop) is plenty for the readers to close.
+const MAX_POST_FINISHED_EMPTY_TICKS: u32 = 20;
+
 /// Process-wide count of currently-running notebook subprocesses, summed
 /// across every `NotebookEngine` instance. Enforces `MAX_NOTEBOOK_PROCESSES`
 /// at the right scope (per-Pax-process, not per-panel).
@@ -256,23 +263,46 @@ impl NotebookEngine {
         // Capture a `Weak` so the engine can be dropped while glib still
         // holds this idle source: the next tick `upgrade()` returns None
         // and the source returns Break, releasing the closure cleanly.
+        //
+        // `Finished` does NOT immediately stop the drain: reader threads
+        // can flush trailing `Output` items shortly after the supervisor
+        // reports termination (documented in runner.rs). We mark the cell
+        // as finished (status indicator updates) and keep polling for
+        // remaining items until the senders close (`Disconnected`) or a
+        // tick budget elapses, whichever comes first.
         let me_weak: Weak<Self> = Rc::downgrade(self);
+        let finished = Cell::new(false);
+        let empty_after_finished = Cell::new(0u32);
         glib::idle_add_local(move || {
             let Some(me) = me_weak.upgrade() else {
                 return glib::ControlFlow::Break;
             };
             for _ in 0..MAX_DRAIN_PER_TICK {
                 match rx.try_recv() {
-                    Ok(RunMsg::Output(item)) => me.push_output(id, item),
+                    Ok(RunMsg::Output(item)) => {
+                        me.push_output(id, item);
+                        empty_after_finished.set(0);
+                    }
                     Ok(RunMsg::Finished { .. }) => {
-                        me.detach_handle(id);
-                        return glib::ControlFlow::Break;
+                        if !finished.get() {
+                            finished.set(true);
+                            me.detach_handle(id);
+                        }
                     }
                     Err(std::sync::mpsc::TryRecvError::Empty) => {
+                        if finished.get() {
+                            let n = empty_after_finished.get() + 1;
+                            if n >= MAX_POST_FINISHED_EMPTY_TICKS {
+                                return glib::ControlFlow::Break;
+                            }
+                            empty_after_finished.set(n);
+                        }
                         return glib::ControlFlow::Continue;
                     }
                     Err(std::sync::mpsc::TryRecvError::Disconnected) => {
-                        me.detach_handle(id);
+                        if !finished.get() {
+                            me.detach_handle(id);
+                        }
                         return glib::ControlFlow::Break;
                     }
                 }
