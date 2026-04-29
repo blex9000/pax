@@ -200,12 +200,7 @@ impl Block {
                     } else {
                         "• ".to_string()
                     };
-                    let layout = ctx.create_pango_layout();
-                    let desc = body_font();
-                    layout.set_font_description(Some(&desc));
-                    layout.set_width((page_width * gtk4::pango::SCALE as f64) as i32);
-                    layout.set_wrap(gtk4::pango::WrapMode::WordChar);
-                    layout.set_markup(&format!("{}{}", escape(&bullet), item));
+                    let layout = list_item_layout(ctx, &bullet, item, page_width);
                     total += pu_to_pt(layout.size().1);
                 }
                 total
@@ -287,11 +282,7 @@ impl Block {
                     } else {
                         "• ".to_string()
                     };
-                    let layout = ctx.create_pango_layout();
-                    layout.set_font_description(Some(&body_font()));
-                    layout.set_width((page_width * gtk4::pango::SCALE as f64) as i32);
-                    layout.set_wrap(gtk4::pango::WrapMode::WordChar);
-                    layout.set_markup(&format!("{}{}", escape(&bullet), item));
+                    let layout = list_item_layout(ctx, &bullet, item, page_width);
                     cr.move_to(x, cy);
                     pangocairo::functions::show_layout(cr, &layout);
                     cy += pu_to_pt(layout.size().1);
@@ -318,6 +309,32 @@ impl Block {
             }
         }
     }
+}
+
+/// Build a list-item layout with hanging indent: the bullet/number
+/// sits flush to the item's left edge on the first line, wrapped
+/// continuation lines indent past the marker so they align with the
+/// item text rather than the bullet glyph.
+fn list_item_layout(
+    ctx: &gtk4::PrintContext,
+    bullet: &str,
+    item_markup: &str,
+    page_width: f64,
+) -> gtk4::pango::Layout {
+    let layout = ctx.create_pango_layout();
+    layout.set_font_description(Some(&body_font()));
+    layout.set_width((page_width * gtk4::pango::SCALE as f64) as i32);
+    layout.set_wrap(gtk4::pango::WrapMode::WordChar);
+    layout.set_markup(&format!("{}{}", escape(bullet), item_markup));
+
+    // Measure the bullet on its own to get the hanging-indent amount.
+    let probe = ctx.create_pango_layout();
+    probe.set_font_description(Some(&body_font()));
+    probe.set_text(bullet);
+    let bullet_width_pu = probe.size().0;
+    layout.set_indent(-bullet_width_pu);
+
+    layout
 }
 
 /// Build a monospace, no-wrap Pango layout for `text`. If the natural

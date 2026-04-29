@@ -99,7 +99,12 @@ pub(crate) fn render_markdown_to_view_with_hook(
         t.set_underline(gtk4::pango::Underline::Single);
     });
     ensure("bullet", &|t| {
+        // Hanging indent: the bullet/number sits at the left margin
+        // (column 0 of the indented block) and the *first* line starts
+        // there. Wrapped continuation lines indent past the bullet so
+        // they align with the text after the marker, not under it.
         t.set_left_margin(20);
+        t.set_indent(-20);
     });
     ensure("bq", &|t| {
         t.set_left_margin(20);
