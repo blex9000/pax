@@ -5,7 +5,14 @@
 //! Threading model: spawn produces a `RunHandle` carrying the child PID
 //! and a stop flag, plus a separate `Receiver<RunMsg>`. Two dedicated
 //! reader threads drain stdout and stderr; a third "supervisor" thread
-//! enforces wall-clock timeout. Handle dropped → SIGTERM, 2s grace, SIGKILL.
+//! enforces wall-clock timeout. Handle dropped → SIGTERM to the whole
+//! process group, 2s grace, SIGKILL to the whole process group.
+//!
+//! Process-group ownership: every cell child runs in a fresh session
+//! (`setsid` via `pre_exec`), making the child its own process-group
+//! leader (PID == PGID). Termination signals are sent with `kill(-pgid)`
+//! so any subprocesses the cell spawned (e.g. `bash -s` running
+//! `sleep 999 &`) die with the parent instead of becoming orphans.
 //!
 //! Contract notes for consumers (engine):
 //! - `Output` items may arrive shortly *after* `Finished` because reader
@@ -21,6 +28,7 @@
 //!   responsibility before calling `spawn`.
 
 use std::io::{BufRead, BufReader};
+use std::os::unix::process::CommandExt;
 use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{channel, Receiver, Sender};
@@ -56,17 +64,20 @@ impl RunHandle {
 impl Drop for RunHandle {
     fn drop(&mut self) {
         self.stop_flag.store(true, Ordering::SeqCst);
-        // SIGTERM
-        unsafe { libc::kill(self.pid, libc::SIGTERM) };
+        // SIGTERM to the whole process group (negative pid → pgid).
+        // The child was placed in its own session via `setsid` in
+        // `pre_exec`, so PID == PGID and any descendants the cell
+        // spawned receive the signal too.
+        unsafe { libc::kill(-self.pid, libc::SIGTERM) };
         let deadline = Instant::now() + Duration::from_millis(TERMINATE_GRACE_MS);
         while Instant::now() < deadline {
             if unsafe { libc::kill(self.pid, 0) } != 0 {
-                return; // already dead
+                return; // leader already dead
             }
             thread::sleep(Duration::from_millis(50));
         }
-        // SIGKILL fallback
-        unsafe { libc::kill(self.pid, libc::SIGKILL) };
+        // SIGKILL the whole group as fallback.
+        unsafe { libc::kill(-self.pid, libc::SIGKILL) };
     }
 }
 
@@ -96,6 +107,20 @@ pub fn spawn(
     cmd.stdin(Stdio::piped());
     cmd.stdout(Stdio::piped());
     cmd.stderr(Stdio::piped());
+    // Put the child in a fresh session so PID == PGID. This lets the
+    // RunHandle Drop and the supervisor target the entire descendant
+    // tree with `kill(-pgid, …)` instead of leaking grandchildren when
+    // the cell forks (e.g. `bash -s` running a backgrounded `sleep`).
+    // Safety: `setsid` is async-signal-safe and modifies only the child
+    // between fork and exec.
+    unsafe {
+        cmd.pre_exec(|| {
+            if libc::setsid() == -1 {
+                return Err(std::io::Error::last_os_error());
+            }
+            Ok(())
+        });
+    }
 
     if let Some(dir) = helpers_dir {
         let mut path = std::env::var("PYTHONPATH").unwrap_or_default();
@@ -129,7 +154,7 @@ pub fn spawn(
     let timeout = spec.timeout.unwrap_or(Duration::from_secs(super::DEFAULT_RUN_TIMEOUT_SECS));
     let is_watch = matches!(spec.mode, ExecMode::Watch { .. });
 
-    spawn_supervisor(child, tx, stop_flag.clone(), if is_watch { None } else { Some(timeout) });
+    spawn_supervisor(child, pid, tx, stop_flag.clone(), if is_watch { None } else { Some(timeout) });
 
     Ok((RunHandle { pid, stop_flag }, rx))
 }
@@ -183,10 +208,18 @@ fn spawn_reader<R: std::io::Read + Send + 'static>(
 
 fn spawn_supervisor(
     mut child: Child,
+    pid: i32,
     tx: Sender<RunMsg>,
     stop_flag: Arc<AtomicBool>,
     timeout: Option<Duration>,
 ) {
+    // `child.kill()` only signals the leader; for cells that fork their
+    // own subprocesses (e.g. shell `&` jobs) we additionally signal the
+    // whole process group via `kill(-pgid, …)`. PID == PGID because the
+    // child was set up with `setsid` in `pre_exec`.
+    let kill_group = move || {
+        unsafe { libc::kill(-pid, libc::SIGTERM) };
+    };
     thread::spawn(move || {
         let started = Instant::now();
         loop {
@@ -202,6 +235,7 @@ fn spawn_supervisor(
                 }
             }
             if stop_flag.load(Ordering::SeqCst) {
+                kill_group();
                 let _ = child.kill();
                 let _ = tx.send(RunMsg::Finished { exit_code: None });
                 return;
@@ -211,6 +245,7 @@ fn spawn_supervisor(
                     let _ = tx.send(RunMsg::Output(OutputItem::Error(
                         format!("timeout after {:?}", t),
                     )));
+                    kill_group();
                     let _ = child.kill();
                     let _ = tx.send(RunMsg::Finished { exit_code: None });
                     return;
