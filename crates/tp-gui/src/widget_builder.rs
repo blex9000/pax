@@ -1963,8 +1963,20 @@ pub fn sync_ratios_recursive(widget: &gtk4::Widget, node: &mut LayoutNode) {
                     let pos = paned.position();
                     let r1 = pos as f64 / total as f64;
                     let r2 = 1.0 - r1;
+                    // Skip the rewrite when the widget position already
+                    // matches what the saved ratio would round to. Avoids
+                    // marking the workspace dirty on open just because
+                    // f64 → pixel → f64 drifted a few ulps below
+                    // user-visible resolution. Without this guard, small
+                    // paneds (e.g. total=100) drift enough that the
+                    // ratio-epsilon comparison in
+                    // apply_synced_layout_if_changed crosses its
+                    // threshold.
+                    let saved_pos_matches = ratios.first().map_or(false, |saved| {
+                        (saved * total as f64).round() as i32 == pos
+                    });
                     if children.len() == 2 {
-                        if ratios.len() >= 2 {
+                        if ratios.len() >= 2 && !saved_pos_matches {
                             ratios[0] = r1;
                             ratios[1] = r2;
                         }
@@ -1975,7 +1987,7 @@ pub fn sync_ratios_recursive(widget: &gtk4::Widget, node: &mut LayoutNode) {
                             sync_ratios_recursive(&w2, &mut children[1]);
                         }
                     } else {
-                        if !ratios.is_empty() {
+                        if !ratios.is_empty() && !saved_pos_matches {
                             ratios[0] = r1;
                         }
                         if let Some(w1) = paned.start_child() {
