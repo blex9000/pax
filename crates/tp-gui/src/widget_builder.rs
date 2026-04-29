@@ -1194,6 +1194,10 @@ fn setup_paned_ratio(paned: &gtk4::Paned, ratio: f64, orientation: gtk4::Orienta
     //   - self-disable after the first successful application so the user
     //     can subsequently drag without us fighting them.
     paned.set_position((ratio * 800.0).round() as i32);
+    // Marker class so sync_ratios_recursive can tell "I haven't applied
+    // my real ratio yet" apart from "the user just dragged me". Removed
+    // by the tick callback below as soon as the real position is set.
+    paned.add_css_class(PANED_SETTLING_CLASS);
 
     // Tick-callback fires every frame while the paned is mapped. We poll
     // until we see a non-zero allocation, apply round(ratio * total),
@@ -1209,12 +1213,20 @@ fn setup_paned_ratio(paned: &gtk4::Paned, ratio: f64, orientation: gtk4::Orienta
         if total > 0 {
             let pos = (ratio * total as f64).round() as i32;
             paned.set_position(pos);
+            paned.remove_css_class(PANED_SETTLING_CLASS);
             gtk4::glib::ControlFlow::Break
         } else {
             gtk4::glib::ControlFlow::Continue
         }
     });
 }
+
+/// CSS marker on a Paned widget while its tick_callback hasn't yet
+/// translated the saved ratio into a real pixel position. While set,
+/// sync_ratios_recursive ignores the widget so a notify::position fired
+/// by *another* paned's settling doesn't pollute the model with this
+/// paned's still-placeholder ratio.
+const PANED_SETTLING_CLASS: &str = "paned-settling";
 
 fn build_paned(
     children: &[LayoutNode],
@@ -1963,20 +1975,22 @@ pub fn sync_ratios_recursive(widget: &gtk4::Widget, node: &mut LayoutNode) {
                     let pos = paned.position();
                     let r1 = pos as f64 / total as f64;
                     let r2 = 1.0 - r1;
-                    // Skip the rewrite when the widget position already
-                    // matches what the saved ratio would round to. Avoids
-                    // marking the workspace dirty on open just because
-                    // f64 → pixel → f64 drifted a few ulps below
-                    // user-visible resolution. Without this guard, small
-                    // paneds (e.g. total=100) drift enough that the
-                    // ratio-epsilon comparison in
-                    // apply_synced_layout_if_changed crosses its
-                    // threshold.
+                    // Two reasons to NOT rewrite the model ratio for this
+                    // paned (still recurse into children either way):
+                    //   - it hasn't translated its saved ratio into a real
+                    //     position yet (paned-settling): position is the
+                    //     800px-based bootstrap placeholder — would
+                    //     otherwise pollute the model on open;
+                    //   - the current pixel position already matches what
+                    //     the saved ratio rounds to: writing back would
+                    //     just inject sub-pixel f64 drift.
+                    let still_settling = paned.has_css_class(PANED_SETTLING_CLASS);
                     let saved_pos_matches = ratios.first().map_or(false, |saved| {
                         (saved * total as f64).round() as i32 == pos
                     });
+                    let skip_write = still_settling || saved_pos_matches;
                     if children.len() == 2 {
-                        if ratios.len() >= 2 && !saved_pos_matches {
+                        if ratios.len() >= 2 && !skip_write {
                             ratios[0] = r1;
                             ratios[1] = r2;
                         }
@@ -1987,7 +2001,7 @@ pub fn sync_ratios_recursive(widget: &gtk4::Widget, node: &mut LayoutNode) {
                             sync_ratios_recursive(&w2, &mut children[1]);
                         }
                     } else {
-                        if !ratios.is_empty() && !saved_pos_matches {
+                        if !ratios.is_empty() && !skip_write {
                             ratios[0] = r1;
                         }
                         if let Some(w1) = paned.start_child() {
