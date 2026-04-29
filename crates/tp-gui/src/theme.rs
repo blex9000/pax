@@ -611,7 +611,10 @@ notebook.workspace-tabs > header > tabs {
   background-color: transparent;
   box-shadow: none;
   min-height: 14px;
-  padding-left: 10px;
+  /* Match box.panel-frame's outer margin so the active tab's left
+     border lands on the same X as the first child panel's left
+     border (workspace-tab-page-shell adds no margin of its own). */
+  padding-left: 7px;
   padding-right: 0;
   /* Force tabs flush against each other so the per-tab bottom borders
      join into a single continuous line (no inherited GTK tab spacing). */
