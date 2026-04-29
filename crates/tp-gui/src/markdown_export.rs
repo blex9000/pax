@@ -70,6 +70,7 @@ fn run_print(parent: &gtk4::Window, markdown: &str, output_path: &Path) {
         let blocks = blocks.clone();
         let pages = pages.clone();
         print_op.connect_begin_print(move |op, ctx| {
+            apply_pdf_friendly_font_options(ctx);
             let page_width = ctx.width();
             let page_height = ctx.height();
             let usable_height = page_height - FOOTER_HEIGHT_PT;
@@ -104,6 +105,7 @@ fn run_print(parent: &gtk4::Window, markdown: &str, output_path: &Path) {
         let blocks = blocks.clone();
         let pages = pages.clone();
         print_op.connect_draw_page(move |_, ctx, page_no| {
+            apply_pdf_friendly_font_options(ctx);
             let cr = ctx.cairo_context();
             let page_width = ctx.width();
             let page_height = ctx.height();
@@ -347,6 +349,22 @@ fn format_pt(pt: f64) -> String {
     // Pango parses both "9" and "9.5" as a font size — use one
     // decimal so we don't lose precision after the auto-shrink ratio.
     format!("{:.1}", pt)
+}
+
+/// Force "no hinting / no metrics hinting" on the print context's
+/// Pango context. Cairo's default font options snap glyph metrics to
+/// integer pixel positions, which is right for screen rendering but
+/// makes PDF text look slightly fuzzy and shimmery: the viewer
+/// re-rasterises hinted glyphs at its own DPI and the snapped
+/// positions don't line up. Letting the viewer hint produces sharper
+/// output across different PDF readers.
+fn apply_pdf_friendly_font_options(ctx: &gtk4::PrintContext) {
+    let pango_ctx = ctx.create_pango_context();
+    let Ok(mut opts) = gtk4::cairo::FontOptions::new() else { return };
+    opts.set_hint_style(gtk4::cairo::HintStyle::None);
+    opts.set_hint_metrics(gtk4::cairo::HintMetrics::Off);
+    opts.set_antialias(gtk4::cairo::Antialias::Default);
+    pangocairo::functions::context_set_font_options(&pango_ctx, Some(&opts));
 }
 
 fn draw_footer(
