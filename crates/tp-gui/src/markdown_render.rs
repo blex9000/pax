@@ -70,9 +70,13 @@ pub(crate) fn attach_blockquote_bar_overlay(
     }
 }
 
-const BQ_BAR_X: f64 = 6.0;
 const BQ_BAR_WIDTH: f64 = 2.0;
 const BQ_BAR_RGB: (f64, f64, f64) = (0.55, 0.55, 0.55);
+/// Horizontal offset of the bar inside the indented blockquote
+/// region. Added to `text_view.left_margin()` so the bar lines up
+/// with where text actually starts in the panel rather than sitting
+/// flush at the widget edge.
+const BQ_BAR_OFFSET_FROM_TEXT_START: f64 = 4.0;
 
 fn paint_blockquote_bars(tv: &gtk4::TextView, cr: &gtk4::cairo::Context) {
     let buffer = tv.buffer();
@@ -80,6 +84,8 @@ fn paint_blockquote_bars(tv: &gtk4::TextView, cr: &gtk4::cairo::Context) {
 
     cr.set_source_rgb(BQ_BAR_RGB.0, BQ_BAR_RGB.1, BQ_BAR_RGB.2);
     cr.set_line_width(BQ_BAR_WIDTH);
+
+    let bar_x = tv.left_margin() as f64 + BQ_BAR_OFFSET_FROM_TEXT_START;
 
     // Walk every tag-toggle in the buffer, tracking whether we're
     // currently inside a `bq` run. Each open→close pair is one bar.
@@ -93,7 +99,7 @@ fn paint_blockquote_bars(tv: &gtk4::TextView, cr: &gtk4::cairo::Context) {
         }
         if inside {
             if let Some(start) = run_start.take() {
-                draw_bar(tv, cr, &start, &iter);
+                draw_bar(tv, cr, bar_x, &start, &iter);
             }
             inside = false;
         } else {
@@ -104,7 +110,7 @@ fn paint_blockquote_bars(tv: &gtk4::TextView, cr: &gtk4::cairo::Context) {
     // Open run that runs to end-of-buffer (rare — typically tags close).
     if let Some(start) = run_start {
         let end = buffer.end_iter();
-        draw_bar(tv, cr, &start, &end);
+        draw_bar(tv, cr, bar_x, &start, &end);
     }
     cr.stroke().ok();
 }
@@ -112,6 +118,7 @@ fn paint_blockquote_bars(tv: &gtk4::TextView, cr: &gtk4::cairo::Context) {
 fn draw_bar(
     tv: &gtk4::TextView,
     cr: &gtk4::cairo::Context,
+    bar_x: f64,
     start: &gtk4::TextIter,
     end: &gtk4::TextIter,
 ) {
@@ -121,8 +128,8 @@ fn draw_bar(
     let buf_y_bot = end_loc.y() + end_loc.height();
     let (_, win_y_top) = tv.buffer_to_window_coords(gtk4::TextWindowType::Widget, 0, buf_y_top);
     let (_, win_y_bot) = tv.buffer_to_window_coords(gtk4::TextWindowType::Widget, 0, buf_y_bot);
-    cr.move_to(BQ_BAR_X, win_y_top as f64);
-    cr.line_to(BQ_BAR_X, win_y_bot as f64);
+    cr.move_to(bar_x, win_y_top as f64);
+    cr.line_to(bar_x, win_y_bot as f64);
 }
 
 // Code block backgrounds — slight contrast against each theme family's main
