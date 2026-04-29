@@ -355,6 +355,11 @@ impl MarkdownPanel {
         let render_view = gtk4::TextView::new();
         render_view.set_editable(false);
         render_view.set_cursor_visible(false);
+        // Read-only render — no focus needed. Without this, clicking the
+        // view focuses it and ScrolledWindow's Viewport (which wraps the
+        // Overlay used for the bq bar) calls scroll-to-focus, snapping
+        // the scroll back to the top of the document on every click.
+        render_view.set_can_focus(false);
         render_view.set_wrap_mode(gtk4::WrapMode::Word);
         render_view.set_left_margin(10);
         render_view.set_right_margin(10);

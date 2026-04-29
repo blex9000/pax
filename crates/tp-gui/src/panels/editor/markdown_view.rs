@@ -97,6 +97,11 @@ pub fn build_markdown_tab(content: &str) -> MarkdownTab {
     let rendered_view = gtk4::TextView::new();
     rendered_view.set_editable(false);
     rendered_view.set_cursor_visible(false);
+    // Read-only render — see panels/markdown.rs note: focusing the
+    // TextView triggers Viewport scroll-to-focus, which snaps to top
+    // on every click when the view sits inside the Overlay used for
+    // the blockquote bar.
+    rendered_view.set_can_focus(false);
     rendered_view.set_wrap_mode(gtk4::WrapMode::WordChar);
     rendered_view.set_left_margin(RENDERED_MARGIN);
     rendered_view.set_right_margin(RENDERED_MARGIN);
