@@ -258,13 +258,14 @@ fn spawn_supervisor(
 
 #[cfg(test)]
 mod tests {
-    // NOTE: these tests spawn real subprocesses. They MUST run serially or
-    // the documented PID-reuse window in `RunHandle::Drop` triggers spurious
-    // failures (test A's drop SIGTERMs test B's freshly-spawned PID). In
-    // production this is harmless because no panel spawns and tears down
-    // multiple cells in <50 ms. Run with `cargo test -- --test-threads=1`
-    // (or just `cargo test --package pax-gui notebook -- --test-threads=1`).
+    // These tests spawn real subprocesses. They are gated with `#[serial]`
+    // because the documented PID-reuse window in `RunHandle::Drop` would
+    // otherwise let test A's drop SIGTERM test B's freshly-spawned PID
+    // when the harness runs them in parallel. In production this is
+    // harmless because no panel spawns and tears down multiple cells in
+    // <50 ms.
     use super::*;
+    use serial_test::serial;
     use std::time::Duration;
 
     fn collect_until_finished(rx: &Receiver<RunMsg>) -> Vec<OutputItem> {
@@ -288,6 +289,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn runs_simple_bash() {
         let (_h, rx) = spawn(&once_spec(Lang::Bash), "echo hello\n", None, None).unwrap();
         let items = collect_until_finished(&rx);
@@ -295,6 +297,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn parses_image_marker_from_python() {
         // Skip the test if python3 is unavailable in the env (CI).
         if which("python3").is_none() {
@@ -311,12 +314,14 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn blocked_command_returns_err() {
         let r = spawn(&once_spec(Lang::Bash), "rm -rf /\n", None, None);
         assert!(r.is_err());
     }
 
     #[test]
+    #[serial]
     fn stderr_becomes_error_items() {
         let (_h, rx) = spawn(&once_spec(Lang::Bash), "echo oops 1>&2\n", None, None).unwrap();
         let items = collect_until_finished(&rx);

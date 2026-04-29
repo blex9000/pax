@@ -356,6 +356,7 @@ pub fn build_tab_label(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serial_test::serial;
 
     fn find_first_image(widget: &gtk4::Widget) -> Option<gtk4::Image> {
         if let Ok(image) = widget.clone().downcast::<gtk4::Image>() {
@@ -386,83 +387,80 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn layout_tabs_use_radio_fallback_icon() {
-        if gtk4::init().is_err() {
-            return;
-        }
+        crate::test_support::run_on_gtk_thread(|| {
+            let child = gtk4::Box::new(gtk4::Orientation::Vertical, 0).upcast::<gtk4::Widget>();
+            let label = build_tab_label(
+                "layout",
+                "__layout__",
+                &None,
+                &child,
+                None,
+                "tab-1",
+                &[0],
+                None,
+            );
+            let image =
+                find_first_image(&label).expect("layout tab should include fallback icon");
+            let text = find_first_label(&label).expect("layout tab should include text label");
 
-        let child = gtk4::Box::new(gtk4::Orientation::Vertical, 0).upcast::<gtk4::Widget>();
-        let label = build_tab_label(
-            "layout",
-            "__layout__",
-            &None,
-            &child,
-            None,
-            "tab-1",
-            &[0],
-            None,
-        );
-        let image = find_first_image(&label).expect("layout tab should include fallback icon");
-        let text = find_first_label(&label).expect("layout tab should include text label");
-
-        assert_eq!(image.icon_name().as_deref(), Some("radio-symbolic"));
-        assert_eq!(image.margin_start(), 8);
-        assert_eq!(text.xalign(), 0.0);
+            assert_eq!(image.icon_name().as_deref(), Some("radio-symbolic"));
+            assert_eq!(image.margin_start(), 8);
+            assert_eq!(text.xalign(), 0.0);
+        });
     }
 
     #[test]
+    #[serial]
     fn notebook_add_button_is_action_widget() {
-        if gtk4::init().is_err() {
-            return;
-        }
+        crate::test_support::run_on_gtk_thread(|| {
+            let notebook = gtk4::Notebook::new();
+            notebook.add_css_class("workspace-tabs");
+            let child = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
+            notebook.append_page(&child, Some(&gtk4::Label::new(Some("Tab"))));
 
-        let notebook = gtk4::Notebook::new();
-        notebook.add_css_class("workspace-tabs");
-        let child = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
-        notebook.append_page(&child, Some(&gtk4::Label::new(Some("Tab"))));
+            setup_notebook_menu_widget(&notebook, None);
 
-        setup_notebook_menu_widget(&notebook, None);
+            // The "+" is now an action widget at the end, not a tab page.
+            // n_pages stays 1 (only the real tab).
+            assert_eq!(notebook.n_pages(), 1);
+            assert_eq!(workspace_tab_real_page_count(&notebook), 1);
 
-        // The "+" is now an action widget at the end, not a tab page.
-        // n_pages stays 1 (only the real tab).
-        assert_eq!(notebook.n_pages(), 1);
-        assert_eq!(workspace_tab_real_page_count(&notebook), 1);
-
-        let action = notebook
-            .action_widget(gtk4::PackType::End)
-            .expect("notebook should have an action widget at end");
-        let add_label =
-            find_first_label(action.upcast_ref()).expect("action widget should contain label");
-        assert_eq!(add_label.text().as_str(), "+");
+            let action = notebook
+                .action_widget(gtk4::PackType::End)
+                .expect("notebook should have an action widget at end");
+            let add_label = find_first_label(action.upcast_ref())
+                .expect("action widget should contain label");
+            assert_eq!(add_label.text().as_str(), "+");
+        });
     }
 
     #[test]
+    #[serial]
     fn unwrap_layout_shell_skips_workspace_tab_page_shell() {
-        if gtk4::init().is_err() {
-            return;
-        }
+        crate::test_support::run_on_gtk_thread(|| {
+            let inner = gtk4::Box::new(gtk4::Orientation::Vertical, 0).upcast::<gtk4::Widget>();
+            let shell = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
+            shell.add_css_class(WORKSPACE_TAB_PAGE_SHELL_CLASS);
+            shell.append(&inner);
 
-        let inner = gtk4::Box::new(gtk4::Orientation::Vertical, 0).upcast::<gtk4::Widget>();
-        let shell = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
-        shell.add_css_class(WORKSPACE_TAB_PAGE_SHELL_CLASS);
-        shell.append(&inner);
-
-        let unwrapped = unwrap_layout_shell(shell.upcast_ref());
-        assert_eq!(unwrapped, inner);
+            let unwrapped = unwrap_layout_shell(shell.upcast_ref());
+            assert_eq!(unwrapped, inner);
+        });
     }
 
     #[test]
+    #[serial]
     fn collapsed_overlay_panel_margin_sets_all_sides() {
-        if gtk4::init().is_err() {
-            return;
-        }
-
-        let bar = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
-        apply_collapsed_overlay_panel_margin(&bar);
-        assert_eq!(bar.margin_top(), 6);
-        assert_eq!(bar.margin_bottom(), 6);
-        assert_eq!(bar.margin_start(), 6);
-        assert_eq!(bar.margin_end(), 6);
+        crate::test_support::run_on_gtk_thread(|| {
+            let bar = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
+            apply_collapsed_overlay_panel_margin(&bar);
+            assert_eq!(bar.margin_top(), 6);
+            assert_eq!(bar.margin_bottom(), 6);
+            assert_eq!(bar.margin_start(), 6);
+            assert_eq!(bar.margin_end(), 6);
+        });
     }
 }
 

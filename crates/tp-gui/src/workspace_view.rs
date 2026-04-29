@@ -1848,6 +1848,7 @@ fn connect_paned_position_watchers(widget: &gtk4::Widget, callback: &Rc<dyn Fn()
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serial_test::serial;
 
     fn tabs(children: Vec<LayoutNode>, labels: &[&str]) -> LayoutNode {
         LayoutNode::Tabs {
@@ -2087,167 +2088,167 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn select_workspace_tabs_for_panel_reveals_ancestor_tabs() {
-        if gtk4::init().is_err() {
-            return;
-        }
+        crate::test_support::run_on_gtk_thread(|| {
+            let root = gtk4::Notebook::new();
+            root.add_css_class("workspace-tabs");
+            root.set_widget_name(&crate::widget_builder::encode_tabs_widget_name(&[]));
+            let root_page_0 = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
+            let root_page_1 = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
+            root.append_page(&root_page_0, Some(&gtk4::Label::new(Some("Root 0"))));
+            root.append_page(&root_page_1, Some(&gtk4::Label::new(Some("Root 1"))));
 
-        let root = gtk4::Notebook::new();
-        root.add_css_class("workspace-tabs");
-        root.set_widget_name(&crate::widget_builder::encode_tabs_widget_name(&[]));
-        let root_page_0 = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
-        let root_page_1 = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
-        root.append_page(&root_page_0, Some(&gtk4::Label::new(Some("Root 0"))));
-        root.append_page(&root_page_1, Some(&gtk4::Label::new(Some("Root 1"))));
+            let nested = gtk4::Notebook::new();
+            nested.add_css_class("workspace-tabs");
+            nested.set_widget_name(&crate::widget_builder::encode_tabs_widget_name(&[1]));
+            root_page_1.append(&nested);
 
-        let nested = gtk4::Notebook::new();
-        nested.add_css_class("workspace-tabs");
-        nested.set_widget_name(&crate::widget_builder::encode_tabs_widget_name(&[1]));
-        root_page_1.append(&nested);
+            let nested_page_0 = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
+            let nested_page_1 = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
 
-        let nested_page_0 = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
-        let nested_page_1 = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
+            let panel_1 = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
+            panel_1.add_css_class("panel-frame");
+            panel_1.set_widget_name("p1");
+            nested_page_0.append(&panel_1);
 
-        let panel_1 = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
-        panel_1.add_css_class("panel-frame");
-        panel_1.set_widget_name("p1");
-        nested_page_0.append(&panel_1);
+            let panel_2 = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
+            panel_2.add_css_class("panel-frame");
+            panel_2.set_widget_name("p2");
+            nested_page_1.append(&panel_2);
 
-        let panel_2 = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
-        panel_2.add_css_class("panel-frame");
-        panel_2.set_widget_name("p2");
-        nested_page_1.append(&panel_2);
+            nested.append_page(&nested_page_0, Some(&gtk4::Label::new(Some("Inner 0"))));
+            nested.append_page(&nested_page_1, Some(&gtk4::Label::new(Some("Inner 1"))));
 
-        nested.append_page(&nested_page_0, Some(&gtk4::Label::new(Some("Inner 0"))));
-        nested.append_page(&nested_page_1, Some(&gtk4::Label::new(Some("Inner 1"))));
+            root.set_current_page(Some(0));
+            nested.set_current_page(Some(0));
 
-        root.set_current_page(Some(0));
-        nested.set_current_page(Some(0));
-
-        let layout = tabs(
-            vec![
-                panel("root-placeholder"),
-                tabs(vec![panel("p1"), panel("p2")], &["Inner 0", "Inner 1"]),
-            ],
-            &["Root 0", "Root 1"],
-        );
-
-        let selected = select_workspace_tabs_for_panel(&root.clone().upcast(), &layout, "p2");
-
-        assert!(selected);
-        assert_eq!(root.current_page(), Some(1));
-        assert_eq!(nested.current_page(), Some(1));
-    }
-
-    #[test]
-    fn split_focused_in_nested_tabs_keeps_nested_selection() {
-        if gtk4::init().is_err() {
-            return;
-        }
-
-        let workspace = Workspace {
-            name: "demo".to_string(),
-            id: uuid::Uuid::new_v4(),
-            layout: tabs(
+            let layout = tabs(
                 vec![
-                    LayoutNode::Vsplit {
-                        children: vec![
-                            tabs(vec![panel("a"), panel("b")], &["inner-a", "inner-b"]),
-                            panel("c"),
-                        ],
-                        ratios: vec![1.0, 1.0],
-                    },
-                    panel("d"),
+                    panel("root-placeholder"),
+                    tabs(vec![panel("p1"), panel("p2")], &["Inner 0", "Inner 1"]),
                 ],
-                &["outer-left", "outer-right"],
-            ),
-            panels: vec![
-                PanelConfig {
-                    panel_type: PanelType::Empty,
-                    ..panel_config("a", "Panel A")
-                },
-                PanelConfig {
-                    panel_type: PanelType::Empty,
-                    ..panel_config("b", "Panel B")
-                },
-                PanelConfig {
-                    panel_type: PanelType::Empty,
-                    ..panel_config("c", "Panel C")
-                },
-                PanelConfig {
-                    panel_type: PanelType::Empty,
-                    ..panel_config("d", "Panel D")
-                },
-            ],
-            groups: Vec::new(),
-            alerts: Vec::new(),
-            startup_script: None,
-            notes_file: None,
-            settings: Default::default(),
-            ssh_configs: Vec::new(),
-        };
+                &["Root 0", "Root 1"],
+            );
 
-        let mut view = WorkspaceView::build(&workspace, None);
-        let focused = view.focus_order_index("a").expect("panel a in focus order");
-        view.set_focus_index(focused);
+            let selected =
+                select_workspace_tabs_for_panel(&root.clone().upcast(), &layout, "p2");
 
-        let new_id = view
-            .split_focused_v()
-            .expect("split should create a new panel");
-
-        let context = gtk4::glib::MainContext::default();
-        while context.pending() {
-            context.iteration(false);
-        }
-
-        let root = find_workspace_notebook_by_path(&view.root_widget, &[])
-            .expect("root workspace notebook");
-        let nested = find_workspace_notebook_by_path(&view.root_widget, &[0, 0])
-            .expect("nested workspace notebook");
-
-        assert_eq!(view.focused_panel_id(), Some(new_id.as_str()));
-        assert_eq!(root.current_page(), Some(0));
-        assert_eq!(nested.current_page(), Some(0));
-    }
-
-    #[test]
-    fn apply_synced_layout_if_changed_marks_workspace_dirty() {
-        if gtk4::init().is_err() {
-            return;
-        }
-        let mut workspace = sample_workspace();
-        workspace.layout = LayoutNode::Hsplit {
-            children: vec![panel("a"), panel("b")],
-            ratios: vec![0.5, 0.5],
-        };
-        workspace.panels = vec![panel_config("a", "Panel A"), panel_config("b", "Panel B")];
-
-        let mut view = WorkspaceView::build(&workspace, None);
-        assert!(!view.is_dirty());
-
-        let changed = view.apply_synced_layout_if_changed(LayoutNode::Hsplit {
-            children: vec![panel("a"), panel("b")],
-            ratios: vec![0.7, 0.3],
+            assert!(selected);
+            assert_eq!(root.current_page(), Some(1));
+            assert_eq!(nested.current_page(), Some(1));
         });
-
-        assert!(changed);
-        assert!(view.is_dirty());
-        match view.workspace().layout {
-            LayoutNode::Hsplit { ref ratios, .. } => assert_eq!(ratios, &vec![0.7, 0.3]),
-            _ => panic!("expected hsplit layout"),
-        }
     }
 
     #[test]
+    #[serial]
+    fn split_focused_in_nested_tabs_keeps_nested_selection() {
+        crate::test_support::run_on_gtk_thread(|| {
+            let workspace = Workspace {
+                name: "demo".to_string(),
+                id: uuid::Uuid::new_v4(),
+                layout: tabs(
+                    vec![
+                        LayoutNode::Vsplit {
+                            children: vec![
+                                tabs(vec![panel("a"), panel("b")], &["inner-a", "inner-b"]),
+                                panel("c"),
+                            ],
+                            ratios: vec![1.0, 1.0],
+                        },
+                        panel("d"),
+                    ],
+                    &["outer-left", "outer-right"],
+                ),
+                panels: vec![
+                    PanelConfig {
+                        panel_type: PanelType::Empty,
+                        ..panel_config("a", "Panel A")
+                    },
+                    PanelConfig {
+                        panel_type: PanelType::Empty,
+                        ..panel_config("b", "Panel B")
+                    },
+                    PanelConfig {
+                        panel_type: PanelType::Empty,
+                        ..panel_config("c", "Panel C")
+                    },
+                    PanelConfig {
+                        panel_type: PanelType::Empty,
+                        ..panel_config("d", "Panel D")
+                    },
+                ],
+                groups: Vec::new(),
+                alerts: Vec::new(),
+                startup_script: None,
+                notes_file: None,
+                settings: Default::default(),
+                ssh_configs: Vec::new(),
+            };
+
+            let mut view = WorkspaceView::build(&workspace, None);
+            let focused = view.focus_order_index("a").expect("panel a in focus order");
+            view.set_focus_index(focused);
+
+            let new_id = view
+                .split_focused_v()
+                .expect("split should create a new panel");
+
+            let context = gtk4::glib::MainContext::default();
+            while context.pending() {
+                context.iteration(false);
+            }
+
+            let root = find_workspace_notebook_by_path(&view.root_widget, &[])
+                .expect("root workspace notebook");
+            let nested = find_workspace_notebook_by_path(&view.root_widget, &[0, 0])
+                .expect("nested workspace notebook");
+
+            assert_eq!(view.focused_panel_id(), Some(new_id.as_str()));
+            assert_eq!(root.current_page(), Some(0));
+            assert_eq!(nested.current_page(), Some(0));
+        });
+    }
+
+    #[test]
+    #[serial]
+    fn apply_synced_layout_if_changed_marks_workspace_dirty() {
+        crate::test_support::run_on_gtk_thread(|| {
+            let mut workspace = sample_workspace();
+            workspace.layout = LayoutNode::Hsplit {
+                children: vec![panel("a"), panel("b")],
+                ratios: vec![0.5, 0.5],
+            };
+            workspace.panels =
+                vec![panel_config("a", "Panel A"), panel_config("b", "Panel B")];
+
+            let mut view = WorkspaceView::build(&workspace, None);
+            assert!(!view.is_dirty());
+
+            let changed = view.apply_synced_layout_if_changed(LayoutNode::Hsplit {
+                children: vec![panel("a"), panel("b")],
+                ratios: vec![0.7, 0.3],
+            });
+
+            assert!(changed);
+            assert!(view.is_dirty());
+            match view.workspace().layout {
+                LayoutNode::Hsplit { ref ratios, .. } => assert_eq!(ratios, &vec![0.7, 0.3]),
+                _ => panic!("expected hsplit layout"),
+            }
+        });
+    }
+
+    #[test]
+    #[serial]
     fn apply_synced_layout_if_changed_ignores_identical_layout() {
-        if gtk4::init().is_err() {
-            return;
-        }
-        let workspace = sample_workspace();
-        let mut view = WorkspaceView::build(&workspace, None);
-        let changed = view.apply_synced_layout_if_changed(view.workspace().layout.clone());
-        assert!(!changed);
-        assert!(!view.is_dirty());
+        crate::test_support::run_on_gtk_thread(|| {
+            let workspace = sample_workspace();
+            let mut view = WorkspaceView::build(&workspace, None);
+            let changed = view.apply_synced_layout_if_changed(view.workspace().layout.clone());
+            assert!(!changed);
+            assert!(!view.is_dirty());
+        });
     }
 }
 

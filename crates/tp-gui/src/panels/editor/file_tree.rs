@@ -2467,6 +2467,7 @@ fn which_executable(name: &str) -> Option<PathBuf> {
 mod tests {
     use super::*;
     use crate::panels::editor::file_backend::LocalFileBackend;
+    use serial_test::serial;
     use tempfile::tempdir;
 
     #[test]
@@ -2646,20 +2647,19 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn find_transient_parent_window_uses_widget_root_window() {
-        if gtk4::init().is_err() {
-            return;
-        }
+        crate::test_support::run_on_gtk_thread(|| {
+            let window = gtk4::Window::new();
+            let container = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
+            let button = gtk4::Button::with_label("Create");
+            container.append(&button);
+            window.set_child(Some(&container));
 
-        let window = gtk4::Window::new();
-        let container = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
-        let button = gtk4::Button::with_label("Create");
-        container.append(&button);
-        window.set_child(Some(&container));
+            let resolved = find_transient_parent_window(&button).expect("parent window");
 
-        let resolved = find_transient_parent_window(&button).expect("parent window");
-
-        assert_eq!(resolved, window);
+            assert_eq!(resolved, window);
+        });
     }
 
     #[test]

@@ -15,6 +15,8 @@ pub mod panel_host;
 pub mod panels;
 pub mod recent_markdown;
 pub mod shortcuts;
+#[cfg(test)]
+pub(crate) mod test_support;
 pub mod theme;
 pub mod widget_builder;
 pub mod widgets;

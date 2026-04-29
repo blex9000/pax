@@ -1181,6 +1181,7 @@ fn update_ancestor_workspace_tabs_focus_path(widget: &gtk4::Widget, focused: boo
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serial_test::serial;
 
     #[test]
     fn wrapped_input_callback_forwards_panel_id_and_bytes() {
@@ -1211,12 +1212,11 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn panel_host_clips_contents_to_rounded_frame() {
-        if gtk4::init().is_err() {
-            return;
-        }
-
-        let host = PanelHost::new("panel-1", "Panel", None);
-        assert_eq!(host.outer.overflow(), gtk4::Overflow::Hidden);
+        crate::test_support::run_on_gtk_thread(|| {
+            let host = PanelHost::new("panel-1", "Panel", None);
+            assert_eq!(host.outer.overflow(), gtk4::Overflow::Hidden);
+        });
     }
 }

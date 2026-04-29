@@ -42,3 +42,8 @@ chrono = "0.4"
 [dev-dependencies]
 tempfile = "3"
 uuid = { workspace = true }
+# Tests that touch GTK / glib must not race: gtk4::init() panics when
+# called from a second thread, and glib's default main context can only
+# host one MainLoop at a time. `#[serial]` from this crate ensures every
+# such test runs on its own.
+serial_test = "3"

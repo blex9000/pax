@@ -46,23 +46,27 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serial_test::serial;
 
     #[test]
+    #[serial]
     fn run_blocking_delivers_result_on_main_loop() {
-        let main_loop = glib::MainLoop::new(None, false);
-        let observed = Rc::new(RefCell::new(None));
-        let observed_c = observed.clone();
-        let main_loop_c = main_loop.clone();
+        crate::test_support::run_on_gtk_thread(|| {
+            let main_loop = glib::MainLoop::new(None, false);
+            let observed = Rc::new(RefCell::new(None));
+            let observed_c = observed.clone();
+            let main_loop_c = main_loop.clone();
 
-        run_blocking(
-            || 42,
-            move |value| {
-                *observed_c.borrow_mut() = Some(value);
-                main_loop_c.quit();
-            },
-        );
+            run_blocking(
+                || 42,
+                move |value| {
+                    *observed_c.borrow_mut() = Some(value);
+                    main_loop_c.quit();
+                },
+            );
 
-        main_loop.run();
-        assert_eq!(*observed.borrow(), Some(42));
+            main_loop.run();
+            assert_eq!(*observed.borrow(), Some(42));
+        });
     }
 }
