@@ -1668,6 +1668,13 @@ fn toggle_dir(
     dir_path: &Path,
     backend: &dyn FileBackend,
 ) {
+    // For local backends the file_index is the full-project walk built
+    // by build_tree_snapshot — we leave it alone here. Expand/collapse
+    // changes the visible tree, not which files exist. For remote
+    // backends the index still tracks what's been loaded, so we mutate
+    // it as we go to keep search/quick-open up to date with the
+    // user-driven exploration.
+    let track_file_index = backend.is_remote();
     let mut ents = entries.borrow_mut();
 
     if was_expanded {
@@ -1678,7 +1685,7 @@ fn toggle_dir(
         while remove_end < ents.len() && ents[remove_end].depth > depth {
             remove_end += 1;
         }
-        {
+        if track_file_index {
             let removed_paths: Vec<PathBuf> = ents[remove_start..remove_end]
                 .iter()
                 .filter(|e| !e.is_dir)
@@ -1705,7 +1712,9 @@ fn toggle_dir(
             ents[idx].expanded = false;
             return;
         }
-        file_index.borrow_mut().extend(new_index);
+        if track_file_index {
+            file_index.borrow_mut().extend(new_index);
+        }
         let insert_pos = idx + 1;
         for (i, entry) in new_entries.into_iter().enumerate() {
             ents.insert(insert_pos + i, entry);
@@ -1782,7 +1791,33 @@ fn build_tree_snapshot(
         backend,
     )?;
 
+    // The file_index drives the editor's quick-open + project search. The
+    // visible tree only knows about top-level + currently-expanded dirs, so
+    // a search-from-the-tree-state would miss anything inside a collapsed
+    // folder. For local backends we replace it here with a full walk of
+    // the project (gitignore-aware via the `ignore` crate). Remote
+    // backends keep the tree-derived index — a full SSH walk would be
+    // prohibitively expensive on large repos.
+    if !backend.is_remote() {
+        snapshot.file_index = walk_full_file_index(root);
+    }
+
     Ok(snapshot)
+}
+
+/// Recursively walk `root` respecting .gitignore / .ignore / .git/info/exclude
+/// (via the `ignore` crate, same configuration used by the project-wide
+/// search). Returns every file path (no directories). Used as the
+/// search-friendly file index, decoupled from which folders the user has
+/// currently expanded in the visible tree.
+fn walk_full_file_index(root: &Path) -> Vec<PathBuf> {
+    let mut out = Vec::new();
+    for entry in ignore::WalkBuilder::new(root).build().flatten() {
+        if entry.file_type().map_or(false, |ft| ft.is_file()) {
+            out.push(entry.path().to_path_buf());
+        }
+    }
+    out
 }
 
 fn build_collapsed_entries(
