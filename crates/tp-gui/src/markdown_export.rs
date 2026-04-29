@@ -247,7 +247,14 @@ impl Block {
                 layout.set_font_description(Some(&body_font()));
                 layout.set_width(((page_width - indent) * gtk4::pango::SCALE as f64) as i32);
                 layout.set_wrap(gtk4::pango::WrapMode::WordChar);
-                layout.set_markup(&format!("<i>{}</i>", markup));
+                // Italic + slightly greyer foreground, matching the
+                // on-screen markdown viewer's `bq` tag (#888888) so the
+                // visual treatment is consistent between preview and
+                // exported PDF.
+                layout.set_markup(&format!(
+                    "<span foreground=\"#888888\"><i>{}</i></span>",
+                    markup
+                ));
                 let h_pt = pu_to_pt(layout.size().1);
                 cr.save().ok();
                 {
