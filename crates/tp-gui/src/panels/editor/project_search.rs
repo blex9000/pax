@@ -598,26 +598,6 @@ fn render_results(
     }
 }
 
-/// Highlight occurrences of query in text using Pango markup.
-fn build_highlight_markup(text: &str, query: &str) -> String {
-    let text_escaped = gtk4::glib::markup_escape_text(text);
-    let query_lower = query.to_lowercase();
-    let text_lower = text_escaped.to_lowercase();
-
-    let mut result = String::new();
-    let mut last = 0;
-    while let Some(pos) = text_lower[last..].find(&query_lower) {
-        let abs_pos = last + pos;
-        result.push_str(&text_escaped[last..abs_pos]);
-        result.push_str("<b><span foreground=\"#e5a50a\">");
-        result.push_str(&text_escaped[abs_pos..abs_pos + query.len()]);
-        result.push_str("</span></b>");
-        last = abs_pos + query.len();
-    }
-    result.push_str(&text_escaped[last..]);
-    result
-}
-
 /// Search for a query string across project files.
 /// For remote backends, uses backend.search_files(). For local, uses ignore::WalkBuilder.
 fn search_in_files(root: &Path, query: &str, backend: &dyn FileBackend) -> Vec<SearchResult> {

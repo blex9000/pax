@@ -12,9 +12,8 @@ use sourceview5::prelude::*;
 const CONTEXT_MENU_BUTTON: u32 = 3;
 const FORMATTER_TIMEOUT_SECS: u64 = 8;
 
-/// One item in the context menu. Use `Separator` to insert a divider.
+/// One item in the context menu.
 pub enum TextContextMenuItem {
-    Separator,
     Button {
         icon: &'static str,
         label: String,
@@ -255,18 +254,14 @@ fn build_menu(
     if !extras.is_empty() {
         append_separator(&menu_box);
         for item in extras {
-            match item {
-                TextContextMenuItem::Separator => append_separator(&menu_box),
-                TextContextMenuItem::Button { icon, label, hint, on_click } => {
-                    let btn = make_menu_button(icon, &label, hint.as_deref().unwrap_or(""));
-                    let p = popover.clone();
-                    btn.connect_clicked(move |_| {
-                        on_click();
-                        p.popdown();
-                    });
-                    menu_box.append(&btn);
-                }
-            }
+            let TextContextMenuItem::Button { icon, label, hint, on_click } = item;
+            let btn = make_menu_button(icon, &label, hint.as_deref().unwrap_or(""));
+            let p = popover.clone();
+            btn.connect_clicked(move |_| {
+                on_click();
+                p.popdown();
+            });
+            menu_box.append(&btn);
         }
     }
 

@@ -165,10 +165,6 @@ pub struct CodeEditorPanel {
     state: Rc<RefCell<EditorState>>,
     /// SSH connection label for remote panels (e.g. "user@host").
     ssh_info: Option<String>,
-    /// Editor's shared SourceView — its buffer is swapped on every tab
-    /// switch. Held so `write_input` can target the currently-visible
-    /// buffer for sync-input mirroring.
-    source_view: sourceview5::View,
     /// Set while applying inbound sync input so the buffer mutations we
     /// trigger don't bounce back through the input observer.
     suppress_emit: Rc<Cell<bool>>,
@@ -1093,7 +1089,6 @@ impl CodeEditorPanel {
             widget,
             state,
             ssh_info: None,
-            source_view: tabs_rc.source_view.clone(),
             suppress_emit: sync_suppress,
             input_cb: sync_input_cb,
         }
