@@ -27,6 +27,9 @@ use std::rc::Rc;
 const CODE_BG: (f64, f64, f64) = (0.93, 0.93, 0.93);
 const BLOCK_GAP_PT: f64 = 4.0;
 const CODE_PAD_PT: f64 = 6.0;
+const FOOTER_HEIGHT_PT: f64 = 14.0;
+const MONO_BASE_PT: f64 = 9.0;
+const MONO_MIN_PT: f64 = 5.0;
 
 pub fn export_markdown_to_pdf(parent: &gtk4::Window, content: &str, suggested_name: &str) {
     let dialog = gtk4::FileDialog::new();
@@ -69,17 +72,16 @@ fn run_print(parent: &gtk4::Window, markdown: &str, output_path: &Path) {
         print_op.connect_begin_print(move |op, ctx| {
             let page_width = ctx.width();
             let page_height = ctx.height();
+            let usable_height = page_height - FOOTER_HEIGHT_PT;
 
             let mut paginated: Vec<(usize, usize)> = Vec::new();
             let mut cur_start = 0usize;
             let mut cur_height = 0.0_f64;
             for (i, block) in blocks.iter().enumerate() {
                 let h = block.measure(ctx, page_width) + BLOCK_GAP_PT;
-                let block_taller_than_page = h > page_height;
-                let fits = cur_height + h <= page_height;
+                let block_taller_than_page = h > usable_height;
+                let fits = cur_height + h <= usable_height;
                 if !fits && i > cur_start && !block_taller_than_page {
-                    // Block doesn't fit on the current page → push it
-                    // intact to the next page, no slicing.
                     paginated.push((cur_start, i));
                     cur_start = i;
                     cur_height = h;
@@ -104,8 +106,10 @@ fn run_print(parent: &gtk4::Window, markdown: &str, output_path: &Path) {
         print_op.connect_draw_page(move |_, ctx, page_no| {
             let cr = ctx.cairo_context();
             let page_width = ctx.width();
+            let page_height = ctx.height();
 
             let pages_ref = pages.borrow();
+            let total_pages = pages_ref.len();
             let (start, end) = pages_ref
                 .get(page_no as usize)
                 .copied()
@@ -117,6 +121,8 @@ fn run_print(parent: &gtk4::Window, markdown: &str, output_path: &Path) {
                 block.draw(ctx, &cr, 0.0, y, page_width);
                 y += block.measure(ctx, page_width) + BLOCK_GAP_PT;
             }
+
+            draw_footer(ctx, &cr, page_no as usize + 1, total_pages, page_width, page_height);
         });
     }
 
@@ -181,7 +187,7 @@ impl Block {
                 pu_to_pt(layout.size().1)
             }
             Block::CodeBlock { text } => {
-                let layout = code_layout(ctx, text);
+                let layout = code_layout(ctx, text, page_width);
                 pu_to_pt(layout.size().1) + 2.0 * CODE_PAD_PT
             }
             Block::List { items, ordered, start } => {
@@ -204,7 +210,7 @@ impl Block {
             }
             Block::Table { rows, body_start } => {
                 let text = render_table_monospace(rows, *body_start);
-                let layout = code_layout(ctx, &text);
+                let layout = code_layout(ctx, &text, page_width);
                 pu_to_pt(layout.size().1)
             }
             Block::Rule => 8.0,
@@ -259,7 +265,7 @@ impl Block {
                 pangocairo::functions::show_layout(cr, &layout);
             }
             Block::CodeBlock { text } => {
-                let layout = code_layout(ctx, text);
+                let layout = code_layout(ctx, text, page_width);
                 let h_pt = pu_to_pt(layout.size().1) + 2.0 * CODE_PAD_PT;
                 cr.save().ok();
                 {
@@ -293,7 +299,7 @@ impl Block {
                 // No background rectangle for tables — the box-drawing
                 // characters already give the table a visual frame.
                 let text = render_table_monospace(rows, *body_start);
-                let layout = code_layout(ctx, &text);
+                let layout = code_layout(ctx, &text, page_width);
                 cr.move_to(x, y);
                 pangocairo::functions::show_layout(cr, &layout);
             }
@@ -312,17 +318,58 @@ impl Block {
     }
 }
 
-fn code_layout(ctx: &gtk4::PrintContext, text: &str) -> gtk4::pango::Layout {
+/// Build a monospace, no-wrap Pango layout for `text`. If the natural
+/// width at the base font size exceeds `max_width_pt`, shrink the font
+/// proportionally so the block stays visible inside the page (down to
+/// MONO_MIN_PT). Used for code blocks and tables.
+fn code_layout(ctx: &gtk4::PrintContext, text: &str, max_width_pt: f64) -> gtk4::pango::Layout {
     let layout = ctx.create_pango_layout();
-    layout.set_font_description(Some(&mono_font()));
-    // No wrap for code/tables — they're meant to be read as-is. If a
-    // line overflows the page width it's clipped by the print surface,
-    // which is preferable to wrapping in the middle of a box-drawing
-    // table (which destroys the layout entirely).
     layout.set_wrap(gtk4::pango::WrapMode::WordChar);
     layout.set_width(-1);
     layout.set_text(text);
+
+    // First measurement: at the base monospace size.
+    layout.set_font_description(Some(&mono_font()));
+    let natural_pt = pu_to_pt(layout.size().0);
+    if natural_pt > max_width_pt && natural_pt > 0.0 && max_width_pt > 0.0 {
+        let scale = max_width_pt / natural_pt;
+        let scaled_size = (MONO_BASE_PT * scale).max(MONO_MIN_PT);
+        let scaled = gtk4::pango::FontDescription::from_string(&format!(
+            "Monospace {}",
+            format_pt(scaled_size)
+        ));
+        layout.set_font_description(Some(&scaled));
+    }
     layout
+}
+
+fn format_pt(pt: f64) -> String {
+    // Pango parses both "9" and "9.5" as a font size — use one
+    // decimal so we don't lose precision after the auto-shrink ratio.
+    format!("{:.1}", pt)
+}
+
+fn draw_footer(
+    ctx: &gtk4::PrintContext,
+    cr: &gtk4::cairo::Context,
+    page_no: usize,
+    total_pages: usize,
+    page_width: f64,
+    page_height: f64,
+) {
+    let layout = ctx.create_pango_layout();
+    layout.set_alignment(gtk4::pango::Alignment::Center);
+    layout.set_width((page_width * gtk4::pango::SCALE as f64) as i32);
+    let desc = gtk4::pango::FontDescription::from_string("Sans 9");
+    layout.set_font_description(Some(&desc));
+    layout.set_text(&format!("{} / {}", page_no, total_pages));
+
+    let h_pt = pu_to_pt(layout.size().1);
+    cr.save().ok();
+    cr.set_source_rgb(0.55, 0.55, 0.55);
+    cr.move_to(0.0, page_height - h_pt - 2.0);
+    pangocairo::functions::show_layout(cr, &layout);
+    cr.restore().ok();
 }
 
 fn pu_to_pt(pu: i32) -> f64 {
