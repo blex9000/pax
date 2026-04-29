@@ -1590,9 +1590,9 @@ window.app-dialog dropdown.settings-theme-dropdown > popover.menu row:selected,
 ";
 
 const GRAPHITE_CSS: &str = "\
-@define-color bg_window #141a22;\n\
+@define-color bg_window #1d2530;\n\
 @define-color bg_chrome @bg_window;\n\
-@define-color bg_surface #0f141b;\n\
+@define-color bg_surface #131b25;\n\
 @define-color bg_elevated #202938;\n\
 @define-color fg_ui #e5ecf3;\n\
 @define-color fg_content #e5ecf3;\n\
@@ -1600,7 +1600,7 @@ const GRAPHITE_CSS: &str = "\
 @define-color accent_bg @accent;\n\
 @define-color accent_fg #0f141b;\n\
 @define-color hover_bg #1e2a3a;\n\
-@define-color bg_popover @bg_elevated;\n\
+@define-color bg_popover @bg_window;\n\
 @define-color border_soft alpha(white, 0.10);\n\
 @define-color border_hard alpha(white, 0.10);\n\
 @define-color window_bg_color @bg_window;\n\
@@ -1885,7 +1885,7 @@ mod tests {
             Theme::Graphite.color_scheme(),
             libadwaita::ColorScheme::ForceDark
         );
-        assert!(GRAPHITE_CSS.contains("@define-color bg_surface #0f141b;"));
+        assert!(GRAPHITE_CSS.contains("@define-color bg_surface #131b25;"));
     }
 
     #[test]
