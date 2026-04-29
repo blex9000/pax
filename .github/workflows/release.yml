@@ -11,13 +11,16 @@ permissions:
 jobs:
   build-appimage:
     name: Build AppImage (Linux x86_64)
-    # ubuntu-22.04 ships glibc 2.35; AppImages don't bundle libc, so
-    # building on 24.04 (glibc 2.39) produced binaries that failed on
-    # any older host with 'GLIBC_2.39 not found'. 22.04 is recent
-    # enough for current GTK4 deps and old enough to run on Debian 12,
-    # RHEL 9, Mint 21, every current LTS — covers the realistic user
-    # base without forcing them to upgrade.
-    runs-on: ubuntu-22.04
+    # MUST be 24.04 minimum: Cargo.toml requires gtk4 with v4_10 feature
+    # (GTK ≥ 4.10) and libadwaita with v1_4 feature (≥ 1.4). Ubuntu 22.04
+    # only ships GTK 4.6 / libadwaita 1.0-1.2 → build fails with missing
+    # symbols. Switching to 22.04 to lower the AppImage's glibc floor
+    # would require either compiling GTK 4.10+ from source inside the
+    # runner (slow), or pulling it from a PPA (fragile). For now we
+    # accept that glibc 2.39 is the floor; the user base running Pax is
+    # already on systems modern enough to ship GTK 4.10+ themselves
+    # (Ubuntu 24.04+, Debian 13+, Fedora 38+).
+    runs-on: ubuntu-24.04
 
     steps:
       - name: Checkout

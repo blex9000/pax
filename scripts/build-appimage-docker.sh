@@ -19,8 +19,13 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
-# Pinned for reproducibility: bump only when a glibc bump is acceptable.
-BASE_IMAGE="${PAX_APPIMAGE_BASE:-ubuntu:22.04}"
+# Pinned to 24.04 because Cargo.toml requires gtk4 v4_10 (GTK ≥ 4.10)
+# and libadwaita v1_4 (≥ 1.4) feature flags — Ubuntu 22.04 only ships
+# GTK 4.6 / libadwaita 1.0-1.2. Lowering the floor below 24.04 would
+# require pulling GTK from a PPA or compiling it from source inside
+# the container (slow). Override with PAX_APPIMAGE_BASE if you have
+# a custom base that ships ≥ GTK 4.10 with older glibc.
+BASE_IMAGE="${PAX_APPIMAGE_BASE:-ubuntu:24.04}"
 IMAGE_TAG="pax-appimage-builder:$(echo "$BASE_IMAGE" | tr ':/' '--')"
 
 if ! command -v docker &>/dev/null; then
