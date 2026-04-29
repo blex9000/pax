@@ -29,7 +29,14 @@ const BLOCK_GAP_PT: f64 = 4.0;
 const CODE_PAD_PT: f64 = 6.0;
 const FOOTER_HEIGHT_PT: f64 = 14.0;
 const MONO_BASE_PT: f64 = 9.0;
-const MONO_MIN_PT: f64 = 5.0;
+const MONO_MIN_PT: f64 = 4.0;
+/// Auto-shrink targets this fraction of the page width rather than
+/// the full width. Pango font metrics + Cairo PDF rendering tend to
+/// produce a 1-2 pt overshoot vs the natural-width measurement, so
+/// scaling exactly to max-width leaves a table flush against the
+/// right edge that occasionally clips. 95% leaves a comfortable
+/// breathing margin without making content noticeably smaller.
+const AUTO_SHRINK_SAFETY: f64 = 0.95;
 
 pub fn export_markdown_to_pdf(parent: &gtk4::Window, content: &str, suggested_name: &str) {
     let dialog = gtk4::FileDialog::new();
@@ -365,8 +372,9 @@ fn code_layout(ctx: &gtk4::PrintContext, text: &str, max_width_pt: f64) -> gtk4:
     // First measurement: at the base monospace size.
     layout.set_font_description(Some(&mono_font()));
     let natural_pt = pu_to_pt(layout.size().0);
-    if natural_pt > max_width_pt && natural_pt > 0.0 && max_width_pt > 0.0 {
-        let scale = max_width_pt / natural_pt;
+    let target_pt = max_width_pt * AUTO_SHRINK_SAFETY;
+    if natural_pt > target_pt && natural_pt > 0.0 && target_pt > 0.0 {
+        let scale = target_pt / natural_pt;
         let scaled_pt = (MONO_BASE_PT * scale).max(MONO_MIN_PT);
         // Build the description manually rather than via from_string —
         // the latter parses point sizes with the user's LC_NUMERIC
