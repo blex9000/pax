@@ -24,7 +24,6 @@ use std::cell::RefCell;
 use std::path::Path;
 use std::rc::Rc;
 
-const CODE_BG: (f64, f64, f64) = (0.93, 0.93, 0.93);
 const BLOCK_GAP_PT: f64 = 4.0;
 const CODE_PAD_PT: f64 = 6.0;
 const FOOTER_HEIGHT_PT: f64 = 14.0;
@@ -152,8 +151,7 @@ enum Block {
     },
     /// Paragraph of inline markup.
     Paragraph { markup: String },
-    /// Code block: monospace, light grey rectangular background, no
-    /// wrapping.
+    /// Code block: monospace, no wrapping.
     CodeBlock { text: String },
     /// Block quote: italic, indented.
     BlockQuote { markup: String },
@@ -277,14 +275,6 @@ impl Block {
             }
             Block::CodeBlock { text } => {
                 let layout = code_layout(ctx, text, page_width);
-                let h_pt = pu_to_pt(layout.size().1) + 2.0 * CODE_PAD_PT;
-                cr.save().ok();
-                {
-                    cr.set_source_rgb(CODE_BG.0, CODE_BG.1, CODE_BG.2);
-                    cr.rectangle(x, y, page_width, h_pt);
-                    cr.fill().ok();
-                }
-                cr.restore().ok();
                 cr.move_to(x + CODE_PAD_PT, y + CODE_PAD_PT);
                 pangocairo::functions::show_layout(cr, &layout);
             }

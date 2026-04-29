@@ -132,12 +132,6 @@ fn draw_bar(
     cr.line_to(bar_x, win_y_bot as f64);
 }
 
-// Code block backgrounds — slight contrast against each theme family's main
-// surface, without overriding the default text foreground (so GTK keeps
-// contrast for us as the theme changes).
-const CODE_BG_DARK: &str = "#1a1a1a";
-const CODE_BG_LIGHT: &str = "#ececec";
-
 // Heading vertical padding (pixels above / below the heading line).
 // Scaled so H1/H2 get more breathing room than H5/H6.
 const HEADING_PAD_LG: i32 = 14;
@@ -159,12 +153,6 @@ pub(crate) fn render_markdown_to_view_with_hook(
     let buf = tv.buffer();
     buf.set_text("");
     let tt = buf.tag_table();
-
-    let is_light = matches!(
-        crate::theme::current_theme().color_scheme(),
-        libadwaita::ColorScheme::ForceLight
-    );
-    let code_bg = if is_light { CODE_BG_LIGHT } else { CODE_BG_DARK };
 
     // `ensure` re-applies the callback every time so theme-reactive tags
     // update when the renderer runs again after a theme change, not just on
@@ -210,7 +198,6 @@ pub(crate) fn render_markdown_to_view_with_hook(
     });
     ensure("code_block", &|t| {
         t.set_family(Some("monospace"));
-        t.set_paragraph_background(Some(code_bg));
         t.set_left_margin(20);
         // Code shouldn't reflow at the viewport edge — long lines stay
         // intact and the panel scrolls horizontally instead.
