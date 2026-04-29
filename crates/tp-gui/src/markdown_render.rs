@@ -90,6 +90,9 @@ pub(crate) fn render_markdown_to_view_with_hook(
         t.set_family(Some("monospace"));
         t.set_paragraph_background(Some(code_bg));
         t.set_left_margin(20);
+        // Code shouldn't reflow at the viewport edge — long lines stay
+        // intact and the panel scrolls horizontally instead.
+        t.set_wrap_mode(gtk4::WrapMode::None);
     });
     ensure("link", &|t| {
         t.set_foreground(Some("#5588ff"));
@@ -107,17 +110,17 @@ pub(crate) fn render_markdown_to_view_with_hook(
         t.set_foreground(Some("#666666"));
         t.set_size_points(6.0);
     });
-    // Use character-level background (set_background) instead of
-    // paragraph_background so the highlight covers exactly the table's
-    // width — the box-drawing chars plus padded cell text — not the full
-    // viewport row.
+    // Tables: monospace, no wrap (a wrapped row destroys the
+    // box-drawing alignment far worse than a horizontal scrollbar).
+    // No background — the box-drawing chars frame the table well
+    // enough on their own.
     ensure("table", &|t| {
         t.set_family(Some("monospace"));
-        t.set_background(Some(code_bg));
+        t.set_wrap_mode(gtk4::WrapMode::None);
     });
     ensure("table_header", &|t| {
         t.set_family(Some("monospace"));
-        t.set_background(Some(code_bg));
+        t.set_wrap_mode(gtk4::WrapMode::None);
         t.set_weight(700);
     });
 

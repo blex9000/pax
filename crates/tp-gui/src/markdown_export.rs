@@ -25,7 +25,6 @@ use std::path::Path;
 use std::rc::Rc;
 
 const CODE_BG: (f64, f64, f64) = (0.93, 0.93, 0.93);
-const FOOTER_HEIGHT_PT: f64 = 14.0;
 const BLOCK_GAP_PT: f64 = 4.0;
 const CODE_PAD_PT: f64 = 6.0;
 
@@ -47,117 +46,147 @@ pub fn export_markdown_to_pdf(parent: &gtk4::Window, content: &str, suggested_na
     );
 }
 
+/// A4 paper width in mm; we keep this fixed so PDFs match printer
+/// expectations even though the height grows with the content.
+const PAGE_WIDTH_MM: f64 = 210.0;
+const PAGE_MARGIN_MM: f64 = 20.0;
+const MIN_PAGE_HEIGHT_MM: f64 = 297.0; // A4 height — the floor when content is short.
+const PT_PER_MM: f64 = 72.0 / 25.4;
+
 fn run_print(parent: &gtk4::Window, markdown: &str, output_path: &Path) {
+    let blocks: Rc<Vec<Block>> = Rc::new(markdown_to_blocks(markdown));
+
+    // Pre-measure: build a temporary surface to acquire a Pango context
+    // we can use for measurement. A Cairo PDF surface gives us a
+    // realistic Pango environment matching what the print pipeline
+    // will use, so block heights computed here are pixel-accurate
+    // against the final draw.
+    let probe_width_pt = (PAGE_WIDTH_MM - 2.0 * PAGE_MARGIN_MM) * PT_PER_MM;
+    let total_height_pt = measure_total_height(&blocks, probe_width_pt);
+
+    // Tall-as-content: page height = content + top/bottom margins,
+    // floored at A4 height so very short docs still look like a page.
+    let page_height_pt = (total_height_pt + 2.0 * PAGE_MARGIN_MM * PT_PER_MM)
+        .max(MIN_PAGE_HEIGHT_MM * PT_PER_MM);
+    let page_height_mm = page_height_pt / PT_PER_MM;
+
     let print_op = gtk4::PrintOperation::new();
     print_op.set_export_filename(output_path);
     print_op.set_unit(gtk4::Unit::Points);
 
+    let custom_paper = gtk4::PaperSize::new_custom(
+        "pax-markdown-export",
+        "Pax markdown export",
+        PAGE_WIDTH_MM,
+        page_height_mm,
+        gtk4::Unit::Mm,
+    );
     let setup = gtk4::PageSetup::new();
-    setup.set_paper_size(&gtk4::PaperSize::new(Some("iso_a4")));
-    setup.set_top_margin(20.0, gtk4::Unit::Mm);
-    setup.set_bottom_margin(20.0, gtk4::Unit::Mm);
-    setup.set_left_margin(20.0, gtk4::Unit::Mm);
-    setup.set_right_margin(20.0, gtk4::Unit::Mm);
+    setup.set_paper_size(&custom_paper);
+    setup.set_top_margin(PAGE_MARGIN_MM, gtk4::Unit::Mm);
+    setup.set_bottom_margin(PAGE_MARGIN_MM, gtk4::Unit::Mm);
+    setup.set_left_margin(PAGE_MARGIN_MM, gtk4::Unit::Mm);
+    setup.set_right_margin(PAGE_MARGIN_MM, gtk4::Unit::Mm);
     print_op.set_default_page_setup(Some(&setup));
 
-    let blocks: Rc<Vec<Block>> = Rc::new(markdown_to_blocks(markdown));
-    // pages[i] = (block_index_start, block_index_end_exclusive)
-    let pages: Rc<RefCell<Vec<(usize, usize)>>> = Rc::new(RefCell::new(Vec::new()));
-
     {
-        let blocks = blocks.clone();
-        let pages = pages.clone();
-        print_op.connect_begin_print(move |op, ctx| {
-            let page_width = ctx.width();
-            let page_height = ctx.height();
-            let usable_height = page_height - FOOTER_HEIGHT_PT;
-
-            let mut paginated: Vec<(usize, usize)> = Vec::new();
-            let mut cur_start = 0usize;
-            let mut cur_height = 0.0_f64;
-            for (i, block) in blocks.iter().enumerate() {
-                let h = block.measure(ctx, page_width) + BLOCK_GAP_PT;
-                let fits = cur_height + h <= usable_height;
-                let block_taller_than_page = h > usable_height;
-                if !fits && i > cur_start && !block_taller_than_page {
-                    paginated.push((cur_start, i));
-                    cur_start = i;
-                    cur_height = h;
-                } else {
-                    cur_height += h;
-                }
-            }
-            if cur_start < blocks.len() {
-                paginated.push((cur_start, blocks.len()));
-            }
-            if paginated.is_empty() {
-                paginated.push((0, 0));
-            }
-            *pages.borrow_mut() = paginated.clone();
-            op.set_n_pages(paginated.len() as i32);
+        print_op.connect_begin_print(move |op, _ctx| {
+            // Single tall page — the user asked for "all the content
+            // in the PDF" without an A4 cut.
+            op.set_n_pages(1);
         });
     }
 
     {
         let blocks = blocks.clone();
-        let pages = pages.clone();
-        print_op.connect_draw_page(move |_, ctx, page_no| {
+        print_op.connect_draw_page(move |_, ctx, _page_no| {
             let cr = ctx.cairo_context();
             let page_width = ctx.width();
-            let page_height = ctx.height();
-            let usable_height = page_height - FOOTER_HEIGHT_PT;
-
-            let pages_ref = pages.borrow();
-            let total_pages = pages_ref.len();
-            let (start, end) = pages_ref
-                .get(page_no as usize)
-                .copied()
-                .unwrap_or((0, 0));
 
             let mut y = 0.0_f64;
-            for i in start..end {
-                let block = &blocks[i];
-                let h = block.measure(ctx, page_width);
-                if y + h > usable_height {
-                    // The block doesn't fit on the remaining page space —
-                    // typically only happens for blocks taller than a
-                    // whole page, which we've already let through. Draw
-                    // anyway; the print clip will trim what overflows.
-                }
+            for block in blocks.iter() {
                 block.draw(ctx, &cr, 0.0, y, page_width);
-                y += h + BLOCK_GAP_PT;
+                y += block.measure(ctx, page_width) + BLOCK_GAP_PT;
             }
-
-            draw_footer(ctx, &cr, page_no as usize + 1, total_pages, page_width, page_height);
         });
     }
 
     let _ = print_op.run(gtk4::PrintOperationAction::Export, Some(parent));
 }
 
-fn draw_footer(
-    ctx: &gtk4::PrintContext,
-    cr: &gtk4::cairo::Context,
-    page_no: usize,
-    total_pages: usize,
-    page_width: f64,
-    page_height: f64,
-) {
-    let layout = ctx.create_pango_layout();
-    layout.set_alignment(gtk4::pango::Alignment::Center);
-    layout.set_width((page_width * gtk4::pango::SCALE as f64) as i32);
-    let text = format!("{} / {}", page_no, total_pages);
-    let desc = gtk4::pango::FontDescription::from_string("Sans 9");
-    layout.set_font_description(Some(&desc));
-    layout.set_text(&text);
+/// Sum block heights at `width` using a throwaway image surface so we
+/// can size the output paper to fit everything before the print pass
+/// runs. Image-surface dimensions don't matter — only the Pango
+/// context's font metrics (which match what the print pipeline will
+/// use for the same font descriptions).
+fn measure_total_height(blocks: &[Block], width_pt: f64) -> f64 {
+    use gtk4::cairo;
+    let Ok(surface) = cairo::ImageSurface::create(cairo::Format::ARgb32, 1, 1) else {
+        return 0.0;
+    };
+    let cr = match cairo::Context::new(&surface) {
+        Ok(c) => c,
+        Err(_) => return 0.0,
+    };
+    let pango_ctx = pangocairo::functions::create_context(&cr);
+    let mut total = 0.0_f64;
+    for b in blocks {
+        total += measure_block_with_pango_ctx(b, &pango_ctx, width_pt) + BLOCK_GAP_PT;
+    }
+    total
+}
 
-    let (_w, h_pu) = layout.size();
-    let h_pt = h_pu as f64 / gtk4::pango::SCALE as f64;
-    cr.save().ok();
-    cr.set_source_rgb(0.55, 0.55, 0.55);
-    cr.move_to(0.0, page_height - h_pt - 2.0);
-    pangocairo::functions::show_layout(cr, &layout);
-    cr.restore().ok();
+fn measure_block_with_pango_ctx(
+    block: &Block,
+    pango_ctx: &gtk4::pango::Context,
+    width_pt: f64,
+) -> f64 {
+    let layout = gtk4::pango::Layout::new(pango_ctx);
+    layout.set_width((width_pt * gtk4::pango::SCALE as f64) as i32);
+    layout.set_wrap(gtk4::pango::WrapMode::WordChar);
+    match block {
+        Block::Heading { level, markup } => {
+            layout.set_font_description(Some(&heading_font(*level)));
+            layout.set_markup(markup);
+            pu_to_pt(layout.size().1)
+        }
+        Block::Paragraph { markup } | Block::BlockQuote { markup } => {
+            layout.set_font_description(Some(&body_font()));
+            layout.set_markup(markup);
+            pu_to_pt(layout.size().1)
+        }
+        Block::CodeBlock { text } => {
+            layout.set_font_description(Some(&mono_font()));
+            layout.set_width(-1);
+            layout.set_text(text);
+            pu_to_pt(layout.size().1) + 2.0 * CODE_PAD_PT
+        }
+        Block::List { items, ordered, start } => {
+            let mut total = 0.0;
+            for (i, item) in items.iter().enumerate() {
+                let bullet = if *ordered {
+                    format!("{}. ", *start + i as u64)
+                } else {
+                    "• ".to_string()
+                };
+                let l = gtk4::pango::Layout::new(pango_ctx);
+                l.set_width((width_pt * gtk4::pango::SCALE as f64) as i32);
+                l.set_wrap(gtk4::pango::WrapMode::WordChar);
+                l.set_font_description(Some(&body_font()));
+                l.set_markup(&format!("{}{}", escape(&bullet), item));
+                total += pu_to_pt(l.size().1);
+            }
+            total
+        }
+        Block::Table { rows, body_start } => {
+            let text = render_table_monospace(rows, *body_start);
+            layout.set_font_description(Some(&mono_font()));
+            layout.set_width(-1);
+            layout.set_text(&text);
+            pu_to_pt(layout.size().1)
+        }
+        Block::Rule => 8.0,
+    }
 }
 
 // ────────────────────────────────────────────────────────────────────
@@ -242,7 +271,7 @@ impl Block {
             Block::Table { rows, body_start } => {
                 let text = render_table_monospace(rows, *body_start);
                 let layout = code_layout(ctx, &text);
-                pu_to_pt(layout.size().1) + 2.0 * CODE_PAD_PT
+                pu_to_pt(layout.size().1)
             }
             Block::Rule => 8.0,
         }
@@ -327,17 +356,11 @@ impl Block {
                 }
             }
             Block::Table { rows, body_start } => {
+                // No background rectangle for tables — the box-drawing
+                // characters already give the table a visual frame.
                 let text = render_table_monospace(rows, *body_start);
                 let layout = code_layout(ctx, &text);
-                let h_pt = pu_to_pt(layout.size().1) + 2.0 * CODE_PAD_PT;
-                cr.save().ok();
-                {
-                    cr.set_source_rgb(CODE_BG.0, CODE_BG.1, CODE_BG.2);
-                    cr.rectangle(x, y, page_width, h_pt);
-                    cr.fill().ok();
-                }
-                cr.restore().ok();
-                cr.move_to(x + CODE_PAD_PT, y + CODE_PAD_PT);
+                cr.move_to(x, y);
                 pangocairo::functions::show_layout(cr, &layout);
             }
             Block::Rule => {
@@ -539,28 +562,31 @@ fn markdown_to_blocks(content: &str) -> Vec<Block> {
                 b.table_row.push(cell);
                 b.inline_target = InlineTarget::None;
             }
-            Event::Start(Tag::Strong) => append_inline(&mut b, "<b>"),
-            Event::End(TagEnd::Strong) => append_inline(&mut b, "</b>"),
-            Event::Start(Tag::Emphasis) => append_inline(&mut b, "<i>"),
-            Event::End(TagEnd::Emphasis) => append_inline(&mut b, "</i>"),
-            Event::Start(Tag::Strikethrough) => append_inline(&mut b, "<s>"),
-            Event::End(TagEnd::Strikethrough) => append_inline(&mut b, "</s>"),
-            Event::Code(s) => {
-                append_inline(&mut b, "<tt>");
-                append_inline(&mut b, &escape(&s));
-                append_inline(&mut b, "</tt>");
-            }
+            Event::Start(Tag::Strong) => append_markup(&mut b, "<b>"),
+            Event::End(TagEnd::Strong) => append_markup(&mut b, "</b>"),
+            Event::Start(Tag::Emphasis) => append_markup(&mut b, "<i>"),
+            Event::End(TagEnd::Emphasis) => append_markup(&mut b, "</i>"),
+            Event::Start(Tag::Strikethrough) => append_markup(&mut b, "<s>"),
+            Event::End(TagEnd::Strikethrough) => append_markup(&mut b, "</s>"),
+            Event::Code(s) => match b.inline_target {
+                InlineTarget::TableCell => b.inline_buf.push_str(&s),
+                _ => {
+                    append_markup(&mut b, "<tt>");
+                    append_markup(&mut b, &escape(&s));
+                    append_markup(&mut b, "</tt>");
+                }
+            },
             Event::Text(t) => match b.inline_target {
                 InlineTarget::CodeBlock => b.code_buf.push_str(&t),
                 InlineTarget::TableCell => b.inline_buf.push_str(&t),
                 _ => b.inline_buf.push_str(&escape(&t)),
             },
-            Event::SoftBreak => append_inline(&mut b, " "),
-            Event::HardBreak => append_inline(&mut b, "\n"),
+            Event::SoftBreak => append_markup(&mut b, " "),
+            Event::HardBreak => append_markup(&mut b, "\n"),
             Event::Rule => b.blocks.push(Block::Rule),
             Event::Start(Tag::Link { .. }) => {}
             Event::End(TagEnd::Link) => {}
-            Event::Start(Tag::Image { .. }) => append_inline(&mut b, "[image]"),
+            Event::Start(Tag::Image { .. }) => append_markup(&mut b, "[image]"),
             Event::End(TagEnd::Image) => {}
             _ => {}
         }
@@ -569,8 +595,16 @@ fn markdown_to_blocks(content: &str) -> Vec<Block> {
     b.blocks
 }
 
-fn append_inline(b: &mut BlockBuilder, s: &str) {
-    if matches!(b.inline_target, InlineTarget::None | InlineTarget::CodeBlock) {
+/// Append a Pango-markup fragment (e.g. `<b>`, `<i>`) to the current
+/// inline buffer. Drops the fragment entirely when the buffer feeds a
+/// destination that's rendered as plain monospace text — code blocks
+/// and table cells — since markup tags would print as literal `<b>`
+/// rather than apply formatting.
+fn append_markup(b: &mut BlockBuilder, s: &str) {
+    if matches!(
+        b.inline_target,
+        InlineTarget::None | InlineTarget::CodeBlock | InlineTarget::TableCell
+    ) {
         return;
     }
     b.inline_buf.push_str(s);
