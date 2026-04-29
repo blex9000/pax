@@ -129,6 +129,29 @@ pub fn build_markdown_tab(content: &str) -> MarkdownTab {
     mode_spacer.set_hexpand(true);
     mode_bar.append(&mode_spacer);
 
+    // Export PDF button — runs gtk's PrintOperation in Export mode
+    // against the current buffer contents (works in both Rendered and
+    // Source modes since the source of truth is the buffer text).
+    let export_pdf_btn = gtk4::Button::from_icon_name("document-save-as-symbolic");
+    export_pdf_btn.add_css_class("flat");
+    export_pdf_btn.set_tooltip_text(Some("Export to PDF"));
+    {
+        let buf = buffer.clone();
+        let parent_widget: gtk4::Widget = export_pdf_btn.clone().upcast();
+        export_pdf_btn.connect_clicked(move |_| {
+            let text = buf
+                .text(&buf.start_iter(), &buf.end_iter(), false)
+                .to_string();
+            let parent = parent_widget
+                .root()
+                .and_then(|r| r.downcast::<gtk4::Window>().ok());
+            if let Some(win) = parent.as_ref() {
+                crate::markdown_export::export_markdown_to_pdf(win, &text, "document.pdf");
+            }
+        });
+    }
+    mode_bar.append(&export_pdf_btn);
+
     let mode_toggles = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
     mode_toggles.add_css_class("linked");
     mode_toggles.set_halign(gtk4::Align::End);
