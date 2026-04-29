@@ -27,13 +27,13 @@ const NOTE_MARK_COLOR_A: f32 = 0.25;
 /// so notes win over lower-priority marks if we add more categories.
 const NOTE_MARK_PRIORITY: i32 = 10;
 
-/// Resolve a path to the workspace-relative form when possible, else keep
-/// it absolute. Used as the `file_path` key for metadata entries.
-pub(crate) fn relative_file_path(root: &Path, absolute: &Path) -> String {
-    absolute
-        .strip_prefix(root)
-        .map(|p| p.to_string_lossy().into_owned())
-        .unwrap_or_else(|_| absolute.to_string_lossy().into_owned())
+/// Key used to store metadata entries (line notes, etc.) for a file.
+/// Always the absolute path: relative paths conflated entries across
+/// code editors when two projects shared a same-relative file (e.g.
+/// every Rust crate has `src/main.rs`). The `_root` argument is kept
+/// in the signature so call sites don't need to change; it's unused.
+pub(crate) fn metadata_file_key(_root: &Path, absolute: &Path) -> String {
+    absolute.to_string_lossy().into_owned()
 }
 
 /// Build the context-menu extras for the main source editor: the
@@ -58,7 +58,7 @@ fn build_editor_extras(
         match &open_file.content {
             super::tab_content::TabContent::Source(source) => (
                 st.record_key.clone(),
-                relative_file_path(&st.root_dir, &open_file.path),
+                metadata_file_key(&st.root_dir, &open_file.path),
                 source.buffer.clone(),
                 source.notes.clone(),
                 open_file.path.clone(),
@@ -268,7 +268,7 @@ fn install_markdown_notes(
                     };
                     (
                         st.record_key.clone(),
-                        relative_file_path(&st.root_dir, &open_file.path),
+                        metadata_file_key(&st.root_dir, &open_file.path),
                         m.buffer.clone(),
                         m.notes.clone(),
                         m.notes_ruler.clone(),
@@ -366,7 +366,7 @@ fn install_markdown_notes(
     // Async DB load of notes for this file.
     let record_key = state.borrow().record_key.clone();
     if !record_key.is_empty() {
-        let fp = relative_file_path(&state.borrow().root_dir, path);
+        let fp = metadata_file_key(&state.borrow().root_dir, path);
         let state_c = state.clone();
         super::task::run_blocking(
             move || {
@@ -1693,7 +1693,7 @@ impl EditorTabs {
         // note's line via anchor match and paint the ruler.
         {
             let record_key = state.borrow().record_key.clone();
-            let fp = relative_file_path(&state.borrow().root_dir, path);
+            let fp = metadata_file_key(&state.borrow().root_dir, path);
             tracing::debug!(
                 "notes: open_file record_key='{}' file_path='{}'",
                 record_key,
