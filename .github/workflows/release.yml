@@ -11,7 +11,13 @@ permissions:
 jobs:
   build-appimage:
     name: Build AppImage (Linux x86_64)
-    runs-on: ubuntu-24.04
+    # ubuntu-22.04 ships glibc 2.35; AppImages don't bundle libc, so
+    # building on 24.04 (glibc 2.39) produced binaries that failed on
+    # any older host with 'GLIBC_2.39 not found'. 22.04 is recent
+    # enough for current GTK4 deps and old enough to run on Debian 12,
+    # RHEL 9, Mint 21, every current LTS — covers the realistic user
+    # base without forcing them to upgrade.
+    runs-on: ubuntu-22.04
 
     steps:
       - name: Checkout
