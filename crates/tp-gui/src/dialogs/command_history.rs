@@ -40,7 +40,7 @@ const POPOVER_WIDTH: i32 = 540;
 /// the current page or filter is showing — the user always sees the
 /// same window, with the inner list scrolling instead of the popup
 /// resizing under their cursor.
-const LIST_HEIGHT: i32 = 380;
+const LIST_HEIGHT: i32 = 280;
 
 /// Max character cells the command label asks for at its natural size.
 /// Combined with `EllipsizeMode::End`, this keeps a row narrow enough
