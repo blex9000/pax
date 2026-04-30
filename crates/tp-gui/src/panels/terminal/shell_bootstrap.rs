@@ -38,12 +38,39 @@ use uuid::Uuid;
 /// command from the shell preexec hook to the GUI. Lives under
 /// `XDG_RUNTIME_DIR` if set (Linux), otherwise `/tmp`. Filename is
 /// `pax-cmd-<simple-uuid>.txt`.
+///
+/// On macOS `XDG_RUNTIME_DIR` is unset by default and the file lands in
+/// `/tmp`. Use [`prepare_cmd_file`] to create it with mode `0600` so the
+/// just-executed command is not world-readable.
 pub fn cmd_file_path(panel_uuid: &Uuid) -> PathBuf {
     let dir = std::env::var_os("XDG_RUNTIME_DIR")
         .map(PathBuf::from)
         .filter(|p| p.is_dir())
         .unwrap_or_else(|| PathBuf::from("/tmp"));
     dir.join(format!("pax-cmd-{}.txt", panel_uuid.simple()))
+}
+
+/// Eagerly create `cmd_file` with mode `0600` so that subsequent shell
+/// `>` redirects truncate-without-chmod and the file stays user-only.
+/// Best-effort: errors are swallowed.
+pub fn prepare_cmd_file(cmd_file: &std::path::Path) {
+    if cmd_file.as_os_str().is_empty() {
+        return;
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        let _ = std::fs::OpenOptions::new()
+            .create(true)
+            .write(true)
+            .truncate(true)
+            .mode(0o600)
+            .open(cmd_file);
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = std::fs::File::create(cmd_file);
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -56,11 +83,6 @@ pub enum ShellKind {
 }
 
 impl ShellKind {
-    pub fn detect_from_env() -> Self {
-        let shell = std::env::var("SHELL").unwrap_or_default();
-        Self::detect_from_path(&shell)
-    }
-
     pub fn detect_from_path(shell_path: &str) -> Self {
         let basename = shell_path
             .rsplit(['/', '\\'])

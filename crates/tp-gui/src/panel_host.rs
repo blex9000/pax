@@ -356,6 +356,10 @@ impl PanelHost {
                         Some(b) if b.panel_type() == "terminal" => {
                             let uuid = b.panel_uuid();
                             let inner_ref = backend_ref.clone();
+                            // History paste targets THIS panel only by design:
+                            // we go directly through `write_input` instead of
+                            // the synced-input path, so a synced sibling does
+                            // not also receive the recalled command.
                             let cb: crate::panels::PanelInputCallback =
                                 std::rc::Rc::new(move |bytes: &[u8]| {
                                     if let Ok(bb) = inner_ref.try_borrow() {

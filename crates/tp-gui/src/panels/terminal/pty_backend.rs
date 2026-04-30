@@ -549,9 +549,13 @@ impl TerminalInner {
             widget,
             writer,
             panel_uuid,
-            cmd_file: panel_uuid
-                .map(|u| super::shell_bootstrap::cmd_file_path(&u))
-                .unwrap_or_default(),
+            cmd_file: {
+                let path = panel_uuid
+                    .map(|u| super::shell_bootstrap::cmd_file_path(&u))
+                    .unwrap_or_default();
+                super::shell_bootstrap::prepare_cmd_file(&path);
+                path
+            },
             input_cb,
             title_cb,
             status_cb,
