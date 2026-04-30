@@ -632,23 +632,6 @@ fn build_favorites_row(
     actions.set_valign(gtk4::Align::Center);
     actions.set_margin_end(4);
 
-    let edit_btn = gtk4::Button::from_icon_name("document-edit-symbolic");
-    edit_btn.add_css_class("flat");
-    edit_btn.add_css_class("command-history-action");
-    edit_btn.set_tooltip_text(Some("Edit"));
-    {
-        let row_id = rec.id;
-        let original_cmd = rec.command.clone();
-        let refresh = capture_refresh(refresh);
-        let outer_weak = outer.downgrade();
-        edit_btn.connect_clicked(move |_| {
-            let Some(row) = outer_weak.upgrade() else {
-                return;
-            };
-            replace_with_inline_edit(&row, row_id, &original_cmd, refresh.clone());
-        });
-    }
-
     let trash_btn = gtk4::Button::from_icon_name("user-trash-symbolic");
     trash_btn.add_css_class("flat");
     trash_btn.add_css_class("command-history-action");
@@ -665,7 +648,6 @@ fn build_favorites_row(
         });
     }
 
-    actions.append(&edit_btn);
     actions.append(&trash_btn);
 
     install_hover_reveal(&outer, &actions);
@@ -673,90 +655,6 @@ fn build_favorites_row(
     outer.append(&row_btn);
     outer.append(&actions);
     outer.upcast()
-}
-
-fn replace_with_inline_edit(
-    row: &gtk4::Box,
-    row_id: i64,
-    original_cmd: &str,
-    refresh: Rc<dyn Fn()>,
-) {
-    while let Some(child) = row.first_child() {
-        row.remove(&child);
-    }
-    let entry = gtk4::Entry::new();
-    entry.set_text(original_cmd);
-    entry.set_hexpand(true);
-    entry.add_css_class("command-history-edit-entry");
-    entry.select_region(0, -1);
-    row.append(&entry);
-
-    // Run commit at most once. The Entry's `activate` and the focus-loss
-    // notify can both fire for the same edit cycle, and refresh() will
-    // destroy the Entry — calling commit a second time on a dropped
-    // widget makes the update silently no-op.
-    let done: Rc<Cell<bool>> = Rc::new(Cell::new(false));
-
-    let schedule_refresh = {
-        let refresh = refresh.clone();
-        move || {
-            // Defer the rebuild so we are not swapping the Entry out of
-            // the widget tree while still inside its own signal handler.
-            let refresh = refresh.clone();
-            gtk4::glib::idle_add_local_once(move || refresh());
-        }
-    };
-
-    let _ = original_cmd; // captured by row build; we don't need it here.
-
-    let commit: Rc<dyn Fn()> = {
-        let entry = entry.clone();
-        let done = done.clone();
-        let schedule_refresh = schedule_refresh.clone();
-        Rc::new(move || {
-            if done.replace(true) {
-                return;
-            }
-            let new_text = entry.text().to_string();
-            let trimmed = new_text.trim();
-            if !trimmed.is_empty() {
-                if let Ok(db) = pax_db::Database::open(&pax_db::Database::default_path()) {
-                    let _ = db.update_pinned_command(row_id, trimmed);
-                }
-            }
-            schedule_refresh();
-        })
-    };
-
-    {
-        let commit = commit.clone();
-        entry.connect_activate(move |_| commit());
-    }
-    {
-        let key_ctrl = gtk4::EventControllerKey::new();
-        let done = done.clone();
-        let schedule_refresh = schedule_refresh.clone();
-        key_ctrl.connect_key_pressed(move |_, key, _, _| {
-            if key == gtk4::gdk::Key::Escape {
-                if !done.replace(true) {
-                    schedule_refresh();
-                }
-                return gtk4::glib::Propagation::Stop;
-            }
-            gtk4::glib::Propagation::Proceed
-        });
-        entry.add_controller(key_ctrl);
-    }
-    {
-        let commit = commit.clone();
-        entry.connect_has_focus_notify(move |entry| {
-            if !entry.has_focus() {
-                commit();
-            }
-        });
-    }
-
-    entry.grab_focus();
 }
 
 
