@@ -387,7 +387,7 @@ fn build_history_row(
     outer.add_css_class("command-history-row-outer");
 
     // Main click target (paste-into-terminal).
-    let row_btn = paste_button(&rec.command, &rec.executed_at, input_cb, popover);
+    let row_btn = paste_button(&rec.command, &rec.executed_at, true, input_cb, popover);
 
     // Reveal action icons on hover.
     let actions = gtk4::Box::new(gtk4::Orientation::Horizontal, 2);
@@ -624,7 +624,7 @@ fn build_favorites_row(
     let outer = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
     outer.add_css_class("command-history-row-outer");
 
-    let row_btn = paste_button(&rec.command, &rec.created_at, input_cb, popover);
+    let row_btn = paste_button(&rec.command, &rec.created_at, false, input_cb, popover);
 
     let actions = gtk4::Box::new(gtk4::Orientation::Horizontal, 2);
     actions.add_css_class("command-history-actions");
@@ -739,6 +739,7 @@ fn replace_with_inline_edit(
 fn paste_button(
     command: &str,
     timestamp: &str,
+    show_time: bool,
     input_cb: PanelInputCallback,
     popover: gtk4::Popover,
 ) -> gtk4::Button {
@@ -753,12 +754,14 @@ fn paste_button(
     h.set_margin_top(2);
     h.set_margin_bottom(2);
 
-    let time = extract_hh_mm_ss(timestamp);
-    let time_lbl = gtk4::Label::new(Some(&format!("[{}]", time)));
-    time_lbl.add_css_class("dim-label");
-    time_lbl.add_css_class("command-history-time");
-    time_lbl.set_halign(gtk4::Align::Start);
-    h.append(&time_lbl);
+    if show_time {
+        let time = extract_hh_mm_ss(timestamp);
+        let time_lbl = gtk4::Label::new(Some(&format!("[{}]", time)));
+        time_lbl.add_css_class("dim-label");
+        time_lbl.add_css_class("command-history-time");
+        time_lbl.set_halign(gtk4::Align::Start);
+        h.append(&time_lbl);
+    }
 
     let cmd_lbl = gtk4::Label::new(Some(command));
     cmd_lbl.add_css_class("monospace");
@@ -771,7 +774,11 @@ fn paste_button(
     h.append(&cmd_lbl);
 
     btn.set_child(Some(&h));
-    btn.set_tooltip_text(Some(&format!("{}\n{}", command, timestamp)));
+    btn.set_tooltip_text(Some(&if show_time {
+        format!("{}\n{}", command, timestamp)
+    } else {
+        command.to_string()
+    }));
 
     let cmd = command.to_string();
     btn.connect_clicked(move |_| {
