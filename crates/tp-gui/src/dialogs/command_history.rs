@@ -119,25 +119,23 @@ fn build_history_tab(
 ) -> TabBundle {
     let outer = gtk4::Box::new(gtk4::Orientation::Vertical, 6);
 
-    // Header: distinct toggle.
+    // Search box and distinct toggle share one row.
     let header_row = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
-    let spacer = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
-    spacer.set_hexpand(true);
-    header_row.append(&spacer);
+    let search_entry = gtk4::SearchEntry::new();
+    search_entry.set_placeholder_text(Some("Filter…"));
+    search_entry.set_hexpand(true);
+    search_entry.add_css_class("command-history-search");
+    header_row.append(&search_entry);
 
     let distinct_toggle = gtk4::CheckButton::with_label("Distinct");
     distinct_toggle.set_active(true);
+    distinct_toggle.set_valign(gtk4::Align::Center);
     distinct_toggle.add_css_class("command-history-toggle");
     distinct_toggle.set_tooltip_text(Some(
         "When checked, hide duplicate commands and show only the most recent run of each.",
     ));
     header_row.append(&distinct_toggle);
     outer.append(&header_row);
-
-    let search_entry = gtk4::SearchEntry::new();
-    search_entry.set_placeholder_text(Some("Filter…"));
-    search_entry.add_css_class("command-history-search");
-    outer.append(&search_entry);
 
     let scroll = gtk4::ScrolledWindow::new();
     scroll.set_policy(gtk4::PolicyType::Automatic, gtk4::PolicyType::Automatic);
