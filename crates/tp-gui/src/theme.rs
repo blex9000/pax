@@ -1620,6 +1620,21 @@ window.app-dialog dropdown.settings-theme-dropdown > popover.menu row:selected,
     font-size: 0.85em;
     font-variant-numeric: tabular-nums;
 }
+.command-history-popover .command-history-tabs { margin-bottom: 2px; }
+.command-history-popover .command-history-row-outer { padding: 0; min-height: 0; }
+.command-history-popover .command-history-actions {
+    background: transparent;
+}
+.command-history-popover .command-history-action {
+    padding: 0 4px;
+    min-height: 0;
+    min-width: 0;
+}
+.command-history-popover .command-history-edit-entry {
+    margin: 0 6px;
+    font-family: \"JetBrains Mono\", \"SF Mono\", \"Cascadia Code\", monospace;
+    font-size: 0.9em;
+}
 ";
 
 const GRAPHITE_CSS: &str = "\

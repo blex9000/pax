@@ -209,7 +209,9 @@ impl PanelBackend for TerminalPanel {
     fn on_permanent_close(&self) {
         if let Some(uuid) = self.inner.panel_uuid {
             if let Ok(db) = pax_db::Database::open(&pax_db::Database::default_path()) {
-                let _ = db.delete_command_history_for_panel(&uuid.simple().to_string());
+                let key = uuid.simple().to_string();
+                let _ = db.delete_command_history_for_panel(&key);
+                let _ = db.delete_pinned_for_panel(&key);
             }
         }
     }
