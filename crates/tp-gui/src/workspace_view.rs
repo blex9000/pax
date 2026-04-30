@@ -2,6 +2,7 @@ use gtk4::prelude::*;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
+use uuid::Uuid;
 
 use pax_core::workspace::{new_tab_id, LayoutNode, PanelConfig, PanelType, Workspace};
 
@@ -1200,6 +1201,7 @@ impl WorkspaceView {
         // 1. Create new panel config + host
         let new_cfg = PanelConfig {
             id: new_id.clone(),
+            uuid: Uuid::new_v4(),
             name: new_name.clone(),
             panel_type: PanelType::Empty,
             target: Default::default(),
@@ -1353,6 +1355,7 @@ impl WorkspaceView {
     fn make_empty_config(&self, id: &str, name: &str) -> PanelConfig {
         PanelConfig {
             id: id.to_string(),
+            uuid: Uuid::new_v4(),
             name: name.to_string(),
             panel_type: PanelType::Empty,
             target: Default::default(),
@@ -1865,6 +1868,7 @@ mod tests {
     fn panel_config(id: &str, name: &str) -> PanelConfig {
         PanelConfig {
             id: id.to_string(),
+            uuid: Uuid::new_v4(),
             name: name.to_string(),
             panel_type: PanelType::Terminal,
             target: Default::default(),

@@ -68,6 +68,12 @@ fn default_ratios() -> Vec<f64> {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PanelConfig {
     pub id: String,
+    /// Stable globally-unique identifier, persisted in the JSON.
+    /// Used as the database key for any per-panel persistence (e.g.
+    /// command history). Survives panel renames, workspace renames, and
+    /// re-allocation of the human-friendly `id` (e.g. `p1`, `p2`).
+    #[serde(default = "Uuid::new_v4")]
+    pub uuid: Uuid,
     #[serde(default)]
     pub name: String,
     /// New: panel type determines what kind of widget is created.

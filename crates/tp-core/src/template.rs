@@ -9,6 +9,7 @@ pub fn empty_workspace(name: &str) -> Workspace {
         layout: LayoutNode::Panel { id: "p1".into() },
         panels: vec![PanelConfig {
             id: "p1".to_string(),
+            uuid: Uuid::new_v4(),
             name: "New Panel".to_string(),
             panel_type: PanelType::Empty,
             target: Default::default(),
@@ -38,6 +39,7 @@ pub fn simple_hsplit(name: &str, count: usize) -> Workspace {
     let panels: Vec<PanelConfig> = (0..count)
         .map(|i| PanelConfig {
             id: format!("p{}", i + 1),
+            uuid: Uuid::new_v4(),
             name: format!("Shell {}", i + 1),
             panel_type: Default::default(),
             target: Default::default(),
@@ -81,6 +83,7 @@ pub fn grid_2x2(name: &str) -> Workspace {
     let panels: Vec<PanelConfig> = (1..=4)
         .map(|i| PanelConfig {
             id: format!("p{}", i),
+            uuid: Uuid::new_v4(),
             name: format!("Shell {}", i),
             panel_type: Default::default(),
             target: Default::default(),
