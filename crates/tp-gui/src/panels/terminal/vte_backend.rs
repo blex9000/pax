@@ -60,6 +60,9 @@ fn spawn_tcgetpgrp_poller(
     vte: &vte4::Terminal,
     shell_pid: Rc<Cell<Option<i32>>>,
     status_cb: Rc<RefCell<Option<crate::panels::PanelStatusCallback>>>,
+    cmd_file: std::path::PathBuf,
+    panel_uuid_str: Option<String>,
+    workspace_name: Option<String>,
 ) {
     let vte_weak = vte.downgrade();
     let last_busy: Rc<Cell<Option<bool>>> = Rc::new(Cell::new(None));
@@ -81,10 +84,33 @@ fn spawn_tcgetpgrp_poller(
             }
             let busy = pgrp != pid;
             if last_busy.get() != Some(busy) {
+                let was_idle = matches!(last_busy.get(), Some(false) | None);
                 last_busy.set(Some(busy));
                 if let Ok(borrowed) = status_cb.try_borrow() {
                     if let Some(ref cb) = *borrowed {
                         cb(busy);
+                    }
+                }
+                // idle → busy: shell just dispatched a command. The bash/zsh
+                // preexec hook wrote it to $PAX_CMD_FILE before the foreground
+                // process group changed, so by the time we observe `busy=true`
+                // the file is fully written. This is the same persistence path
+                // VTE >= 0.80 takes via `connect_shell_preexec`.
+                if busy && was_idle && !cmd_file.as_os_str().is_empty() {
+                    if let Ok(raw) = std::fs::read_to_string(&cmd_file) {
+                        let cmd = raw.trim_end_matches(['\n', '\r']);
+                        if !cmd.is_empty() {
+                            if let Ok(db) = pax_db::Database::open(
+                                &pax_db::Database::default_path(),
+                            ) {
+                                let _ = db.insert_command(
+                                    workspace_name.as_deref(),
+                                    panel_uuid_str.as_deref(),
+                                    cmd,
+                                    None,
+                                );
+                            }
+                        }
                     }
                 }
             }
@@ -321,8 +347,25 @@ impl TerminalInner {
             // back to polling `tcgetpgrp` on the PTY master: the foreground
             // process group equals the shell PID only while the shell is
             // at its prompt. Independent of any OSC 133 cooperation from
-            // the shell, so it also works on zsh/fish/dash.
-            spawn_tcgetpgrp_poller(&vte, shell_pid.clone(), status_cb.clone());
+            // the shell, so it also works on zsh/fish/dash. The poller also
+            // drains $PAX_CMD_FILE on every idle→busy transition so that
+            // command history is populated on systems shipping VTE < 0.80
+            // (Debian/Ubuntu LTS).
+            let cmd_file_for_poll: std::path::PathBuf = panel_uuid
+                .map(|u| super::shell_bootstrap::cmd_file_path(&u))
+                .unwrap_or_default();
+            let panel_uuid_str_for_poll: Option<String> =
+                panel_uuid.map(|u| u.simple().to_string());
+            let workspace_name_for_poll: Option<String> =
+                workspace_dir.map(|s| s.to_string());
+            spawn_tcgetpgrp_poller(
+                &vte,
+                shell_pid.clone(),
+                status_cb.clone(),
+                cmd_file_for_poll,
+                panel_uuid_str_for_poll,
+                workspace_name_for_poll,
+            );
         }
 
         // Register VTE for theme color updates
