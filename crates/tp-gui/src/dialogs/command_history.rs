@@ -691,10 +691,32 @@ fn replace_with_inline_edit(
     entry.select_region(0, -1);
     row.append(&entry);
 
-    let commit = {
-        let entry = entry.clone();
+    // Run commit at most once. The Entry's `activate` and the focus-loss
+    // notify can both fire for the same edit cycle, and refresh() will
+    // destroy the Entry — calling commit a second time on a dropped
+    // widget makes the update silently no-op.
+    let done: Rc<Cell<bool>> = Rc::new(Cell::new(false));
+
+    let schedule_refresh = {
         let refresh = refresh.clone();
+        move || {
+            // Defer the rebuild so we are not swapping the Entry out of
+            // the widget tree while still inside its own signal handler.
+            let refresh = refresh.clone();
+            gtk4::glib::idle_add_local_once(move || refresh());
+        }
+    };
+
+    let _ = original_cmd; // captured by row build; we don't need it here.
+
+    let commit: Rc<dyn Fn()> = {
+        let entry = entry.clone();
+        let done = done.clone();
+        let schedule_refresh = schedule_refresh.clone();
         Rc::new(move || {
+            if done.replace(true) {
+                return;
+            }
             let new_text = entry.text().to_string();
             let trimmed = new_text.trim();
             if !trimmed.is_empty() {
@@ -702,7 +724,7 @@ fn replace_with_inline_edit(
                     let _ = db.update_pinned_command(row_id, trimmed);
                 }
             }
-            refresh();
+            schedule_refresh();
         })
     };
 
@@ -712,10 +734,13 @@ fn replace_with_inline_edit(
     }
     {
         let key_ctrl = gtk4::EventControllerKey::new();
-        let refresh = refresh.clone();
+        let done = done.clone();
+        let schedule_refresh = schedule_refresh.clone();
         key_ctrl.connect_key_pressed(move |_, key, _, _| {
             if key == gtk4::gdk::Key::Escape {
-                refresh();
+                if !done.replace(true) {
+                    schedule_refresh();
+                }
                 return gtk4::glib::Propagation::Stop;
             }
             gtk4::glib::Propagation::Proceed
@@ -733,6 +758,7 @@ fn replace_with_inline_edit(
 
     entry.grab_focus();
 }
+
 
 // ── Shared row primitives ──────────────────────────────────────────────
 
