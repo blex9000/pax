@@ -25,7 +25,7 @@ use crate::panels::PanelInputCallback;
 const HISTORY_LIMIT: usize = 5000;
 
 /// Number of rows shown on a single popover page.
-const PAGE_SIZE: usize = 25;
+const PAGE_SIZE: usize = 20;
 
 /// Build the contents of the command-history popover for `panel_uuid`.
 /// Each row, when clicked, writes its command into the terminal via
