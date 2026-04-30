@@ -146,6 +146,7 @@ pub struct PanelHost {
     status_icon: gtk4::Image,
     sync_button: gtk4::Button,
     zoom_button: gtk4::Button,
+    history_button: gtk4::Button,
     menu_button: gtk4::MenuButton,
     pub(crate) collapsed_view: gtk4::Widget,
     collapsed_icon: gtk4::Image,
@@ -332,6 +333,14 @@ impl PanelHost {
             });
         }
 
+        // Command history button — visible only when backend is a terminal.
+        let history_button = gtk4::Button::new();
+        history_button.set_icon_name("document-open-recent-symbolic");
+        history_button.add_css_class("flat");
+        history_button.add_css_class("panel-action-btn");
+        history_button.set_tooltip_text(Some("Cronologia comandi"));
+        history_button.set_visible(false);
+
         // ⋮ menu button
         let menu_button = gtk4::MenuButton::new();
         menu_button.set_icon_name("view-more-symbolic");
@@ -381,6 +390,7 @@ impl PanelHost {
         let end_box = gtk4::Box::new(gtk4::Orientation::Horizontal, 4);
         end_box.append(&sync_button);
         end_box.append(&zoom_button);
+        end_box.append(&history_button);
         end_box.append(&menu_button);
 
         // Center slot holds the OSC 0/2 title pushed by the shell. The
@@ -524,6 +534,7 @@ impl PanelHost {
             status_icon,
             sync_button,
             zoom_button,
+            history_button,
             menu_button,
             collapsed_view: collapsed_view.upcast(),
             collapsed_icon,
@@ -730,6 +741,7 @@ impl PanelHost {
             .as_ref()
             .map(|b| b.panel_type().to_string())
             .unwrap_or_default();
+        self.history_button.set_visible(panel_type == "terminal");
         if panel_type == "terminal" {
             let backend_for_send = self.backend.clone();
             let send: Rc<dyn Fn(&[u8]) -> bool> = Rc::new(move |data| {
