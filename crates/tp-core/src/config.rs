@@ -1,9 +1,71 @@
 use anyhow::{Context, Result};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use crate::workspace::Workspace;
 
+/// Default on-disk location for an unnamed-or-implicit workspace. Lives
+/// under `$XDG_DATA_HOME/pax/workspaces/` (falling back to
+/// `~/.local/share/pax/workspaces/` if `XDG_DATA_HOME` is unset or empty)
+/// so per-panel UUIDs persist across launches that reuse the same name
+/// — and the per-panel command-history popover keeps showing the
+/// previous session.
+///
+/// `name` is sanitised by replacing path separators / control chars
+/// with `_`. Returns `None` only when neither `$XDG_DATA_HOME` nor
+/// `$HOME` is set (extremely unusual).
+pub fn default_workspace_path(name: &str) -> Option<PathBuf> {
+    let data_dir = std::env::var_os("XDG_DATA_HOME")
+        .map(PathBuf::from)
+        .filter(|p| !p.as_os_str().is_empty())
+        .or_else(|| {
+            std::env::var_os("HOME")
+                .map(|h| PathBuf::from(h).join(".local").join("share"))
+        })?;
+    let safe: String = name
+        .chars()
+        .map(|c| match c {
+            '/' | '\\' | '\0' | ':' => '_',
+            _ => c,
+        })
+        .collect();
+    let trimmed = safe.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    Some(
+        data_dir
+            .join("pax")
+            .join("workspaces")
+            .join(format!("{}.json", trimmed)),
+    )
+}
+
+/// Load the workspace at `path` if the file exists, otherwise build a
+/// fresh one with `factory`, write it to `path`, and return it. Used by
+/// both `pax new "<name>"` (CLI) and the welcome-screen "New Workspace"
+/// button so per-panel UUIDs survive restarts that reuse the same name.
+pub fn open_or_create<F>(path: &Path, factory: F) -> Result<Workspace>
+where
+    F: FnOnce() -> Workspace,
+{
+    if path.is_file() {
+        return load_workspace(path);
+    }
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    let ws = factory();
+    save_workspace(&ws, path)?;
+    Ok(ws)
+}
+
 /// Load workspace from a JSON file.
+///
+/// When the source file is missing any of the per-panel `uuid` fields
+/// added in the command-history feature, this helper re-serialises and
+/// writes the workspace back so the freshly-defaulted UUIDs are
+/// persisted. Without that migration step every subsequent launch
+/// would mint a different UUID and orphan the panel's history.
 pub fn load_workspace(path: &Path) -> Result<Workspace> {
     let content = std::fs::read_to_string(path)
         .with_context(|| format!("Cannot read workspace file: {}", path.display()))?;
@@ -11,6 +73,15 @@ pub fn load_workspace(path: &Path) -> Result<Workspace> {
         .with_context(|| format!("Invalid workspace JSON: {}", path.display()))?;
     ws.ensure_layout_tab_ids();
     validate_workspace(&ws)?;
+
+    // Migration: bake any defaulted UUIDs back into the JSON. The check
+    // is intentionally cheap — count occurrences of the `"uuid"` key in
+    // the source text and compare to the panel count. Anything less
+    // means at least one panel has no uuid in the file.
+    let raw_uuid_count = content.matches("\"uuid\"").count();
+    if raw_uuid_count < ws.panels.len() {
+        save_workspace(&ws, path)?;
+    }
     Ok(ws)
 }
 

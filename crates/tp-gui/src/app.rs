@@ -362,8 +362,8 @@ fn setup_welcome_ui(window: &Rc<adw::ApplicationWindow>) {
         use crate::widgets::welcome::WelcomeChoice;
         match choice {
             WelcomeChoice::NewWorkspace => {
-                let ws = new_workspace_with_preferred_theme("untitled");
-                setup_workspace_ui(&win, ws, None);
+                let (ws, save_path) = open_or_create_default_workspace("untitled");
+                setup_workspace_ui(&win, ws, save_path.as_deref());
             }
             WelcomeChoice::OpenFile => {
                 let win2 = win.clone();
@@ -1637,9 +1637,9 @@ fn setup_workspace_ui(
             let win2 = win.clone();
             let sa2 = sa.clone();
             let on_continue: Rc<dyn Fn()> = Rc::new(move || {
-                let empty = new_workspace_with_preferred_theme("untitled");
+                let (empty, save_path) = open_or_create_default_workspace("untitled");
                 let empty_theme = load_preferred_theme();
-                if let Err(e) = ws2.borrow_mut().load_workspace(empty, None) {
+                if let Err(e) = ws2.borrow_mut().load_workspace(empty, save_path.as_deref()) {
                     sb2.borrow().set_message(&format!("Error: {}", e));
                 }
                 apply_theme(empty_theme);
@@ -2072,6 +2072,23 @@ fn load_css() {
 
 fn new_workspace_with_preferred_theme(name: &str) -> Workspace {
     workspace_with_theme(name, load_preferred_theme())
+}
+
+/// Welcome-screen / "untitled" entry point: open the workspace at the
+/// platform's default path for `name` if it already exists, otherwise
+/// build a fresh themed workspace and persist it there before handing
+/// it back. The returned `Option<PathBuf>` is the save path that should
+/// be threaded into `setup_workspace_ui` so per-panel UUIDs survive
+/// restarts of `pax` even when the user never explicitly hits Save.
+fn open_or_create_default_workspace(name: &str) -> (Workspace, Option<std::path::PathBuf>) {
+    let theme = load_preferred_theme();
+    let Some(path) = pax_core::config::default_workspace_path(name) else {
+        return (workspace_with_theme(name, theme), None);
+    };
+    match pax_core::config::open_or_create(&path, || workspace_with_theme(name, theme)) {
+        Ok(ws) => (ws, Some(path)),
+        Err(_) => (workspace_with_theme(name, theme), None),
+    }
 }
 
 fn normalize_workspace_theme(workspace: &mut Workspace, preferred_theme: Theme) -> Theme {
