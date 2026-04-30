@@ -1598,6 +1598,8 @@ window.app-dialog dropdown.settings-theme-dropdown > popover.menu row:selected,
 
 /* ── Command history popover ──────────────────────────────────────────── */
 .command-history-popover .heading { font-size: 0.95em; padding: 2px 4px; }
+.command-history-popover .command-history-toggle { font-size: 0.85em; }
+.command-history-popover .command-history-search { margin-bottom: 2px; }
 .command-history-popover .command-history-list row,
 .command-history-popover .command-history-row { padding: 0; min-height: 0; }
 .command-history-popover .command-history-time {

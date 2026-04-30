@@ -1,17 +1,20 @@
 //! Command history popover for terminal panels.
 //!
-//! Shows the per-panel command history from `command_history` table,
-//! deduplicated by command text and ordered by last execution. Clicking
-//! a row writes the command text into the terminal (no Enter), letting
-//! the user edit before executing.
+//! Shows the per-panel command history from `command_history` table.
+//! By default only the latest occurrence of each unique command is
+//! listed; toggling "Solo unici" off switches to the full chronological
+//! history. Clicking a row writes the command text into the terminal
+//! (no Enter), letting the user edit before executing.
+
+use std::cell::RefCell;
+use std::rc::Rc;
 
 use gtk4::prelude::*;
 
 use crate::panels::PanelInputCallback;
 
-/// Maximum number of distinct commands shown in the popover. Older
-/// distinct commands beyond this cap are not loaded — keeps popover
-/// snappy on long-lived terminals.
+/// Maximum number of rows the popover will load at once. Applies to
+/// both modes (distinct and full).
 const HISTORY_LIMIT: usize = 500;
 
 /// Build (or rebuild) the contents of the command-history popover for
@@ -31,10 +34,24 @@ pub fn build_command_history_popover(
     outer.set_margin_start(6);
     outer.set_margin_end(6);
 
+    let header_row = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
     let heading = gtk4::Label::new(Some("Cronologia comandi"));
     heading.add_css_class("heading");
     heading.set_halign(gtk4::Align::Start);
-    outer.append(&heading);
+    heading.set_hexpand(true);
+    header_row.append(&heading);
+
+    let distinct_toggle = gtk4::CheckButton::with_label("Solo unici");
+    distinct_toggle.set_active(true);
+    distinct_toggle.set_halign(gtk4::Align::End);
+    distinct_toggle.add_css_class("command-history-toggle");
+    header_row.append(&distinct_toggle);
+    outer.append(&header_row);
+
+    let search_entry = gtk4::SearchEntry::new();
+    search_entry.set_placeholder_text(Some("Filtra…"));
+    search_entry.add_css_class("command-history-search");
+    outer.append(&search_entry);
 
     let scroll = gtk4::ScrolledWindow::new();
     scroll.set_min_content_width(420);
@@ -46,28 +63,116 @@ pub fn build_command_history_popover(
     list.add_css_class("command-history-list");
     list.set_selection_mode(gtk4::SelectionMode::None);
 
-    let db_result = pax_db::Database::open(&pax_db::Database::default_path())
-        .and_then(|db| db.latest_distinct_commands(panel_uuid, HISTORY_LIMIT));
+    let panel_uuid_owned: Rc<String> = Rc::new(panel_uuid.to_string());
+    let popover_for_refresh = popover.clone();
+    let input_cb_for_refresh: Rc<RefCell<PanelInputCallback>> =
+        Rc::new(RefCell::new(input_cb));
+    let list_for_refresh = list.clone();
+    let toggle_for_refresh = distinct_toggle.clone();
+    let entry_for_refresh = search_entry.clone();
 
-    match db_result {
-        Ok(records) if !records.is_empty() => {
-            for rec in records {
-                list.append(&build_history_row(&rec, input_cb.clone(), &popover));
+    let refresh = Rc::new({
+        let panel_uuid = panel_uuid_owned.clone();
+        let popover = popover_for_refresh.clone();
+        let input_cb = input_cb_for_refresh.clone();
+        let list = list_for_refresh.clone();
+        let toggle = toggle_for_refresh.clone();
+        let entry = entry_for_refresh.clone();
+        move || {
+            populate_list(
+                &list,
+                &panel_uuid,
+                toggle.is_active(),
+                entry.text().as_str(),
+                &input_cb.borrow(),
+                &popover,
+            );
+        }
+    });
+
+    refresh();
+
+    {
+        let refresh = refresh.clone();
+        distinct_toggle.connect_toggled(move |_| refresh());
+    }
+    {
+        let refresh = refresh.clone();
+        search_entry.connect_search_changed(move |_| refresh());
+    }
+
+    // Pressing Enter on the search box pastes the topmost remaining row,
+    // which mirrors how shell history reverse-search behaves.
+    {
+        let list = list.clone();
+        let popover = popover.clone();
+        search_entry.connect_activate(move |_| {
+            if let Some(first_row) = list.row_at_index(0) {
+                if let Some(btn) = first_row.child().and_downcast::<gtk4::Button>() {
+                    btn.emit_clicked();
+                    let _ = popover; // popdown happens inside row click
+                }
             }
-        }
-        _ => {
-            let empty = gtk4::Label::new(Some("Nessun comando registrato"));
-            empty.add_css_class("dim-label");
-            empty.set_margin_top(24);
-            empty.set_margin_bottom(24);
-            list.append(&empty);
-        }
+        });
     }
 
     scroll.set_child(Some(&list));
     outer.append(&scroll);
     popover.set_child(Some(&outer));
     popover
+}
+
+/// (Re)fill the list with rows for `panel_uuid`. `distinct=true` shows
+/// the latest unique commands; `distinct=false` shows every execution
+/// ordered by recency. `query` is a case-insensitive substring filter
+/// applied to the command text — empty string disables filtering.
+fn populate_list(
+    list: &gtk4::ListBox,
+    panel_uuid: &str,
+    distinct: bool,
+    query: &str,
+    input_cb: &PanelInputCallback,
+    popover: &gtk4::Popover,
+) {
+    while let Some(child) = list.first_child() {
+        list.remove(&child);
+    }
+
+    let db_result = pax_db::Database::open(&pax_db::Database::default_path()).and_then(|db| {
+        if distinct {
+            db.latest_distinct_commands(panel_uuid, HISTORY_LIMIT)
+        } else {
+            db.recent_commands_for_panel(panel_uuid, HISTORY_LIMIT)
+        }
+    });
+    let records = db_result.unwrap_or_default();
+    let needle = query.trim().to_lowercase();
+    let filtered: Vec<&pax_db::CommandRecord> = if needle.is_empty() {
+        records.iter().collect()
+    } else {
+        records
+            .iter()
+            .filter(|r| r.command.to_lowercase().contains(&needle))
+            .collect()
+    };
+
+    if filtered.is_empty() {
+        let msg = if needle.is_empty() {
+            "Nessun comando registrato"
+        } else {
+            "Nessun comando trovato"
+        };
+        let empty = gtk4::Label::new(Some(msg));
+        empty.add_css_class("dim-label");
+        empty.set_margin_top(24);
+        empty.set_margin_bottom(24);
+        list.append(&empty);
+        return;
+    }
+
+    for rec in filtered {
+        list.append(&build_history_row(rec, input_cb.clone(), popover));
+    }
 }
 
 fn build_history_row(

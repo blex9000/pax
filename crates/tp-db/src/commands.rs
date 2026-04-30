@@ -70,6 +70,35 @@ impl Database {
         Ok(rows.filter_map(|r| r.ok()).collect())
     }
 
+    /// Full command history for a given panel UUID, ordered by most
+    /// recent execution. Sibling of `latest_distinct_commands` for
+    /// callers that want to see every individual run rather than only
+    /// the latest occurrence of each unique command.
+    pub fn recent_commands_for_panel(
+        &self,
+        panel_uuid: &str,
+        limit: usize,
+    ) -> Result<Vec<CommandRecord>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, workspace_name, panel_id, command, executed_at, exit_code \
+             FROM command_history \
+             WHERE panel_id = ?1 \
+             ORDER BY executed_at DESC \
+             LIMIT ?2",
+        )?;
+        let rows = stmt.query_map(rusqlite::params![panel_uuid, limit as i64], |row| {
+            Ok(CommandRecord {
+                id: row.get(0)?,
+                workspace_name: row.get(1)?,
+                panel_id: row.get(2)?,
+                command: row.get(3)?,
+                executed_at: row.get(4)?,
+                exit_code: row.get(5)?,
+            })
+        })?;
+        Ok(rows.filter_map(|r| r.ok()).collect())
+    }
+
     /// Last distinct commands for a given panel UUID, deduplicated by
     /// command text and ordered by the most recent execution. Used by
     /// the terminal panel "command history" popup.
