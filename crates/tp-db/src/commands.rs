@@ -69,4 +69,34 @@ impl Database {
         })?;
         Ok(rows.filter_map(|r| r.ok()).collect())
     }
+
+    /// Last distinct commands for a given panel UUID, deduplicated by
+    /// command text and ordered by the most recent execution. Used by
+    /// the terminal panel "command history" popup.
+    pub fn latest_distinct_commands(
+        &self,
+        panel_uuid: &str,
+        limit: usize,
+    ) -> Result<Vec<CommandRecord>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT MIN(id), workspace_name, panel_id, command, \
+                    MAX(executed_at) AS last_run, exit_code \
+             FROM command_history \
+             WHERE panel_id = ?1 \
+             GROUP BY command \
+             ORDER BY last_run DESC \
+             LIMIT ?2",
+        )?;
+        let rows = stmt.query_map(rusqlite::params![panel_uuid, limit as i64], |row| {
+            Ok(CommandRecord {
+                id: row.get(0)?,
+                workspace_name: row.get(1)?,
+                panel_id: row.get(2)?,
+                command: row.get(3)?,
+                executed_at: row.get(4)?,
+                exit_code: row.get(5)?,
+            })
+        })?;
+        Ok(rows.filter_map(|r| r.ok()).collect())
+    }
 }
