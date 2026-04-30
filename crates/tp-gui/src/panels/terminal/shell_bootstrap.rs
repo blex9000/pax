@@ -73,6 +73,81 @@ pub fn prepare_cmd_file(cmd_file: &std::path::Path) {
     }
 }
 
+/// Watch `cmd_file` and insert into `command_history` on every change.
+///
+/// This is the authoritative capture path for command history: it sees
+/// every shell preexec write, regardless of whether the command was a
+/// builtin (which leaves the foreground process group unchanged and is
+/// therefore invisible to the `tcgetpgrp` poller) or whether the host's
+/// VTE runtime exposes the `shell-preexec` signal (added in 0.80).
+///
+/// Returns the live `gio::FileMonitor`; the caller must hold onto it for
+/// the lifetime of the panel — dropping the monitor stops notifications.
+/// Returns `None` if `cmd_file` is empty (panel without a UUID, e.g. a
+/// chooser slot still showing the type picker).
+pub fn spawn_cmd_file_watcher(
+    cmd_file: &std::path::Path,
+    panel_uuid_str: Option<String>,
+    workspace_name: Option<String>,
+) -> Option<gtk4::gio::FileMonitor> {
+    use gtk4::gio;
+    use gtk4::prelude::*;
+
+    if cmd_file.as_os_str().is_empty() {
+        return None;
+    }
+    let file = gio::File::for_path(cmd_file);
+    let monitor = file
+        .monitor_file(gio::FileMonitorFlags::NONE, gio::Cancellable::NONE)
+        .ok()?;
+
+    // Deduplicate back-to-back identical reads: gio::FileMonitor may
+    // dispatch multiple signals for a single shell write (one for the
+    // truncate-on-open, one for the bytes, one for the close-write
+    // hint). We only want to insert each distinct command once per
+    // burst.
+    let last_seen: std::rc::Rc<std::cell::RefCell<Option<String>>> =
+        std::rc::Rc::new(std::cell::RefCell::new(None));
+
+    let cmd_file_owned = cmd_file.to_path_buf();
+    monitor.connect_changed(move |_monitor, _file, _other, event| {
+        // Ignore deletes / unmounts / metadata-only changes.
+        if !matches!(
+            event,
+            gio::FileMonitorEvent::Changed
+                | gio::FileMonitorEvent::ChangesDoneHint
+                | gio::FileMonitorEvent::Created
+        ) {
+            return;
+        }
+        let Ok(raw) = std::fs::read_to_string(&cmd_file_owned) else {
+            return;
+        };
+        let cmd = raw.trim_end_matches(['\n', '\r']);
+        if cmd.is_empty() {
+            return;
+        }
+        if last_seen
+            .borrow()
+            .as_deref()
+            .is_some_and(|prev| prev == cmd)
+        {
+            return;
+        }
+        *last_seen.borrow_mut() = Some(cmd.to_string());
+        if let Ok(db) = pax_db::Database::open(&pax_db::Database::default_path()) {
+            let _ = db.insert_command(
+                workspace_name.as_deref(),
+                panel_uuid_str.as_deref(),
+                cmd,
+                None,
+            );
+        }
+    });
+
+    Some(monitor)
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ShellKind {
     Bash,
@@ -145,6 +220,13 @@ fn bash_lines(cfg: &BootstrapConfig) -> Vec<String> {
     lines.push(bash_preexec_function());
     lines.push(r#"PROMPT_COMMAND="${PROMPT_COMMAND:+$PROMPT_COMMAND; }__pax_prompt""#.to_string());
     lines.push("trap '__pax_preexec' DEBUG".to_string());
+    // Pre-arm the guard so the first prompt's PROMPT_COMMAND chain
+    // (which would otherwise show up as $BASH_COMMAND="__pax_prompt"
+    // when the DEBUG trap fires before any user input) does not write
+    // bookkeeping commands into $PAX_CMD_FILE. __pax_prompt clears the
+    // flag at the end of every prompt cycle so user commands are still
+    // captured normally.
+    lines.push("__pax_preexec_fired=1".to_string());
     lines.push("set -o history".to_string());
     lines.push("clear".to_string());
     lines

@@ -60,9 +60,6 @@ fn spawn_tcgetpgrp_poller(
     vte: &vte4::Terminal,
     shell_pid: Rc<Cell<Option<i32>>>,
     status_cb: Rc<RefCell<Option<crate::panels::PanelStatusCallback>>>,
-    cmd_file: std::path::PathBuf,
-    panel_uuid_str: Option<String>,
-    workspace_name: Option<String>,
 ) {
     let vte_weak = vte.downgrade();
     let last_busy: Rc<Cell<Option<bool>>> = Rc::new(Cell::new(None));
@@ -84,33 +81,10 @@ fn spawn_tcgetpgrp_poller(
             }
             let busy = pgrp != pid;
             if last_busy.get() != Some(busy) {
-                let was_idle = matches!(last_busy.get(), Some(false) | None);
                 last_busy.set(Some(busy));
                 if let Ok(borrowed) = status_cb.try_borrow() {
                     if let Some(ref cb) = *borrowed {
                         cb(busy);
-                    }
-                }
-                // idle → busy: shell just dispatched a command. The bash/zsh
-                // preexec hook wrote it to $PAX_CMD_FILE before the foreground
-                // process group changed, so by the time we observe `busy=true`
-                // the file is fully written. This is the same persistence path
-                // VTE >= 0.80 takes via `connect_shell_preexec`.
-                if busy && was_idle && !cmd_file.as_os_str().is_empty() {
-                    if let Ok(raw) = std::fs::read_to_string(&cmd_file) {
-                        let cmd = raw.trim_end_matches(['\n', '\r']);
-                        if !cmd.is_empty() {
-                            if let Ok(db) = pax_db::Database::open(
-                                &pax_db::Database::default_path(),
-                            ) {
-                                let _ = db.insert_command(
-                                    workspace_name.as_deref(),
-                                    panel_uuid_str.as_deref(),
-                                    cmd,
-                                    None,
-                                );
-                            }
-                        }
                     }
                 }
             }
@@ -127,6 +101,8 @@ pub struct TerminalInner {
     workspace_dir: Option<String>,
     pub(super) panel_uuid: Option<uuid::Uuid>,
     pub(super) cmd_file: std::path::PathBuf,
+    /// Held to keep the gio::FileMonitor alive for the panel's lifetime.
+    _cmd_file_monitor: Option<gtk4::gio::FileMonitor>,
     input_cb: Rc<RefCell<Option<crate::panels::PanelInputCallback>>>,
     title_cb: Rc<RefCell<Option<crate::panels::PanelTitleCallback>>>,
     status_cb: Rc<RefCell<Option<crate::panels::PanelStatusCallback>>>,
@@ -184,6 +160,14 @@ impl TerminalInner {
 
         let env_refs: Vec<&str> = spawn_env.iter().map(|s| s.as_str()).collect();
         let working_dir = cwd.unwrap_or(".");
+
+        // Resolve the per-panel sidechannel path once and create the file
+        // upfront with mode 0600 so the FileMonitor below has something to
+        // watch and the shell's first redirect does not race the chmod.
+        let cmd_file_path: std::path::PathBuf = panel_uuid
+            .map(|u| super::shell_bootstrap::cmd_file_path(&u))
+            .unwrap_or_default();
+        super::shell_bootstrap::prepare_cmd_file(&cmd_file_path);
 
         // Spawn the shell process in the PTY
         let vte_for_cb = vte.clone();
@@ -301,6 +285,11 @@ impl TerminalInner {
         // These signals were added in VTE 0.80; skip the wiring on older
         // runtimes (Debian/Ubuntu LTS ships 0.76) to avoid a
         // `connect_raw: handle > 0` assertion on missing GObject signals.
+        //
+        // Note: command history capture is NOT done here. It runs through
+        // `gio::FileMonitor` (see `cmd_file_monitor` field) so that builtins
+        // (which never change the foreground pgroup) are also captured and
+        // it works the same on every VTE version.
         if vte_has_shell_integration_signals() {
             let status_cb_ref = status_cb.clone();
             vte.connect_shell_precmd(move |_| {
@@ -311,31 +300,7 @@ impl TerminalInner {
                 }
             });
             let status_cb_ref = status_cb.clone();
-            let cmd_file_for_cb: std::path::PathBuf = panel_uuid
-                .map(|u| super::shell_bootstrap::cmd_file_path(&u))
-                .unwrap_or_default();
-            let panel_uuid_str: Option<String> =
-                panel_uuid.map(|u| u.simple().to_string());
-            let workspace_name_for_cb: Option<String> =
-                workspace_dir.map(|s| s.to_string());
             vte.connect_shell_preexec(move |_| {
-                if !cmd_file_for_cb.as_os_str().is_empty() {
-                    if let Ok(raw) = std::fs::read_to_string(&cmd_file_for_cb) {
-                        let cmd = raw.trim_end_matches(['\n', '\r']);
-                        if !cmd.is_empty() {
-                            if let Ok(db) = pax_db::Database::open(
-                                &pax_db::Database::default_path(),
-                            ) {
-                                let _ = db.insert_command(
-                                    workspace_name_for_cb.as_deref(),
-                                    panel_uuid_str.as_deref(),
-                                    cmd,
-                                    None,
-                                );
-                            }
-                        }
-                    }
-                }
                 if let Ok(borrowed) = status_cb_ref.try_borrow() {
                     if let Some(ref cb) = *borrowed {
                         cb(true);
@@ -347,25 +312,8 @@ impl TerminalInner {
             // back to polling `tcgetpgrp` on the PTY master: the foreground
             // process group equals the shell PID only while the shell is
             // at its prompt. Independent of any OSC 133 cooperation from
-            // the shell, so it also works on zsh/fish/dash. The poller also
-            // drains $PAX_CMD_FILE on every idle→busy transition so that
-            // command history is populated on systems shipping VTE < 0.80
-            // (Debian/Ubuntu LTS).
-            let cmd_file_for_poll: std::path::PathBuf = panel_uuid
-                .map(|u| super::shell_bootstrap::cmd_file_path(&u))
-                .unwrap_or_default();
-            let panel_uuid_str_for_poll: Option<String> =
-                panel_uuid.map(|u| u.simple().to_string());
-            let workspace_name_for_poll: Option<String> =
-                workspace_dir.map(|s| s.to_string());
-            spawn_tcgetpgrp_poller(
-                &vte,
-                shell_pid.clone(),
-                status_cb.clone(),
-                cmd_file_for_poll,
-                panel_uuid_str_for_poll,
-                workspace_name_for_poll,
-            );
+            // the shell, so it also works on zsh/fish/dash.
+            spawn_tcgetpgrp_poller(&vte, shell_pid.clone(), status_cb.clone());
         }
 
         // Register VTE for theme color updates
@@ -379,13 +327,12 @@ impl TerminalInner {
             _spawned: spawned,
             workspace_dir: workspace_dir.map(|s| s.to_string()),
             panel_uuid,
-            cmd_file: {
-                let path = panel_uuid
-                    .map(|u| super::shell_bootstrap::cmd_file_path(&u))
-                    .unwrap_or_default();
-                super::shell_bootstrap::prepare_cmd_file(&path);
-                path
-            },
+            cmd_file: cmd_file_path.clone(),
+            _cmd_file_monitor: super::shell_bootstrap::spawn_cmd_file_watcher(
+                &cmd_file_path,
+                panel_uuid.map(|u| u.simple().to_string()),
+                workspace_dir.map(|s| s.to_string()),
+            ),
             input_cb,
             title_cb,
             status_cb,

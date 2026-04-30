@@ -120,6 +120,8 @@ pub struct TerminalInner {
     pub writer: Arc<Mutex<Box<dyn Write + Send>>>,
     pub(super) panel_uuid: Option<uuid::Uuid>,
     pub(super) cmd_file: std::path::PathBuf,
+    /// Held to keep the gio::FileMonitor alive for the panel's lifetime.
+    _cmd_file_monitor: Option<gtk4::gio::FileMonitor>,
     input_cb: Rc<RefCell<Option<crate::panels::PanelInputCallback>>>,
     title_cb: Rc<RefCell<Option<crate::panels::PanelTitleCallback>>>,
     status_cb: Rc<RefCell<Option<crate::panels::PanelStatusCallback>>>,
@@ -249,13 +251,6 @@ impl TerminalInner {
             });
         }
 
-        let cmd_file_for_main: std::path::PathBuf = panel_uuid
-            .map(|u| super::shell_bootstrap::cmd_file_path(&u))
-            .unwrap_or_default();
-        let workspace_name_for_main: Option<String> = None;
-        let panel_uuid_str_for_main: Option<String> =
-            panel_uuid.map(|u| u.simple().to_string());
-
         {
             let drawing_area = drawing_area.clone();
             let writer = writer.clone();
@@ -295,23 +290,11 @@ impl TerminalInner {
                             }
                         }
                         Ok(TerminalUiEvent::CommandStarted) => {
-                            if !cmd_file_for_main.as_os_str().is_empty() {
-                                if let Ok(raw) = std::fs::read_to_string(&cmd_file_for_main) {
-                                    let cmd = raw.trim_end_matches(['\n', '\r']);
-                                    if !cmd.is_empty() {
-                                        if let Ok(db) = pax_db::Database::open(
-                                            &pax_db::Database::default_path(),
-                                        ) {
-                                            let _ = db.insert_command(
-                                                workspace_name_for_main.as_deref(),
-                                                panel_uuid_str_for_main.as_deref(),
-                                                cmd,
-                                                None,
-                                            );
-                                        }
-                                    }
-                                }
-                            }
+                            // Capture is handled by the gio::FileMonitor on
+                            // $PAX_CMD_FILE — see TerminalInner::new. This
+                            // arm is kept as a no-op so the variant stays
+                            // emitted by scan_osc_markers without unused-
+                            // value warnings.
                         }
                         Ok(TerminalUiEvent::ClipboardStore(text)) => {
                             drawing_area.clipboard().set_text(&text);
@@ -544,18 +527,23 @@ impl TerminalInner {
             );
         }
 
+        let cmd_file_path: std::path::PathBuf = panel_uuid
+            .map(|u| super::shell_bootstrap::cmd_file_path(&u))
+            .unwrap_or_default();
+        super::shell_bootstrap::prepare_cmd_file(&cmd_file_path);
+        let cmd_file_monitor = super::shell_bootstrap::spawn_cmd_file_watcher(
+            &cmd_file_path,
+            panel_uuid.map(|u| u.simple().to_string()),
+            None,
+        );
+
         Self {
             drawing_area,
             widget,
             writer,
             panel_uuid,
-            cmd_file: {
-                let path = panel_uuid
-                    .map(|u| super::shell_bootstrap::cmd_file_path(&u))
-                    .unwrap_or_default();
-                super::shell_bootstrap::prepare_cmd_file(&path);
-                path
-            },
+            cmd_file: cmd_file_path,
+            _cmd_file_monitor: cmd_file_monitor,
             input_cb,
             title_cb,
             status_cb,
