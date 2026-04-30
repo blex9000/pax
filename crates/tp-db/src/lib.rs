@@ -1,6 +1,6 @@
 pub mod commands;
 
-pub use commands::CommandRecord;
+pub use commands::{CommandRecord, PinnedCommand};
 pub mod metadata_entries;
 pub mod notes;
 pub mod output;

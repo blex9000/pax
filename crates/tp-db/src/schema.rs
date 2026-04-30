@@ -54,6 +54,12 @@ pub fn run_migrations(db: &Database) -> Result<()> {
         "010_command_history_panel_index",
         MIGRATION_010_COMMAND_HISTORY_PANEL_INDEX,
     )?;
+    apply_sql_migration(
+        db,
+        &applied,
+        "011_pinned_commands",
+        MIGRATION_011_PINNED_COMMANDS,
+    )?;
 
     Ok(())
 }
@@ -386,6 +392,24 @@ END;
 const MIGRATION_010_COMMAND_HISTORY_PANEL_INDEX: &str = "
 CREATE INDEX IF NOT EXISTS idx_cmd_panel_executed
     ON command_history(panel_id, executed_at DESC);
+";
+
+// Pinned (favourite) commands per panel. Distinct from `command_history`
+// — pinning curates a stable set the user wants to keep accessible
+// even when the underlying history rows roll off / are cleared.
+// `(panel_uuid, command)` is unique so re-pinning the same text is a
+// no-op (handled with INSERT OR IGNORE in code).
+const MIGRATION_011_PINNED_COMMANDS: &str = "
+CREATE TABLE IF NOT EXISTS pinned_commands (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    panel_uuid TEXT NOT NULL,
+    command TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_pinned_panel_cmd
+    ON pinned_commands(panel_uuid, command);
+CREATE INDEX IF NOT EXISTS idx_pinned_panel_created
+    ON pinned_commands(panel_uuid, created_at DESC);
 ";
 
 #[cfg(test)]
