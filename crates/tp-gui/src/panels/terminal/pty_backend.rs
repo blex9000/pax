@@ -79,6 +79,7 @@ fn scan_osc_markers(carry: &[u8], buf: &[u8], ui_tx: &mpsc::Sender<TerminalUiEve
                 }
                 b'C' => {
                     let _ = ui_tx.send(TerminalUiEvent::StatusChanged(true));
+                    let _ = ui_tx.send(TerminalUiEvent::CommandStarted);
                 }
                 _ => {}
             }
@@ -248,6 +249,13 @@ impl TerminalInner {
             });
         }
 
+        let cmd_file_for_main: std::path::PathBuf = panel_uuid
+            .map(|u| super::shell_bootstrap::cmd_file_path(&u))
+            .unwrap_or_default();
+        let workspace_name_for_main: Option<String> = None;
+        let panel_uuid_str_for_main: Option<String> =
+            panel_uuid.map(|u| u.simple().to_string());
+
         {
             let drawing_area = drawing_area.clone();
             let writer = writer.clone();
@@ -283,6 +291,25 @@ impl TerminalInner {
                             if let Ok(borrowed) = cwd_cb_ref.try_borrow() {
                                 if let Some(ref cb) = *borrowed {
                                     cb(&uri);
+                                }
+                            }
+                        }
+                        Ok(TerminalUiEvent::CommandStarted) => {
+                            if !cmd_file_for_main.as_os_str().is_empty() {
+                                if let Ok(raw) = std::fs::read_to_string(&cmd_file_for_main) {
+                                    let cmd = raw.trim_end_matches(['\n', '\r']);
+                                    if !cmd.is_empty() {
+                                        if let Ok(db) = pax_db::Database::open(
+                                            &pax_db::Database::default_path(),
+                                        ) {
+                                            let _ = db.insert_command(
+                                                workspace_name_for_main.as_deref(),
+                                                panel_uuid_str_for_main.as_deref(),
+                                                cmd,
+                                                None,
+                                            );
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -667,6 +694,8 @@ enum TerminalUiEvent {
     StatusChanged(bool),
     /// OSC 7 current-directory-uri update (`file://<host>/<path>`).
     CwdChanged(String),
+    /// OSC 133;C arrived — read $PAX_CMD_FILE on the GUI thread and persist.
+    CommandStarted,
 }
 
 #[derive(Clone, Copy)]
