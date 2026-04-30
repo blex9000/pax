@@ -27,6 +27,18 @@ const HISTORY_LIMIT: usize = 5000;
 /// Number of rows shown on a single popover page.
 const PAGE_SIZE: usize = 20;
 
+/// Hard cap on popover width, in pixels. Keeps the popup compact even
+/// when a row carries a very long command. Inner labels ellipsize at
+/// `MAX_CMD_CHARS` so the natural row size stays bounded; the
+/// horizontal scrollbar policy is `Automatic` as a safety net for any
+/// monospace label that still exceeds it.
+const POPOVER_WIDTH: i32 = 540;
+
+/// Max character cells the command label asks for at its natural size.
+/// Combined with `EllipsizeMode::End`, this keeps a row narrow enough
+/// to fit inside `POPOVER_WIDTH` next to the timestamp column.
+const MAX_CMD_CHARS: i32 = 56;
+
 /// Build the contents of the command-history popover for `panel_uuid`.
 /// Each row, when clicked, writes its command into the terminal via
 /// `input_cb` (no `\r` appended) and pops the popover down.
@@ -43,6 +55,10 @@ pub fn build_command_history_popover(
     outer.set_margin_bottom(6);
     outer.set_margin_start(6);
     outer.set_margin_end(6);
+    // Cap the popover width: long commands ellipsize and the list
+    // scrolls horizontally if needed instead of stretching the popover
+    // off the screen.
+    outer.set_size_request(POPOVER_WIDTH, -1);
 
     // ── Header: title + distinct toggle ────────────────────────────────
     let header_row = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
@@ -70,10 +86,11 @@ pub fn build_command_history_popover(
 
     // ── List ───────────────────────────────────────────────────────────
     let scroll = gtk4::ScrolledWindow::new();
-    scroll.set_min_content_width(420);
+    scroll.set_policy(gtk4::PolicyType::Automatic, gtk4::PolicyType::Automatic);
     scroll.set_min_content_height(280);
     scroll.set_max_content_height(420);
     scroll.set_propagate_natural_height(true);
+    scroll.set_propagate_natural_width(false);
 
     let list = gtk4::ListBox::new();
     list.add_css_class("command-history-list");
@@ -313,10 +330,16 @@ fn build_history_row(
     cmd_lbl.set_hexpand(true);
     cmd_lbl.set_xalign(0.0);
     cmd_lbl.set_ellipsize(gtk4::pango::EllipsizeMode::End);
+    cmd_lbl.set_max_width_chars(MAX_CMD_CHARS);
     h.append(&cmd_lbl);
 
     row_btn.set_child(Some(&h));
-    row_btn.set_tooltip_text(Some(&rec.executed_at));
+    // Hovering reveals the full command + timestamp, since long lines
+    // ellipsize inside the bounded popover width.
+    row_btn.set_tooltip_text(Some(&format!(
+        "{}\n{}",
+        rec.command, rec.executed_at,
+    )));
 
     let cmd = rec.command.clone();
     let popover = popover.clone();
