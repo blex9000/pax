@@ -285,7 +285,31 @@ impl TerminalInner {
                 }
             });
             let status_cb_ref = status_cb.clone();
+            let cmd_file_for_cb: std::path::PathBuf = panel_uuid
+                .map(|u| super::shell_bootstrap::cmd_file_path(&u))
+                .unwrap_or_default();
+            let panel_uuid_str: Option<String> =
+                panel_uuid.map(|u| u.simple().to_string());
+            let workspace_name_for_cb: Option<String> =
+                workspace_dir.map(|s| s.to_string());
             vte.connect_shell_preexec(move |_| {
+                if !cmd_file_for_cb.as_os_str().is_empty() {
+                    if let Ok(raw) = std::fs::read_to_string(&cmd_file_for_cb) {
+                        let cmd = raw.trim_end_matches(['\n', '\r']);
+                        if !cmd.is_empty() {
+                            if let Ok(db) = pax_db::Database::open(
+                                &pax_db::Database::default_path(),
+                            ) {
+                                let _ = db.insert_command(
+                                    workspace_name_for_cb.as_deref(),
+                                    panel_uuid_str.as_deref(),
+                                    cmd,
+                                    None,
+                                );
+                            }
+                        }
+                    }
+                }
                 if let Ok(borrowed) = status_cb_ref.try_borrow() {
                     if let Some(ref cb) = *borrowed {
                         cb(true);
