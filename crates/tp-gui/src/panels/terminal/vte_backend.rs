@@ -99,6 +99,8 @@ pub struct TerminalInner {
     pending_commands: Rc<RefCell<Vec<String>>>,
     _spawned: Rc<RefCell<bool>>,
     workspace_dir: Option<String>,
+    pub(super) panel_uuid: Option<uuid::Uuid>,
+    pub(super) cmd_file: std::path::PathBuf,
     input_cb: Rc<RefCell<Option<crate::panels::PanelInputCallback>>>,
     title_cb: Rc<RefCell<Option<crate::panels::PanelTitleCallback>>>,
     status_cb: Rc<RefCell<Option<crate::panels::PanelStatusCallback>>>,
@@ -119,6 +121,7 @@ impl TerminalInner {
         cwd: Option<&str>,
         env: &[(String, String)],
         workspace_dir: Option<&str>,
+        panel_uuid: Option<uuid::Uuid>,
     ) -> Self {
         let vte = vte4::Terminal::new();
 
@@ -160,6 +163,8 @@ impl TerminalInner {
         let vte_for_cb = vte.clone();
         let pending_for_cb = pending_commands.clone();
         let spawned_for_cb = spawned.clone();
+        let shell_for_cb = shell.to_string();
+        let panel_uuid_for_cb: Option<uuid::Uuid> = panel_uuid;
         // PID captured on successful spawn and consumed by the tcgetpgrp
         // fallback poller below. Stays None on spawn failure, which
         // silently disables the fallback.
@@ -189,9 +194,16 @@ impl TerminalInner {
                     //     minimal green prompt ("$: ").
                     //   - emit_osc7: only VTE consumes OSC 7 to drive the
                     //     footer via `current-directory-uri-changed`.
+                    let shell_kind = super::shell_bootstrap::ShellKind::detect_from_path(&shell_for_cb);
+                    let cmd_file = match panel_uuid_for_cb {
+                        Some(u) => super::shell_bootstrap::cmd_file_path(&u),
+                        None => std::path::PathBuf::new(),
+                    };
                     for line in bootstrap_lines(&BootstrapConfig {
+                        shell: shell_kind,
                         override_ps1: true,
                         emit_osc7: true,
+                        cmd_file: &cmd_file,
                     }) {
                         let mut bytes = line.into_bytes();
                         bytes.push(b'\n');
@@ -299,6 +311,10 @@ impl TerminalInner {
             pending_commands,
             _spawned: spawned,
             workspace_dir: workspace_dir.map(|s| s.to_string()),
+            panel_uuid,
+            cmd_file: panel_uuid
+                .map(|u| super::shell_bootstrap::cmd_file_path(&u))
+                .unwrap_or_default(),
             input_cb,
             title_cb,
             status_cb,

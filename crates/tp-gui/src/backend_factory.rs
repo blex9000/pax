@@ -146,6 +146,10 @@ pub fn create_backend_from_registry(
     if let Some(rk) = workspace_record_key {
         extra.insert("__workspace_record_key__".to_string(), rk.to_string());
     }
+    extra.insert(
+        "__panel_uuid__".to_string(),
+        panel_cfg.uuid.simple().to_string(),
+    );
     let config = PanelCreateConfig {
         shell: default_shell.to_string(),
         cwd: panel_cfg.cwd.clone(),

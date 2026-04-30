@@ -132,9 +132,10 @@ impl TerminalPanel {
         cwd: Option<&str>,
         env: &[(String, String)],
         workspace_dir: Option<&str>,
+        panel_uuid: Option<uuid::Uuid>,
     ) -> Self {
         Self {
-            inner: TerminalInner::new(shell, cwd, env, workspace_dir),
+            inner: TerminalInner::new(shell, cwd, env, workspace_dir, panel_uuid),
             ssh_info: None,
         }
     }

@@ -117,6 +117,8 @@ pub struct TerminalInner {
     pub drawing_area: gtk4::DrawingArea,
     pub widget: gtk4::Widget,
     pub writer: Arc<Mutex<Box<dyn Write + Send>>>,
+    pub(super) panel_uuid: Option<uuid::Uuid>,
+    pub(super) cmd_file: std::path::PathBuf,
     input_cb: Rc<RefCell<Option<crate::panels::PanelInputCallback>>>,
     title_cb: Rc<RefCell<Option<crate::panels::PanelTitleCallback>>>,
     status_cb: Rc<RefCell<Option<crate::panels::PanelStatusCallback>>>,
@@ -137,6 +139,7 @@ impl TerminalInner {
         cwd: Option<&str>,
         env: &[(String, String)],
         _workspace_dir: Option<&str>,
+        panel_uuid: Option<uuid::Uuid>,
     ) -> Self {
         let drawing_area = gtk4::DrawingArea::new();
         drawing_area.set_focusable(true);
@@ -206,7 +209,7 @@ impl TerminalInner {
         // Flag flipped by the first OSC 133;A (first prompt ready) or by
         // REVEAL_FALLBACK_MS safety timeout — whichever comes first.
         let booted: Rc<std::cell::Cell<bool>> = Rc::new(std::cell::Cell::new(false));
-        install_shell_bootstrap(&writer);
+        install_shell_bootstrap(&writer, shell, panel_uuid);
 
         let (ui_tx, ui_rx) = mpsc::channel::<TerminalUiEvent>();
         let window_size = Arc::new(Mutex::new(GridSize::default().window_size()));
@@ -518,6 +521,10 @@ impl TerminalInner {
             drawing_area,
             widget,
             writer,
+            panel_uuid,
+            cmd_file: panel_uuid
+                .map(|u| super::shell_bootstrap::cmd_file_path(&u))
+                .unwrap_or_default(),
             input_cb,
             title_cb,
             status_cb,
@@ -1086,7 +1093,11 @@ fn measure_cell_metrics<W: IsA<gtk4::Widget>>(widget: &W) -> Option<CellMetrics>
     (width > 0 && height > 0).then_some(CellMetrics { width, height })
 }
 
-fn install_shell_bootstrap(writer: &Arc<Mutex<Box<dyn Write + Send>>>) {
+fn install_shell_bootstrap(
+    writer: &Arc<Mutex<Box<dyn Write + Send>>>,
+    shell: &str,
+    panel_uuid: Option<uuid::Uuid>,
+) {
     // Shared payload with the VTE backend. PTY runs the bootstrap
     // BEFORE the user's shell rc has loaded (we write directly to the
     // master fd), so any PS1 we set here gets clobbered by .bashrc /
@@ -1094,9 +1105,16 @@ fn install_shell_bootstrap(writer: &Arc<Mutex<Box<dyn Write + Send>>>) {
     // render as literal text. Keep the user's prompt; we still want the
     // OSC 7 emission for the footer and the OSC 133 hooks for the
     // command-running indicator.
+    let shell_kind = super::shell_bootstrap::ShellKind::detect_from_path(shell);
+    let cmd_file_buf = match panel_uuid {
+        Some(u) => super::shell_bootstrap::cmd_file_path(&u),
+        None => std::path::PathBuf::new(),
+    };
     let cfg = BootstrapConfig {
+        shell: shell_kind,
         override_ps1: false,
-        emit_osc7: true,
+        emit_osc7: false,
+        cmd_file: &cmd_file_buf,
     };
     for command in bootstrap_lines(&cfg) {
         let mut line = command;

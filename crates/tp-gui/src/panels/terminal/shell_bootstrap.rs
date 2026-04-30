@@ -1,47 +1,107 @@
 //! # Shell bootstrap payload
 //!
-//! Single source of truth for the bash snippets pax injects into every
+//! Single source of truth for the shell snippets pax injects into every
 //! terminal panel on startup. Both VTE and PTY backends consume this so
 //! future refinements to shell integration (new OSC sequences, extra
 //! trap hooks, …) do not drift between the two implementations.
 //!
+//! Supported shells: **bash**, **zsh**. Any other shell receives an empty
+//! payload (silent no-op) — history capture, OSC 133 indicators, and OSC 7
+//! footer are all inert for unknown shells.
+//!
 //! The payload sets up:
+//! - `PAX_CMD_FILE` env var pointing to the per-panel sidechannel file.
+//!   The preexec hook writes the command into this file; the GUI reads it
+//!   when OSC 133;C arrives to populate `command_history`.
 //! - `LS_COLORS` / `CLICOLOR` / `LSCOLORS` / `dircolors` / `alias ls`
 //!   for consistent colored output across Linux + macOS `ls` flavours.
-//! - Optional minimal PS1 override (VTE only — spawn happens after
-//!   `.bashrc` so the override sticks; PTY keeps the user's PS1).
-//! - `__pax_prompt`: emitted via `PROMPT_COMMAND` on every prompt.
-//!   Sends OSC 0 (window title), optional OSC 7 (directory URI, VTE
-//!   only), OSC 133;A (shell integration — "prompt starting"), and
-//!   resets the preexec guard flag.
-//! - `__pax_preexec`: DEBUG trap callback. Emits OSC 133;C on the
-//!   first command of each prompt cycle (guarded by `__pax_preexec_fired`
-//!   so bursts inside `PROMPT_COMMAND` itself stay silent).
-//! - `PROMPT_COMMAND` is **appended** (not replaced) so any user-supplied
-//!   hook from `.bashrc` survives.
-//!
-//! The block is wrapped in `set +o history` / `set -o history` so none
-//! of these lines leak into the user's `.bash_history`.
+//! - Optional minimal PS1 / PROMPT override (VTE only — spawn happens after
+//!   the rc file so the override sticks; PTY keeps the user's prompt).
+//! - `__pax_prompt` / `__pax_prompt_zsh`: emitted via `PROMPT_COMMAND` /
+//!   `precmd_functions` on every prompt. Sends OSC 0 (window title), optional
+//!   OSC 7 (directory URI, VTE only), OSC 133;A (shell integration —
+//!   "prompt starting"), and resets the preexec guard flag (bash).
+//! - `__pax_preexec` / `__pax_preexec_zsh`: DEBUG trap / preexec hook.
+//!   Writes the just-entered command to `$PAX_CMD_FILE`, then emits
+//!   OSC 133;C ("command started").
+//! - (bash) `PROMPT_COMMAND` is **appended** (not replaced) so any
+//!   user-supplied hook from `.bashrc` survives.
+//! - (bash) Wrapped in `set +o history` / `set -o history` so none of these
+//!   lines leak into `.bash_history`.
 //!
 //! See `docs/shell-integration.md` for the full rationale.
 
-/// Per-backend switches that pick the right payload variant.
-pub struct BootstrapConfig {
-    /// Override PS1 with pax's minimal green prompt. VTE: true — the
-    /// spawn callback runs after user `.bashrc`, so the override sticks.
-    /// PTY: false — we inherit the user's prompt unchanged.
-    pub override_ps1: bool,
-    /// Emit OSC 7 (directory URI) from `__pax_prompt`. VTE consumes this
-    /// via `current-directory-uri-changed` to drive the footer; the PTY
-    /// backend does not currently track OSC 7.
-    pub emit_osc7: bool,
+use std::path::PathBuf;
+use uuid::Uuid;
+
+/// Path of the per-panel sidechannel file used to ferry the just-executed
+/// command from the shell preexec hook to the GUI. Lives under
+/// `XDG_RUNTIME_DIR` if set (Linux), otherwise `/tmp`. Filename is
+/// `pax-cmd-<simple-uuid>.txt`.
+pub fn cmd_file_path(panel_uuid: &Uuid) -> PathBuf {
+    let dir = std::env::var_os("XDG_RUNTIME_DIR")
+        .map(PathBuf::from)
+        .filter(|p| p.is_dir())
+        .unwrap_or_else(|| PathBuf::from("/tmp"));
+    dir.join(format!("pax-cmd-{}.txt", panel_uuid.simple()))
 }
 
-/// Returns the ordered list of bash lines to feed to the shell after
-/// `.bashrc` has run. Both backends feed each line followed by `\n`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ShellKind {
+    Bash,
+    Zsh,
+    /// Any unrecognised shell — we do not inject hooks. Command history,
+    /// OSC 133 indicators, OSC 7 footer all stay inert (silent fallback).
+    Other,
+}
+
+impl ShellKind {
+    pub fn detect_from_env() -> Self {
+        let shell = std::env::var("SHELL").unwrap_or_default();
+        Self::detect_from_path(&shell)
+    }
+
+    pub fn detect_from_path(shell_path: &str) -> Self {
+        let basename = shell_path
+            .rsplit(['/', '\\'])
+            .next()
+            .unwrap_or(shell_path)
+            .trim();
+        match basename {
+            "bash" => Self::Bash,
+            "zsh" => Self::Zsh,
+            _ => Self::Other,
+        }
+    }
+}
+
+pub struct BootstrapConfig<'a> {
+    pub shell: ShellKind,
+    /// Override PS1 (bash) / PROMPT (zsh) with pax's minimal green prompt.
+    pub override_ps1: bool,
+    /// Emit OSC 7 (directory URI) from the prompt callback.
+    pub emit_osc7: bool,
+    /// Path the preexec hook will write the command into. Borrowed so we
+    /// do not allocate per call. Use `cmd_file_path(panel_uuid)`.
+    pub cmd_file: &'a std::path::Path,
+}
+
+/// Returns the ordered list of shell lines to feed after the shell has
+/// loaded the user's rc file. Both backends feed each line followed by
+/// `\n`. For unknown shells returns an empty vec (silent no-op).
 pub fn bootstrap_lines(cfg: &BootstrapConfig) -> Vec<String> {
+    match cfg.shell {
+        ShellKind::Bash => bash_lines(cfg),
+        ShellKind::Zsh => zsh_lines(cfg),
+        ShellKind::Other => Vec::new(),
+    }
+}
+
+fn bash_lines(cfg: &BootstrapConfig) -> Vec<String> {
+    let cmd_file = cfg.cmd_file.display().to_string();
     let mut lines: Vec<String> = Vec::with_capacity(16);
     lines.push("set +o history".to_string());
+    lines.push(format!("export PAX_CMD_FILE='{}'", shell_escape_single(&cmd_file)));
     if cfg.override_ps1 {
         lines.push(r"export PS1='\[\033[32m\]$:\[\033[0m\] '".to_string());
     }
@@ -59,19 +119,49 @@ pub fn bootstrap_lines(cfg: &BootstrapConfig) -> Vec<String> {
         r#"if command ls --color=auto . >/dev/null 2>&1; then alias ls='ls --color=auto'; else alias ls='ls -G'; fi"#
             .to_string(),
     );
-    lines.push(prompt_function(cfg.emit_osc7));
-    lines.push(preexec_function());
+    lines.push(bash_prompt_function(cfg.emit_osc7));
+    lines.push(bash_preexec_function());
     lines.push(r#"PROMPT_COMMAND="${PROMPT_COMMAND:+$PROMPT_COMMAND; }__pax_prompt""#.to_string());
     lines.push("trap '__pax_preexec' DEBUG".to_string());
     lines.push("set -o history".to_string());
-    // `clear` wipes the visible bootstrap output. Kept outside the
-    // no-history block because a single `clear` in history is harmless
-    // and having it inside would require reorganising the whole block.
     lines.push("clear".to_string());
     lines
 }
 
-fn prompt_function(emit_osc7: bool) -> String {
+fn zsh_lines(cfg: &BootstrapConfig) -> Vec<String> {
+    let cmd_file = cfg.cmd_file.display().to_string();
+    let mut lines: Vec<String> = Vec::with_capacity(14);
+    lines.push(format!("export PAX_CMD_FILE='{}'", shell_escape_single(&cmd_file)));
+    if cfg.override_ps1 {
+        // zsh prompt syntax (single-quoted to keep %F/%f literal until
+        // the prompt is evaluated each time).
+        lines.push(r"export PROMPT='%F{green}$:%f '".to_string());
+    }
+    lines.push(
+        "export LS_COLORS='di=38;2;85;136;255:ln=36:so=35:pi=33:ex=32:bd=34;46:cd=34;43:su=30;41:sg=30;46:tw=30;42:ow=34;42'"
+            .to_string(),
+    );
+    lines.push("export CLICOLOR=1".to_string());
+    lines.push("export LSCOLORS='ExFxCxDxBxegedabagacad'".to_string());
+    lines.push(
+        r#"if command ls --color=auto . >/dev/null 2>&1; then alias ls='ls --color=auto'; else alias ls='ls -G'; fi"#
+            .to_string(),
+    );
+    lines.push(zsh_prompt_function(cfg.emit_osc7));
+    lines.push(zsh_preexec_function());
+    lines.push("typeset -ga precmd_functions preexec_functions".to_string());
+    lines.push("precmd_functions+=(__pax_prompt_zsh)".to_string());
+    lines.push("preexec_functions+=(__pax_preexec_zsh)".to_string());
+    lines.push("clear".to_string());
+    lines
+}
+
+fn shell_escape_single(s: &str) -> String {
+    // POSIX single-quote escaping: ' → '\''
+    s.replace('\'', r"'\''")
+}
+
+fn bash_prompt_function(emit_osc7: bool) -> String {
     let osc7 = if emit_osc7 {
         r#"printf '\033]7;file://%s%s\033\\' "$HOSTNAME" "$PWD"; "#
     } else {
@@ -83,6 +173,26 @@ fn prompt_function(emit_osc7: bool) -> String {
     )
 }
 
-fn preexec_function() -> String {
-    r##"__pax_preexec() { [[ -n "$__pax_preexec_fired" ]] && return; __pax_preexec_fired=1; printf '\033]133;C\007'; }"##.to_string()
+fn bash_preexec_function() -> String {
+    // Write the just-recognised command to $PAX_CMD_FILE before signalling
+    // 133;C, so the GUI side can read it when 133;C arrives.
+    r##"__pax_preexec() { [[ -n "$__pax_preexec_fired" ]] && return; __pax_preexec_fired=1; if [[ -n "$PAX_CMD_FILE" ]]; then printf '%s' "$BASH_COMMAND" > "$PAX_CMD_FILE" 2>/dev/null; fi; printf '\033]133;C\007'; }"##.to_string()
+}
+
+fn zsh_prompt_function(emit_osc7: bool) -> String {
+    let osc7 = if emit_osc7 {
+        r#"print -n -- $'\e]7;file://'"$HOST$PWD"$'\e\\'; "#
+    } else {
+        ""
+    };
+    format!(
+        r##"__pax_prompt_zsh() {{ local d="${{PWD/#$HOME/~}}"; print -n -- $'\e]0;'"$USER@$HOST: $d"$'\a'; {}print -n -- $'\e]133;A\a'; }}"##,
+        osc7
+    )
+}
+
+fn zsh_preexec_function() -> String {
+    // zsh preexec receives the command as $1 (raw) / $2 (after history
+    // expansion) — we use $1 to preserve what the user actually typed.
+    r##"__pax_preexec_zsh() { if [[ -n "$PAX_CMD_FILE" ]]; then print -nr -- "$1" > "$PAX_CMD_FILE" 2>/dev/null; fi; print -n -- $'\e]133;C\a'; }"##.to_string()
 }
