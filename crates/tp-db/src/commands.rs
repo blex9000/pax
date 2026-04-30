@@ -99,4 +99,14 @@ impl Database {
         })?;
         Ok(rows.filter_map(|r| r.ok()).collect())
     }
+
+    /// Remove all command history rows for a given panel UUID. Called
+    /// when the panel is permanently closed to avoid leaving orphan rows.
+    pub fn delete_command_history_for_panel(&self, panel_uuid: &str) -> Result<usize> {
+        let n = self.conn.execute(
+            "DELETE FROM command_history WHERE panel_id = ?1",
+            rusqlite::params![panel_uuid],
+        )?;
+        Ok(n)
+    }
 }

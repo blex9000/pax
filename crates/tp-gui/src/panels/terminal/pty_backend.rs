@@ -614,6 +614,9 @@ impl TerminalInner {
     /// Flush the writer. Actual cleanup happens via Arc refcount
     /// reaching zero on drop (closing the master fd, sending SIGHUP).
     pub fn shutdown(&self) {
+        if !self.cmd_file.as_os_str().is_empty() {
+            let _ = std::fs::remove_file(&self.cmd_file);
+        }
         if let Ok(mut writer) = self.writer.lock() {
             let _ = writer.flush();
         }

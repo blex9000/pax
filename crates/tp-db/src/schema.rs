@@ -42,6 +42,12 @@ pub fn run_migrations(db: &Database) -> Result<()> {
         "008_workspace_metadata_pinned",
         MIGRATION_008_WORKSPACE_METADATA_PINNED,
     )?;
+    apply_sql_migration(
+        db,
+        &applied,
+        "009_command_history_fts_ad",
+        MIGRATION_009_COMMAND_HISTORY_FTS_AD,
+    )?;
 
     Ok(())
 }
@@ -357,6 +363,13 @@ INSERT INTO workspace_notes_fts (rowid, title, text, tags)
 const MIGRATION_008_WORKSPACE_METADATA_PINNED: &str = "
 ALTER TABLE workspace_metadata ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0;
 CREATE INDEX IF NOT EXISTS idx_workspace_pinned ON workspace_metadata(pinned, last_opened);
+";
+
+const MIGRATION_009_COMMAND_HISTORY_FTS_AD: &str = "
+CREATE TRIGGER IF NOT EXISTS command_history_ad AFTER DELETE ON command_history BEGIN
+    INSERT INTO command_history_fts(command_history_fts, rowid, command)
+    VALUES ('delete', old.id, old.command);
+END;
 ";
 
 #[cfg(test)]

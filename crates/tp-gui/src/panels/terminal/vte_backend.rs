@@ -533,6 +533,9 @@ impl TerminalInner {
     /// stop the foreground process. When the VTE widget is finalized,
     /// the PTY closes and the child receives SIGHUP.
     pub fn shutdown(&self) {
+        if !self.cmd_file.as_os_str().is_empty() {
+            let _ = std::fs::remove_file(&self.cmd_file);
+        }
         crate::theme::unregister_vte_terminal(&self.vte);
         self.vte.feed_child(b"\x03");
     }
