@@ -197,6 +197,10 @@ impl PanelHost {
             Rc::new(RefCell::new(action_cb.clone()));
         let sibling_info_provider_ref: Rc<RefCell<Option<SiblingInfoProvider>>> =
             Rc::new(RefCell::new(None));
+        // Create the backend Rc early so we can close over it in button handlers
+        // wired below (before the struct is assembled).
+        let backend: Rc<RefCell<Option<Box<dyn PanelBackend>>>> =
+            Rc::new(RefCell::new(None));
 
         // Title bar: CenterBox so the OSC title sits in the geometric center
         // of the bar regardless of the widths of start/end content.
@@ -340,6 +344,42 @@ impl PanelHost {
         history_button.add_css_class("panel-action-btn");
         history_button.set_tooltip_text(Some("Cronologia comandi"));
         history_button.set_visible(false);
+
+        // Wire the click handler ONCE here. The closure checks at click time
+        // whether the current backend is a terminal — set_backend only toggles
+        // set_visible, never (re-)connects this handler.
+        {
+            let backend_ref = backend.clone();
+            history_button.connect_clicked(move |btn| {
+                let (panel_uuid, input_cb) = match backend_ref.try_borrow() {
+                    Ok(borrowed) => match &*borrowed {
+                        Some(b) if b.panel_type() == "terminal" => {
+                            let uuid = b.panel_uuid();
+                            let inner_ref = backend_ref.clone();
+                            let cb: crate::panels::PanelInputCallback =
+                                std::rc::Rc::new(move |bytes: &[u8]| {
+                                    if let Ok(bb) = inner_ref.try_borrow() {
+                                        if let Some(ref be) = *bb {
+                                            be.write_input(bytes);
+                                        }
+                                    }
+                                });
+                            (uuid, Some(cb))
+                        }
+                        _ => (None, None),
+                    },
+                    Err(_) => (None, None),
+                };
+                let Some(uuid) = panel_uuid else { return; };
+                let Some(input_cb) = input_cb else { return; };
+                let popover = crate::dialogs::command_history::build_command_history_popover(
+                    &uuid.simple().to_string(),
+                    input_cb,
+                );
+                popover.set_parent(btn);
+                popover.popup();
+            });
+        }
 
         // ⋮ menu button
         let menu_button = gtk4::MenuButton::new();
@@ -543,7 +583,7 @@ impl PanelHost {
             footer_label,
             widget,
             panel_id: panel_id.to_string(),
-            backend: Rc::new(RefCell::new(None)),
+            backend,
             focused: RefCell::new(false),
             action_cb_ref,
             sibling_info_provider_ref,

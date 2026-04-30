@@ -190,6 +190,10 @@ impl PanelBackend for TerminalPanel {
         self.inner.set_cwd_callback(callback);
     }
 
+    fn panel_uuid(&self) -> Option<uuid::Uuid> {
+        self.inner.panel_uuid
+    }
+
     fn ssh_label(&self) -> Option<String> {
         self.ssh_info.clone()
     }

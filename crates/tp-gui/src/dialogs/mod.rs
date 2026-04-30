@@ -1,4 +1,5 @@
 pub mod color_customizer;
+pub mod command_history;
 pub mod keybindings;
 pub mod metadata_manager;
 pub mod notebook_help;

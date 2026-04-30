@@ -1595,6 +1595,20 @@ window.app-dialog dropdown.settings-theme-dropdown > popover.menu row:selected,
 .quick-switcher-list > row:selected {
   background-color: alpha(@accent_color, 0.18);
 }
+
+/* ── Command history popover ──────────────────────────────────────────── */
+.command-history-popover .heading { font-size: 0.95em; padding: 2px 4px; }
+.command-history-popover .command-history-list row,
+.command-history-popover .command-history-row { padding: 0; min-height: 0; }
+.command-history-popover .command-history-time {
+    min-width: 4.5em;
+    opacity: 0.6;
+    font-variant-numeric: tabular-nums;
+}
+.command-history-popover .command-history-cmd {
+    font-family: \"JetBrains Mono\", \"SF Mono\", \"Cascadia Code\", monospace;
+    font-size: 0.9em;
+}
 ";
 
 const GRAPHITE_CSS: &str = "\
