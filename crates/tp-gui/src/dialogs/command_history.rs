@@ -34,6 +34,14 @@ const PAGE_SIZE: usize = 20;
 /// monospace label that still exceeds it.
 const POPOVER_WIDTH: i32 = 540;
 
+/// Fixed height of the scrolling list area, in pixels. Pinning it (as
+/// opposed to letting the scrolled window track its child's natural
+/// height) keeps the popover the same size regardless of how many rows
+/// the current page or filter is showing — the user always sees the
+/// same window, with the inner list scrolling instead of the popup
+/// resizing under their cursor.
+const LIST_HEIGHT: i32 = 380;
+
 /// Max character cells the command label asks for at its natural size.
 /// Combined with `EllipsizeMode::End`, this keeps a row narrow enough
 /// to fit inside `POPOVER_WIDTH` next to the timestamp column.
@@ -87,10 +95,11 @@ pub fn build_command_history_popover(
     // ── List ───────────────────────────────────────────────────────────
     let scroll = gtk4::ScrolledWindow::new();
     scroll.set_policy(gtk4::PolicyType::Automatic, gtk4::PolicyType::Automatic);
-    scroll.set_min_content_height(280);
-    scroll.set_max_content_height(420);
-    scroll.set_propagate_natural_height(true);
+    scroll.set_min_content_height(LIST_HEIGHT);
+    scroll.set_max_content_height(LIST_HEIGHT);
+    scroll.set_propagate_natural_height(false);
     scroll.set_propagate_natural_width(false);
+    scroll.set_vexpand(false);
 
     let list = gtk4::ListBox::new();
     list.add_css_class("command-history-list");
