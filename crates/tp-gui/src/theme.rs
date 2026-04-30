@@ -1611,6 +1611,15 @@ window.app-dialog dropdown.settings-theme-dropdown > popover.menu row:selected,
     font-family: \"JetBrains Mono\", \"SF Mono\", \"Cascadia Code\", monospace;
     font-size: 0.9em;
 }
+.command-history-popover .command-history-footer {
+    margin-top: 2px;
+    border-top: 1px solid alpha(@theme_fg_color, 0.08);
+    padding-top: 4px;
+}
+.command-history-popover .command-history-page {
+    font-size: 0.85em;
+    font-variant-numeric: tabular-nums;
+}
 ";
 
 const GRAPHITE_CSS: &str = "\

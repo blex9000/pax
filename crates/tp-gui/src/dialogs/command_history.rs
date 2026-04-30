@@ -2,10 +2,15 @@
 //!
 //! Shows the per-panel command history from `command_history` table.
 //! By default only the latest occurrence of each unique command is
-//! listed; toggling "Solo unici" off switches to the full chronological
-//! history. Clicking a row writes the command text into the terminal
-//! (no Enter), letting the user edit before executing.
+//! listed; toggling "Distinct" off switches to the full chronological
+//! history. A search box filters the visible rows by case-insensitive
+//! substring; pagination controls in the footer let the user browse
+//! older entries when the result set is larger than `PAGE_SIZE`.
+//!
+//! Clicking a row writes the command text into the terminal (no Enter),
+//! letting the user edit before executing.
 
+use std::cell::Cell;
 use std::cell::RefCell;
 use std::rc::Rc;
 
@@ -13,13 +18,18 @@ use gtk4::prelude::*;
 
 use crate::panels::PanelInputCallback;
 
-/// Maximum number of rows the popover will load at once. Applies to
-/// both modes (distinct and full).
-const HISTORY_LIMIT: usize = 500;
+/// Maximum number of rows fetched from the DB at once. Caps both the
+/// distinct and full-history queries; pagination operates on the
+/// in-memory slice that comes back. Bumping this trades memory for
+/// reach into older history.
+const HISTORY_LIMIT: usize = 5000;
 
-/// Build (or rebuild) the contents of the command-history popover for
-/// `panel_uuid`. Each row, when clicked, writes its command into the
-/// terminal via `input_cb` (no `\r` appended) and pops the popover down.
+/// Number of rows shown on a single popover page.
+const PAGE_SIZE: usize = 25;
+
+/// Build the contents of the command-history popover for `panel_uuid`.
+/// Each row, when clicked, writes its command into the terminal via
+/// `input_cb` (no `\r` appended) and pops the popover down.
 pub fn build_command_history_popover(
     panel_uuid: &str,
     input_cb: PanelInputCallback,
@@ -34,6 +44,7 @@ pub fn build_command_history_popover(
     outer.set_margin_start(6);
     outer.set_margin_end(6);
 
+    // ── Header: title + distinct toggle ────────────────────────────────
     let header_row = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
     let heading = gtk4::Label::new(Some("Command history"));
     heading.add_css_class("heading");
@@ -51,11 +62,13 @@ pub fn build_command_history_popover(
     header_row.append(&distinct_toggle);
     outer.append(&header_row);
 
+    // ── Search ─────────────────────────────────────────────────────────
     let search_entry = gtk4::SearchEntry::new();
     search_entry.set_placeholder_text(Some("Filter…"));
     search_entry.add_css_class("command-history-search");
     outer.append(&search_entry);
 
+    // ── List ───────────────────────────────────────────────────────────
     let scroll = gtk4::ScrolledWindow::new();
     scroll.set_min_content_width(420);
     scroll.set_min_content_height(280);
@@ -65,28 +78,60 @@ pub fn build_command_history_popover(
     let list = gtk4::ListBox::new();
     list.add_css_class("command-history-list");
     list.set_selection_mode(gtk4::SelectionMode::None);
+    scroll.set_child(Some(&list));
+    outer.append(&scroll);
 
+    // ── Footer: pagination ─────────────────────────────────────────────
+    let footer = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
+    footer.add_css_class("command-history-footer");
+
+    let prev_btn = gtk4::Button::from_icon_name("go-previous-symbolic");
+    prev_btn.add_css_class("flat");
+    prev_btn.set_tooltip_text(Some("Previous page"));
+
+    let next_btn = gtk4::Button::from_icon_name("go-next-symbolic");
+    next_btn.add_css_class("flat");
+    next_btn.set_tooltip_text(Some("Next page"));
+
+    let page_label = gtk4::Label::new(Some(""));
+    page_label.add_css_class("dim-label");
+    page_label.add_css_class("command-history-page");
+    page_label.set_hexpand(true);
+    page_label.set_halign(gtk4::Align::Center);
+
+    footer.append(&prev_btn);
+    footer.append(&page_label);
+    footer.append(&next_btn);
+    outer.append(&footer);
+
+    // ── State + refresh closure ────────────────────────────────────────
     let panel_uuid_owned: Rc<String> = Rc::new(panel_uuid.to_string());
     let popover_for_refresh = popover.clone();
     let input_cb_for_refresh: Rc<RefCell<PanelInputCallback>> =
         Rc::new(RefCell::new(input_cb));
-    let list_for_refresh = list.clone();
-    let toggle_for_refresh = distinct_toggle.clone();
-    let entry_for_refresh = search_entry.clone();
+    let page: Rc<Cell<usize>> = Rc::new(Cell::new(0));
 
     let refresh = Rc::new({
         let panel_uuid = panel_uuid_owned.clone();
         let popover = popover_for_refresh.clone();
         let input_cb = input_cb_for_refresh.clone();
-        let list = list_for_refresh.clone();
-        let toggle = toggle_for_refresh.clone();
-        let entry = entry_for_refresh.clone();
+        let list = list.clone();
+        let toggle = distinct_toggle.clone();
+        let entry = search_entry.clone();
+        let page = page.clone();
+        let page_label = page_label.clone();
+        let prev_btn = prev_btn.clone();
+        let next_btn = next_btn.clone();
         move || {
             populate_list(
                 &list,
                 &panel_uuid,
                 toggle.is_active(),
                 entry.text().as_str(),
+                page.get(),
+                &page_label,
+                &prev_btn,
+                &next_btn,
                 &input_cb.borrow(),
                 &popover,
             );
@@ -95,49 +140,71 @@ pub fn build_command_history_popover(
 
     refresh();
 
-    // GtkCheckButton's `toggled` signal does not fire reliably in some
-    // GTK4 builds when the active state is changed via mouse click —
-    // listen on the `notify::active` property instead, which is the
-    // GObject-blessed way to react to state transitions.
+    // Reset to page 0 whenever the result set changes.
     {
         let refresh = refresh.clone();
-        distinct_toggle.connect_active_notify(move |_| refresh());
+        let page = page.clone();
+        distinct_toggle.connect_active_notify(move |_| {
+            page.set(0);
+            refresh();
+        });
     }
     {
         let refresh = refresh.clone();
-        search_entry.connect_search_changed(move |_| refresh());
+        let page = page.clone();
+        search_entry.connect_search_changed(move |_| {
+            page.set(0);
+            refresh();
+        });
     }
 
-    // Pressing Enter on the search box pastes the topmost remaining row,
-    // which mirrors how shell history reverse-search behaves.
+    {
+        let refresh = refresh.clone();
+        let page = page.clone();
+        prev_btn.connect_clicked(move |_| {
+            let cur = page.get();
+            if cur > 0 {
+                page.set(cur - 1);
+                refresh();
+            }
+        });
+    }
+    {
+        let refresh = refresh.clone();
+        let page = page.clone();
+        next_btn.connect_clicked(move |_| {
+            page.set(page.get() + 1);
+            refresh();
+        });
+    }
+
+    // Enter on the search box pastes the topmost row currently visible —
+    // mirrors shell reverse-i-search.
     {
         let list = list.clone();
-        let popover = popover.clone();
         search_entry.connect_activate(move |_| {
             if let Some(first_row) = list.row_at_index(0) {
                 if let Some(btn) = first_row.child().and_downcast::<gtk4::Button>() {
                     btn.emit_clicked();
-                    let _ = popover; // popdown happens inside row click
                 }
             }
         });
     }
 
-    scroll.set_child(Some(&list));
-    outer.append(&scroll);
     popover.set_child(Some(&outer));
     popover
 }
 
-/// (Re)fill the list with rows for `panel_uuid`. `distinct=true` shows
-/// the latest unique commands; `distinct=false` shows every execution
-/// ordered by recency. `query` is a case-insensitive substring filter
-/// applied to the command text — empty string disables filtering.
+#[allow(clippy::too_many_arguments)]
 fn populate_list(
     list: &gtk4::ListBox,
     panel_uuid: &str,
     distinct: bool,
     query: &str,
+    requested_page: usize,
+    page_label: &gtk4::Label,
+    prev_btn: &gtk4::Button,
+    next_btn: &gtk4::Button,
     input_cb: &PanelInputCallback,
     popover: &gtk4::Popover,
 ) {
@@ -174,12 +241,47 @@ fn populate_list(
         empty.set_margin_top(24);
         empty.set_margin_bottom(24);
         list.append(&empty);
+        update_pager(page_label, prev_btn, next_btn, 0, 0, 0);
         return;
     }
 
-    for rec in filtered {
+    let total = filtered.len();
+    let total_pages = total.div_ceil(PAGE_SIZE).max(1);
+    // Clamp the requested page in case the previous one is now past the
+    // end (e.g. the user typed a more selective filter).
+    let page = requested_page.min(total_pages - 1);
+    let start = page * PAGE_SIZE;
+    let end = (start + PAGE_SIZE).min(total);
+    for rec in &filtered[start..end] {
         list.append(&build_history_row(rec, input_cb.clone(), popover));
     }
+    update_pager(page_label, prev_btn, next_btn, page, total_pages, total);
+}
+
+fn update_pager(
+    label: &gtk4::Label,
+    prev_btn: &gtk4::Button,
+    next_btn: &gtk4::Button,
+    page: usize,
+    total_pages: usize,
+    total_rows: usize,
+) {
+    if total_rows == 0 {
+        label.set_text("");
+        prev_btn.set_visible(false);
+        next_btn.set_visible(false);
+        return;
+    }
+    prev_btn.set_visible(true);
+    next_btn.set_visible(true);
+    prev_btn.set_sensitive(page > 0);
+    next_btn.set_sensitive(page + 1 < total_pages);
+    label.set_text(&format!(
+        "Page {} / {}  ·  {} entries",
+        page + 1,
+        total_pages,
+        total_rows,
+    ));
 }
 
 fn build_history_row(

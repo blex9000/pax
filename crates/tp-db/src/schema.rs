@@ -48,6 +48,12 @@ pub fn run_migrations(db: &Database) -> Result<()> {
         "009_command_history_fts_ad",
         MIGRATION_009_COMMAND_HISTORY_FTS_AD,
     )?;
+    apply_sql_migration(
+        db,
+        &applied,
+        "010_command_history_panel_index",
+        MIGRATION_010_COMMAND_HISTORY_PANEL_INDEX,
+    )?;
 
     Ok(())
 }
@@ -370,6 +376,16 @@ CREATE TRIGGER IF NOT EXISTS command_history_ad AFTER DELETE ON command_history 
     INSERT INTO command_history_fts(command_history_fts, rowid, command)
     VALUES ('delete', old.id, old.command);
 END;
+";
+
+// Composite index for the per-panel history popover queries
+// (latest_distinct_commands, recent_commands_for_panel,
+// delete_command_history_for_panel). All three filter by panel_id and
+// either group/order by executed_at, so this composite is the cheapest
+// index that lets SQLite skip the table scan.
+const MIGRATION_010_COMMAND_HISTORY_PANEL_INDEX: &str = "
+CREATE INDEX IF NOT EXISTS idx_cmd_panel_executed
+    ON command_history(panel_id, executed_at DESC);
 ";
 
 #[cfg(test)]
