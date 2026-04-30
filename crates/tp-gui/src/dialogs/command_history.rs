@@ -85,7 +85,7 @@ fn build_history_row(
     h.set_margin_top(2);
     h.set_margin_bottom(2);
 
-    let time = extract_hh_mm(&rec.executed_at);
+    let time = extract_hh_mm_ss(&rec.executed_at);
     let time_lbl = gtk4::Label::new(Some(&format!("[{}]", time)));
     time_lbl.add_css_class("dim-label");
     time_lbl.add_css_class("command-history-time");
@@ -114,12 +114,12 @@ fn build_history_row(
     row_btn.upcast::<gtk4::Widget>()
 }
 
-fn extract_hh_mm(executed_at: &str) -> String {
+fn extract_hh_mm_ss(executed_at: &str) -> String {
     // `executed_at` is SQLite `datetime('now')` format: "YYYY-MM-DD HH:MM:SS".
     // ASCII in practice; `get` returns None on a multi-byte boundary so we
     // never panic on unexpected formats.
     executed_at
-        .get(11..16)
+        .get(11..19)
         .map(str::to_string)
         .unwrap_or_else(|| executed_at.to_string())
 }

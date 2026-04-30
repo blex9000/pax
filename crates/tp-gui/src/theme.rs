@@ -1601,7 +1601,7 @@ window.app-dialog dropdown.settings-theme-dropdown > popover.menu row:selected,
 .command-history-popover .command-history-list row,
 .command-history-popover .command-history-row { padding: 0; min-height: 0; }
 .command-history-popover .command-history-time {
-    min-width: 4.5em;
+    min-width: 6em;
     opacity: 0.6;
     font-variant-numeric: tabular-nums;
 }

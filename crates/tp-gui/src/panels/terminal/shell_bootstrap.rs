@@ -73,6 +73,26 @@ pub fn prepare_cmd_file(cmd_file: &std::path::Path) {
     }
 }
 
+/// Whether `cmd` is something pax injects itself (bootstrap helpers,
+/// startup-command source statements, prompt callbacks) rather than
+/// something the user typed. These should be filtered out before the
+/// row lands in `command_history` so the popup shows only real user
+/// commands.
+fn is_internal_pax_command(cmd: &str) -> bool {
+    if cmd.starts_with("__pax_") {
+        return true;
+    }
+    // Pax materialises each entry of `startup_commands` as a generated
+    // shell script under `/tmp/pax_startup_<pid>_<n>.sh` and runs them
+    // via `source`. The `source …` statement itself is plumbing — the
+    // user-meaningful commands inside the script are captured by their
+    // own preexec cycle, so the wrapper is just noise.
+    if cmd.starts_with("source /tmp/pax_startup_") {
+        return true;
+    }
+    matches!(cmd, "clear" | "set -o history" | "set +o history")
+}
+
 /// Watch `cmd_file` and insert into `command_history` on every change.
 ///
 /// This is the authoritative capture path for command history: it sees
@@ -124,7 +144,7 @@ pub fn spawn_cmd_file_watcher(
             return;
         };
         let cmd = raw.trim_end_matches(['\n', '\r']);
-        if cmd.is_empty() {
+        if cmd.is_empty() || is_internal_pax_command(cmd) {
             return;
         }
         if last_seen
