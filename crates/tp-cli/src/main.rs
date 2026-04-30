@@ -109,10 +109,35 @@ fn main() -> Result<()> {
         None => {
             pax_gui::app::run_app(None, None)?;
         }
-        // Explicit new → open empty workspace directly
+        // Explicit new → open empty workspace directly. When no `--output`
+        // is given, persist the workspace under
+        // `$XDG_DATA_HOME/pax/workspaces/<name>.json` so per-panel UUIDs
+        // (and therefore command history) survive across restarts of
+        // `pax new "<same name>"`.
         Some(Commands::New { name, output }) => {
-            let ws = pax_core::template::empty_workspace(&name);
-            pax_gui::app::run_app(Some(ws), output.as_deref())?;
+            let resolved_path = output.clone().or_else(|| autosave_path_for(&name));
+            let (ws, save_path) = match resolved_path.as_ref() {
+                Some(path) if path.is_file() => {
+                    match pax_core::config::load_workspace(path) {
+                        Ok(loaded) => (loaded, Some(path.clone())),
+                        Err(_) => {
+                            let ws = pax_core::template::empty_workspace(&name);
+                            let _ = pax_core::config::save_workspace(&ws, path);
+                            (ws, Some(path.clone()))
+                        }
+                    }
+                }
+                Some(path) => {
+                    let ws = pax_core::template::empty_workspace(&name);
+                    if let Some(parent) = path.parent() {
+                        let _ = std::fs::create_dir_all(parent);
+                    }
+                    let _ = pax_core::config::save_workspace(&ws, path);
+                    (ws, Some(path.clone()))
+                }
+                None => (pax_core::template::empty_workspace(&name), None),
+            };
+            pax_gui::app::run_app(Some(ws), save_path.as_deref())?;
         }
         Some(Commands::Launch { config }) => {
             let ws = pax_core::config::load_workspace(&config)
@@ -189,4 +214,37 @@ fn main() -> Result<()> {
     }
 
     Ok(())
+}
+
+/// Default on-disk location for an unnamed `pax new "<name>"` invocation.
+/// Lives under `$XDG_DATA_HOME/pax/workspaces/` (falling back to
+/// `~/.local/share/pax/workspaces/`) so per-panel UUIDs persist across
+/// `pax new "<same name>"` restarts and the command-history popover can
+/// resume the previous session. `name` is sanitised by replacing
+/// path separators / control chars with `_`.
+fn autosave_path_for(name: &str) -> Option<PathBuf> {
+    let data_dir = std::env::var_os("XDG_DATA_HOME")
+        .map(PathBuf::from)
+        .filter(|p| !p.as_os_str().is_empty())
+        .or_else(|| {
+            std::env::var_os("HOME")
+                .map(|h| PathBuf::from(h).join(".local").join("share"))
+        })?;
+    let safe: String = name
+        .chars()
+        .map(|c| match c {
+            '/' | '\\' | '\0' | ':' => '_',
+            _ => c,
+        })
+        .collect();
+    let trimmed = safe.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    Some(
+        data_dir
+            .join("pax")
+            .join("workspaces")
+            .join(format!("{}.json", trimmed)),
+    )
 }

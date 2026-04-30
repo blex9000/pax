@@ -35,21 +35,24 @@ pub fn build_command_history_popover(
     outer.set_margin_end(6);
 
     let header_row = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
-    let heading = gtk4::Label::new(Some("Cronologia comandi"));
+    let heading = gtk4::Label::new(Some("Command history"));
     heading.add_css_class("heading");
     heading.set_halign(gtk4::Align::Start);
     heading.set_hexpand(true);
     header_row.append(&heading);
 
-    let distinct_toggle = gtk4::CheckButton::with_label("Solo unici");
+    let distinct_toggle = gtk4::CheckButton::with_label("Distinct");
     distinct_toggle.set_active(true);
     distinct_toggle.set_halign(gtk4::Align::End);
     distinct_toggle.add_css_class("command-history-toggle");
+    distinct_toggle.set_tooltip_text(Some(
+        "When checked, hide duplicate commands and show only the most recent run of each.",
+    ));
     header_row.append(&distinct_toggle);
     outer.append(&header_row);
 
     let search_entry = gtk4::SearchEntry::new();
-    search_entry.set_placeholder_text(Some("Filtra…"));
+    search_entry.set_placeholder_text(Some("Filter…"));
     search_entry.add_css_class("command-history-search");
     outer.append(&search_entry);
 
@@ -92,9 +95,13 @@ pub fn build_command_history_popover(
 
     refresh();
 
+    // GtkCheckButton's `toggled` signal does not fire reliably in some
+    // GTK4 builds when the active state is changed via mouse click —
+    // listen on the `notify::active` property instead, which is the
+    // GObject-blessed way to react to state transitions.
     {
         let refresh = refresh.clone();
-        distinct_toggle.connect_toggled(move |_| refresh());
+        distinct_toggle.connect_active_notify(move |_| refresh());
     }
     {
         let refresh = refresh.clone();
@@ -158,9 +165,9 @@ fn populate_list(
 
     if filtered.is_empty() {
         let msg = if needle.is_empty() {
-            "Nessun comando registrato"
+            "No commands recorded yet"
         } else {
-            "Nessun comando trovato"
+            "No matches"
         };
         let empty = gtk4::Label::new(Some(msg));
         empty.add_css_class("dim-label");

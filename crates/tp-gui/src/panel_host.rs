@@ -342,7 +342,7 @@ impl PanelHost {
         history_button.set_icon_name("document-open-recent-symbolic");
         history_button.add_css_class("flat");
         history_button.add_css_class("panel-action-btn");
-        history_button.set_tooltip_text(Some("Cronologia comandi"));
+        history_button.set_tooltip_text(Some("Command history"));
         history_button.set_visible(false);
 
         // Wire the click handler ONCE here. The closure checks at click time
