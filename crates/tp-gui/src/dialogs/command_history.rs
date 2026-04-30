@@ -116,11 +116,10 @@ fn build_history_row(
 
 fn extract_hh_mm(executed_at: &str) -> String {
     // `executed_at` is SQLite `datetime('now')` format: "YYYY-MM-DD HH:MM:SS".
-    // Best-effort: take the substring at positions 11..16. Otherwise fallback
-    // to the raw string truncated.
-    if executed_at.len() >= 16 {
-        executed_at[11..16].to_string()
-    } else {
-        executed_at.to_string()
-    }
+    // ASCII in practice; `get` returns None on a multi-byte boundary so we
+    // never panic on unexpected formats.
+    executed_at
+        .get(11..16)
+        .map(str::to_string)
+        .unwrap_or_else(|| executed_at.to_string())
 }

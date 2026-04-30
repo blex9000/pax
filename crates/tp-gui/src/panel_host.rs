@@ -377,6 +377,11 @@ impl PanelHost {
                     input_cb,
                 );
                 popover.set_parent(btn);
+                popover.connect_closed(|popover| {
+                    if popover.parent().is_some() {
+                        popover.unparent();
+                    }
+                });
                 popover.popup();
             });
         }
