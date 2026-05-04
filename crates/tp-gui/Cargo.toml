@@ -28,6 +28,12 @@ sourceview5 = { version = "0.9", optional = true }
 ignore = "0.4"
 similar = "2"
 pulldown-cmark = { version = "0.12", default-features = false }
+# Pure-Rust syntax highlighter: drives the markdown render-mode code blocks
+# without spawning one GtkSourceView5 widget (and one resize-polling timer)
+# per fence. `default-fancy` swaps the C `onigmo` regex backend for the pure
+# Rust `fancy-regex` engine so the macOS no-default-features build still
+# compiles, and keeps the bundled syntaxes/themes.
+syntect = { version = "5", default-features = false, features = ["default-fancy"] }
 unicode-width = "0.2"
 # Move-to-trash for local file/dir deletion (XDG freedesktop spec on Linux)
 # so that accidental deletes remain recoverable via the system file manager.

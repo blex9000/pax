@@ -8,6 +8,11 @@
 
 use gtk4::prelude::*;
 use pulldown_cmark::{CodeBlockKind, Event, HeadingLevel, Options, Parser, Tag, TagEnd};
+use std::sync::OnceLock;
+use syntect::easy::HighlightLines;
+use syntect::highlighting::{FontStyle, Style, Theme as SyntectTheme, ThemeSet};
+use syntect::parsing::{SyntaxReference, SyntaxSet};
+use syntect::util::LinesWithEndings;
 use unicode_width::UnicodeWidthStr;
 
 /// Wrap `text_view` (currently the only child of `scrolled`) in a
@@ -261,7 +266,6 @@ pub(crate) fn render_markdown_to_view_with_hook(
         // recognised language keeps collecting until End(CodeBlock) regardless
         // of what other events arrive in between (pulldown emits Text events
         // inside the block; nothing else for fenced code).
-        #[cfg(feature = "sourceview")]
         if let Some(cap) = state.code_capture.as_mut() {
             match &event {
                 Event::Text(t) => {
@@ -270,8 +274,7 @@ pub(crate) fn render_markdown_to_view_with_hook(
                 }
                 Event::End(TagEnd::CodeBlock) => {
                     let cap = state.code_capture.take().unwrap();
-                    let anchor = buf.create_child_anchor(&mut it);
-                    anchor_highlighted_code(tv, &anchor, &cap.lang, &cap.body);
+                    highlight_code_into_buffer(&buf, &mut it, &cap.info, &cap.body);
                     buf.insert(&mut it, "\n");
                     state.in_code_block = false;
                     continue;
@@ -317,14 +320,15 @@ pub(crate) fn render_markdown_to_view_with_hook(
 
         // ── highlighted code-block start branch ──────────────────────
         // Runs after the notebook check so a notebook spec wins. If the fence
-        // info string resolves to a known sourceview language we switch into
-        // capture mode and let the embedded view do the rendering.
-        #[cfg(feature = "sourceview")]
+        // info string resolves to a syntect syntax we capture the body until
+        // End(CodeBlock) and emit it as a single highlighted run inside the
+        // shared TextBuffer — no embedded sourceview widget, no per-block
+        // resize-polling timer.
         if let Event::Start(Tag::CodeBlock(CodeBlockKind::Fenced(info))) = &event {
-            if let Some(lang) = resolve_sourceview_language(info) {
+            if syntect_syntax_for(info).is_some() {
                 state.in_code_block = true;
                 state.code_capture = Some(CodeCapture {
-                    lang,
+                    info: info.to_string(),
                     body: String::new(),
                 });
                 continue;
@@ -408,13 +412,12 @@ struct NotebookCapture {
     body: String,
 }
 
-#[cfg(feature = "sourceview")]
 struct CodeCapture {
-    /// The GtkSourceView language id we resolved from the fence info string
-    /// (e.g. "json", "rust"). Stored as String because pulldown-cmark's info
-    /// string borrows from the source content, but we accumulate body text
-    /// across events and need an owned id at finalization time.
-    lang: String,
+    /// Verbatim fence info string (e.g. "json", "rust"). Stored as String
+    /// because pulldown-cmark's info string borrows from the source content,
+    /// but we accumulate body text across events and need an owned token at
+    /// finalization time when we hand it to the syntect resolver.
+    info: String,
     body: String,
 }
 
@@ -443,11 +446,10 @@ struct RenderState {
     /// a `NotebookCellSpec`. Body text events accumulate here until End(CodeBlock),
     /// at which point the hook (if any) is invoked with the captured spec/body.
     notebook_collecting: Option<NotebookCapture>,
-    /// When set, we're inside a fenced code block whose language was recognised
-    /// by the GtkSourceView5 LanguageManager. Body text accumulates until
-    /// End(CodeBlock), at which point a read-only sourceview is anchored at the
-    /// current insertion point.
-    #[cfg(feature = "sourceview")]
+    /// When set, we're inside a fenced code block whose info string resolved
+    /// to a known `syntect` syntax. Body text accumulates until End(CodeBlock),
+    /// at which point the captured body is highlighted and inserted directly
+    /// into the surrounding TextBuffer with color tags — no child widget.
     code_capture: Option<CodeCapture>,
 }
 
@@ -463,7 +465,6 @@ impl Default for RenderState {
             table: None,
             pending_first_block: true,
             notebook_collecting: None,
-            #[cfg(feature = "sourceview")]
             code_capture: None,
         }
     }
@@ -815,103 +816,156 @@ fn render_table(buf: &gtk4::TextBuffer, it: &mut gtk4::TextIter, t: &TableState)
     buf.insert_with_tags_by_name(it, &border_row('└', '┴', '┘'), &["table"]);
 }
 
-/// Resolve a fence info string ("```json", "```rust", etc.) to a GtkSourceView5
-/// language id, or `None` if the language isn't recognised — in which case the
-/// renderer falls back to the plain `code_block` text path.
-///
-/// The first whitespace-separated token is used (some authors append per-block
-/// options after the language name). Common shorthands that the manager doesn't
-/// expose under their popular names are mapped to their canonical id.
-#[cfg(feature = "sourceview")]
-fn resolve_sourceview_language(info: &str) -> Option<String> {
+// ── syntect-driven code highlighting ─────────────────────────────────────────
+//
+// We render fenced code blocks directly into the surrounding TextBuffer instead
+// of embedding a per-block GtkSourceView5 widget. The previous design was a
+// double workaround: anchored child widgets in a TextView ignore `hexpand`, so
+// every snippet needed a 300ms resize-polling timer; on top of that, creating
+// 27 sourceview instances synchronously on the GTK main thread froze the UI
+// for several seconds when re-rendering a code-heavy README. Tagging text with
+// foreground colors derived from a syntect highlight pass avoids both issues
+// at once: highlighting is pure-Rust and runs in a few milliseconds, no child
+// widgets means no resize problem, and re-rendering is cheap enough that the
+// theme observer can re-run it on every theme switch.
+
+fn syntax_set() -> &'static SyntaxSet {
+    static CELL: OnceLock<SyntaxSet> = OnceLock::new();
+    CELL.get_or_init(SyntaxSet::load_defaults_newlines)
+}
+
+fn theme_set() -> &'static ThemeSet {
+    static CELL: OnceLock<ThemeSet> = OnceLock::new();
+    CELL.get_or_init(ThemeSet::load_defaults)
+}
+
+fn current_syntect_theme() -> (&'static str, &'static SyntectTheme) {
+    let name = crate::theme::current_theme().syntect_theme();
+    let theme = theme_set()
+        .themes
+        .get(name)
+        .or_else(|| theme_set().themes.get("base16-eighties.dark"))
+        .or_else(|| theme_set().themes.values().next())
+        .expect("syntect ships with at least one theme");
+    (name, theme)
+}
+
+/// Resolve a fence info string to a `syntect` syntax. Returns `None` when the
+/// language isn't recognised; the caller falls back to the plain `code_block`
+/// text path so unknown fences still render as monospace text.
+fn syntect_syntax_for(info: &str) -> Option<&'static SyntaxReference> {
     let token = info.split(|c: char| c.is_whitespace() || c == ',').next()?;
     if token.is_empty() {
         return None;
     }
-    let manager = sourceview5::LanguageManager::default();
-    let lower = token.to_lowercase();
-    if manager.language(token).is_some() {
-        return Some(token.to_string());
+    let ss = syntax_set();
+    if let Some(s) = ss.find_syntax_by_token(token) {
+        return Some(s);
     }
-    if manager.language(&lower).is_some() {
-        return Some(lower);
-    }
-    let alias: &str = match lower.as_str() {
-        "js" => "javascript",
+    let alias = match token.to_lowercase().as_str() {
+        "shell" | "zsh" | "sh" => "bash",
+        "yml" => "yaml",
         "ts" => "typescript",
+        "js" => "javascript",
         "py" => "python",
         "rb" => "ruby",
-        "yml" => "yaml",
         "md" => "markdown",
-        "shell" | "bash" | "zsh" => "sh",
         "c++" => "cpp",
-        "c#" => "c-sharp",
+        "c#" => "cs",
         _ => return None,
     };
-    manager.language(alias).map(|_| alias.to_string())
+    ss.find_syntax_by_token(alias)
 }
 
-/// Materialise a syntax-highlighted code snippet at `anchor` inside `tv`.
-/// The view is read-only, non-focusable (clicking it would otherwise trigger
-/// Viewport scroll-to-focus on the parent — same trap the rendered_view side
-/// avoids in `editor::markdown_view`), and transparent so it doesn't reintroduce
-/// the contrast block we explicitly removed from prose code blocks.
-#[cfg(feature = "sourceview")]
-fn anchor_highlighted_code(
-    tv: &gtk4::TextView,
-    anchor: &gtk4::TextChildAnchor,
-    lang: &str,
+/// Reuse-or-create a `TextTag` carrying the foreground/font-style of a syntect
+/// `Style`. Tags are named deterministically — `cb_<theme>_<rrggbb>_<flags>` —
+/// and stored in the buffer's tag table so subsequent highlight runs (and
+/// every line within the same run) hit the cache instead of allocating a fresh
+/// tag per `(Style, &str)` slice. The theme prefix in the name keeps colors
+/// stable across theme switches without having to invalidate the table.
+fn tag_for_style(buf: &gtk4::TextBuffer, theme_name: &str, style: Style) -> gtk4::TextTag {
+    let fg = style.foreground;
+    let fs = style.font_style;
+    let bold = fs.contains(FontStyle::BOLD);
+    let italic = fs.contains(FontStyle::ITALIC);
+    let underline = fs.contains(FontStyle::UNDERLINE);
+    let flags = match (bold, italic, underline) {
+        (false, false, false) => "",
+        (true, false, false) => "b",
+        (false, true, false) => "i",
+        (false, false, true) => "u",
+        (true, true, false) => "bi",
+        (true, false, true) => "bu",
+        (false, true, true) => "iu",
+        (true, true, true) => "biu",
+    };
+    let theme_slug: String = theme_name
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() { c } else { '_' })
+        .collect();
+    let name = format!(
+        "cb_{}_{:02x}{:02x}{:02x}_{}",
+        theme_slug, fg.r, fg.g, fg.b, flags
+    );
+    let tt = buf.tag_table();
+    if let Some(t) = tt.lookup(&name) {
+        return t;
+    }
+    let tag = gtk4::TextTag::new(Some(&name));
+    let color = format!("#{:02x}{:02x}{:02x}", fg.r, fg.g, fg.b);
+    tag.set_foreground(Some(&color));
+    if bold {
+        tag.set_weight(700);
+    }
+    if italic {
+        tag.set_style(gtk4::pango::Style::Italic);
+    }
+    if underline {
+        tag.set_underline(gtk4::pango::Underline::Single);
+    }
+    tt.add(&tag);
+    tag
+}
+
+/// Highlight `body` as `info`-flavored code and append it at `it` inside
+/// `buf`. Each highlighted slice is inserted with both the existing
+/// `code_block` tag (monospace + left margin + no-wrap) and the per-style
+/// color tag, so the run keeps the same block layout as un-highlighted code
+/// while gaining theme-aware colors.
+fn highlight_code_into_buffer(
+    buf: &gtk4::TextBuffer,
+    it: &mut gtk4::TextIter,
+    info: &str,
     body: &str,
 ) {
-    use sourceview5::prelude::*;
-    const SIDE_MARGIN: i32 = 24;
-    const POLL_MS: u64 = 300;
-    const MIN_WIDTH: i32 = 200;
-    const SIZE_HYSTERESIS: i32 = 8;
+    let ss = syntax_set();
+    let syntax = syntect_syntax_for(info).unwrap_or_else(|| ss.find_syntax_plain_text());
+    let (theme_name, theme) = current_syntect_theme();
+    let mut hl = HighlightLines::new(syntax, theme);
 
-    let buffer = sourceview5::Buffer::new(None::<&gtk4::TextTagTable>);
-    if let Some(language) = sourceview5::LanguageManager::default().language(lang) {
-        buffer.set_language(Some(&language));
-    }
-    buffer.set_highlight_syntax(true);
-    // Pulldown-cmark closes Text events with a trailing "\n". Strip it so the
-    // rendered widget doesn't end with an empty visual line.
+    // pulldown-cmark closes fenced code with a trailing newline; strip it so
+    // the rendered block doesn't end with a phantom empty line on top of the
+    // single block-terminator newline the caller appends.
     let trimmed = body.strip_suffix('\n').unwrap_or(body);
-    buffer.set_text(trimmed);
-    crate::theme::register_sourceview_buffer(&buffer);
 
-    let view = sourceview5::View::with_buffer(&buffer);
-    view.add_css_class("editor-markdown-code-snippet");
-    view.set_editable(false);
-    view.set_cursor_visible(false);
-    view.set_can_focus(false);
-    view.set_monospace(true);
-    view.set_show_line_numbers(false);
-    view.set_left_margin(8);
-    view.set_right_margin(8);
-    view.set_top_margin(4);
-    view.set_bottom_margin(4);
-    view.set_wrap_mode(gtk4::WrapMode::None);
+    let cb_tag = buf
+        .tag_table()
+        .lookup("code_block")
+        .expect("code_block tag is registered before any code-block event fires");
 
-    tv.add_child_at_anchor(&view, anchor);
-
-    // Anchored children in a TextView ignore `hexpand`, so poll the parent
-    // width and propagate it as a `size_request`. Same trick `NotebookCell`
-    // uses; the WeakRefs auto-stop the loop when either widget goes away.
-    let view_weak = view.downgrade();
-    let parent_weak = tv.downgrade();
-    gtk4::glib::timeout_add_local(std::time::Duration::from_millis(POLL_MS), move || {
-        let (Some(view), Some(parent)) = (view_weak.upgrade(), parent_weak.upgrade()) else {
-            return gtk4::glib::ControlFlow::Break;
-        };
-        let w = parent.width();
-        if w > 0 {
-            let target = (w - SIDE_MARGIN).max(MIN_WIDTH);
-            let cur = view.width_request();
-            if (target - cur).abs() > SIZE_HYSTERESIS {
-                view.set_size_request(target, -1);
+    for line in LinesWithEndings::from(trimmed) {
+        let ranges = match hl.highlight_line(line, ss) {
+            Ok(r) => r,
+            Err(_) => {
+                // Highlighter failed (corrupt syntax / regex blowup): fall
+                // back to plain monospace so the block still renders.
+                buf.insert_with_tags(it, line, &[&cb_tag]);
+                continue;
             }
+        };
+        for (style, slice) in ranges {
+            let color_tag = tag_for_style(buf, theme_name, style);
+            buf.insert_with_tags(it, slice, &[&cb_tag, &color_tag]);
         }
-        gtk4::glib::ControlFlow::Continue
-    });
+    }
 }

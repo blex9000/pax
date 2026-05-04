@@ -313,6 +313,17 @@ impl Theme {
         }
     }
 
+    /// Name of the bundled `syntect` theme to use when highlighting fenced
+    /// code blocks in the markdown render view. Picked to match the
+    /// foreground/background contrast of the surrounding panel.
+    pub fn syntect_theme(&self) -> &'static str {
+        match self.resolved() {
+            Theme::Graphite | Theme::Dracula => "base16-eighties.dark",
+            Theme::Aurora | Theme::Quantum => "InspiredGitHub",
+            Theme::System => unreachable!(),
+        }
+    }
+
     /// Returns CSS @define-color overrides for libadwaita named colors.
     pub fn css_overrides(&self) -> &str {
         match self.resolved() {
