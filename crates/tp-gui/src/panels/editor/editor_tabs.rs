@@ -619,6 +619,10 @@ pub struct EditorTabs {
     keyword_shadow_buffer: sourceview5::Buffer,
     /// Stack switching between "welcome" and "editor" content.
     pub content_stack: gtk4::Stack,
+    /// Horizontal wrapper holding `content_stack` and the `match_ruler`. This
+    /// is what gets mounted in the editor pane: keeping the ruler outside the
+    /// stack keeps it visible across tab types (source, markdown, …).
+    pub content_area: gtk4::Box,
     /// Search/replace bar (hidden by default, toggled with Ctrl+F / Ctrl+H).
     pub search_bar: gtk4::Box,
     pub status_bar: gtk4::Box,
@@ -643,6 +647,12 @@ pub struct EditorTabs {
     /// Drawing area beside the editor that paints a gold mark at every line
     /// in match_lines and scrolls to the nearest match on click.
     match_ruler: gtk4::DrawingArea,
+    /// Resolves to the currently-active sourceview, regardless of whether
+    /// the user is looking at a source tab (returns the shared `source_view`)
+    /// or a markdown tab (returns that tab's own `md.source_view`). Used by
+    /// shared widgets — search bar, match ruler — to operate on whichever
+    /// buffer is actually visible.
+    active_view: Rc<dyn Fn() -> sourceview5::View>,
     /// Amber note markers to the left of the source view. Populated from
     /// the active source tab's NotesState via `refresh_notes_ruler`.
     pub notes_ruler: Rc<super::notes_ruler::NotesRuler>,
@@ -762,15 +772,38 @@ impl EditorTabs {
         source_scroll.set_vexpand(true);
         source_scroll.set_hexpand(true);
 
+        // The editor multiplexes one search bar (and one match ruler) across
+        // heterogeneous tabs: source tabs share `source_view`, while each
+        // markdown tab owns its own SourceView (`md.source_view`).
+        // `active_view` resolves to whichever view is currently driving the
+        // visible content, so the SearchContext and the ruler always operate
+        // on the buffer the user actually sees. Defined up here because the
+        // overview ruler that consumes it is built immediately below.
+        let active_view: Rc<dyn Fn() -> sourceview5::View> = {
+            let editor_sv = source_view.clone();
+            let state_for_view = state.clone();
+            Rc::new(move || -> sourceview5::View {
+                let st = state_for_view.borrow();
+                if let Some(idx) = st.active_tab {
+                    if let Some(of) = st.open_files.get(idx) {
+                        if let super::tab_content::TabContent::Markdown(md) = &of.content {
+                            return md.source_view.clone();
+                        }
+                    }
+                }
+                editor_sv.clone()
+            })
+        };
+
         // Search-match overview ruler: thin gold strip to the right of the
-        // editor showing a marker at every line that matches the current
-        // search query. Hidden until a non-empty query is active.
+        // content area showing a marker at every line that matches the
+        // current search query. Hidden until a non-empty query is active.
         let match_lines: Rc<RefCell<Vec<i32>>> = Rc::new(RefCell::new(Vec::new()));
         let last_search_query: Rc<RefCell<String>> = Rc::new(RefCell::new(String::new()));
         let match_ruler = build_match_overview_ruler(
             match_lines.clone(),
             OverviewRulerKind::Match,
-            source_view.clone(),
+            active_view.clone(),
         );
         match_ruler.set_visible(false);
 
@@ -802,7 +835,10 @@ impl EditorTabs {
         editor_row.set_hexpand(true);
         editor_row.append(&source_scroll);
         editor_row.append(&notes_ruler.widget);
-        editor_row.append(&match_ruler);
+        // match_ruler intentionally lives outside `editor_row` (see the
+        // `content_area` wrapper below): it sits next to the whole
+        // `content_stack`, not inside the source-tab child, so it stays
+        // visible for markdown tabs too.
 
         // Content stack. Welcome and editor children are added here; per-tab
         // Markdown/Image children are inserted in open_*_file on demand.
@@ -1027,27 +1063,6 @@ impl EditorTabs {
         // Search settings (shared, SearchContext is created per-buffer)
         let search_settings = sourceview5::SearchSettings::new();
         search_settings.set_wrap_around(true);
-
-        // The editor multiplexes a single search bar across heterogeneous
-        // tabs: source tabs share `source_view`, but markdown tabs each own
-        // their own SourceView (`md.source_view`). `active_view` resolves
-        // to whichever view is currently driving the visible content, so the
-        // SearchContext below latches onto the buffer the user actually sees.
-        let active_view = {
-            let editor_sv = source_view.clone();
-            let state_for_view = state.clone();
-            move || -> sourceview5::View {
-                let st = state_for_view.borrow();
-                if let Some(idx) = st.active_tab {
-                    if let Some(of) = st.open_files.get(idx) {
-                        if let super::tab_content::TabContent::Markdown(md) = &of.content {
-                            return md.source_view.clone();
-                        }
-                    }
-                }
-                editor_sv.clone()
-            }
-        };
 
         // Helper: get or create SearchContext for the active view's buffer.
         // Recreated transparently when the user switches to a different tab
@@ -1301,12 +1316,24 @@ impl EditorTabs {
         content_stack.add_named(&editor_row, Some("editor"));
         content_stack.set_visible_child_name("welcome");
 
+        // Wrap the stack in a horizontal row so the match ruler can sit
+        // alongside the visible child regardless of which tab type is
+        // currently rendered. Mounting the ruler outside the stack means
+        // markdown tabs (whose widget tree replaces the editor child) keep
+        // the gold-marker overview that source tabs already had.
+        let content_area = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
+        content_area.set_vexpand(true);
+        content_area.set_hexpand(true);
+        content_area.append(&content_stack);
+        content_area.append(&match_ruler);
+
         Self {
             notebook,
             source_view,
             completion_words,
             keyword_shadow_buffer,
             content_stack,
+            content_area,
             search_bar,
             status_bar,
             info_bar_container,
@@ -1320,6 +1347,7 @@ impl EditorTabs {
             match_lines,
             last_search_query,
             match_ruler,
+            active_view,
             notes_ruler,
         }
     }
@@ -1351,7 +1379,8 @@ impl EditorTabs {
     /// outside the in-file search bar. An empty `query` hides the ruler.
     pub fn update_match_ruler(&self, query: &str) {
         *self.last_search_query.borrow_mut() = query.to_string();
-        if let Some(buf) = self.source_view.buffer().downcast_ref::<sourceview5::Buffer>() {
+        let view = (self.active_view)();
+        if let Some(buf) = view.buffer().downcast_ref::<sourceview5::Buffer>() {
             let lines = collect_match_lines(buf, query);
             let has = !lines.is_empty();
             *self.match_lines.borrow_mut() = lines;
@@ -3606,7 +3635,7 @@ fn build_overview_ruler(
 fn build_match_overview_ruler(
     lines: Rc<RefCell<Vec<i32>>>,
     kind: OverviewRulerKind,
-    view: sourceview5::View,
+    active_view: Rc<dyn Fn() -> sourceview5::View>,
 ) -> gtk4::DrawingArea {
     let bar = gtk4::DrawingArea::new();
     bar.set_width_request(OVERVIEW_RULER_WIDTH);
@@ -3617,9 +3646,9 @@ fn build_match_overview_ruler(
 
     {
         let lines = lines.clone();
-        let view = view.clone();
+        let av = active_view.clone();
         bar.set_draw_func(move |_, cr, w, h| {
-            let total = view.buffer().line_count().max(1);
+            let total = av().buffer().line_count().max(1);
             let (r, g, b) = overview_ruler_color(kind);
             let h_f = h as f64;
             let w_f = w as f64;
@@ -3637,11 +3666,12 @@ fn build_match_overview_ruler(
     }
 
     {
-        let view = view.clone();
+        let av = active_view.clone();
         let lines = lines.clone();
         let bar_for_click = bar.clone();
         let gesture = gtk4::GestureClick::new();
         gesture.connect_pressed(move |_, _n, _x, y| {
+            let view = av();
             let total = view.buffer().line_count().max(1);
             let h = bar_for_click.height().max(1) as f64;
             let proportion = (y / h).clamp(0.0, 1.0);

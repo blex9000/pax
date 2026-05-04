@@ -265,7 +265,7 @@ impl CodeEditorPanel {
         editor_area.append(&tabs_rc.info_bar_container);
         editor_area.append(&tabs_rc.notebook);
         editor_area.append(&tabs_rc.search_bar);
-        editor_area.append(&tabs_rc.content_stack);
+        editor_area.append(&tabs_rc.content_area);
         editor_area.append(&tabs_rc.status_bar);
 
         // Sidebar: activity bar + file tree
