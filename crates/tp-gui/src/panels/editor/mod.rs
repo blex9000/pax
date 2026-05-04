@@ -903,11 +903,11 @@ impl CodeEditorPanel {
                             return gtk4::glib::Propagation::Stop;
                         }
                         gtk4::gdk::Key::f => {
-                            tabs_ref.show_search();
+                            tabs_ref.show_search(&state_c);
                             return gtk4::glib::Propagation::Stop;
                         }
                         gtk4::gdk::Key::h => {
-                            tabs_ref.show_replace();
+                            tabs_ref.show_replace(&state_c);
                             return gtk4::glib::Propagation::Stop;
                         }
                         gtk4::gdk::Key::g

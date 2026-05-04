@@ -1028,17 +1028,39 @@ impl EditorTabs {
         let search_settings = sourceview5::SearchSettings::new();
         search_settings.set_wrap_around(true);
 
-        // Helper: get or create SearchContext for the current SourceView buffer
+        // The editor multiplexes a single search bar across heterogeneous
+        // tabs: source tabs share `source_view`, but markdown tabs each own
+        // their own SourceView (`md.source_view`). `active_view` resolves
+        // to whichever view is currently driving the visible content, so the
+        // SearchContext below latches onto the buffer the user actually sees.
+        let active_view = {
+            let editor_sv = source_view.clone();
+            let state_for_view = state.clone();
+            move || -> sourceview5::View {
+                let st = state_for_view.borrow();
+                if let Some(idx) = st.active_tab {
+                    if let Some(of) = st.open_files.get(idx) {
+                        if let super::tab_content::TabContent::Markdown(md) = &of.content {
+                            return md.source_view.clone();
+                        }
+                    }
+                }
+                editor_sv.clone()
+            }
+        };
+
+        // Helper: get or create SearchContext for the active view's buffer.
+        // Recreated transparently when the user switches to a different tab
+        // because the buffer object changes underneath us.
         let active_ctx: Rc<RefCell<Option<sourceview5::SearchContext>>> =
             Rc::new(RefCell::new(None));
         let ensure_ctx = {
-            let sv = source_view.clone();
+            let av = active_view.clone();
             let ss = search_settings.clone();
             let ctx_cell = active_ctx.clone();
             move || -> sourceview5::SearchContext {
-                let buf = sv.buffer().downcast::<sourceview5::Buffer>().unwrap();
+                let buf = av().buffer().downcast::<sourceview5::Buffer>().unwrap();
                 let mut cell = ctx_cell.borrow_mut();
-                // Recreate if buffer changed
                 let needs_new = cell.as_ref().map(|c| c.buffer() != buf).unwrap_or(true);
                 if needs_new {
                     let ctx = sourceview5::SearchContext::new(&buf, Some(&ss));
@@ -1053,7 +1075,7 @@ impl EditorTabs {
         {
             let get_ctx = ensure_ctx.clone();
             let count_l = match_count_label.clone();
-            let sv = source_view.clone();
+            let get_view = active_view.clone();
             let ml = match_lines.clone();
             let mr = match_ruler.clone();
             let lsq = last_search_query.clone();
@@ -1084,6 +1106,7 @@ impl EditorTabs {
                 // Update the overview ruler. Any non-empty query becomes the
                 // "last query" used to refresh the ruler on tab switches.
                 *lsq.borrow_mut() = text.clone();
+                let sv = get_view();
                 if let Some(buf) = sv.buffer().downcast_ref::<sourceview5::Buffer>() {
                     let lines = collect_match_lines(buf, &text);
                     let has = !lines.is_empty();
@@ -1105,9 +1128,10 @@ impl EditorTabs {
         // Next match
         {
             let get_ctx = ensure_ctx.clone();
-            let sv = source_view.clone();
+            let get_view = active_view.clone();
             next_btn.connect_clicked(move |_| {
                 let ctx = get_ctx();
+                let sv = get_view();
                 let buf = sv.buffer();
                 let (_, end) = buf.selection_bounds().unwrap_or_else(|| {
                     let iter = buf.iter_at_offset(buf.cursor_position());
@@ -1123,9 +1147,10 @@ impl EditorTabs {
         // Previous match
         {
             let get_ctx = ensure_ctx.clone();
-            let sv = source_view.clone();
+            let get_view = active_view.clone();
             prev_btn.connect_clicked(move |_| {
                 let ctx = get_ctx();
+                let sv = get_view();
                 let buf = sv.buffer();
                 let (start, _) = buf.selection_bounds().unwrap_or_else(|| {
                     let iter = buf.iter_at_offset(buf.cursor_position());
@@ -1144,9 +1169,10 @@ impl EditorTabs {
         // runs before the SearchEntry swallows the key.
         {
             let get_ctx = ensure_ctx.clone();
-            let sv = source_view.clone();
+            let get_view = active_view.clone();
             search_entry.connect_activate(move |_| {
                 let ctx = get_ctx();
+                let sv = get_view();
                 let buf = sv.buffer();
                 let (_, end) = buf.selection_bounds().unwrap_or_else(|| {
                     let iter = buf.iter_at_offset(buf.cursor_position());
@@ -1160,7 +1186,7 @@ impl EditorTabs {
         }
         {
             let get_ctx = ensure_ctx.clone();
-            let sv = source_view.clone();
+            let get_view = active_view.clone();
             let key_ctrl = gtk4::EventControllerKey::new();
             key_ctrl.set_propagation_phase(gtk4::PropagationPhase::Capture);
             key_ctrl.connect_key_pressed(move |_, key, _, modifier| {
@@ -1170,6 +1196,7 @@ impl EditorTabs {
                     return gtk4::glib::Propagation::Proceed;
                 }
                 let ctx = get_ctx();
+                let sv = get_view();
                 let buf = sv.buffer();
                 let (start, _) = buf.selection_bounds().unwrap_or_else(|| {
                     let iter = buf.iter_at_offset(buf.cursor_position());
@@ -1225,11 +1252,12 @@ impl EditorTabs {
         // Replace current
         {
             let get_ctx = ensure_ctx.clone();
-            let sv = source_view.clone();
+            let get_view = active_view.clone();
             let re = replace_entry.clone();
             replace_btn.connect_clicked(move |_| {
                 let ctx = get_ctx();
                 let replace_text = re.text().to_string();
+                let sv = get_view();
                 let buf = sv.buffer();
                 if let Some((start, end)) = buf.selection_bounds() {
                     let _ = ctx.replace(&mut start.clone(), &mut end.clone(), &replace_text);
@@ -2519,27 +2547,46 @@ impl EditorTabs {
     }
 
     /// Show the search bar (Ctrl+F). Hides replace row.
-    pub fn show_search(&self) {
+    pub fn show_search(&self, state: &Rc<RefCell<EditorState>>) {
         self.replace_row.set_visible(false);
         self.search_bar.set_visible(true);
         self.search_entry.grab_focus();
-        // Pre-fill with current selection
-        let buf = self.source_view.buffer();
-        if let Some((start, end)) = buf.selection_bounds() {
-            let text = buf.text(&start, &end, false).to_string();
-            if !text.is_empty() && !text.contains('\n') {
-                self.search_entry.set_text(&text);
-            }
-        }
+        self.prepare_search_buffer(state);
     }
 
     /// Show the search+replace bar (Ctrl+H).
-    pub fn show_replace(&self) {
+    pub fn show_replace(&self, state: &Rc<RefCell<EditorState>>) {
         self.replace_row.set_visible(true);
         self.search_bar.set_visible(true);
         self.search_entry.grab_focus();
-        // Pre-fill with current selection
-        let buf = self.source_view.buffer();
+        self.prepare_search_buffer(state);
+    }
+
+    /// Pick the search target buffer based on the active tab and seed the
+    /// search entry with the buffer's current selection. When the active tab
+    /// is a markdown tab in Rendered mode, force it to Source first — the
+    /// rendered view is a plain TextView that GtkSourceView's SearchContext
+    /// can't operate on, so without the swap the user would see no matches.
+    fn prepare_search_buffer(&self, state: &Rc<RefCell<EditorState>>) {
+        let buf = {
+            let st = state.borrow();
+            let md_buf = st.active_tab.and_then(|i| st.open_files.get(i)).and_then(|of| {
+                if let super::tab_content::TabContent::Markdown(md) = &of.content {
+                    Some(md.clone())
+                } else {
+                    None
+                }
+            });
+            match md_buf {
+                Some(md) => {
+                    if md.mode.get() == super::tab_content::MarkdownMode::Rendered {
+                        super::markdown_view::toggle_mode(&md);
+                    }
+                    md.buffer.clone().upcast::<gtk4::TextBuffer>()
+                }
+                None => self.source_view.buffer(),
+            }
+        };
         if let Some((start, end)) = buf.selection_bounds() {
             let text = buf.text(&start, &end, false).to_string();
             if !text.is_empty() && !text.contains('\n') {
