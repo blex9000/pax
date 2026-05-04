@@ -988,9 +988,26 @@ impl CodeEditorPanel {
         // Start file watchers
         {
             let file_tree_ref = file_tree.clone();
+            let backend_for_merge = state.borrow().backend.clone();
+            let tabs_for_merge = tabs_rc.clone();
+            let on_merge_open: file_watcher::OnMergeOpen = Rc::new(
+                move |path: &std::path::Path,
+                      disk: &str,
+                      mine: &str,
+                      apply: Rc<dyn Fn(&str)>| {
+                    tabs_for_merge.show_merge_diff(
+                        path,
+                        disk,
+                        mine,
+                        backend_for_merge.clone(),
+                        apply,
+                    );
+                },
+            );
             file_watcher::start_watchers(
                 state.clone(),
                 tabs_rc.info_bar_container.clone(),
+                on_merge_open,
                 Rc::new(move || {
                     file_tree_ref.refresh();
                 }),

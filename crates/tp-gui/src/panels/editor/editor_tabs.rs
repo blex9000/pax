@@ -603,6 +603,186 @@ fn install_text_history_shortcuts(view: &sourceview5::View) {
     view.add_controller(key_ctrl);
 }
 
+/// Side-by-side diff core returned by `build_diff_view_parts`. Callers wrap
+/// this in their own header + Ctrl+S handler.
+struct DiffViewParts {
+    /// Horizontal Paned: left column (old, read-only) | right column (new, editable),
+    /// each with its own overview ruler and synced vertical scrolling.
+    paned: gtk4::Paned,
+    /// Right-side editable buffer. Callers read its text on save.
+    new_buf: sourceview5::Buffer,
+}
+
+/// Build the side-by-side diff core: two SourceView columns (left old/read-only,
+/// right new/editable) inside a horizontal Paned, with synced vertical
+/// scrolling and per-side overview rulers marking changed lines. Used by both
+/// the git-diff view (HEAD vs working) and the merge view (disk vs unsaved
+/// buffer); each caller wraps this body in its own header and Ctrl+S handler.
+fn build_diff_view_parts(
+    file_path: &Path,
+    old_content: &str,
+    new_content: &str,
+) -> DiffViewParts {
+    let old_buf = sourceview5::Buffer::new(None::<&gtk4::TextTagTable>);
+    old_buf.set_text(old_content);
+    old_buf.set_highlight_syntax(true);
+    let new_buf = sourceview5::Buffer::new(None::<&gtk4::TextTagTable>);
+    new_buf.set_text(new_content);
+    new_buf.set_highlight_syntax(true);
+
+    let lang_manager = sourceview5::LanguageManager::default();
+    if let Some(lang) = lang_manager.guess_language(Some(file_path), None::<&str>) {
+        old_buf.set_language(Some(&lang));
+        new_buf.set_language(Some(&lang));
+    }
+    crate::theme::register_sourceview_buffer(&old_buf);
+    crate::theme::register_sourceview_buffer(&new_buf);
+
+    let mut old_change_lines: Vec<i32> = Vec::new();
+    let mut new_change_lines: Vec<i32> = Vec::new();
+    {
+        let diff = similar::TextDiff::from_lines(old_content, new_content);
+
+        let ensure_diff_tags = |buf: &sourceview5::Buffer| {
+            let tt = buf.tag_table();
+            if tt.lookup("diff-del").is_none() {
+                let tag = gtk4::TextTag::new(Some("diff-del"));
+                tag.set_paragraph_background(Some("rgba(220, 50, 47, 0.25)"));
+                tt.add(&tag);
+            }
+            if tt.lookup("diff-add").is_none() {
+                let tag = gtk4::TextTag::new(Some("diff-add"));
+                tag.set_paragraph_background(Some("rgba(40, 180, 60, 0.25)"));
+                tt.add(&tag);
+            }
+        };
+        ensure_diff_tags(&old_buf);
+        ensure_diff_tags(&new_buf);
+
+        let mut old_line = 0i32;
+        let mut new_line = 0i32;
+        for change in diff.iter_all_changes() {
+            match change.tag() {
+                similar::ChangeTag::Equal => {
+                    old_line += 1;
+                    new_line += 1;
+                }
+                similar::ChangeTag::Delete => {
+                    if let Some(start) = old_buf.iter_at_line(old_line) {
+                        let mut end = start.clone();
+                        end.forward_to_line_end();
+                        end.forward_char();
+                        old_buf.apply_tag_by_name("diff-del", &start, &end);
+                    }
+                    old_change_lines.push(old_line);
+                    old_line += 1;
+                }
+                similar::ChangeTag::Insert => {
+                    if let Some(start) = new_buf.iter_at_line(new_line) {
+                        let mut end = start.clone();
+                        end.forward_to_line_end();
+                        end.forward_char();
+                        new_buf.apply_tag_by_name("diff-add", &start, &end);
+                    }
+                    new_change_lines.push(new_line);
+                    new_line += 1;
+                }
+            }
+        }
+    }
+
+    let file_path_owned = file_path.to_path_buf();
+    let make_sv = |buf: &sourceview5::Buffer,
+                   editable: bool|
+     -> (sourceview5::View, gtk4::ScrolledWindow) {
+        let view = sourceview5::View::with_buffer(buf);
+        view.add_css_class("editor-code-view");
+        view.set_editable(editable);
+        view.set_show_line_numbers(true);
+        view.set_monospace(true);
+        view.set_left_margin(3);
+        install_text_clipboard_shortcuts(&view);
+        install_text_history_shortcuts(&view);
+        if editable {
+            view.set_auto_indent(true);
+            view.set_tab_width(4);
+        }
+        let scroll = gtk4::ScrolledWindow::new();
+        scroll.set_child(Some(&view));
+        scroll.set_vexpand(true);
+        scroll.set_hexpand(true);
+        let file_path_factory = file_path_owned.clone();
+        let buf_factory = buf.clone();
+        text_context_menu::install(&scroll, &view, editable, move |_click_line| {
+            if !editable {
+                return Vec::new();
+            }
+            text_context_menu::format_item_for(&file_path_factory, &buf_factory)
+                .map(|i| vec![i])
+                .unwrap_or_default()
+        });
+        (view, scroll)
+    };
+
+    let (old_view, old_scroll) = make_sv(&old_buf, false);
+    let (new_view, new_scroll) = make_sv(&new_buf, true);
+
+    let old_bar = build_overview_ruler(
+        old_change_lines,
+        old_buf.line_count(),
+        OverviewRulerKind::Delete,
+        &old_view,
+    );
+    let new_bar = build_overview_ruler(
+        new_change_lines,
+        new_buf.line_count(),
+        OverviewRulerKind::Insert,
+        &new_view,
+    );
+    // Rulers on the outer edges of the diff so the Paned separator between
+    // old/new scrollviews stays grabable. The outer-left ruler also gets a
+    // generous start margin so it clears the *main* sidebar paned's resize
+    // grab zone (which extends further than the visible handle).
+    old_bar.set_margin_start(12);
+    let old_column = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
+    old_column.append(&old_bar);
+    old_column.append(&old_scroll);
+    let new_column = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
+    new_column.append(&new_scroll);
+    new_column.append(&new_bar);
+
+    let syncing = Rc::new(std::cell::Cell::new(false));
+    {
+        let ns = new_scroll.clone();
+        let s = syncing.clone();
+        old_scroll.vadjustment().connect_value_changed(move |adj| {
+            if !s.get() {
+                s.set(true);
+                ns.vadjustment().set_value(adj.value());
+                s.set(false);
+            }
+        });
+    }
+    {
+        let os = old_scroll.clone();
+        let s = syncing.clone();
+        new_scroll.vadjustment().connect_value_changed(move |adj| {
+            if !s.get() {
+                s.set(true);
+                os.vadjustment().set_value(adj.value());
+                s.set(false);
+            }
+        });
+    }
+
+    let paned = gtk4::Paned::new(gtk4::Orientation::Horizontal);
+    paned.set_vexpand(true);
+    paned.set_start_child(Some(&old_column));
+    paned.set_end_child(Some(&new_column));
+
+    DiffViewParts { paned, new_buf }
+}
+
 /// Manages the Notebook tabs and SourceView buffers.
 /// The notebook is used ONLY as a tab bar — its page content is always empty.
 /// Actual content (welcome message or source code) lives in `content_stack`.
@@ -2272,7 +2452,7 @@ impl EditorTabs {
         self.keyword_shadow_buffer.set_text(&text);
     }
 
-    /// Show a side-by-side diff view for the given file.
+    /// Show a side-by-side diff view for the given file (HEAD vs working).
     /// The diff replaces the content_stack view. Close button goes back to editor.
     pub fn show_diff(
         &self,
@@ -2286,176 +2466,14 @@ impl EditorTabs {
             .unwrap_or_default();
         let new_content = backend.read_file(file_path).unwrap_or_default();
 
-        let old_buf = sourceview5::Buffer::new(None::<&gtk4::TextTagTable>);
-        old_buf.set_text(&old_content);
-        old_buf.set_highlight_syntax(true);
-        let new_buf = sourceview5::Buffer::new(None::<&gtk4::TextTagTable>);
-        new_buf.set_text(&new_content);
-        new_buf.set_highlight_syntax(true);
-
-        let lang_manager = sourceview5::LanguageManager::default();
-        if let Some(lang) = lang_manager.guess_language(Some(file_path), None::<&str>) {
-            old_buf.set_language(Some(&lang));
-            new_buf.set_language(Some(&lang));
-        }
-        crate::theme::register_sourceview_buffer(&old_buf);
-        crate::theme::register_sourceview_buffer(&new_buf);
-
-        // Highlight changed lines using similar. We also collect the per-side
-        // line numbers of every delete/insert so the overview ruler can draw
-        // clickable markers that jump to each change.
-        let mut old_change_lines: Vec<i32> = Vec::new();
-        let mut new_change_lines: Vec<i32> = Vec::new();
-        {
-            let diff = similar::TextDiff::from_lines(&old_content, &new_content);
-
-            // Create tags for highlighting
-            let ensure_diff_tags = |buf: &sourceview5::Buffer| {
-                let tt = buf.tag_table();
-                if tt.lookup("diff-del").is_none() {
-                    let tag = gtk4::TextTag::new(Some("diff-del"));
-                    tag.set_paragraph_background(Some("rgba(220, 50, 47, 0.25)"));
-                    tt.add(&tag);
-                }
-                if tt.lookup("diff-add").is_none() {
-                    let tag = gtk4::TextTag::new(Some("diff-add"));
-                    tag.set_paragraph_background(Some("rgba(40, 180, 60, 0.25)"));
-                    tt.add(&tag);
-                }
-            };
-            ensure_diff_tags(&old_buf);
-            ensure_diff_tags(&new_buf);
-
-            let mut old_line = 0i32;
-            let mut new_line = 0i32;
-            for change in diff.iter_all_changes() {
-                match change.tag() {
-                    similar::ChangeTag::Equal => {
-                        old_line += 1;
-                        new_line += 1;
-                    }
-                    similar::ChangeTag::Delete => {
-                        if let Some(start) = old_buf.iter_at_line(old_line) {
-                            let mut end = start.clone();
-                            end.forward_to_line_end();
-                            // Include the newline
-                            end.forward_char();
-                            old_buf.apply_tag_by_name("diff-del", &start, &end);
-                        }
-                        old_change_lines.push(old_line);
-                        old_line += 1;
-                    }
-                    similar::ChangeTag::Insert => {
-                        if let Some(start) = new_buf.iter_at_line(new_line) {
-                            let mut end = start.clone();
-                            end.forward_to_line_end();
-                            end.forward_char();
-                            new_buf.apply_tag_by_name("diff-add", &start, &end);
-                        }
-                        new_change_lines.push(new_line);
-                        new_line += 1;
-                    }
-                }
-            }
-        }
-
-        let file_path_owned = file_path.to_path_buf();
-        let make_sv =
-            |buf: &sourceview5::Buffer,
-             editable: bool|
-             -> (sourceview5::View, gtk4::ScrolledWindow) {
-                let view = sourceview5::View::with_buffer(buf);
-                view.add_css_class("editor-code-view");
-                view.set_editable(editable);
-                view.set_show_line_numbers(true);
-                view.set_monospace(true);
-                view.set_left_margin(3);
-                install_text_clipboard_shortcuts(&view);
-                install_text_history_shortcuts(&view);
-                if editable {
-                    view.set_auto_indent(true);
-                    view.set_tab_width(4);
-                }
-                let scroll = gtk4::ScrolledWindow::new();
-                scroll.set_child(Some(&view));
-                scroll.set_vexpand(true);
-                scroll.set_hexpand(true);
-                let file_path_factory = file_path_owned.clone();
-                let buf_factory = buf.clone();
-                text_context_menu::install(&scroll, &view, editable, move |_click_line| {
-                    if !editable {
-                        return Vec::new();
-                    }
-                    text_context_menu::format_item_for(&file_path_factory, &buf_factory)
-                        .map(|i| vec![i])
-                        .unwrap_or_default()
-                });
-                (view, scroll)
-            };
-
-        // Left: HEAD version (read-only), Right: working version (editable)
-        let (old_view, old_scroll) = make_sv(&old_buf, false);
-        let (new_view, new_scroll) = make_sv(&new_buf, true);
-
-        // Overview rulers: narrow DrawingAreas next to each editor that mark
-        // every changed line proportionally through the file. Clicking a
-        // marker scrolls the view (and its counterpart via the adjustment
-        // sync below) to the corresponding line.
-        let old_bar = build_overview_ruler(
-            old_change_lines,
-            old_buf.line_count(),
-            OverviewRulerKind::Delete,
-            &old_view,
-        );
-        let new_bar = build_overview_ruler(
-            new_change_lines,
-            new_buf.line_count(),
-            OverviewRulerKind::Insert,
-            &new_view,
-        );
-        // Rulers on the outer edges of the diff so the Paned separator
-        // between old/new scrollviews stays grabable. A generous margin
-        // on the outer-left ruler keeps it clear of the *main* sidebar
-        // paned's separator, whose resize grab zone extends further into
-        // the editor surface than the visible handle suggests.
-        old_bar.set_margin_start(12);
-        let old_column = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
-        old_column.append(&old_bar);
-        old_column.append(&old_scroll);
-        let new_column = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
-        new_column.append(&new_scroll);
-        new_column.append(&new_bar);
-
-        // Sync scrolling between old and new
-        let syncing = Rc::new(std::cell::Cell::new(false));
-        {
-            let ns = new_scroll.clone();
-            let s = syncing.clone();
-            old_scroll.vadjustment().connect_value_changed(move |adj| {
-                if !s.get() {
-                    s.set(true);
-                    ns.vadjustment().set_value(adj.value());
-                    s.set(false);
-                }
-            });
-        }
-        {
-            let os = old_scroll.clone();
-            let s = syncing.clone();
-            new_scroll.vadjustment().connect_value_changed(move |adj| {
-                if !s.get() {
-                    s.set(true);
-                    os.vadjustment().set_value(adj.value());
-                    s.set(false);
-                }
-            });
-        }
+        let DiffViewParts { paned, new_buf } =
+            build_diff_view_parts(file_path, &old_content, &new_content);
 
         // Build diff UI
         let diff_box = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
         diff_box.set_vexpand(true);
 
-        // Header: back button + file name + revert all
+        // Header: back button + file name + stage/revert
         let header = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
         header.set_margin_start(8);
         header.set_margin_end(8);
@@ -2473,7 +2491,6 @@ impl EditorTabs {
         file_label.set_halign(gtk4::Align::Start);
         header.append(&file_label);
 
-        // Stage button
         let stage_btn = gtk4::Button::from_icon_name("list-add-symbolic");
         stage_btn.add_css_class("flat");
         stage_btn.set_tooltip_text(Some("Stage this file"));
@@ -2486,7 +2503,6 @@ impl EditorTabs {
         }
         header.append(&stage_btn);
 
-        // Revert button
         let revert_btn = gtk4::Button::from_icon_name("edit-undo-symbolic");
         revert_btn.add_css_class("flat");
         revert_btn.set_tooltip_text(Some("Revert all changes"));
@@ -2529,14 +2545,9 @@ impl EditorTabs {
         labels.append(&new_label);
         diff_box.append(&labels);
 
-        // Paned: HEAD (read-only) | working (editable)
-        let paned = gtk4::Paned::new(gtk4::Orientation::Horizontal);
-        paned.set_vexpand(true);
-        paned.set_start_child(Some(&old_column));
-        paned.set_end_child(Some(&new_column));
         diff_box.append(&paned);
 
-        // Save working side on Ctrl+S (via key controller on the diff_box)
+        // Ctrl+S: write the editable side to disk.
         {
             let fp = file_path.to_path_buf();
             let nb = new_buf.clone();
@@ -2554,14 +2565,125 @@ impl EditorTabs {
             diff_box.add_controller(key_ctrl);
         }
 
-        // Remove previous diff child if any, then add new one
         if let Some(old_diff) = self.content_stack.child_by_name("diff") {
             self.content_stack.remove(&old_diff);
         }
         self.content_stack.add_named(&diff_box, Some("diff"));
         self.content_stack.set_visible_child_name("diff");
 
-        // Back button returns to editor or welcome
+        {
+            let cs = self.content_stack.clone();
+            let nb = self.notebook.clone();
+            back_btn.connect_clicked(move |_| {
+                if nb.n_pages() > 0 {
+                    cs.set_visible_child_name("editor");
+                } else {
+                    cs.set_visible_child_name("welcome");
+                }
+            });
+        }
+    }
+
+    /// Show a side-by-side merge view for an externally-changed file: left
+    /// (read-only) holds the new on-disk content (`disk_content`); right
+    /// (editable) starts as the user's unsaved buffer (`mine_content`). The
+    /// user edits the right side to reconcile, then Ctrl+S writes it to disk
+    /// and pushes the merged text into the original source buffer (via
+    /// `apply_merged`, which also updates the saved-content shadow so the
+    /// dirty marker clears) before returning to the editor.
+    pub fn show_merge_diff(
+        &self,
+        file_path: &Path,
+        disk_content: &str,
+        mine_content: &str,
+        backend: Arc<dyn super::file_backend::FileBackend>,
+        apply_merged: Rc<dyn Fn(&str)>,
+    ) {
+        let DiffViewParts { paned, new_buf } =
+            build_diff_view_parts(file_path, disk_content, mine_content);
+
+        let diff_box = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
+        diff_box.set_vexpand(true);
+
+        let header = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
+        header.set_margin_start(8);
+        header.set_margin_end(8);
+        header.set_margin_top(4);
+        header.set_margin_bottom(4);
+
+        let back_btn = gtk4::Button::from_icon_name("go-previous-symbolic");
+        back_btn.add_css_class("flat");
+        back_btn.set_tooltip_text(Some("Back to editor (discard merge)"));
+        header.append(&back_btn);
+
+        let display_name = file_path
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_else(|| file_path.to_string_lossy().into_owned());
+        let file_label = gtk4::Label::new(Some(&format!("Merge: {}", display_name)));
+        file_label.add_css_class("heading");
+        file_label.set_hexpand(true);
+        file_label.set_halign(gtk4::Align::Start);
+        header.append(&file_label);
+
+        let hint = gtk4::Label::new(Some("Ctrl+S to save merged result"));
+        hint.add_css_class("dim-label");
+        header.append(&hint);
+        diff_box.append(&header);
+
+        let labels = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
+        let old_label = gtk4::Label::new(Some("← DISK  (theirs, read-only)"));
+        old_label.add_css_class("dim-label");
+        old_label.set_hexpand(true);
+        old_label.set_margin_start(8);
+        let new_label = gtk4::Label::new(Some("MINE  (working, edit to merge) →"));
+        new_label.add_css_class("dim-label");
+        new_label.set_hexpand(true);
+        new_label.set_margin_start(8);
+        labels.append(&old_label);
+        labels.append(&new_label);
+        diff_box.append(&labels);
+
+        diff_box.append(&paned);
+
+        // Ctrl+S: write merged text to disk, push it into the source buffer
+        // so the dirty flag clears, then return to the editor.
+        {
+            let fp = file_path.to_path_buf();
+            let nb = new_buf.clone();
+            let be = backend.clone();
+            let cs = self.content_stack.clone();
+            let nb_pages = self.notebook.clone();
+            let apply = apply_merged.clone();
+            let key_ctrl = gtk4::EventControllerKey::new();
+            key_ctrl.connect_key_pressed(move |_, key, _, modifier| {
+                if crate::shortcuts::has_primary(modifier) && key == gtk4::gdk::Key::s {
+                    let text = nb.text(&nb.start_iter(), &nb.end_iter(), false).to_string();
+                    if let Err(e) = be.write_file(&fp, &text) {
+                        tracing::warn!("Merge: failed to write {}: {}", fp.display(), e);
+                        return gtk4::glib::Propagation::Stop;
+                    }
+                    apply(&text);
+                    tracing::info!("Merge: saved merged result for {}", fp.display());
+                    if nb_pages.n_pages() > 0 {
+                        cs.set_visible_child_name("editor");
+                    } else {
+                        cs.set_visible_child_name("welcome");
+                    }
+                    return gtk4::glib::Propagation::Stop;
+                }
+                gtk4::glib::Propagation::Proceed
+            });
+            diff_box.add_controller(key_ctrl);
+        }
+
+        if let Some(old_diff) = self.content_stack.child_by_name("diff") {
+            self.content_stack.remove(&old_diff);
+        }
+        self.content_stack.add_named(&diff_box, Some("diff"));
+        self.content_stack.set_visible_child_name("diff");
+
+        // Back: discard merge, return to editor (mine buffer untouched).
         {
             let cs = self.content_stack.clone();
             let nb = self.notebook.clone();

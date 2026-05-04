@@ -9,6 +9,17 @@ use super::file_backend::FileBackend;
 use super::task::run_blocking;
 use super::EditorState;
 
+/// Opens the side-by-side merge view for a file that changed externally while
+/// the user has unsaved edits. Receives:
+///   - the file path,
+///   - the current on-disk content (left, read-only),
+///   - the user's unsaved buffer content (right, editable),
+///   - an `apply_merged` callback that pushes the final merged text back into
+///     the source buffer + saved-content shadow when the user saves.
+/// Wired from `mod.rs` through `start_watchers` so file_watcher stays
+/// decoupled from `EditorTabs`.
+pub type OnMergeOpen = Rc<dyn Fn(&Path, &str, &str, Rc<dyn Fn(&str)>)>;
+
 #[derive(Clone)]
 enum WatchedKind {
     /// Source / Markdown tab — both have a writable buffer and saved content.
@@ -48,6 +59,7 @@ enum ApplyKind {
 pub fn start_watchers(
     state: Rc<RefCell<EditorState>>,
     info_bar_container: gtk4::Box,
+    on_merge_open: OnMergeOpen,
     on_tree_changed: Rc<dyn Fn()>,
     on_git_changed: Rc<dyn Fn(String)>,
 ) {
@@ -58,6 +70,7 @@ pub fn start_watchers(
     start_open_file_watcher(
         state.clone(),
         info_bar_container,
+        on_merge_open,
         backend.clone(),
         is_remote,
     );
@@ -82,6 +95,7 @@ pub fn request_git_status_refresh(on_changed: Rc<dyn Fn(String)>, backend: Arc<d
 fn start_open_file_watcher(
     state: Rc<RefCell<EditorState>>,
     info_bar_container: gtk4::Box,
+    on_merge_open: OnMergeOpen,
     backend: Arc<dyn FileBackend>,
     is_remote: bool,
 ) {
@@ -126,6 +140,7 @@ fn start_open_file_watcher(
         let backend_for_task = backend.clone();
         let backend_for_apply = backend.clone();
         let in_flight_c = in_flight.clone();
+        let on_merge_open_c = on_merge_open.clone();
         run_blocking(
             move || collect_open_file_changes(&snapshots, &*backend_for_task, is_remote),
             move |changes| {
@@ -186,11 +201,25 @@ fn start_open_file_watcher(
                                         buf.set_enable_undo(true);
                                     })
                                 };
+                                let on_merge: Rc<dyn Fn()> = {
+                                    let path = open_file.path.clone();
+                                    let disk = change.content.clone();
+                                    let buf = buffer.clone();
+                                    let apply = apply_reload.clone();
+                                    let merge_cb = on_merge_open_c.clone();
+                                    Rc::new(move || {
+                                        let mine = buf
+                                            .text(&buf.start_iter(), &buf.end_iter(), false)
+                                            .to_string();
+                                        merge_cb(&path, &disk, &mine, apply.clone());
+                                    })
+                                };
                                 show_conflict_bar(
                                     &info_bar_container_c,
                                     &open_file.path,
                                     backend_for_apply.clone(),
                                     apply_reload,
+                                    Some(on_merge),
                                 );
                             }
                         }
@@ -216,11 +245,25 @@ fn start_open_file_watcher(
                                 let apply_reload: Rc<dyn Fn(&str)> = Rc::new(move |content: &str| {
                                     super::markdown_view::reload_from_disk(&md, content);
                                 });
+                                let on_merge: Rc<dyn Fn()> = {
+                                    let path = open_file.path.clone();
+                                    let disk = change.content.clone();
+                                    let buf = tab.buffer.clone();
+                                    let apply = apply_reload.clone();
+                                    let merge_cb = on_merge_open_c.clone();
+                                    Rc::new(move || {
+                                        let mine = buf
+                                            .text(&buf.start_iter(), &buf.end_iter(), false)
+                                            .to_string();
+                                        merge_cb(&path, &disk, &mine, apply.clone());
+                                    })
+                                };
                                 show_conflict_bar(
                                     &info_bar_container_c,
                                     &open_file.path,
                                     backend_for_apply.clone(),
                                     apply_reload,
+                                    Some(on_merge),
                                 );
                             }
                         }
@@ -414,6 +457,7 @@ fn show_conflict_bar(
     path: &Path,
     backend: Arc<dyn FileBackend>,
     apply_reload: Rc<dyn Fn(&str)>,
+    on_merge: Option<Rc<dyn Fn()>>,
 ) {
     // Remove any existing info bar so we never stack two for the same tab.
     while let Some(child) = container.first_child() {
@@ -434,24 +478,39 @@ fn show_conflict_bar(
 
     bar.add_button("Reload", gtk4::ResponseType::Accept);
     bar.add_button("Keep Mine", gtk4::ResponseType::Reject);
+    // ResponseType::Other is used as the "Merge" sentinel — InfoBar's
+    // built-in response variants don't have a "third action" slot.
+    const MERGE_RESPONSE: u16 = 1;
+    if on_merge.is_some() {
+        bar.add_button("Merge", gtk4::ResponseType::Other(MERGE_RESPONSE));
+    }
 
     let path_c = path.to_path_buf();
     let container_c = container.clone();
     let backend_c = backend.clone();
     let apply_reload_c = apply_reload.clone();
+    let on_merge_c = on_merge.clone();
     bar.connect_response(move |bar, response| {
-        if response == gtk4::ResponseType::Accept {
-            let path_reload = path_c.clone();
-            let backend_reload = backend_c.clone();
-            let apply = apply_reload_c.clone();
-            run_blocking(
-                move || backend_reload.read_file(&path_reload),
-                move |result| {
-                    if let Ok(content) = result {
-                        apply(&content);
-                    }
-                },
-            );
+        match response {
+            gtk4::ResponseType::Accept => {
+                let path_reload = path_c.clone();
+                let backend_reload = backend_c.clone();
+                let apply = apply_reload_c.clone();
+                run_blocking(
+                    move || backend_reload.read_file(&path_reload),
+                    move |result| {
+                        if let Ok(content) = result {
+                            apply(&content);
+                        }
+                    },
+                );
+            }
+            gtk4::ResponseType::Other(code) if code == MERGE_RESPONSE => {
+                if let Some(cb) = on_merge_c.as_ref() {
+                    cb();
+                }
+            }
+            _ => {}
         }
         container_c.remove(bar);
     });
