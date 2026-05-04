@@ -672,6 +672,38 @@ impl FileTree {
                     menu_box.append(&term_btn);
                 }
 
+                // ── Open in File Manager ──
+                // Reveal the selected entry in the OS file manager (Finder on
+                // macOS, the user's default file manager on Linux via the
+                // freedesktop URI handler). For files we point at the parent
+                // directory; for directories we point at the directory itself.
+                // Skipped on remote (SSH) backends since their paths aren't
+                // valid local URIs.
+                if !backend.is_remote() {
+                    let fm_btn = make_item("folder-symbolic", "Open in File Manager");
+                    let fm_dir = if selected_is_dir {
+                        selected_path.clone()
+                    } else {
+                        selected_path
+                            .parent()
+                            .map(|p| p.to_path_buf())
+                            .unwrap_or_else(|| target_dir.clone())
+                    };
+                    fm_btn.connect_clicked(move |btn| {
+                        if let Some(pop) = btn.ancestor(gtk4::Popover::static_type()) {
+                            pop.downcast_ref::<gtk4::Popover>().unwrap().popdown();
+                        }
+                        if let Err(e) = open_in_file_manager(&fm_dir) {
+                            tracing::warn!(
+                                "editor.ft: failed to open file manager at {}: {}",
+                                fm_dir.display(),
+                                e
+                            );
+                        }
+                    });
+                    menu_box.append(&fm_btn);
+                }
+
                 if selected_entry.is_some() {
                     menu_box.append(&gtk4::Separator::new(gtk4::Orientation::Horizontal));
                 }
@@ -2396,6 +2428,15 @@ fn show_confirm_dialog(
 /// set to `dir`. Tries `$TERMINAL`, then a list of common emulators; the
 /// first one found on `$PATH` is launched. Linux-first — on other OSes the
 /// command fallback is effectively a best-effort.
+/// Reveal `path` in the OS file manager. Uses GIO's URI launcher so the
+/// user's default `inode/directory` handler is invoked — Finder on macOS,
+/// Nautilus / Dolphin / Thunar / etc. on Linux — without us hard-coding a
+/// candidate list.
+fn open_in_file_manager(path: &Path) -> Result<(), glib::Error> {
+    let uri = gtk4::gio::File::for_path(path).uri();
+    gtk4::gio::AppInfo::launch_default_for_uri(&uri, None::<&gtk4::gio::AppLaunchContext>)
+}
+
 fn spawn_terminal_in(dir: &Path) -> std::io::Result<()> {
     use std::process::Command;
 
