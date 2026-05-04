@@ -1228,14 +1228,14 @@ impl EditorTabs {
         replace_entry.set_placeholder_text(Some("Replace..."));
         replace_row.append(&replace_entry);
 
-        let replace_btn = gtk4::Button::from_icon_name("edit-find-replace-symbolic");
+        let replace_btn = gtk4::Button::with_label("Replace");
         replace_btn.add_css_class("flat");
-        replace_btn.set_tooltip_text(Some("Replace"));
+        replace_btn.set_tooltip_text(Some("Replace current match (or find next)"));
         replace_row.append(&replace_btn);
 
         let replace_all_btn = gtk4::Button::with_label("All");
         replace_all_btn.add_css_class("flat");
-        replace_all_btn.set_tooltip_text(Some("Replace all"));
+        replace_all_btn.set_tooltip_text(Some("Replace all matches"));
         replace_row.append(&replace_all_btn);
 
         search_bar.append(&replace_row);
@@ -1444,7 +1444,13 @@ impl EditorTabs {
             });
         }
 
-        // Replace current
+        // Replace current. Standard editor UX: if the selection bounds an
+        // actual match → replace it and advance to the next match. Otherwise
+        // (no selection, or selection isn't a match) → just find and select
+        // the next match so the user can click Replace again to act on it.
+        // This is what gedit / VS Code do; the previous handler did nothing
+        // when no match was selected, which made the button look broken if
+        // the user hadn't pressed Enter/Next first.
         {
             let get_ctx = ensure_ctx.clone();
             let get_view = active_view.clone();
@@ -1454,13 +1460,26 @@ impl EditorTabs {
                 let replace_text = re.text().to_string();
                 let sv = get_view();
                 let buf = sv.buffer();
+
                 if let Some((start, end)) = buf.selection_bounds() {
-                    let _ = ctx.replace(&mut start.clone(), &mut end.clone(), &replace_text);
-                    let cursor = buf.iter_at_offset(buf.cursor_position());
-                    if let Some((sm, em, _)) = ctx.forward(&cursor) {
-                        buf.select_range(&sm, &em);
-                        sv.scroll_to_iter(&mut sm.clone(), 0.1, false, 0.0, 0.0);
+                    if ctx
+                        .replace(&mut start.clone(), &mut end.clone(), &replace_text)
+                        .is_ok()
+                    {
+                        let cursor = buf.iter_at_offset(buf.cursor_position());
+                        if let Some((sm, em, _)) = ctx.forward(&cursor) {
+                            buf.select_range(&sm, &em);
+                            sv.scroll_to_iter(&mut sm.clone(), 0.1, false, 0.0, 0.0);
+                        }
+                        return;
                     }
+                }
+
+                // No usable selection — advance to the next match.
+                let cursor = buf.iter_at_offset(buf.cursor_position());
+                if let Some((sm, em, _)) = ctx.forward(&cursor) {
+                    buf.select_range(&sm, &em);
+                    sv.scroll_to_iter(&mut sm.clone(), 0.1, false, 0.0, 0.0);
                 }
             });
         }
