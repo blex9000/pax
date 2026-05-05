@@ -535,27 +535,16 @@ impl CodeEditorPanel {
                     // been laid out yet, so an immediate scroll_to_iter is a
                     // no-op. idle_add_local_once runs after GTK finishes the
                     // layout pass, mirroring what the nav-history code does.
+                    // `reveal_search_match` handles markdown tabs (toggles to
+                    // Source mode + scrolls the markdown tab's own SourceView
+                    // rather than the shared one) and selects the actual
+                    // match on the line so it shows up highlighted.
                     let state_c2 = state_c.clone();
                     let tabs_c2 = tabs_c.clone();
                     let line_zero_based = (line_num as i32).saturating_sub(1);
+                    let query_owned = query.to_string();
                     gtk4::glib::idle_add_local_once(move || {
-                        let st = state_c2.borrow();
-                        let Some(idx) = st.active_tab else { return };
-                        let Some(open_file) = st.open_files.get(idx) else {
-                            return;
-                        };
-                        let Some(buf) = open_file.source_buffer() else { return };
-                        let Some(iter) = buf.iter_at_line(line_zero_based) else {
-                            return;
-                        };
-                        buf.place_cursor(&iter);
-                        tabs_c2.source_view.scroll_to_iter(
-                            &mut iter.clone(),
-                            0.1,
-                            true,
-                            0.5,
-                            0.3,
-                        );
+                        tabs_c2.reveal_search_match(line_zero_based, &query_owned, &state_c2);
                     });
                 }
             }),

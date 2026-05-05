@@ -1588,6 +1588,81 @@ impl EditorTabs {
         }
     }
 
+    /// Reveal a `(line, query)` match in the active tab. Forces markdown tabs
+    /// to Source mode so the match is visible (the rendered view can't show
+    /// a cursor or scroll target), then selects the first occurrence of
+    /// `query` on `line_zero_based` and scrolls the right view (the shared
+    /// `source_view` for source tabs, the markdown tab's own
+    /// `md.source_view` for markdown tabs). When `query` is empty just
+    /// places the cursor at the line start. Used by the project-search panel
+    /// after opening a result.
+    pub fn reveal_search_match(
+        &self,
+        line_zero_based: i32,
+        query: &str,
+        state: &Rc<RefCell<EditorState>>,
+    ) {
+        use super::tab_content::{MarkdownMode, TabContent};
+
+        let (buf, view) = {
+            let st = state.borrow();
+            let Some(idx) = st.active_tab else {
+                tracing::debug!("editor.search: reveal aborted, no active tab");
+                return;
+            };
+            let Some(open_file) = st.open_files.get(idx) else {
+                tracing::debug!("editor.search: reveal aborted, active_tab idx {idx} out of range");
+                return;
+            };
+            match &open_file.content {
+                TabContent::Source(s) => (s.buffer.clone(), self.source_view.clone()),
+                TabContent::Markdown(md) => {
+                    if md.mode.get() == MarkdownMode::Rendered {
+                        super::markdown_view::toggle_mode(md);
+                    }
+                    (md.buffer.clone(), md.source_view.clone())
+                }
+                TabContent::Image(_) => return,
+            }
+        };
+
+        let Some(line_iter) = buf.iter_at_line(line_zero_based) else {
+            tracing::debug!(
+                "editor.search: reveal aborted, line {line_zero_based} out of buffer (lines={})",
+                buf.line_count()
+            );
+            return;
+        };
+
+        // Try to select the first literal (case-insensitive) occurrence of
+        // `query` on the target line so the match is highlighted. project_search
+        // builds its results with `regex::escape(query)`, so the query is a
+        // plain substring — a lowercased `str::find` reproduces what the
+        // grep returned.
+        if !query.is_empty() {
+            let mut line_end = line_iter.clone();
+            line_end.forward_to_line_end();
+            let line_text = buf.text(&line_iter, &line_end, false).to_string();
+            let needle = query.to_lowercase();
+            let hay = line_text.to_lowercase();
+            if let Some(byte_offset) = hay.find(&needle) {
+                let char_offset = hay[..byte_offset].chars().count() as i32;
+                let query_char_len = needle.chars().count() as i32;
+                if let (Some(s), Some(e)) = (
+                    buf.iter_at_line_offset(line_zero_based, char_offset),
+                    buf.iter_at_line_offset(line_zero_based, char_offset + query_char_len),
+                ) {
+                    buf.select_range(&s, &e);
+                    view.scroll_to_iter(&mut s.clone(), 0.1, true, 0.5, 0.3);
+                    return;
+                }
+            }
+        }
+
+        buf.place_cursor(&line_iter);
+        view.scroll_to_iter(&mut line_iter.clone(), 0.1, true, 0.5, 0.3);
+    }
+
     /// Open a file in a new tab. Returns the tab index.
     /// If the file is already open, switches to that tab.
     pub fn open_file(&self, path: &Path, state: &Rc<RefCell<EditorState>>) -> Option<usize> {
@@ -1606,14 +1681,22 @@ impl EditorTabs {
         }
         super::fire_nav_state_changed(state);
 
-        // Check if already open
-        {
+        // Check if already open. Drop the immutable borrow before triggering
+        // any side effect: `set_current_page` fires `connect_switch_page`
+        // synchronously, which tries to update `active_tab` via
+        // `try_borrow_mut` — that fails (and silently leaves `active_tab`
+        // stale) if we're still holding `st`. The downstream project-search
+        // reveal then reads the wrong tab. Update `active_tab` explicitly
+        // too, as belt-and-suspenders.
+        let already_open_idx = {
             let st = state.borrow();
-            if let Some(idx) = st.open_files.iter().position(|f| f.path == path) {
-                self.notebook.set_current_page(Some(idx as u32));
-                self.switch_to_buffer(idx, state);
-                return Some(idx);
-            }
+            st.open_files.iter().position(|f| f.path == path)
+        };
+        if let Some(idx) = already_open_idx {
+            state.borrow_mut().active_tab = Some(idx);
+            self.notebook.set_current_page(Some(idx as u32));
+            self.switch_to_buffer(idx, state);
+            return Some(idx);
         }
 
         // Dispatch on extension: markdown files get a Rendered/Source viewer,
