@@ -560,8 +560,7 @@ impl WorkspaceView {
             );
         }
 
-        self.rebuild_layout();
-        self.select_workspace_tab_for_panel(&state.panel_id);
+        self.apply_layout_change(Some(&state.panel_id));
         self.dirty = state.original_dirty || changed;
         changed
     }
@@ -576,9 +575,7 @@ impl WorkspaceView {
 
         self.workspace = state.original_workspace;
         self.tab_edit = None;
-        self.rebuild_layout();
-        self.rebuild_focus_order();
-        self.focus_panel_after_rebuild(&state.panel_id);
+        self.apply_layout_change(Some(&state.panel_id));
         self.dirty = state.original_dirty;
         true
     }
@@ -625,9 +622,7 @@ impl WorkspaceView {
             return false;
         }
 
-        self.rebuild_layout();
-        self.rebuild_focus_order();
-        self.focus_panel_after_rebuild(&focused_id);
+        self.apply_layout_change(Some(&focused_id));
         self.dirty = true;
         true
     }
@@ -642,11 +637,34 @@ impl WorkspaceView {
             return false;
         }
 
-        self.rebuild_layout();
-        self.rebuild_focus_order();
-        self.focus_panel_after_rebuild(panel_id);
+        self.apply_layout_change(Some(panel_id));
         self.dirty = true;
         true
+    }
+
+    /// Canonical post-mutation step. Call after every change to
+    /// `self.workspace.layout`, `self.workspace.panels`, or `self.hosts`.
+    ///
+    /// Performs, in order: rebuild the GTK widget tree from the model
+    /// (preserving each notebook's active tab), realign the flat focus
+    /// order to the new panel-id list, and — when `target` is set — focus
+    /// that panel and reveal every ancestor tab containing it.
+    ///
+    /// `target = None` is for callers whose post-rebuild focus depends on
+    /// state computed *after* the rebuild_focus_order clamp (e.g. close
+    /// panel falling back to the auto-clamped focus index). Those callers
+    /// must read `self.focus.focused_panel_id()` themselves and call
+    /// `focus_panel_after_rebuild` separately.
+    ///
+    /// Side effect: `rebuild_focus_order` sets `self.dirty = true`.
+    /// Callers that want a different `dirty` value (e.g. cancel_tab_edit
+    /// restoring `original_dirty`) must overwrite it after this call.
+    fn apply_layout_change(&mut self, target: Option<&str>) {
+        self.rebuild_layout();
+        self.rebuild_focus_order();
+        if let Some(panel_id) = target {
+            self.focus_panel_after_rebuild(panel_id);
+        }
     }
 
     fn focus_panel_after_rebuild(&mut self, panel_id: &str) -> bool {
@@ -1287,12 +1305,8 @@ impl WorkspaceView {
         self.hosts.insert(new_id.clone(), host);
         crate::layout_ops::debug_layout_tree(&self.workspace.layout, "BEFORE_REBUILD_SPLIT");
 
-        // 3. Rebuild widget tree from model
-        self.rebuild_layout();
-        self.rebuild_focus_order();
-
-        // 4. Focus the newly created split pane and reveal all ancestor tabs.
-        self.focus_panel_after_rebuild(&new_id);
+        // Rebuild widget tree from model and focus the newly created pane.
+        self.apply_layout_change(Some(&new_id));
 
         Some(new_id)
     }
@@ -1328,9 +1342,7 @@ impl WorkspaceView {
         self.workspace.panels.push(new_cfg);
         self.hosts.insert(new_id.clone(), host);
 
-        self.rebuild_layout();
-        self.rebuild_focus_order();
-        self.focus_panel_after_rebuild(&new_id);
+        self.apply_layout_change(Some(&new_id));
 
         Some(new_id)
     }
@@ -1367,10 +1379,7 @@ impl WorkspaceView {
         self.workspace.panels.push(new_cfg);
         self.hosts.insert(new_id.clone(), host);
 
-        // Rebuild widget tree
-        self.rebuild_layout();
-        self.rebuild_focus_order();
-        self.focus_panel_after_rebuild(&new_id);
+        self.apply_layout_change(Some(&new_id));
 
         Some(new_id)
     }
@@ -1399,10 +1408,7 @@ impl WorkspaceView {
         self.workspace.panels.push(new_cfg);
         self.hosts.insert(new_id.clone(), host);
 
-        // Rebuild widget tree
-        self.rebuild_layout();
-        self.rebuild_focus_order();
-        self.focus_panel_after_rebuild(&new_id);
+        self.apply_layout_change(Some(&new_id));
 
         Some(new_id)
     }
@@ -1513,18 +1519,11 @@ impl WorkspaceView {
             detach_widget(host.widget());
         }
 
-        // 3. Rebuild the widget tree from the updated model
-        self.rebuild_layout();
-        self.rebuild_focus_order();
-
-        // 4. Focus the previous tab sibling if we found one; otherwise fall
-        //    back to the nearest panel in the flat focus order.
-        if let Some(ref target_id) = focus_after_close {
-            self.focus_panel_after_rebuild(target_id);
-        } else {
-            if self.focus.index >= self.focus.order.len() {
-                self.focus.index = self.focus.order.len().saturating_sub(1);
-            }
+        // Focus the previous tab sibling when we found one. Otherwise let
+        // rebuild_focus_order's auto-clamp pick the new focused panel and
+        // reveal it in a second pass.
+        self.apply_layout_change(focus_after_close.as_deref());
+        if focus_after_close.is_none() {
             if let Some(target_id) = self.focus.focused_panel_id().map(|id| id.to_string()) {
                 self.focus_panel_after_rebuild(&target_id);
             }
