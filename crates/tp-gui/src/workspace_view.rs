@@ -1039,6 +1039,37 @@ impl WorkspaceView {
 
     /// Rebuild the GTK widget tree from the workspace layout model.
     /// Reuses existing PanelHost widgets (backends stay alive).
+    /// Snapshot of which panel is the active tab inside its containing
+    /// Notebook, for every notebook in the current widget tree. Used by
+    /// `rebuild_layout` to preserve tab selections across the rebuild —
+    /// rebuilding produces fresh notebooks pinned to page 0, which would
+    /// otherwise drop every Tabs container back to its first tab.
+    fn snapshot_active_tabs(&self) -> Vec<String> {
+        self.hosts
+            .iter()
+            .filter_map(|(id, host)| {
+                let (nb, this) = find_notebook_page_index(host.widget())?;
+                let current = nb.current_page()?;
+                (current == this).then(|| id.clone())
+            })
+            .collect()
+    }
+
+    /// Reapply tab selections snapshotted by `snapshot_active_tabs`.
+    /// Best-effort: a panel that no longer lives inside a notebook (e.g.
+    /// because the layout was restructured) is silently skipped.
+    fn restore_active_tabs(&self, panel_ids: &[String]) {
+        for panel_id in panel_ids {
+            let Some(host) = self.hosts.get(panel_id) else {
+                continue;
+            };
+            let Some((notebook, page_idx)) = find_notebook_page_index(host.widget()) else {
+                continue;
+            };
+            notebook.set_current_page(Some(page_idx));
+        }
+    }
+
     fn rebuild_layout(&mut self) {
         tracing::debug!(
             "rebuild_layout: {} hosts, action_cb={}, type_chosen={}",
@@ -1046,6 +1077,12 @@ impl WorkspaceView {
             self.action_cb.is_some(),
             self.on_type_chosen.is_some()
         );
+        // Snapshot every notebook's current tab BEFORE we tear the widget
+        // tree down. Fresh notebooks are born at page 0, and the post-rebuild
+        // path-based selectors only touch notebooks on the path to a single
+        // panel — without this snapshot every Tabs container outside that
+        // path would silently reset to its first tab.
+        let active_tabs_snapshot = self.snapshot_active_tabs();
         // Remove everything from root_box
         while let Some(child) = self.root_box.first_child() {
             self.root_box.remove(&child);
@@ -1106,6 +1143,13 @@ impl WorkspaceView {
                 }
             }
         }
+
+        // Restore active tab selections captured before the teardown. Done
+        // last so the widget tree is fully assembled and notebooks have all
+        // their pages registered. Callers that need to override the
+        // selection (e.g. focus_panel_after_rebuild) can still do so after
+        // rebuild_layout returns.
+        self.restore_active_tabs(&active_tabs_snapshot);
     }
 
     // ── Sync input ───────────────────────────────────────────────────────
