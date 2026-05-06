@@ -16,6 +16,17 @@ use crate::theme::Theme;
 use crate::widgets::status_bar::StatusBar;
 use crate::workspace_view::WorkspaceView;
 
+/// Canonical GApplication / xdg-shell `app_id` used by the primary Pax
+/// instance. Matches `StartupWMClass=` in `pax.desktop` so the dock /
+/// taskbar associates running windows with the desktop entry.
+pub(crate) const PRIMARY_APP_ID: &str = "com.sinelec.pax";
+
+/// Set by `workspace_launcher::open_in_new_window` on every spawned
+/// child. `run_app` uses its presence to switch the GApplication's
+/// `application_id` to a per-PID variant so the new window doesn't get
+/// grouped under the same WM entry as the parent.
+pub(crate) const SECONDARY_INSTANCE_ENV: &str = "PAX_SECONDARY_INSTANCE";
+
 fn panel_type_uses_text_editing_shortcuts(panel_type: &pax_core::workspace::PanelType) -> bool {
     matches!(
         panel_type,
@@ -282,8 +293,22 @@ pub fn run_app(workspace: Option<Workspace>, config_path: Option<&Path>) -> Resu
     // forwarding activation back to the already-running Pax — which would
     // re-fire this connect_activate with the *parent's* captured `ws`
     // (often None → welcome) and ignore the new config entirely.
+    //
+    // Spawned secondary processes also get a per-PID `application_id`. Two
+    // windows with the same xdg-shell app_id get grouped by the
+    // compositor / window manager into a single taskbar entry, and on
+    // minimize-then-restore the WM can end up surfacing only one of the
+    // grouped windows (leaving the other inaccessible until the first is
+    // closed). A unique id per spawned process prevents that grouping.
+    // The primary instance keeps the canonical id so the `.desktop`
+    // file's `StartupWMClass=com.sinelec.pax` association still works.
+    let app_id = if std::env::var_os(SECONDARY_INSTANCE_ENV).is_some() {
+        format!("{}.s{}", PRIMARY_APP_ID, std::process::id())
+    } else {
+        PRIMARY_APP_ID.to_string()
+    };
     let app = adw::Application::builder()
-        .application_id("com.sinelec.pax")
+        .application_id(&app_id)
         .flags(gtk4::gio::ApplicationFlags::NON_UNIQUE)
         .build();
 

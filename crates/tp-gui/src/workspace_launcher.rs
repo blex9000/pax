@@ -16,8 +16,18 @@ use std::process::Command;
 
 /// Launch a new Pax process that opens the given workspace config file.
 /// Returns once the child has been spawned — does not wait for it.
+///
+/// Sets `PAX_SECONDARY_INSTANCE=1` so the child uses a per-PID
+/// `application_id` (see `app::run_app`). Without that, both windows
+/// end up sharing the same xdg-shell app_id and the compositor groups
+/// them into a single taskbar entry — minimize-then-restore could only
+/// surface one of them at a time.
 pub fn open_in_new_window(config_path: &Path) -> io::Result<()> {
     let exe = std::env::current_exe()?;
-    Command::new(exe).arg("launch").arg(config_path).spawn()?;
+    Command::new(exe)
+        .arg("launch")
+        .arg(config_path)
+        .env(crate::app::SECONDARY_INSTANCE_ENV, "1")
+        .spawn()?;
     Ok(())
 }
