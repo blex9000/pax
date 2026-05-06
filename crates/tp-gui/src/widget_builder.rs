@@ -984,6 +984,26 @@ pub fn find_notebook_ancestor(widget: &gtk4::Widget) -> Option<gtk4::Notebook> {
     None
 }
 
+/// Find the `(notebook, page_widget)` pair where `page_widget` is the
+/// notebook's direct child that contains `widget`. Returns `None` when
+/// `widget` isn't inside a notebook page within 10 hops up the parent chain.
+/// Needed because Tabs panels are wrapped in `wrap_workspace_tab_page`
+/// before being appended, so `notebook.page_num(host.widget())` would
+/// return `-1` — call `notebook.page_num(&page_widget)` instead.
+pub fn find_notebook_page(widget: &gtk4::Widget) -> Option<(gtk4::Notebook, gtk4::Widget)> {
+    let mut prev = widget.clone();
+    let mut current = widget.parent();
+    for _ in 0..10 {
+        let w = current?;
+        if let Ok(nb) = w.clone().downcast::<gtk4::Notebook>() {
+            return Some((nb, prev));
+        }
+        prev = w.clone();
+        current = w.parent();
+    }
+    None
+}
+
 pub fn detach_widget(widget: &gtk4::Widget) {
     if let Some(parent) = widget.parent() {
         if let Some(paned) = parent.downcast_ref::<gtk4::Paned>() {

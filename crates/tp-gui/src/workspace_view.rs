@@ -59,6 +59,10 @@ pub struct WorkspaceView {
     dirty: bool,
     /// When a panel is zoomed (fullscreen), store which panel and hidden siblings.
     zoomed_panel: Option<String>,
+    /// Snapshot of panel IDs that were the active tab in their containing
+    /// notebook at the moment of zoom. Restored on unzoom so the rebuild
+    /// doesn't drop every notebook back to page 0. Empty when not zoomed.
+    pre_zoom_active_tabs: Vec<String>,
     /// Panel IDs that are in sync-input mode.
     sync_panels: std::collections::HashSet<String>,
     /// Callback for terminal input sync propagation.
@@ -148,6 +152,7 @@ impl WorkspaceView {
             layout_change_cb: None,
             dirty: false,
             zoomed_panel: None,
+            pre_zoom_active_tabs: Vec::new(),
             sync_panels: std::collections::HashSet::new(),
             sync_input_cb: None,
             tab_edit: None,
@@ -974,16 +979,24 @@ impl WorkspaceView {
     /// Uses layout rebuild for reliability — no fragile reparenting.
     pub fn toggle_zoom(&mut self) {
         if let Some(zoomed_id) = self.zoomed_panel.take() {
-            // Unzoom: reset button state and rebuild
+            // Unzoom: rebuild the layout, then restore which tab was active
+            // in every notebook *before* zoom. rebuild_layout creates fresh
+            // notebooks (current_page = 0), so without this restore step the
+            // user lands back on the first tab of every Tabs container.
             if let Some(host) = self.hosts.get(&zoomed_id) {
                 host.set_zoom_active(false);
             }
             self.rebuild_layout();
-            // Restore the active tab to the one that was zoomed
-            if let Some(host) = self.hosts.get(&zoomed_id) {
-                if let Some(notebook) = find_notebook_ancestor(host.widget()) {
-                    let page = notebook.page_num(host.widget());
-                    notebook.set_current_page(page);
+            for panel_id in std::mem::take(&mut self.pre_zoom_active_tabs) {
+                let Some(host) = self.hosts.get(&panel_id) else {
+                    continue;
+                };
+                let Some((notebook, page_widget)) = find_notebook_page(host.widget()) else {
+                    continue;
+                };
+                let page_idx = notebook.page_num(&page_widget);
+                if page_idx.is_some() {
+                    notebook.set_current_page(page_idx);
                 }
             }
         } else {
@@ -992,6 +1005,23 @@ impl WorkspaceView {
                 Some(id) => id.to_string(),
                 None => return,
             };
+            // Snapshot every notebook's current tab before we tear the layout
+            // apart — once we detach panels and rebuild on unzoom there is no
+            // way to recover the selections from the dropped widgets.
+            self.pre_zoom_active_tabs = self
+                .hosts
+                .iter()
+                .filter_map(|(id, host)| {
+                    let (nb, page_widget) = find_notebook_page(host.widget())?;
+                    let current = nb.current_page()?;
+                    let this = nb.page_num(&page_widget)?;
+                    if current == this {
+                        Some(id.clone())
+                    } else {
+                        None
+                    }
+                })
+                .collect();
             // Remove current layout tree
             self.root_box.remove(&self.root_widget);
             // Detach all panel hosts from their parents
