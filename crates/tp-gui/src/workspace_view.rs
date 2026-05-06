@@ -991,13 +991,11 @@ impl WorkspaceView {
                 let Some(host) = self.hosts.get(&panel_id) else {
                     continue;
                 };
-                let Some((notebook, page_widget)) = find_notebook_page(host.widget()) else {
+                let Some((notebook, page_idx)) = find_notebook_page_index(host.widget())
+                else {
                     continue;
                 };
-                let page_idx = notebook.page_num(&page_widget);
-                if page_idx.is_some() {
-                    notebook.set_current_page(page_idx);
-                }
+                notebook.set_current_page(Some(page_idx));
             }
         } else {
             // Zoom: show only the focused panel
@@ -1012,9 +1010,8 @@ impl WorkspaceView {
                 .hosts
                 .iter()
                 .filter_map(|(id, host)| {
-                    let (nb, page_widget) = find_notebook_page(host.widget())?;
+                    let (nb, this) = find_notebook_page_index(host.widget())?;
                     let current = nb.current_page()?;
-                    let this = nb.page_num(&page_widget)?;
                     if current == this {
                         Some(id.clone())
                     } else {
@@ -1058,7 +1055,7 @@ impl WorkspaceView {
             detach_widget(host.widget());
             // Safety: if detach_widget didn't fully remove it, force unparent
             if host.widget().parent().is_some() {
-                tracing::warn!("rebuild_layout: force unparent for {}", host.panel_id());
+                eprintln!("rebuild_layout: force unparent for {}", host.panel_id());
                 host.widget().unparent();
             }
         }
@@ -1289,7 +1286,7 @@ impl WorkspaceView {
             &new_id,
             position,
         ) {
-            tracing::warn!(
+            eprintln!(
                 "insert_sibling: could not find a parent split for {}",
                 focused_id
             );

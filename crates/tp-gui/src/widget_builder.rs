@@ -984,22 +984,32 @@ pub fn find_notebook_ancestor(widget: &gtk4::Widget) -> Option<gtk4::Notebook> {
     None
 }
 
-/// Find the `(notebook, page_widget)` pair where `page_widget` is the
-/// notebook's direct child that contains `widget`. Returns `None` when
-/// `widget` isn't inside a notebook page within 10 hops up the parent chain.
-/// Needed because Tabs panels are wrapped in `wrap_workspace_tab_page`
-/// before being appended, so `notebook.page_num(host.widget())` would
-/// return `-1` — call `notebook.page_num(&page_widget)` instead.
-pub fn find_notebook_page(widget: &gtk4::Widget) -> Option<(gtk4::Notebook, gtk4::Widget)> {
-    let mut prev = widget.clone();
-    let mut current = widget.parent();
-    for _ in 0..10 {
-        let w = current?;
-        if let Ok(nb) = w.clone().downcast::<gtk4::Notebook>() {
-            return Some((nb, prev));
+/// Find the `(notebook, page_index)` pair where `page_index` is the index
+/// of the notebook page that contains `widget`. Returns `None` when the
+/// widget isn't inside a notebook.
+///
+/// Walking up the parent chain to spot the page widget is unreliable because
+/// GTK4's Notebook wraps user-supplied page widgets in an internal GtkStack
+/// — `widget.parent()` of a page child is `GtkStack`, not `GtkNotebook`,
+/// and `notebook.page_num(stack)` returns `None`. Instead we find the
+/// notebook ancestor, then iterate its pages and pick the one that is an
+/// ancestor (or equal) to `widget`.
+pub fn find_notebook_page_index(widget: &gtk4::Widget) -> Option<(gtk4::Notebook, u32)> {
+    let notebook = find_notebook_ancestor(widget)?;
+    let n = notebook.n_pages();
+    for i in 0..n {
+        if let Some(page_widget) = notebook.nth_page(Some(i)) {
+            let mut cur = widget.clone();
+            loop {
+                if cur == page_widget {
+                    return Some((notebook, i));
+                }
+                match cur.parent() {
+                    Some(p) => cur = p,
+                    None => break,
+                }
+            }
         }
-        prev = w.clone();
-        current = w.parent();
     }
     None
 }
