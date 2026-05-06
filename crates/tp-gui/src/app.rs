@@ -277,8 +277,14 @@ pub fn run_app(workspace: Option<Workspace>, config_path: Option<&Path>) -> Resu
     // call here doesn't hurt — it still runs before any widget is created.
     crate::fonts::register_bundled_fonts();
 
+    // NON_UNIQUE so a spawned `pax launch <config>` process (used by
+    // "Open in new window") runs as its own GTK app instance instead of
+    // forwarding activation back to the already-running Pax — which would
+    // re-fire this connect_activate with the *parent's* captured `ws`
+    // (often None → welcome) and ignore the new config entirely.
     let app = adw::Application::builder()
         .application_id("com.sinelec.pax")
+        .flags(gtk4::gio::ApplicationFlags::NON_UNIQUE)
         .build();
 
     let ws = workspace;
