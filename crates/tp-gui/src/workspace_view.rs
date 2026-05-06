@@ -578,11 +578,7 @@ impl WorkspaceView {
         self.tab_edit = None;
         self.rebuild_layout();
         self.rebuild_focus_order();
-        if let Some(index) = self.focus.order.iter().position(|id| id == &state.panel_id) {
-            self.focus.index = index;
-            self.focus.focus_current_pub(&self.hosts);
-        }
-        self.select_workspace_tab_for_panel(&state.panel_id);
+        self.focus_panel_after_rebuild(&state.panel_id);
         self.dirty = state.original_dirty;
         true
     }
@@ -631,11 +627,7 @@ impl WorkspaceView {
 
         self.rebuild_layout();
         self.rebuild_focus_order();
-        if let Some(index) = self.focus.order.iter().position(|id| id == &focused_id) {
-            self.focus.index = index;
-            self.focus.focus_current_pub(&self.hosts);
-        }
-        self.select_workspace_tab_for_panel(&focused_id);
+        self.focus_panel_after_rebuild(&focused_id);
         self.dirty = true;
         true
     }
@@ -652,11 +644,7 @@ impl WorkspaceView {
 
         self.rebuild_layout();
         self.rebuild_focus_order();
-        if let Some(index) = self.focus.order.iter().position(|id| id == panel_id) {
-            self.focus.index = index;
-            self.focus.focus_current_pub(&self.hosts);
-        }
-        self.select_workspace_tab_for_panel(panel_id);
+        self.focus_panel_after_rebuild(panel_id);
         self.dirty = true;
         true
     }
