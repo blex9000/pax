@@ -93,6 +93,11 @@ pub fn install(
         let popover = build_menu(&view_cell, &buffer, editable, extras_factory(click_line));
 
         popover.set_parent(&host_cell);
+        popover.connect_closed(|popover| {
+            if popover.parent().is_some() {
+                popover.unparent();
+            }
+        });
         popover.set_pointing_to(Some(&gtk4::gdk::Rectangle::new(
             x as i32, y as i32, 1, 1,
         )));
@@ -668,4 +673,3 @@ fn run_formatter(fmt: &Formatter, path: &Path, buffer: &sourceview5::Buffer) {
     buffer.place_cursor(&restored);
     buffer.delete_mark(&mark);
 }
-

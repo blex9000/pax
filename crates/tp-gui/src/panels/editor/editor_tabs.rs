@@ -1097,6 +1097,7 @@ impl EditorTabs {
             let nr = notes_ruler.clone();
             notebook.connect_switch_page(move |_nb, _page, page_num| {
                 let idx = page_num as usize;
+                sv.completion().hide();
                 // Resolve child + buffer under an immutable borrow so the
                 // content_stack visibility is always applied even when
                 // try_borrow_mut loses the race (which previously left the
@@ -2494,6 +2495,12 @@ impl EditorTabs {
 
     /// Switch the SourceView to display the buffer at the given index.
     pub fn switch_to_buffer(&self, idx: usize, state: &Rc<RefCell<EditorState>>) {
+        // GtkSourceView keeps the completion popup alive across buffer swaps
+        // unless we hide it explicitly. If the user changes file while the
+        // popup is open, the orphaned surface can linger on screen and the
+        // incoming buffer may look blank until the next redraw.
+        self.source_view.completion().hide();
+
         // Toggle active CSS class on editor tab labels
         let n = self.notebook.n_pages();
         for i in 0..n {
