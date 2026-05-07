@@ -401,8 +401,7 @@ mod tests {
                 &[0],
                 None,
             );
-            let image =
-                find_first_image(&label).expect("layout tab should include fallback icon");
+            let image = find_first_image(&label).expect("layout tab should include fallback icon");
             let text = find_first_label(&label).expect("layout tab should include text label");
 
             assert_eq!(image.icon_name().as_deref(), Some("radio-symbolic"));
@@ -430,8 +429,8 @@ mod tests {
             let action = notebook
                 .action_widget(gtk4::PackType::End)
                 .expect("notebook should have an action widget at end");
-            let add_label = find_first_label(action.upcast_ref())
-                .expect("action widget should contain label");
+            let add_label =
+                find_first_label(action.upcast_ref()).expect("action widget should contain label");
             assert_eq!(add_label.text().as_str(), "+");
         });
     }
@@ -562,12 +561,10 @@ fn update_labels_with_layout(
                         .get(i as usize)
                         .cloned()
                         .unwrap_or_else(pax_core::workspace::new_tab_id);
-                    let status_host = children
-                        .get(i as usize)
-                        .and_then(|node| match node {
-                            LayoutNode::Panel { id } => hosts.get(id),
-                            _ => None,
-                        });
+                    let status_host = children.get(i as usize).and_then(|node| match node {
+                        LayoutNode::Panel { id } => hosts.get(id),
+                        _ => None,
+                    });
                     let label = build_tab_label(
                         &label_text,
                         type_id,

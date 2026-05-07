@@ -516,15 +516,12 @@ impl TerminalInner {
         {
             let drawing_area_fallback = drawing_area.clone();
             let booted_fallback = booted.clone();
-            glib::timeout_add_local_once(
-                Duration::from_millis(REVEAL_FALLBACK_MS),
-                move || {
-                    if !booted_fallback.get() {
-                        booted_fallback.set(true);
-                        drawing_area_fallback.set_opacity(1.0);
-                    }
-                },
-            );
+            glib::timeout_add_local_once(Duration::from_millis(REVEAL_FALLBACK_MS), move || {
+                if !booted_fallback.get() {
+                    booted_fallback.set(true);
+                    drawing_area_fallback.set_opacity(1.0);
+                }
+            });
         }
 
         let cmd_file_path: std::path::PathBuf = panel_uuid
@@ -778,7 +775,6 @@ impl TerminalPalette {
         )
     }
 }
-
 
 fn terminal_palette_for(theme: crate::theme::Theme, _system_dark: bool) -> TerminalPalette {
     match theme {

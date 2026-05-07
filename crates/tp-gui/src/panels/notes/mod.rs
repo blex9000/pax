@@ -23,7 +23,7 @@ pub struct NotesPanel {
     widget: gtk4::Widget,
     record_key: Rc<String>,
     panel_id: Rc<String>,
-    list: Rc<list::NoteListView>,
+    _list: Rc<list::NoteListView>,
 }
 
 impl std::fmt::Debug for NotesPanel {
@@ -45,7 +45,7 @@ impl NotesPanel {
             widget,
             record_key,
             panel_id,
-            list,
+            _list: list,
         }
     }
 

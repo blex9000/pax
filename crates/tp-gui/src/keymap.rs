@@ -135,7 +135,11 @@ impl KeyBinding {
     pub fn display(&self) -> String {
         let mut parts: Vec<&str> = Vec::with_capacity(4);
         if self.primary {
-            parts.push(if cfg!(target_os = "macos") { "Cmd" } else { "Ctrl" });
+            parts.push(if cfg!(target_os = "macos") {
+                "Cmd"
+            } else {
+                "Ctrl"
+            });
         }
         if self.shift {
             parts.push("Shift");
@@ -247,7 +251,10 @@ fn config_path() -> PathBuf {
     // app data lives under one directory. Reusing pax_db's
     // default_path saves wiring a `dirs` crate dependency in tp-gui.
     let db = pax_db::Database::default_path();
-    let dir = db.parent().map(PathBuf::from).unwrap_or_else(|| PathBuf::from("/tmp"));
+    let dir = db
+        .parent()
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("/tmp"));
     let _ = std::fs::create_dir_all(&dir);
     dir.join("keybindings.json")
 }

@@ -77,11 +77,7 @@ impl NotesState {
     }
 
     /// Notes whose mark currently sits on `line`.
-    pub fn notes_on_line(
-        &self,
-        buffer: &sourceview5::Buffer,
-        line: i32,
-    ) -> Vec<LiveNote> {
+    pub fn notes_on_line(&self, buffer: &sourceview5::Buffer, line: i32) -> Vec<LiveNote> {
         let entries = self.entries.borrow();
         entries
             .iter()
@@ -100,11 +96,7 @@ impl NotesState {
 /// via exact (line_number + anchor) match; fall back to a ±ANCHOR_FUZZY_RADIUS
 /// scan by anchor content. Notes that can't be resolved stay as orphans
 /// (mark = None) but remain in the state so they show up in the Notes list.
-pub fn apply_loaded_notes(
-    state: &NotesState,
-    buffer: &sourceview5::Buffer,
-    notes: Vec<FileNote>,
-) {
+pub fn apply_loaded_notes(state: &NotesState, buffer: &sourceview5::Buffer, notes: Vec<FileNote>) {
     for note in notes {
         let resolved = resolve_anchor(buffer, note.line_number, note.line_anchor.as_deref());
         let mark = resolved.map(|line| create_mark_at_line(buffer, line));
@@ -164,11 +156,7 @@ fn resolve_anchor(
     fuzzy_find(buffer, anchor, saved_line)
 }
 
-fn fuzzy_find(
-    buffer: &sourceview5::Buffer,
-    anchor: Option<&str>,
-    center: i32,
-) -> Option<i32> {
+fn fuzzy_find(buffer: &sourceview5::Buffer, anchor: Option<&str>, center: i32) -> Option<i32> {
     let anchor = anchor?;
     if anchor.trim().is_empty() {
         // Don't fuzzy-match against blank lines — too many false hits.

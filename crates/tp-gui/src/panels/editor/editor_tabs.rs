@@ -6,6 +6,15 @@ use std::rc::Rc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
+use super::diff_view::{build_diff_view_parts, show_commit_file_diff, DiffViewParts};
+use super::dirty_state;
+use super::language_support::fallback_language_for;
+use super::overview_ruler::{build_match_overview_ruler, collect_match_lines, OverviewRulerKind};
+use super::tab_activation::apply_tab_view_state;
+use super::text_context_menu;
+use super::text_shortcuts::{
+    install_bracket_auto_pair, install_text_clipboard_shortcuts, install_text_history_shortcuts,
+};
 use super::EditorState;
 
 /// Extensions that dispatch to the Markdown viewer instead of the shared
@@ -109,14 +118,15 @@ pub(crate) fn build_note_menu_items(
         return items;
     }
 
-    let refresh_ruler = |buffer: &sourceview5::Buffer,
-                        notes_state: &super::notes_state::NotesState,
-                        ruler: &Option<Rc<super::notes_ruler::NotesRuler>>| {
-        if let Some(r) = ruler {
-            let lines = notes_state.current_lines(buffer);
-            r.update(lines, buffer.line_count());
-        }
-    };
+    let refresh_ruler =
+        |buffer: &sourceview5::Buffer,
+         notes_state: &super::notes_state::NotesState,
+         ruler: &Option<Rc<super::notes_ruler::NotesRuler>>| {
+            if let Some(r) = ruler {
+                let lines = notes_state.current_lines(buffer);
+                r.update(lines, buffer.line_count());
+            }
+        };
     let _ = refresh_ruler; // used via inline closures below
 
     let notes_here = notes_state.notes_on_line(buffer, click_line);
@@ -258,12 +268,13 @@ fn install_markdown_notes(
             move |click_line| {
                 let (record_key, file_path_str, buffer, notes_state, ruler) = {
                     let st = state_c.borrow();
-                    let Some(idx) = st.active_tab else { return Vec::new() };
+                    let Some(idx) = st.active_tab else {
+                        return Vec::new();
+                    };
                     let Some(open_file) = st.open_files.get(idx) else {
                         return Vec::new();
                     };
-                    let super::tab_content::TabContent::Markdown(m) = &open_file.content
-                    else {
+                    let super::tab_content::TabContent::Markdown(m) = &open_file.content else {
                         return Vec::new();
                     };
                     (
@@ -294,20 +305,20 @@ fn install_markdown_notes(
         md.source_view.set_has_tooltip(true);
         md.source_view
             .connect_query_tooltip(move |view, _x, y, _keyboard, tooltip| {
-                let (_, buf_y) =
-                    view.window_to_buffer_coords(gtk4::TextWindowType::Widget, 0, y);
+                let (_, buf_y) = view.window_to_buffer_coords(gtk4::TextWindowType::Widget, 0, y);
                 let (iter, _) = view.line_at_y(buf_y);
                 let line = iter.line();
                 let st = state_c.borrow();
-                let Some(idx) = st.active_tab else { return false };
-                let Some(open_file) = st.open_files.get(idx) else { return false };
-                let super::tab_content::TabContent::Markdown(m) = &open_file.content
-                else {
+                let Some(idx) = st.active_tab else {
                     return false;
                 };
-                let Some(note) =
-                    m.notes.notes_on_line(&m.buffer, line).into_iter().next()
-                else {
+                let Some(open_file) = st.open_files.get(idx) else {
+                    return false;
+                };
+                let super::tab_content::TabContent::Markdown(m) = &open_file.content else {
+                    return false;
+                };
+                let Some(note) = m.notes.notes_on_line(&m.buffer, line).into_iter().next() else {
                     return false;
                 };
                 tooltip.set_text(Some(&note.text));
@@ -323,8 +334,7 @@ fn install_markdown_notes(
             let st = state_c.borrow();
             let idx = st.active_tab?;
             let open_file = st.open_files.get(idx)?;
-            let super::tab_content::TabContent::Markdown(m) = &open_file.content
-            else {
+            let super::tab_content::TabContent::Markdown(m) = &open_file.content else {
                 return None;
             };
             m.notes
@@ -376,13 +386,10 @@ fn install_markdown_notes(
             move |maybe_notes| {
                 let Some(notes) = maybe_notes else { return };
                 let st = state_c.borrow();
-                let Some(open_file) =
-                    st.open_files.iter().find(|f| f.tab_id == tab_id)
-                else {
+                let Some(open_file) = st.open_files.iter().find(|f| f.tab_id == tab_id) else {
                     return;
                 };
-                let super::tab_content::TabContent::Markdown(m) = &open_file.content
-                else {
+                let super::tab_content::TabContent::Markdown(m) = &open_file.content else {
                     return;
                 };
                 super::notes_state::apply_loaded_notes(&m.notes, &m.buffer, notes);
@@ -398,9 +405,7 @@ fn install_markdown_notes(
 /// currently active markdown tab so closures that need a view parent
 /// (for tooltip / dialog parenting) can reach it without hoarding the
 /// outer `md` by value.
-fn md_source_view_for_closure(
-    state: &Rc<RefCell<EditorState>>,
-) -> sourceview5::View {
+fn md_source_view_for_closure(state: &Rc<RefCell<EditorState>>) -> sourceview5::View {
     let st = state.borrow();
     if let Some(idx) = st.active_tab {
         if let Some(open_file) = st.open_files.get(idx) {
@@ -490,297 +495,6 @@ static NEXT_TAB_ID: AtomicU64 = AtomicU64::new(1);
 
 fn alloc_tab_id() -> u64 {
     NEXT_TAB_ID.fetch_add(1, Ordering::Relaxed)
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum TextClipboardAction {
-    Copy,
-    Cut,
-    Paste,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum TextHistoryAction {
-    Undo,
-    Redo,
-}
-
-fn text_clipboard_action(
-    key: gtk4::gdk::Key,
-    modifiers: gtk4::gdk::ModifierType,
-) -> Option<TextClipboardAction> {
-    if !crate::shortcuts::has_primary(modifiers) {
-        return None;
-    }
-
-    match key {
-        gtk4::gdk::Key::c | gtk4::gdk::Key::C => Some(TextClipboardAction::Copy),
-        gtk4::gdk::Key::x | gtk4::gdk::Key::X => Some(TextClipboardAction::Cut),
-        gtk4::gdk::Key::v | gtk4::gdk::Key::V => Some(TextClipboardAction::Paste),
-        _ => None,
-    }
-}
-
-fn text_history_action(
-    key: gtk4::gdk::Key,
-    modifiers: gtk4::gdk::ModifierType,
-) -> Option<TextHistoryAction> {
-    let primary = crate::shortcuts::has_primary(modifiers);
-    let shift = modifiers.contains(gtk4::gdk::ModifierType::SHIFT_MASK);
-
-    if !primary {
-        return None;
-    }
-
-    match key {
-        gtk4::gdk::Key::z if !shift => Some(TextHistoryAction::Undo),
-        gtk4::gdk::Key::y if !shift => Some(TextHistoryAction::Redo),
-        gtk4::gdk::Key::Z if shift => Some(TextHistoryAction::Redo),
-        _ => None,
-    }
-}
-
-use super::text_context_menu;
-
-fn install_text_clipboard_shortcuts<W: IsA<gtk4::Widget>>(widget: &W) {
-    let widget = widget.as_ref().clone();
-    let widget_for_action = widget.clone();
-    let key_ctrl = gtk4::EventControllerKey::new();
-    key_ctrl.set_propagation_phase(gtk4::PropagationPhase::Capture);
-    key_ctrl.connect_key_pressed(move |_, key, _, modifiers| {
-        let Some(action) = text_clipboard_action(key, modifiers) else {
-            return gtk4::glib::Propagation::Proceed;
-        };
-
-        let action_name = match action {
-            TextClipboardAction::Copy => "clipboard.copy",
-            TextClipboardAction::Cut => "clipboard.cut",
-            TextClipboardAction::Paste => "clipboard.paste",
-        };
-
-        if widget_for_action
-            .activate_action(action_name, None::<&gtk4::glib::Variant>)
-            .is_ok()
-        {
-            gtk4::glib::Propagation::Stop
-        } else {
-            gtk4::glib::Propagation::Proceed
-        }
-    });
-    widget.add_controller(key_ctrl);
-}
-
-fn install_text_history_shortcuts(view: &sourceview5::View) {
-    // Look up the buffer at event time: the main editor SourceView swaps its
-    // buffer every tab switch, so we must not capture the initial one.
-    let view_c = view.clone();
-    let key_ctrl = gtk4::EventControllerKey::new();
-    key_ctrl.set_propagation_phase(gtk4::PropagationPhase::Capture);
-    key_ctrl.connect_key_pressed(move |_, key, _, modifiers| {
-        let Some(action) = text_history_action(key, modifiers) else {
-            return gtk4::glib::Propagation::Proceed;
-        };
-
-        let Some(buffer) = view_c.buffer().downcast::<sourceview5::Buffer>().ok() else {
-            return gtk4::glib::Propagation::Proceed;
-        };
-
-        match action {
-            TextHistoryAction::Undo => {
-                if buffer.can_undo() {
-                    buffer.undo();
-                }
-            }
-            TextHistoryAction::Redo => {
-                if buffer.can_redo() {
-                    buffer.redo();
-                }
-            }
-        }
-
-        gtk4::glib::Propagation::Stop
-    });
-    view.add_controller(key_ctrl);
-}
-
-/// Side-by-side diff core returned by `build_diff_view_parts`. Callers wrap
-/// this in their own header + Ctrl+S handler.
-struct DiffViewParts {
-    /// Horizontal Paned: left column (old, read-only) | right column (new, editable),
-    /// each with its own overview ruler and synced vertical scrolling.
-    paned: gtk4::Paned,
-    /// Right-side editable buffer. Callers read its text on save.
-    new_buf: sourceview5::Buffer,
-}
-
-/// Build the side-by-side diff core: two SourceView columns (left old/read-only,
-/// right new/editable) inside a horizontal Paned, with synced vertical
-/// scrolling and per-side overview rulers marking changed lines. Used by both
-/// the git-diff view (HEAD vs working) and the merge view (disk vs unsaved
-/// buffer); each caller wraps this body in its own header and Ctrl+S handler.
-fn build_diff_view_parts(
-    file_path: &Path,
-    old_content: &str,
-    new_content: &str,
-) -> DiffViewParts {
-    let old_buf = sourceview5::Buffer::new(None::<&gtk4::TextTagTable>);
-    old_buf.set_text(old_content);
-    old_buf.set_highlight_syntax(true);
-    let new_buf = sourceview5::Buffer::new(None::<&gtk4::TextTagTable>);
-    new_buf.set_text(new_content);
-    new_buf.set_highlight_syntax(true);
-
-    let lang_manager = sourceview5::LanguageManager::default();
-    if let Some(lang) = lang_manager.guess_language(Some(file_path), None::<&str>) {
-        old_buf.set_language(Some(&lang));
-        new_buf.set_language(Some(&lang));
-    }
-    crate::theme::register_sourceview_buffer(&old_buf);
-    crate::theme::register_sourceview_buffer(&new_buf);
-
-    let mut old_change_lines: Vec<i32> = Vec::new();
-    let mut new_change_lines: Vec<i32> = Vec::new();
-    {
-        let diff = similar::TextDiff::from_lines(old_content, new_content);
-
-        let ensure_diff_tags = |buf: &sourceview5::Buffer| {
-            let tt = buf.tag_table();
-            if tt.lookup("diff-del").is_none() {
-                let tag = gtk4::TextTag::new(Some("diff-del"));
-                tag.set_paragraph_background(Some("rgba(220, 50, 47, 0.25)"));
-                tt.add(&tag);
-            }
-            if tt.lookup("diff-add").is_none() {
-                let tag = gtk4::TextTag::new(Some("diff-add"));
-                tag.set_paragraph_background(Some("rgba(40, 180, 60, 0.25)"));
-                tt.add(&tag);
-            }
-        };
-        ensure_diff_tags(&old_buf);
-        ensure_diff_tags(&new_buf);
-
-        let mut old_line = 0i32;
-        let mut new_line = 0i32;
-        for change in diff.iter_all_changes() {
-            match change.tag() {
-                similar::ChangeTag::Equal => {
-                    old_line += 1;
-                    new_line += 1;
-                }
-                similar::ChangeTag::Delete => {
-                    if let Some(start) = old_buf.iter_at_line(old_line) {
-                        let mut end = start.clone();
-                        end.forward_to_line_end();
-                        end.forward_char();
-                        old_buf.apply_tag_by_name("diff-del", &start, &end);
-                    }
-                    old_change_lines.push(old_line);
-                    old_line += 1;
-                }
-                similar::ChangeTag::Insert => {
-                    if let Some(start) = new_buf.iter_at_line(new_line) {
-                        let mut end = start.clone();
-                        end.forward_to_line_end();
-                        end.forward_char();
-                        new_buf.apply_tag_by_name("diff-add", &start, &end);
-                    }
-                    new_change_lines.push(new_line);
-                    new_line += 1;
-                }
-            }
-        }
-    }
-
-    let file_path_owned = file_path.to_path_buf();
-    let make_sv = |buf: &sourceview5::Buffer,
-                   editable: bool|
-     -> (sourceview5::View, gtk4::ScrolledWindow) {
-        let view = sourceview5::View::with_buffer(buf);
-        view.add_css_class("editor-code-view");
-        view.set_editable(editable);
-        view.set_show_line_numbers(true);
-        view.set_monospace(true);
-        view.set_left_margin(3);
-        install_text_clipboard_shortcuts(&view);
-        install_text_history_shortcuts(&view);
-        if editable {
-            view.set_auto_indent(true);
-            view.set_tab_width(4);
-        }
-        let scroll = gtk4::ScrolledWindow::new();
-        scroll.set_child(Some(&view));
-        scroll.set_vexpand(true);
-        scroll.set_hexpand(true);
-        let file_path_factory = file_path_owned.clone();
-        let buf_factory = buf.clone();
-        text_context_menu::install(&scroll, &view, editable, move |_click_line| {
-            if !editable {
-                return Vec::new();
-            }
-            text_context_menu::format_item_for(&file_path_factory, &buf_factory)
-                .map(|i| vec![i])
-                .unwrap_or_default()
-        });
-        (view, scroll)
-    };
-
-    let (old_view, old_scroll) = make_sv(&old_buf, false);
-    let (new_view, new_scroll) = make_sv(&new_buf, true);
-
-    let old_bar = build_overview_ruler(
-        old_change_lines,
-        old_buf.line_count(),
-        OverviewRulerKind::Delete,
-        &old_view,
-    );
-    let new_bar = build_overview_ruler(
-        new_change_lines,
-        new_buf.line_count(),
-        OverviewRulerKind::Insert,
-        &new_view,
-    );
-    // Rulers on the outer edges of the diff so the Paned separator between
-    // old/new scrollviews stays grabable. The outer-left ruler also gets a
-    // generous start margin so it clears the *main* sidebar paned's resize
-    // grab zone (which extends further than the visible handle).
-    old_bar.set_margin_start(12);
-    let old_column = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
-    old_column.append(&old_bar);
-    old_column.append(&old_scroll);
-    let new_column = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
-    new_column.append(&new_scroll);
-    new_column.append(&new_bar);
-
-    let syncing = Rc::new(std::cell::Cell::new(false));
-    {
-        let ns = new_scroll.clone();
-        let s = syncing.clone();
-        old_scroll.vadjustment().connect_value_changed(move |adj| {
-            if !s.get() {
-                s.set(true);
-                ns.vadjustment().set_value(adj.value());
-                s.set(false);
-            }
-        });
-    }
-    {
-        let os = old_scroll.clone();
-        let s = syncing.clone();
-        new_scroll.vadjustment().connect_value_changed(move |adj| {
-            if !s.get() {
-                s.set(true);
-                os.vadjustment().set_value(adj.value());
-                s.set(false);
-            }
-        });
-    }
-
-    let paned = gtk4::Paned::new(gtk4::Orientation::Horizontal);
-    paned.set_vexpand(true);
-    paned.set_start_child(Some(&old_column));
-    paned.set_end_child(Some(&new_column));
-
-    DiffViewParts { paned, new_buf }
 }
 
 /// Manages the Notebook tabs and SourceView buffers.
@@ -897,18 +611,17 @@ impl EditorTabs {
             let state_c = state.clone();
             source_view.set_has_tooltip(true);
             source_view.connect_query_tooltip(move |view, _x, y, _keyboard, tooltip| {
-                let (_, buf_y) = view.window_to_buffer_coords(
-                    gtk4::TextWindowType::Widget,
-                    0,
-                    y,
-                );
+                let (_, buf_y) = view.window_to_buffer_coords(gtk4::TextWindowType::Widget, 0, y);
                 let (iter, _) = view.line_at_y(buf_y);
                 let line = iter.line();
                 let st = state_c.borrow();
-                let Some(idx) = st.active_tab else { return false };
-                let Some(open_file) = st.open_files.get(idx) else { return false };
-                let super::tab_content::TabContent::Source(source) = &open_file.content
-                else {
+                let Some(idx) = st.active_tab else {
+                    return false;
+                };
+                let Some(open_file) = st.open_files.get(idx) else {
+                    return false;
+                };
+                let super::tab_content::TabContent::Source(source) = &open_file.content else {
                     return false;
                 };
                 let notes = source.notes.notes_on_line(&source.buffer, line);
@@ -997,8 +710,7 @@ impl EditorTabs {
                 let st = state_c.borrow();
                 let idx = st.active_tab?;
                 let open_file = st.open_files.get(idx)?;
-                let super::tab_content::TabContent::Source(source) = &open_file.content
-                else {
+                let super::tab_content::TabContent::Source(source) = &open_file.content else {
                     return None;
                 };
                 source
@@ -1089,91 +801,33 @@ impl EditorTabs {
             let state_c = state.clone();
             let sv = source_view.clone();
             let lang_l = status_lang.clone();
+            let pos_l = status_pos.clone();
             let mod_l = status_modified.clone();
             let ml = match_lines.clone();
             let mr = match_ruler.clone();
             let lsq = last_search_query.clone();
             let cs = content_stack.clone();
             let nr = notes_ruler.clone();
+            let keyword_shadow = keyword_shadow_buffer.clone();
             notebook.connect_switch_page(move |_nb, _page, page_num| {
                 let idx = page_num as usize;
-                sv.completion().hide();
-                // Resolve child + buffer under an immutable borrow so the
-                // content_stack visibility is always applied even when
-                // try_borrow_mut loses the race (which previously left the
-                // stack showing a stale child — e.g. after a Ctrl+F navigation
-                // followed by a tab click the new tab would appear blank).
-                let (child_opt, buf_opt) = {
-                    let st = state_c.borrow();
-                    match st.open_files.get(idx) {
-                        Some(f) => (
-                            Some(f.content.content_stack_child_name(f.tab_id)),
-                            f.source_buffer().cloned(),
-                        ),
-                        None => (None, None),
-                    }
-                };
-                if let Some(ref child) = child_opt {
-                    cs.set_visible_child_name(child);
+                if apply_tab_view_state(
+                    idx,
+                    &state_c,
+                    _nb,
+                    &sv,
+                    &cs,
+                    &lang_l,
+                    &pos_l,
+                    &mod_l,
+                    &ml,
+                    &lsq,
+                    &mr,
+                    &nr,
+                    &keyword_shadow,
+                ) {
+                    super::fire_nav_state_changed(&state_c);
                 }
-                if let Some(ref buf) = buf_opt {
-                    sv.set_buffer(Some(buf));
-                    // Scroll the view to the incoming buffer's cursor so the
-                    // user returns to where they were on that tab. Without
-                    // this, the view keeps its previous pixel scroll position
-                    // across the buffer swap — which can leave the user
-                    // looking at blank space past the end of the new buffer,
-                    // especially after a Ctrl+F next/prev had scrolled the
-                    // old buffer deep into the file.
-                    let insert = buf.get_insert();
-                    sv.scroll_to_mark(&insert, 0.1, true, 0.0, 0.3);
-                }
-
-                if let Ok(mut st) = state_c.try_borrow_mut() {
-                    if let Some(open_file) = st.open_files.get(idx) {
-                        // Only source tabs participate in the shared source
-                        // view, match ruler, and language label. Non-source
-                        // tabs own their own widget tree inside content_stack.
-                        if let Some(buf) = open_file.source_buffer() {
-                            let query = lsq.borrow().clone();
-                            let lines = collect_match_lines(buf, &query);
-                            let has = !lines.is_empty();
-                            *ml.borrow_mut() = lines;
-                            mr.set_visible(has);
-                            mr.queue_draw();
-                            if let Some(l) = buf.language() {
-                                lang_l.set_text(&l.name());
-                            } else {
-                                lang_l.set_text("Plain Text");
-                            }
-                            // Notes ruler for source tabs.
-                            if let super::tab_content::TabContent::Source(source) =
-                                &open_file.content
-                            {
-                                let note_lines = source.notes.current_lines(&source.buffer);
-                                nr.update(note_lines, source.buffer.line_count());
-                            } else {
-                                nr.clear();
-                            }
-                        } else {
-                            ml.borrow_mut().clear();
-                            mr.set_visible(false);
-                            nr.clear();
-                            lang_l.set_text(match &open_file.content {
-                                super::tab_content::TabContent::Markdown(_) => "Markdown",
-                                super::tab_content::TabContent::Image(_) => "Image",
-                                _ => "",
-                            });
-                        }
-                        mod_l.set_text(if open_file.modified() {
-                            "\u{25CF} Modified"
-                        } else {
-                            ""
-                        });
-                    }
-                    st.active_tab = Some(idx);
-                }
-                super::fire_nav_state_changed(&state_c);
             });
         }
 
@@ -1682,21 +1336,15 @@ impl EditorTabs {
         }
         super::fire_nav_state_changed(state);
 
-        // Check if already open. Drop the immutable borrow before triggering
-        // any side effect: `set_current_page` fires `connect_switch_page`
-        // synchronously, which tries to update `active_tab` via
-        // `try_borrow_mut` — that fails (and silently leaves `active_tab`
-        // stale) if we're still holding `st`. The downstream project-search
-        // reveal then reads the wrong tab. Update `active_tab` explicitly
-        // too, as belt-and-suspenders.
+        // Check if already open. Drop the immutable borrow before activating:
+        // `set_current_page` fires `connect_switch_page` synchronously, and
+        // the activation path updates state plus visible widgets together.
         let already_open_idx = {
             let st = state.borrow();
             st.open_files.iter().position(|f| f.path == path)
         };
         if let Some(idx) = already_open_idx {
-            state.borrow_mut().active_tab = Some(idx);
-            self.notebook.set_current_page(Some(idx as u32));
-            self.switch_to_buffer(idx, state);
+            self.activate_tab(idx, state);
             return Some(idx);
         }
 
@@ -1818,32 +1466,18 @@ impl EditorTabs {
             st.open_files.len() - 1
         };
 
-        // Track dirty state
-        {
-            let state_c = state.clone();
-            let dot_c = dot.clone();
-            let mod_label = self.status_modified.clone();
-            // Compare buffer content against saved content for accurate dirty detection
-            let saved_for_changed = state.borrow().open_files[idx]
-                .saved_content()
-                .expect("source tab just pushed has saved_content")
-                .clone();
-            buf.connect_changed(move |buf| {
-                let current = buf
-                    .text(&buf.start_iter(), &buf.end_iter(), false)
-                    .to_string();
-                let is_dirty = current != *saved_for_changed.borrow();
-                dot_c.set_text(if is_dirty { "\u{25CF} " } else { "" });
-                mod_label.set_text(if is_dirty { "\u{25CF} Modified" } else { "" });
-                if let Ok(mut st) = state_c.try_borrow_mut() {
-                    if let Some(file_idx) =
-                        st.open_files.iter().position(|f| f.tab_id == tab_id)
-                    {
-                        st.open_files[file_idx].set_modified(is_dirty);
-                    }
-                }
-            });
-        }
+        let saved_for_changed = state.borrow().open_files[idx]
+            .saved_content()
+            .expect("source tab just pushed has saved_content")
+            .clone();
+        dirty_state::install_dirty_tracking(
+            &buf,
+            saved_for_changed,
+            tab_id,
+            state,
+            &dot,
+            &self.status_modified,
+        );
 
         // Close button
         {
@@ -1859,9 +1493,7 @@ impl EditorTabs {
                     let per_tab_child = format!("tab-{}", tab_id);
                     {
                         let mut st = state_c.borrow_mut();
-                        if let Some(idx) =
-                            st.open_files.iter().position(|f| f.tab_id == tab_id)
-                        {
+                        if let Some(idx) = st.open_files.iter().position(|f| f.tab_id == tab_id) {
                             st.open_files.remove(idx);
                             empty_after = st.open_files.is_empty();
                             new_idx = if empty_after {
@@ -1971,9 +1603,7 @@ impl EditorTabs {
                             let save_result = {
                                 let st = sc.borrow();
                                 let backend = st.backend.clone();
-                                if let Some(f) =
-                                    st.open_files.iter().find(|f| f.tab_id == tab_id)
-                                {
+                                if let Some(f) = st.open_files.iter().find(|f| f.tab_id == tab_id) {
                                     if let Some(buf) = f.writable_buffer() {
                                         let text = buf
                                             .text(&buf.start_iter(), &buf.end_iter(), false)
@@ -2046,8 +1676,7 @@ impl EditorTabs {
                 let fp_for_log = fp.clone();
                 super::task::run_blocking(
                     move || {
-                        let db = pax_db::Database::open(&pax_db::Database::default_path())
-                            .ok()?;
+                        let db = pax_db::Database::open(&pax_db::Database::default_path()).ok()?;
                         db.list_notes_for_file(&record_key, &fp).ok()
                     },
                     move |maybe_notes| {
@@ -2077,8 +1706,7 @@ impl EditorTabs {
                         else {
                             return;
                         };
-                        let super::tab_content::TabContent::Source(source) =
-                            &open_file.content
+                        let super::tab_content::TabContent::Source(source) = &open_file.content
                         else {
                             return;
                         };
@@ -2104,19 +1732,13 @@ impl EditorTabs {
             }
         }
 
-        // Switch to this buffer
-        self.switch_to_buffer(idx, state);
-        self.notebook.set_current_page(Some(idx as u32));
+        self.activate_tab(idx, state);
 
         Some(idx)
     }
 
     /// Open a `.md` file in a Rendered/Source Markdown tab.
-    fn open_markdown_file(
-        &self,
-        path: &Path,
-        state: &Rc<RefCell<EditorState>>,
-    ) -> Option<usize> {
+    fn open_markdown_file(&self, path: &Path, state: &Rc<RefCell<EditorState>>) -> Option<usize> {
         let backend = state.borrow().backend.clone();
         let content = match backend.read_file(path) {
             Ok(c) => c,
@@ -2173,28 +1795,14 @@ impl EditorTabs {
             st.open_files.len() - 1
         };
 
-        // Dirty tracking on the markdown source buffer.
-        {
-            let state_c = state.clone();
-            let dot_c = dot.clone();
-            let mod_label = self.status_modified.clone();
-            let saved = md.saved_content.clone();
-            md.buffer.connect_changed(move |buf| {
-                let current = buf
-                    .text(&buf.start_iter(), &buf.end_iter(), false)
-                    .to_string();
-                let is_dirty = current != *saved.borrow();
-                dot_c.set_text(if is_dirty { "\u{25CF} " } else { "" });
-                mod_label.set_text(if is_dirty { "\u{25CF} Modified" } else { "" });
-                if let Ok(mut st) = state_c.try_borrow_mut() {
-                    if let Some(file_idx) =
-                        st.open_files.iter().position(|f| f.tab_id == tab_id)
-                    {
-                        st.open_files[file_idx].set_modified(is_dirty);
-                    }
-                }
-            });
-        }
+        dirty_state::install_dirty_tracking(
+            &md.buffer,
+            md.saved_content.clone(),
+            tab_id,
+            state,
+            &dot,
+            &self.status_modified,
+        );
 
         // Close button — mirrors open_file's close path including the
         // unsaved-changes dialog. Per-tab stack child is removed by close_do_it.
@@ -2211,9 +1819,7 @@ impl EditorTabs {
                     let per_tab_child = format!("tab-{}", tab_id);
                     {
                         let mut st = state_c.borrow_mut();
-                        if let Some(idx) =
-                            st.open_files.iter().position(|f| f.tab_id == tab_id)
-                        {
+                        if let Some(idx) = st.open_files.iter().position(|f| f.tab_id == tab_id) {
                             st.open_files.remove(idx);
                             empty_after = st.open_files.is_empty();
                             new_idx = if empty_after {
@@ -2311,9 +1917,7 @@ impl EditorTabs {
                             let save_result = {
                                 let st = sc.borrow();
                                 let backend = st.backend.clone();
-                                if let Some(f) =
-                                    st.open_files.iter().find(|f| f.tab_id == tab_id)
-                                {
+                                if let Some(f) = st.open_files.iter().find(|f| f.tab_id == tab_id) {
                                     if let Some(buf) = f.writable_buffer() {
                                         let text = buf
                                             .text(&buf.start_iter(), &buf.end_iter(), false)
@@ -2371,19 +1975,14 @@ impl EditorTabs {
         // context-menu Add/Edit/Delete, hover tooltip, and async load.
         install_markdown_notes(self, state, &md, path, tab_id);
 
-        self.switch_to_buffer(idx, state);
-        self.notebook.set_current_page(Some(idx as u32));
+        self.activate_tab(idx, state);
 
         Some(idx)
     }
 
     /// Open an image file in an Image tab (metadata header + Picture + zoom).
     /// Remote (SSH) backends decline gracefully — first pass is local-only.
-    fn open_image_file(
-        &self,
-        path: &Path,
-        state: &Rc<RefCell<EditorState>>,
-    ) -> Option<usize> {
+    fn open_image_file(&self, path: &Path, state: &Rc<RefCell<EditorState>>) -> Option<usize> {
         if state.borrow().backend.is_remote() {
             tracing::warn!(
                 "Image preview is local-only; skipping remote image {}",
@@ -2444,9 +2043,7 @@ impl EditorTabs {
                 let per_tab_child = format!("tab-{}", tab_id);
                 let (empty_after, new_idx);
                 let mut st = state_c.borrow_mut();
-                if let Some(idx) =
-                    st.open_files.iter().position(|f| f.tab_id == tab_id)
-                {
+                if let Some(idx) = st.open_files.iter().position(|f| f.tab_id == tab_id) {
                     st.open_files.remove(idx);
                     empty_after = st.open_files.is_empty();
                     new_idx = if empty_after {
@@ -2487,78 +2084,47 @@ impl EditorTabs {
             tab_box.add_controller(gesture);
         }
 
-        self.switch_to_buffer(idx, state);
-        self.notebook.set_current_page(Some(idx as u32));
+        self.activate_tab(idx, state);
 
         Some(idx)
     }
 
-    /// Switch the SourceView to display the buffer at the given index.
-    pub fn switch_to_buffer(&self, idx: usize, state: &Rc<RefCell<EditorState>>) {
-        // GtkSourceView keeps the completion popup alive across buffer swaps
-        // unless we hide it explicitly. If the user changes file while the
-        // popup is open, the orphaned surface can linger on screen and the
-        // incoming buffer may look blank until the next redraw.
-        self.source_view.completion().hide();
-
-        // Toggle active CSS class on editor tab labels
-        let n = self.notebook.n_pages();
-        for i in 0..n {
-            if let Some(page) = self.notebook.nth_page(Some(i)) {
-                if let Some(tab_label) = self.notebook.tab_label(&page) {
-                    if i == idx as u32 {
-                        tab_label.add_css_class("editor-tab-active");
-                    } else {
-                        tab_label.remove_css_class("editor-tab-active");
-                    }
-                }
-            }
+    /// Activate a tab from code paths that do not come from a notebook click.
+    /// This drives the notebook selection and then applies the same visual
+    /// state as the `switch-page` signal. If GTK does not emit the signal
+    /// because the page is already selected, the explicit apply keeps the UI
+    /// synchronized.
+    pub fn activate_tab(&self, idx: usize, state: &Rc<RefCell<EditorState>>) -> bool {
+        if state.borrow().open_files.get(idx).is_none() {
+            return false;
         }
 
-        let st = state.borrow();
-        if let Some(open_file) = st.open_files.get(idx) {
-            let child = open_file.content.content_stack_child_name(open_file.tab_id);
-            self.content_stack.set_visible_child_name(&child);
-            if let Some(buf) = open_file.source_buffer() {
-                self.source_view.set_buffer(Some(buf));
-                let insert = buf.get_insert();
-                self.source_view.scroll_to_mark(&insert, 0.1, true, 0.0, 0.3);
-                let language = buf.language();
-                if let Some(lang) = language.as_ref() {
-                    self.status_lang.set_text(&lang.name());
-                } else {
-                    self.status_lang.set_text("Plain Text");
-                }
-                self.refresh_keyword_shadow(
-                    language.as_ref().map(|l| l.id().to_string()).as_deref(),
-                );
-            } else {
-                self.status_lang.set_text(match &open_file.content {
-                    super::tab_content::TabContent::Markdown(_) => "Markdown",
-                    super::tab_content::TabContent::Image(_) => "Image",
-                    _ => "",
-                });
-            }
-            self.status_modified.set_text(if open_file.modified() {
-                "\u{25CF} Modified"
-            } else {
-                ""
-            });
+        let was_current = self.notebook.current_page() == Some(idx as u32);
+        self.notebook.set_current_page(Some(idx as u32));
+        let applied = self.switch_to_buffer(idx, state);
+        if applied && was_current {
+            super::fire_nav_state_changed(state);
         }
-        drop(st);
-        self.refresh_notes_ruler(state);
+        applied
     }
 
-    /// Re-populate the shadow buffer with the keyword list for the active
-    /// language so completion proposals reflect the current file's syntax.
-    fn refresh_keyword_shadow(&self, lang_id: Option<&str>) {
-        let text = match lang_id {
-            // CompletionWords scans buffers for word boundaries; whitespace
-            // separation is enough.
-            Some(id) => keywords_for(id).join(" "),
-            None => String::new(),
-        };
-        self.keyword_shadow_buffer.set_text(&text);
+    /// Switch the SourceView to display the buffer at the given index.
+    pub fn switch_to_buffer(&self, idx: usize, state: &Rc<RefCell<EditorState>>) -> bool {
+        apply_tab_view_state(
+            idx,
+            state,
+            &self.notebook,
+            &self.source_view,
+            &self.content_stack,
+            &self.status_lang,
+            &self.status_pos,
+            &self.status_modified,
+            &self.match_lines,
+            &self.last_search_query,
+            &self.match_ruler,
+            &self.notes_ruler,
+            &self.keyword_shadow_buffer,
+        )
     }
 
     /// Show a side-by-side diff view for the given file (HEAD vs working).
@@ -2830,13 +2396,16 @@ impl EditorTabs {
     fn prepare_search_buffer(&self, state: &Rc<RefCell<EditorState>>) {
         let buf = {
             let st = state.borrow();
-            let md_buf = st.active_tab.and_then(|i| st.open_files.get(i)).and_then(|of| {
-                if let super::tab_content::TabContent::Markdown(md) = &of.content {
-                    Some(md.clone())
-                } else {
-                    None
-                }
-            });
+            let md_buf = st
+                .active_tab
+                .and_then(|i| st.open_files.get(i))
+                .and_then(|of| {
+                    if let super::tab_content::TabContent::Markdown(md) = &of.content {
+                        Some(md.clone())
+                    } else {
+                        None
+                    }
+                });
             match md_buf {
                 Some(md) => {
                     if md.mode.get() == super::tab_content::MarkdownMode::Rendered {
@@ -2904,10 +2473,8 @@ impl EditorTabs {
                                 .iter()
                                 .filter_map(|e| {
                                     let mark = e.mark.as_ref()?;
-                                    let line =
-                                        super::notes_state::line_of_mark(buffer, mark);
-                                    let anchor =
-                                        super::notes_state::line_content(buffer, line);
+                                    let line = super::notes_state::line_of_mark(buffer, mark);
+                                    let anchor = super::notes_state::line_content(buffer, line);
                                     Some((e.db_id, line, anchor))
                                 })
                                 .collect();
@@ -2915,11 +2482,8 @@ impl EditorTabs {
                                 let db_path = pax_db::Database::default_path();
                                 if let Ok(db) = pax_db::Database::open(&db_path) {
                                     for (id, line, anchor) in snapshot {
-                                        let _ = db.update_metadata_position(
-                                            id,
-                                            line,
-                                            Some(&anchor),
-                                        );
+                                        let _ =
+                                            db.update_metadata_position(id, line, Some(&anchor));
                                     }
                                 }
                             }
@@ -2990,8 +2554,7 @@ impl EditorTabs {
             self.notebook.set_show_tabs(false);
             self.content_stack.set_visible_child_name("welcome");
         } else {
-            self.notebook.set_current_page(Some(new_idx as u32));
-            self.switch_to_buffer(new_idx, state);
+            self.activate_tab(new_idx, state);
         }
         super::fire_nav_state_changed(state);
     }
@@ -3364,590 +2927,6 @@ impl EditorTabs {
     }
 }
 
-/// Show a side-by-side diff for a single file within a commit.
-fn show_commit_file_diff(
-    content_stack: &gtk4::Stack,
-    _notebook: &gtk4::Notebook,
-    commit_hash: &str,
-    file_rel: &str,
-    backend: Arc<dyn super::file_backend::FileBackend>,
-) {
-    // Get old version (parent commit) and new version (this commit)
-    let parent = format!("{}~1", commit_hash);
-    let old_content = backend
-        .git_show(&format!("{}:{}", parent, file_rel))
-        .unwrap_or_default();
-    let new_content = backend
-        .git_show(&format!("{}:{}", commit_hash, file_rel))
-        .unwrap_or_default();
-
-    let old_buf = sourceview5::Buffer::new(None::<&gtk4::TextTagTable>);
-    old_buf.set_text(&old_content);
-    old_buf.set_highlight_syntax(true);
-    let new_buf = sourceview5::Buffer::new(None::<&gtk4::TextTagTable>);
-    new_buf.set_text(&new_content);
-    new_buf.set_highlight_syntax(true);
-
-    // Syntax highlighting
-    let lang_manager = sourceview5::LanguageManager::default();
-    let file_path = Path::new(file_rel);
-    if let Some(lang) = lang_manager.guess_language(Some(file_path), None::<&str>) {
-        old_buf.set_language(Some(&lang));
-        new_buf.set_language(Some(&lang));
-    }
-    crate::theme::register_sourceview_buffer(&old_buf);
-    crate::theme::register_sourceview_buffer(&new_buf);
-
-    // Highlight diff
-    {
-        let diff = similar::TextDiff::from_lines(&old_content, &new_content);
-        let ensure_tags = |buf: &sourceview5::Buffer| {
-            let tt = buf.tag_table();
-            if tt.lookup("diff-del").is_none() {
-                let tag = gtk4::TextTag::new(Some("diff-del"));
-                tag.set_paragraph_background(Some("rgba(220, 50, 47, 0.25)"));
-                tt.add(&tag);
-            }
-            if tt.lookup("diff-add").is_none() {
-                let tag = gtk4::TextTag::new(Some("diff-add"));
-                tag.set_paragraph_background(Some("rgba(40, 180, 60, 0.25)"));
-                tt.add(&tag);
-            }
-        };
-        ensure_tags(&old_buf);
-        ensure_tags(&new_buf);
-
-        let mut old_line = 0i32;
-        let mut new_line = 0i32;
-        for change in diff.iter_all_changes() {
-            match change.tag() {
-                similar::ChangeTag::Equal => {
-                    old_line += 1;
-                    new_line += 1;
-                }
-                similar::ChangeTag::Delete => {
-                    if let Some(start) = old_buf.iter_at_line(old_line) {
-                        let mut end = start.clone();
-                        end.forward_to_line_end();
-                        end.forward_char();
-                        old_buf.apply_tag_by_name("diff-del", &start, &end);
-                    }
-                    old_line += 1;
-                }
-                similar::ChangeTag::Insert => {
-                    if let Some(start) = new_buf.iter_at_line(new_line) {
-                        let mut end = start.clone();
-                        end.forward_to_line_end();
-                        end.forward_char();
-                        new_buf.apply_tag_by_name("diff-add", &start, &end);
-                    }
-                    new_line += 1;
-                }
-            }
-        }
-    }
-
-    let make_sv = |buf: &sourceview5::Buffer| -> gtk4::ScrolledWindow {
-        let view = sourceview5::View::with_buffer(buf);
-        view.add_css_class("editor-code-view");
-        view.set_editable(false);
-        view.set_show_line_numbers(true);
-        view.set_monospace(true);
-        view.set_left_margin(3);
-        install_text_clipboard_shortcuts(&view);
-        install_text_history_shortcuts(&view);
-        let scroll = gtk4::ScrolledWindow::new();
-        scroll.set_child(Some(&view));
-        scroll.set_vexpand(true);
-        scroll.set_hexpand(true);
-        text_context_menu::install(&scroll, &view, false, |_click_line| Vec::new());
-        scroll
-    };
-
-    let old_scroll = make_sv(&old_buf);
-    let new_scroll = make_sv(&new_buf);
-
-    // Sync scrolling
-    let syncing = Rc::new(std::cell::Cell::new(false));
-    {
-        let ns = new_scroll.clone();
-        let s = syncing.clone();
-        old_scroll.vadjustment().connect_value_changed(move |adj| {
-            if !s.get() {
-                s.set(true);
-                ns.vadjustment().set_value(adj.value());
-                s.set(false);
-            }
-        });
-    }
-    {
-        let os = old_scroll.clone();
-        let s = syncing;
-        new_scroll.vadjustment().connect_value_changed(move |adj| {
-            if !s.get() {
-                s.set(true);
-                os.vadjustment().set_value(adj.value());
-                s.set(false);
-            }
-        });
-    }
-
-    // Build diff view
-    let diff_box = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
-    diff_box.set_vexpand(true);
-
-    let header = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
-    header.set_margin_start(8);
-    header.set_margin_end(8);
-    header.set_margin_top(4);
-    header.set_margin_bottom(4);
-
-    let back_btn = gtk4::Button::from_icon_name("go-previous-symbolic");
-    back_btn.add_css_class("flat");
-    back_btn.set_tooltip_text(Some("Back to commit"));
-    header.append(&back_btn);
-
-    let file_label = gtk4::Label::new(Some(&format!(
-        "{}  {} → {}",
-        file_rel,
-        &parent[..parent.len().min(8)],
-        &commit_hash[..commit_hash.len().min(8)]
-    )));
-    file_label.add_css_class("heading");
-    file_label.set_hexpand(true);
-    file_label.set_halign(gtk4::Align::Start);
-    header.append(&file_label);
-
-    // Revert this file to before this commit
-    let revert_btn = gtk4::Button::from_icon_name("edit-undo-symbolic");
-    revert_btn.add_css_class("flat");
-    revert_btn.set_tooltip_text(Some("Revert this file to before this commit"));
-    {
-        let be = backend.clone();
-        let parent_c = parent.clone();
-        let fp = file_rel.to_string();
-        let cs = content_stack.clone();
-        revert_btn.connect_clicked(move |_| {
-            let _ = be.git_command(&["checkout", &parent_c, "--", &fp]);
-            cs.set_visible_child_name("commit-diff");
-        });
-    }
-    header.append(&revert_btn);
-
-    diff_box.append(&header);
-
-    // Column labels
-    let labels = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
-    let old_label = gtk4::Label::new(Some(&format!(
-        "← PREVIOUS  {}  ({})",
-        file_rel,
-        &parent[..parent.len().min(8)]
-    )));
-    old_label.add_css_class("dim-label");
-    old_label.set_hexpand(true);
-    old_label.set_margin_start(8);
-    let new_label = gtk4::Label::new(Some(&format!(
-        "CURRENT  {}  ({}) →",
-        file_rel,
-        &commit_hash[..commit_hash.len().min(8)]
-    )));
-    new_label.add_css_class("dim-label");
-    new_label.set_hexpand(true);
-    new_label.set_margin_start(8);
-    labels.append(&old_label);
-    labels.append(&new_label);
-    diff_box.append(&labels);
-
-    let paned = gtk4::Paned::new(gtk4::Orientation::Horizontal);
-    paned.set_vexpand(true);
-    paned.set_start_child(Some(&old_scroll));
-    paned.set_end_child(Some(&new_scroll));
-    diff_box.append(&paned);
-
-    // Replace content
-    if let Some(old) = content_stack.child_by_name("commit-file-diff") {
-        content_stack.remove(&old);
-    }
-    content_stack.add_named(&diff_box, Some("commit-file-diff"));
-    content_stack.set_visible_child_name("commit-file-diff");
-
-    // Back goes to commit-diff view
-    {
-        let cs = content_stack.clone();
-        back_btn.connect_clicked(move |_| {
-            cs.set_visible_child_name("commit-diff");
-        });
-    }
-}
-
-/// Resolve the keyword list for a GtkSourceView language by parsing the
-/// shipped {id}.lang XML file. Result is cached after first lookup. Returns
-/// an empty list when no .lang file is found or it has no <keyword> tags.
-///
-/// We pull every `<keyword>` token, not only the ones in style-ref="keyword"
-/// contexts, because builtin/type/exception identifiers (e.g. `print`,
-/// `Vec`, `Exception`) are exactly what users want to autocomplete too.
-fn keywords_for(lang_id: &str) -> std::sync::Arc<Vec<String>> {
-    use std::collections::HashMap;
-    use std::sync::{Arc, Mutex, OnceLock};
-
-    static CACHE: OnceLock<Mutex<HashMap<String, Arc<Vec<String>>>>> = OnceLock::new();
-    let cache = CACHE.get_or_init(|| Mutex::new(HashMap::new()));
-    if let Some(cached) = cache.lock().unwrap().get(lang_id).cloned() {
-        return cached;
-    }
-
-    let mut words = load_keywords_from_lang(lang_id);
-    // Some IDs are thin extensions of a base language (python3 inherits
-    // python via <context ref="python:...">). Walking those refs would
-    // require a real parser; an alias merge covers the common cases.
-    for parent in parent_language_aliases(lang_id) {
-        let extra = load_keywords_from_lang(parent);
-        words.extend(extra);
-    }
-    words.sort();
-    words.dedup();
-
-    let arc = Arc::new(words);
-    cache
-        .lock()
-        .unwrap()
-        .insert(lang_id.to_string(), arc.clone());
-    arc
-}
-
-/// Map a language ID to base language(s) whose keywords should also be
-/// loaded. Returns an empty slice for self-contained languages.
-fn parent_language_aliases(lang_id: &str) -> &'static [&'static str] {
-    match lang_id {
-        "python3" => &["python"],
-        "bash" | "zsh" => &["sh"],
-        _ => &[],
-    }
-}
-
-fn load_keywords_from_lang(lang_id: &str) -> Vec<String> {
-    let manager = sourceview5::LanguageManager::default();
-    for path in manager.search_path() {
-        let candidate = std::path::Path::new(path.as_str()).join(format!("{}.lang", lang_id));
-        if let Ok(xml) = std::fs::read_to_string(&candidate) {
-            return parse_keyword_tags(&xml);
-        }
-    }
-    Vec::new()
-}
-
-/// Extract every `<keyword>TOKEN</keyword>` payload from a .lang XML.
-/// Whitespace inside the tag is trimmed; duplicates are *not* removed here
-/// (the caller dedups after merging multiple files).
-fn parse_keyword_tags(xml: &str) -> Vec<String> {
-    use std::sync::OnceLock;
-
-    static KEYWORD_RE: OnceLock<regex::Regex> = OnceLock::new();
-    let re = KEYWORD_RE
-        .get_or_init(|| regex::Regex::new(r"<keyword>([^<]+)</keyword>").unwrap());
-
-    re.captures_iter(xml)
-        .filter_map(|c| {
-            let raw = c.get(1)?.as_str().trim();
-            if raw.is_empty() {
-                None
-            } else {
-                Some(raw.to_string())
-            }
-        })
-        .collect()
-}
-
-/// Install bracket and quote auto-pairing on the SourceView.
-///
-/// - Typing `(`, `[`, `{`, `"`, `'`, `` ` `` inserts the matching closer
-///   and places the cursor between them.
-/// - With a selection active, the selection is wrapped instead.
-/// - For the symmetrical pairs (quotes, backticks), if the cursor is
-///   already sitting on the same character, just step past it instead of
-///   inserting a doubled-up closer (matches what users expect from
-///   VS Code / IntelliJ).
-fn install_bracket_auto_pair(view: &sourceview5::View) {
-    use gtk4::gdk;
-
-    let key_ctrl = gtk4::EventControllerKey::new();
-    key_ctrl.set_propagation_phase(gtk4::PropagationPhase::Capture);
-
-    let view_clone = view.clone();
-    key_ctrl.connect_key_pressed(move |_, key, _, state| {
-        // Ignore when modifiers are held (Ctrl+(, Alt+", etc. shouldn't pair).
-        let allowed = gtk4::gdk::ModifierType::SHIFT_MASK;
-        if state.intersects(!allowed) {
-            return gtk4::glib::Propagation::Proceed;
-        }
-
-        let pair: Option<(&str, &str, bool)> = match key {
-            gdk::Key::parenleft => Some(("(", ")", false)),
-            gdk::Key::bracketleft => Some(("[", "]", false)),
-            gdk::Key::braceleft => Some(("{", "}", false)),
-            gdk::Key::quotedbl => Some(("\"", "\"", true)),
-            gdk::Key::apostrophe => Some(("'", "'", true)),
-            gdk::Key::grave => Some(("`", "`", true)),
-            _ => return gtk4::glib::Propagation::Proceed,
-        };
-        let (open, close, symmetrical) = pair.unwrap();
-
-        let Ok(buffer) = view_clone.buffer().downcast::<sourceview5::Buffer>() else {
-            return gtk4::glib::Propagation::Proceed;
-        };
-
-        // Wrap selection.
-        if buffer.has_selection() {
-            if let Some((mut s, mut e)) = buffer.selection_bounds() {
-                let text = buffer.text(&s, &e, false).to_string();
-                buffer.begin_user_action();
-                buffer.delete(&mut s, &mut e);
-                buffer.insert(&mut s, &format!("{}{}{}", open, text, close));
-                buffer.end_user_action();
-                return gtk4::glib::Propagation::Stop;
-            }
-        }
-
-        // For symmetrical chars (quotes, backticks): step over an existing
-        // matching closer rather than inserting a duplicate.
-        if symmetrical {
-            let cursor = buffer.iter_at_mark(&buffer.get_insert());
-            let mut next = cursor.clone();
-            if next.forward_char() {
-                let next_char = buffer.text(&cursor, &next, false).to_string();
-                if next_char == open {
-                    buffer.place_cursor(&next);
-                    return gtk4::glib::Propagation::Stop;
-                }
-            }
-        }
-
-        // Insert pair, leave cursor between.
-        let mut iter = buffer.iter_at_mark(&buffer.get_insert());
-        buffer.begin_user_action();
-        buffer.insert(&mut iter, &format!("{}{}", open, close));
-        let mut cursor = buffer.iter_at_mark(&buffer.get_insert());
-        cursor.backward_char();
-        buffer.place_cursor(&cursor);
-        buffer.end_user_action();
-        gtk4::glib::Propagation::Stop
-    });
-    view.add_controller(key_ctrl);
-}
-
-/// Pick a GtkSourceView language for files that the upstream mime/glob
-/// heuristics fail to recognise. Returns `None` when no override applies,
-/// leaving the buffer unstyled (the editor still works as plain text).
-fn fallback_language_for(
-    manager: &sourceview5::LanguageManager,
-    path: &Path,
-) -> Option<sourceview5::Language> {
-    let name = path.file_name().and_then(|s| s.to_str())?;
-    // Dotenv-style files: KEY=value with `#` comments, shell-compatible.
-    if name == ".env"
-        || name == ".envrc"
-        || name.starts_with(".env.")
-        || name.ends_with(".env")
-    {
-        return manager.language("sh");
-    }
-    None
-}
-
-#[derive(Debug, Clone, Copy)]
-enum OverviewRulerKind {
-    /// Red marks for deleted lines (on the PREVIOUS side).
-    Delete,
-    /// Green marks for inserted lines (on the CURRENT side).
-    Insert,
-    /// Gold marks for search-match lines (main editor overview).
-    Match,
-}
-
-/// Pixel width of the overview ruler strip. Wide enough to be tappable
-/// without crowding the editor's scrollbar.
-const OVERVIEW_RULER_WIDTH: i32 = 10;
-/// Minimum pixel height of a single marker so it stays visible and clickable
-/// even in very long files where each line would otherwise collapse to
-/// sub-pixel size.
-const OVERVIEW_RULER_MARK_MIN_HEIGHT: f64 = 2.0;
-/// Alpha for the neutral backdrop behind the marks. Low enough to blend
-/// with the surrounding chrome but present so the strip has a visual
-/// identity even when the file has no changes.
-const OVERVIEW_RULER_BG_ALPHA: f64 = 0.05;
-
-fn overview_ruler_color(kind: OverviewRulerKind) -> (f64, f64, f64) {
-    // Match the rgba fills already used for diff-del / diff-add paragraph
-    // backgrounds so the minimap reads as the same language as the inline
-    // highlighting.
-    match kind {
-        OverviewRulerKind::Delete => (220.0 / 255.0, 50.0 / 255.0, 47.0 / 255.0),
-        OverviewRulerKind::Insert => (40.0 / 255.0, 180.0 / 255.0, 60.0 / 255.0),
-        // Gold, matches the `#e5a50a` highlight used for search matches.
-        OverviewRulerKind::Match => (229.0 / 255.0, 165.0 / 255.0, 10.0 / 255.0),
-    }
-}
-
-/// Build a narrow clickable strip that shows every changed line at its
-/// proportional position in the file. Clicking a marker (or anywhere in the
-/// strip) scrolls `view` to the nearest change and places the cursor there.
-fn build_overview_ruler(
-    change_lines: Vec<i32>,
-    total_lines: i32,
-    kind: OverviewRulerKind,
-    view: &sourceview5::View,
-) -> gtk4::DrawingArea {
-    let bar = gtk4::DrawingArea::new();
-    bar.set_width_request(OVERVIEW_RULER_WIDTH);
-    bar.set_vexpand(true);
-    bar.add_css_class("diff-overview-ruler");
-    bar.set_tooltip_text(Some("Click a marker to jump to that change"));
-    bar.set_cursor_from_name(Some("pointer"));
-
-    let lines = Rc::new(change_lines);
-    let total = total_lines.max(1);
-
-    {
-        let lines = lines.clone();
-        bar.set_draw_func(move |_, cr, w, h| {
-            let (r, g, b) = overview_ruler_color(kind);
-            let h_f = h as f64;
-            let w_f = w as f64;
-            cr.set_source_rgba(0.5, 0.5, 0.5, OVERVIEW_RULER_BG_ALPHA);
-            let _ = cr.paint();
-            cr.set_source_rgba(r, g, b, 0.9);
-            let mark_h = (h_f / total as f64).max(OVERVIEW_RULER_MARK_MIN_HEIGHT);
-            for &line in lines.iter() {
-                let y = (line as f64 / total as f64) * h_f;
-                cr.rectangle(0.0, y, w_f, mark_h);
-            }
-            let _ = cr.fill();
-        });
-    }
-
-    {
-        let view = view.clone();
-        let lines = lines.clone();
-        let bar_for_click = bar.clone();
-        let gesture = gtk4::GestureClick::new();
-        gesture.set_propagation_phase(gtk4::PropagationPhase::Capture);
-        gesture.connect_pressed(move |g, _n, _x, y| {
-            // Claim the event so the enclosing Paned doesn't start a
-            // drag-to-resize on the same press.
-            g.set_state(gtk4::EventSequenceState::Claimed);
-            let h = bar_for_click.height().max(1) as f64;
-            let proportion = (y / h).clamp(0.0, 1.0);
-            let clicked = (proportion * total as f64) as i32;
-            // Snap to the nearest known change so clicking the backdrop
-            // between two markers still lands on a real change.
-            let target = lines
-                .iter()
-                .copied()
-                .min_by_key(|l| (*l - clicked).abs())
-                .unwrap_or(clicked);
-            let buf = view.buffer();
-            if let Some(iter) = buf.iter_at_line(target) {
-                buf.place_cursor(&iter);
-                view.scroll_to_iter(&mut iter.clone(), 0.1, true, 0.5, 0.5);
-            }
-        });
-        bar.add_controller(gesture);
-    }
-
-    bar
-}
-
-/// Like `build_overview_ruler` but the marked lines and total line count are
-/// re-read on every draw, so the ruler can follow the active buffer as the
-/// user edits, switches tabs, or changes the search query. `lines` is shared
-/// state the caller mutates; after mutating, call `queue_draw` on the returned
-/// widget to repaint.
-fn build_match_overview_ruler(
-    lines: Rc<RefCell<Vec<i32>>>,
-    kind: OverviewRulerKind,
-    active_view: Rc<dyn Fn() -> sourceview5::View>,
-) -> gtk4::DrawingArea {
-    let bar = gtk4::DrawingArea::new();
-    bar.set_width_request(OVERVIEW_RULER_WIDTH);
-    bar.set_vexpand(true);
-    bar.add_css_class("editor-match-ruler");
-    bar.set_tooltip_text(Some("Click a marker to jump to that match"));
-    bar.set_cursor_from_name(Some("pointer"));
-
-    {
-        let lines = lines.clone();
-        let av = active_view.clone();
-        bar.set_draw_func(move |_, cr, w, h| {
-            let total = av().buffer().line_count().max(1);
-            let (r, g, b) = overview_ruler_color(kind);
-            let h_f = h as f64;
-            let w_f = w as f64;
-            cr.set_source_rgba(0.5, 0.5, 0.5, OVERVIEW_RULER_BG_ALPHA);
-            let _ = cr.paint();
-            cr.set_source_rgba(r, g, b, 0.9);
-            let mark_h = (h_f / total as f64).max(OVERVIEW_RULER_MARK_MIN_HEIGHT);
-            let ls = lines.borrow();
-            for &line in ls.iter() {
-                let y = (line as f64 / total as f64) * h_f;
-                cr.rectangle(0.0, y, w_f, mark_h);
-            }
-            let _ = cr.fill();
-        });
-    }
-
-    {
-        let av = active_view.clone();
-        let lines = lines.clone();
-        let bar_for_click = bar.clone();
-        let gesture = gtk4::GestureClick::new();
-        gesture.connect_pressed(move |_, _n, _x, y| {
-            let view = av();
-            let total = view.buffer().line_count().max(1);
-            let h = bar_for_click.height().max(1) as f64;
-            let proportion = (y / h).clamp(0.0, 1.0);
-            let clicked = (proportion * total as f64) as i32;
-            let ls = lines.borrow();
-            if ls.is_empty() {
-                return;
-            }
-            let target = ls
-                .iter()
-                .copied()
-                .min_by_key(|l| (*l - clicked).abs())
-                .unwrap_or(clicked);
-            let buf = view.buffer();
-            if let Some(iter) = buf.iter_at_line(target) {
-                buf.place_cursor(&iter);
-                view.scroll_to_iter(&mut iter.clone(), 0.1, true, 0.5, 0.5);
-            }
-        });
-        bar.add_controller(gesture);
-    }
-
-    bar
-}
-
-/// Scan `buf` for `query` (case-insensitive, substring) and return the 0-based
-/// line numbers of every matching line. Used to populate the match overview
-/// ruler without depending on a `SearchContext`.
-fn collect_match_lines(buf: &sourceview5::Buffer, query: &str) -> Vec<i32> {
-    if query.is_empty() {
-        return Vec::new();
-    }
-    let start = buf.start_iter();
-    let end = buf.end_iter();
-    let text = buf.text(&start, &end, true).to_string();
-    let needle = query.to_lowercase();
-    let mut out = Vec::new();
-    for (idx, line) in text.split('\n').enumerate() {
-        if line.to_lowercase().contains(&needle) {
-            out.push(idx as i32);
-        }
-    }
-    out
-}
-
 fn get_mtime(path: &Path) -> u64 {
     std::fs::metadata(path)
         .and_then(|m| m.modified())
@@ -3957,82 +2936,4 @@ fn get_mtime(path: &Path) -> u64 {
                 .as_secs()
         })
         .unwrap_or(0)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn parse_keyword_tags_extracts_payloads_and_skips_empty() {
-        let xml = r#"
-            <context id="keywords" style-ref="keyword">
-              <keyword>def</keyword>
-              <keyword>class</keyword>
-              <keyword>  </keyword>
-              <keyword>if</keyword>
-            </context>
-            <context id="builtins" style-ref="builtin-function">
-              <keyword>print</keyword>
-              <keyword>len</keyword>
-            </context>
-        "#;
-        let mut got = parse_keyword_tags(xml);
-        got.sort();
-        assert_eq!(got, vec!["class", "def", "if", "len", "print"]);
-    }
-
-    #[test]
-    fn parent_language_aliases_covers_python3_and_shell_dialects() {
-        assert_eq!(parent_language_aliases("python3"), &["python"]);
-        assert_eq!(parent_language_aliases("bash"), &["sh"]);
-        assert_eq!(parent_language_aliases("zsh"), &["sh"]);
-        assert!(parent_language_aliases("rust").is_empty());
-        assert!(parent_language_aliases("totally-unknown").is_empty());
-    }
-
-    #[test]
-    fn recognizes_text_clipboard_shortcuts() {
-        let primary = crate::shortcuts::PRIMARY_MODIFIER;
-        assert_eq!(
-            text_clipboard_action(gtk4::gdk::Key::c, primary),
-            Some(TextClipboardAction::Copy)
-        );
-        assert_eq!(
-            text_clipboard_action(gtk4::gdk::Key::X, primary),
-            Some(TextClipboardAction::Cut)
-        );
-        assert_eq!(
-            text_clipboard_action(gtk4::gdk::Key::v, primary),
-            Some(TextClipboardAction::Paste)
-        );
-        assert_eq!(
-            text_clipboard_action(gtk4::gdk::Key::c, gtk4::gdk::ModifierType::SHIFT_MASK),
-            None
-        );
-    }
-
-    #[test]
-    fn recognizes_text_history_shortcuts() {
-        let primary = crate::shortcuts::PRIMARY_MODIFIER;
-        assert_eq!(
-            text_history_action(gtk4::gdk::Key::z, primary),
-            Some(TextHistoryAction::Undo)
-        );
-        assert_eq!(
-            text_history_action(gtk4::gdk::Key::y, primary),
-            Some(TextHistoryAction::Redo)
-        );
-        assert_eq!(
-            text_history_action(
-                gtk4::gdk::Key::Z,
-                primary | gtk4::gdk::ModifierType::SHIFT_MASK,
-            ),
-            Some(TextHistoryAction::Redo)
-        );
-        assert_eq!(
-            text_history_action(gtk4::gdk::Key::z, gtk4::gdk::ModifierType::SHIFT_MASK),
-            None
-        );
-    }
 }

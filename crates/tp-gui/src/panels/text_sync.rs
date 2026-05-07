@@ -45,11 +45,7 @@ const BACKSPACE_BYTE: u8 = 0x7f;
 /// - `0x1b X` (other ESC sequences) → ESC + next byte skipped.
 /// - Other bytes `>= 0x20` or `>= 0x80` → buffered and inserted as UTF-8.
 /// - All remaining C0 control bytes → dropped.
-pub fn apply_input_to_buffer(
-    buffer: &gtk4::TextBuffer,
-    bytes: &[u8],
-    suppress: &Rc<Cell<bool>>,
-) {
+pub fn apply_input_to_buffer(buffer: &gtk4::TextBuffer, bytes: &[u8], suppress: &Rc<Cell<bool>>) {
     let prev_suppress = suppress.get();
     suppress.set(true);
 
@@ -168,4 +164,3 @@ pub fn connect_buffer_emit_input(
         });
     }
 }
-

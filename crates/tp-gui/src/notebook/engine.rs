@@ -125,7 +125,10 @@ impl NotebookEngine {
     }
 
     pub fn last_finished_at(&self, id: CellId) -> Option<chrono::DateTime<chrono::Local>> {
-        self.cells.borrow().get(&id).and_then(|c| c.last_finished_at)
+        self.cells
+            .borrow()
+            .get(&id)
+            .and_then(|c| c.last_finished_at)
     }
 
     /// Snapshot of the cell's source code (used by "Send to terminal").
@@ -148,14 +151,20 @@ impl NotebookEngine {
     }
 
     pub fn is_confirmed(&self, id: CellId) -> bool {
-        self.cells.borrow().get(&id).map(|c| c.confirmed).unwrap_or(false)
+        self.cells
+            .borrow()
+            .get(&id)
+            .map(|c| c.confirmed)
+            .unwrap_or(false)
     }
 
     /// Notify the engine the cell widget became (in)visible — gates
     /// watch and triggers the first auto-run of `run`/`once` cells.
     pub fn set_visible(self: &Rc<Self>, id: CellId, visible: bool) {
         let mut cells = self.cells.borrow_mut();
-        let Some(state) = cells.get_mut(&id) else { return };
+        let Some(state) = cells.get_mut(&id) else {
+            return;
+        };
         state.visible = visible;
         let spec = state.spec.clone();
         let already_started = state.auto_started;
@@ -324,7 +333,9 @@ impl NotebookEngine {
     fn push_output(&self, id: CellId, item: OutputItem) {
         let subs = {
             let mut cells = self.cells.borrow_mut();
-            let Some(state) = cells.get_mut(&id) else { return };
+            let Some(state) = cells.get_mut(&id) else {
+                return;
+            };
             if state.replace_on_next_push {
                 state.output.clear();
                 state.replace_on_next_push = false;

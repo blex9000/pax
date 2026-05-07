@@ -165,12 +165,7 @@ pub fn build_welcome(on_choice: WelcomeCallback) -> gtk4::Widget {
                     .and_then(|db| db.list_workspaces_limit(20).ok())
                     .unwrap_or_default();
                 for record in records {
-                    populate_recent_row(
-                        &list_box,
-                        &record,
-                        &on_choice,
-                        &repopulate_for_pin,
-                    );
+                    populate_recent_row(&list_box, &record, &on_choice, &repopulate_for_pin);
                 }
             })
         };
@@ -296,9 +291,9 @@ fn populate_recent_row(
     if file_exists {
         if let Some(path) = config_path_opt.clone() {
             new_window_btn.connect_clicked(move |_| {
-                if let Err(e) = crate::workspace_launcher::open_in_new_window(
-                    std::path::Path::new(&path),
-                ) {
+                if let Err(e) =
+                    crate::workspace_launcher::open_in_new_window(std::path::Path::new(&path))
+                {
                     tracing::warn!("welcome: could not spawn new window: {e}");
                 }
             });

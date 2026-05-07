@@ -12,26 +12,59 @@ struct ColorToken {
 }
 
 const BG_TOKENS: &[ColorToken] = &[
-    ColorToken { css_name: "bg_window", label: "Window & Chrome" },
-    ColorToken { css_name: "bg_surface", label: "Content (Editor, Terminal, Forms)" },
-    ColorToken { css_name: "bg_elevated", label: "Cards" },
-    ColorToken { css_name: "bg_popover", label: "Popovers & Dropdowns" },
+    ColorToken {
+        css_name: "bg_window",
+        label: "Window & Chrome",
+    },
+    ColorToken {
+        css_name: "bg_surface",
+        label: "Content (Editor, Terminal, Forms)",
+    },
+    ColorToken {
+        css_name: "bg_elevated",
+        label: "Cards",
+    },
+    ColorToken {
+        css_name: "bg_popover",
+        label: "Popovers & Dropdowns",
+    },
 ];
 
 const TEXT_TOKENS: &[ColorToken] = &[
-    ColorToken { css_name: "fg_ui", label: "UI Chrome (Labels, Icons, Buttons)" },
-    ColorToken { css_name: "fg_content", label: "Content (Editor, File Tree, Forms)" },
+    ColorToken {
+        css_name: "fg_ui",
+        label: "UI Chrome (Labels, Icons, Buttons)",
+    },
+    ColorToken {
+        css_name: "fg_content",
+        label: "Content (Editor, File Tree, Forms)",
+    },
 ];
 
 const ACCENT_TOKENS: &[ColorToken] = &[
-    ColorToken { css_name: "accent", label: "Accent (Focus, Selection & Active)" },
-    ColorToken { css_name: "accent_fg", label: "Text on Accent Backgrounds" },
-    ColorToken { css_name: "hover_bg", label: "Hover Background" },
+    ColorToken {
+        css_name: "accent",
+        label: "Accent (Focus, Selection & Active)",
+    },
+    ColorToken {
+        css_name: "accent_fg",
+        label: "Text on Accent Backgrounds",
+    },
+    ColorToken {
+        css_name: "hover_bg",
+        label: "Hover Background",
+    },
 ];
 
 const BORDER_TOKENS: &[ColorToken] = &[
-    ColorToken { css_name: "border_soft", label: "Internal (Popups, Editor Dividers)" },
-    ColorToken { css_name: "border_hard", label: "Structural (Panels, Tabs, Header)" },
+    ColorToken {
+        css_name: "border_soft",
+        label: "Internal (Popups, Editor Dividers)",
+    },
+    ColorToken {
+        css_name: "border_hard",
+        label: "Structural (Panels, Tabs, Header)",
+    },
 ];
 
 const GROUPS: &[(&str, &[ColorToken])] = &[
@@ -106,8 +139,7 @@ pub fn show_color_customizer_dialog(parent: &impl IsA<gtk4::Window>) {
     // Load any previously saved overrides so the pickers start at the
     // user's last saved state (not the base theme defaults).
     let saved = load_custom_colors(theme).unwrap_or_default();
-    let overrides: Rc<RefCell<HashMap<String, String>>> =
-        Rc::new(RefCell::new(saved.clone()));
+    let overrides: Rc<RefCell<HashMap<String, String>>> = Rc::new(RefCell::new(saved.clone()));
 
     let scroll = gtk4::ScrolledWindow::new();
     scroll.set_vexpand(true);
@@ -147,9 +179,15 @@ pub fn show_color_customizer_dialog(parent: &impl IsA<gtk4::Window>) {
                 .as_deref()
                 .and_then(css_value_to_rgba)
                 .unwrap_or_else(|| gtk4::gdk::RGBA::new(0.5, 0.5, 0.5, 1.0));
-            tracing::debug!("color_customizer: {} = {:?} -> rgba({},{},{},{})",
-                token.css_name, initial_hex,
-                initial_rgba.red(), initial_rgba.green(), initial_rgba.blue(), initial_rgba.alpha());
+            tracing::debug!(
+                "color_customizer: {} = {:?} -> rgba({},{},{},{})",
+                token.css_name,
+                initial_hex,
+                initial_rgba.red(),
+                initial_rgba.green(),
+                initial_rgba.blue(),
+                initial_rgba.alpha()
+            );
 
             let current_rgba = Rc::new(RefCell::new(initial_rgba));
 
@@ -162,7 +200,12 @@ pub fn show_color_customizer_dialog(parent: &impl IsA<gtk4::Window>) {
             let rgba_for_draw = current_rgba.clone();
             swatch.set_draw_func(move |_, cr, w, h| {
                 let c = rgba_for_draw.borrow();
-                cr.set_source_rgba(c.red() as f64, c.green() as f64, c.blue() as f64, c.alpha() as f64);
+                cr.set_source_rgba(
+                    c.red() as f64,
+                    c.green() as f64,
+                    c.blue() as f64,
+                    c.alpha() as f64,
+                );
                 cr.rectangle(0.0, 0.0, w as f64, h as f64);
                 let _ = cr.fill();
             });
@@ -283,10 +326,17 @@ fn save_custom_colors(theme: Theme, overrides: &HashMap<String, String>) {
 /// DB from an earlier session (e.g. old alias names like accent_bg, bg_chrome)
 /// is silently dropped so stale overrides cannot break the alias chains.
 const VALID_BASE_TOKENS: &[&str] = &[
-    "bg_window", "bg_surface", "bg_elevated", "bg_popover",
-    "fg_ui", "fg_content",
-    "accent", "accent_fg", "hover_bg",
-    "border_soft", "border_hard",
+    "bg_window",
+    "bg_surface",
+    "bg_elevated",
+    "bg_popover",
+    "fg_ui",
+    "fg_content",
+    "accent",
+    "accent_fg",
+    "hover_bg",
+    "border_soft",
+    "border_hard",
 ];
 
 pub(crate) fn load_custom_colors(theme: Theme) -> Option<HashMap<String, String>> {
@@ -307,7 +357,11 @@ pub(crate) fn load_custom_colors(theme: Theme) -> Option<HashMap<String, String>
             }
         }
     }
-    if out.is_empty() { None } else { Some(out) }
+    if out.is_empty() {
+        None
+    } else {
+        Some(out)
+    }
 }
 
 fn clear_custom_colors() {

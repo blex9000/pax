@@ -1,8 +1,8 @@
 use gtk4::prelude::*;
 use std::rc::Rc;
 
-use super::PanelBackend;
 use super::registry::PanelRegistry;
+use super::PanelBackend;
 
 /// Callback when the user selects a panel type.
 pub type OnTypeChosen = Rc<dyn Fn(&str, &str)>; // (panel_id, type_id)
@@ -16,11 +16,7 @@ pub struct ChooserPanel {
 }
 
 impl ChooserPanel {
-    pub fn new(
-        panel_id: &str,
-        registry: &PanelRegistry,
-        on_chosen: Option<OnTypeChosen>,
-    ) -> Self {
+    pub fn new(panel_id: &str, registry: &PanelRegistry, on_chosen: Option<OnTypeChosen>) -> Self {
         let container = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
         container.set_valign(gtk4::Align::Center);
         container.set_halign(gtk4::Align::Center);

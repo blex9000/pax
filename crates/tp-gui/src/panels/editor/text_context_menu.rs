@@ -82,11 +82,8 @@ pub fn install(
         // `line_at_y` (takes just the y coord) so the click line
         // resolves correctly whether the click is on the text, the
         // gutter, or the line-marks column.
-        let (_, buf_y) = view_cell.window_to_buffer_coords(
-            gtk4::TextWindowType::Widget,
-            x as i32,
-            y as i32,
-        );
+        let (_, buf_y) =
+            view_cell.window_to_buffer_coords(gtk4::TextWindowType::Widget, x as i32, y as i32);
         let (iter, _) = view_cell.line_at_y(buf_y);
         let click_line = iter.line();
 
@@ -98,9 +95,7 @@ pub fn install(
                 popover.unparent();
             }
         });
-        popover.set_pointing_to(Some(&gtk4::gdk::Rectangle::new(
-            x as i32, y as i32, 1, 1,
-        )));
+        popover.set_pointing_to(Some(&gtk4::gdk::Rectangle::new(x as i32, y as i32, 1, 1)));
         popover.popup();
     });
     host.add_controller(gesture);
@@ -155,7 +150,15 @@ fn build_menu(
             },
         );
         append_separator(&menu_box);
-        append_view_action(&menu_box, &popover, view, "edit-cut-symbolic", "Cut", "Ctrl+X", "clipboard.cut");
+        append_view_action(
+            &menu_box,
+            &popover,
+            view,
+            "edit-cut-symbolic",
+            "Cut",
+            "Ctrl+X",
+            "clipboard.cut",
+        );
     }
     append_view_action(
         &menu_box,
@@ -197,9 +200,27 @@ fn build_menu(
 
     if editable {
         append_separator(&menu_box);
-        append_change_case(&menu_box, &popover, buffer, sourceview5::ChangeCaseType::Upper, "UPPER CASE");
-        append_change_case(&menu_box, &popover, buffer, sourceview5::ChangeCaseType::Lower, "lower case");
-        append_change_case(&menu_box, &popover, buffer, sourceview5::ChangeCaseType::Title, "Title Case");
+        append_change_case(
+            &menu_box,
+            &popover,
+            buffer,
+            sourceview5::ChangeCaseType::Upper,
+            "UPPER CASE",
+        );
+        append_change_case(
+            &menu_box,
+            &popover,
+            buffer,
+            sourceview5::ChangeCaseType::Lower,
+            "lower case",
+        );
+        append_change_case(
+            &menu_box,
+            &popover,
+            buffer,
+            sourceview5::ChangeCaseType::Title,
+            "Title Case",
+        );
         append_change_case(
             &menu_box,
             &popover,
@@ -259,7 +280,12 @@ fn build_menu(
     if !extras.is_empty() {
         append_separator(&menu_box);
         for item in extras {
-            let TextContextMenuItem::Button { icon, label, hint, on_click } = item;
+            let TextContextMenuItem::Button {
+                icon,
+                label,
+                hint,
+                on_click,
+            } = item;
             let btn = make_menu_button(icon, &label, hint.as_deref().unwrap_or(""));
             let p = popover.clone();
             btn.connect_clicked(move |_| {
@@ -452,8 +478,7 @@ fn toggle_line_comment(buffer: &sourceview5::Buffer, marker: &str) {
         }
         if all_commented {
             // Strip marker (and a single trailing space if present).
-            let leading_ws_chars =
-                text.chars().take_while(|c| c.is_whitespace()).count() as i32;
+            let leading_ws_chars = text.chars().take_while(|c| c.is_whitespace()).count() as i32;
             let mut from = line_iter.clone();
             from.forward_chars(leading_ws_chars);
             let marker_chars = marker.chars().count() as i32;
@@ -466,8 +491,7 @@ fn toggle_line_comment(buffer: &sourceview5::Buffer, marker: &str) {
             }
             buffer.delete(&mut from, &mut to);
         } else {
-            let leading_ws_chars =
-                text.chars().take_while(|c| c.is_whitespace()).count() as i32;
+            let leading_ws_chars = text.chars().take_while(|c| c.is_whitespace()).count() as i32;
             let mut insert_at = line_iter.clone();
             insert_at.forward_chars(leading_ws_chars);
             buffer.insert(&mut insert_at, &format!("{} ", marker));
@@ -568,8 +592,8 @@ fn detect_formatter(path: &Path) -> Option<Formatter> {
             args: &["--format", "-"],
             needs_filepath: false,
         },
-        "json" | "js" | "jsx" | "ts" | "tsx" | "mjs" | "cjs" | "css" | "scss" | "less"
-        | "md" | "markdown" | "yaml" | "yml" | "vue" | "svelte" => Formatter {
+        "json" | "js" | "jsx" | "ts" | "tsx" | "mjs" | "cjs" | "css" | "scss" | "less" | "md"
+        | "markdown" | "yaml" | "yml" | "vue" | "svelte" => Formatter {
             cmd: "prettier",
             args: &["--stdin-filepath", "<file>"],
             needs_filepath: true,

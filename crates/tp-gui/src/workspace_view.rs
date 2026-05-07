@@ -4,7 +4,9 @@ use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use uuid::Uuid;
 
-use pax_core::workspace::{new_tab_id, LayoutNode, PanelConfig, PanelType, Workspace};
+use pax_core::workspace::{
+    new_tab_id, LayoutNode, PanelConfig, PanelConfigUpdate, PanelType, Workspace,
+};
 
 use crate::backend_factory::{
     create_backend_from_registry, insert_ssh_extra, panel_type_to_create_config, panel_type_to_id,
@@ -33,7 +35,7 @@ struct ActiveTabEdit {
     tab_path: Vec<usize>,
     panel_id: String,
     draft_name: String,
-    is_layout: bool,
+    _is_layout: bool,
     original_name: String,
     original_workspace: Workspace,
     original_dirty: bool,
@@ -269,27 +271,16 @@ impl WorkspaceView {
     /// Get the current panel type for a panel.
     /// Update panel config after Configure dialog.
     /// Recreates the backend with the new type/settings and runs startup commands.
-    pub fn apply_panel_config(
-        &mut self,
-        panel_id: &str,
-        new_name: String,
-        new_type: PanelType,
-        cwd: Option<String>,
-        ssh: Option<pax_core::workspace::SshConfig>,
-        startup_commands: Vec<String>,
-        before_close: Option<String>,
-        min_width: u32,
-        min_height: u32,
-    ) {
+    pub fn apply_panel_config(&mut self, panel_id: &str, update: PanelConfigUpdate) {
         tracing::info!(
             "Configuring panel {}: name={}, type={:?}, cwd={:?}, ssh={}, cmds={}, before_close={}",
             panel_id,
-            new_name,
-            new_type,
-            cwd,
-            ssh.is_some(),
-            startup_commands.len(),
-            before_close.is_some()
+            update.name,
+            update.panel_type,
+            update.cwd,
+            update.ssh.is_some(),
+            update.startup_commands.len(),
+            update.before_close.is_some()
         );
 
         // Run before_close script on the old backend before replacing it
@@ -298,14 +289,14 @@ impl WorkspaceView {
 
         // Update model
         if let Some(panel_cfg) = self.workspace.panels.iter_mut().find(|p| p.id == panel_id) {
-            panel_cfg.name = new_name.clone();
-            panel_cfg.panel_type = new_type.clone();
-            panel_cfg.cwd = cwd.clone();
-            panel_cfg.ssh = ssh;
-            panel_cfg.startup_commands = startup_commands.clone();
-            panel_cfg.before_close = before_close;
-            panel_cfg.min_width = min_width;
-            panel_cfg.min_height = min_height;
+            panel_cfg.name = update.name.clone();
+            panel_cfg.panel_type = update.panel_type.clone();
+            panel_cfg.cwd = update.cwd.clone();
+            panel_cfg.ssh = update.ssh.clone();
+            panel_cfg.startup_commands = update.startup_commands.clone();
+            panel_cfg.before_close = update.before_close.clone();
+            panel_cfg.min_width = update.min_width;
+            panel_cfg.min_height = update.min_height;
         }
 
         // Update host title only — tab labels are user-controlled (renamed
@@ -314,7 +305,7 @@ impl WorkspaceView {
         // outer tab when the panel is nested inside Hsplit/Vsplit. Panel
         // name vs tab label are separate concerns.
         if let Some(host) = self.hosts.get(panel_id) {
-            host.set_title(&new_name);
+            host.set_title(&update.name);
         }
 
         // Recreate backend with startup commands queued
@@ -329,13 +320,13 @@ impl WorkspaceView {
             .map(|p| p.to_string_lossy().to_string());
         let record_key = self.workspace.record_key(config_path_str.as_deref());
         let mut config = panel_type_to_create_config(
-            &new_type,
+            &update.panel_type,
             &self.workspace.settings.default_shell,
             ws_dir.as_deref(),
             Some(record_key.as_str()),
         );
         // Pass cwd and env from panel config
-        config.cwd = cwd;
+        config.cwd = update.cwd.clone();
         if let Some(panel_cfg) = self.workspace.panels.iter().find(|p| p.id == panel_id) {
             config.env = panel_cfg
                 .env
@@ -350,13 +341,16 @@ impl WorkspaceView {
             }
         }
         // Pass startup commands via extra so the registry factory can queue them
-        if !startup_commands.is_empty() {
+        if !update.startup_commands.is_empty() {
             config.extra.insert(
                 "__startup_commands__".to_string(),
-                startup_commands.join("\n"),
+                update.startup_commands.join("\n"),
             );
         }
-        if let Some(backend) = self.registry.create(panel_type_to_id(&new_type), &config) {
+        if let Some(backend) = self
+            .registry
+            .create(panel_type_to_id(&update.panel_type), &config)
+        {
             if let Some(host) = self.hosts.get(panel_id) {
                 host.set_backend(backend);
             }
@@ -364,9 +358,13 @@ impl WorkspaceView {
 
         // Apply min size to widget
         if let Some(host) = self.hosts.get(panel_id) {
-            let w = if min_width > 0 { min_width as i32 } else { -1 };
-            let h = if min_height > 0 {
-                min_height as i32
+            let w = if update.min_width > 0 {
+                update.min_width as i32
+            } else {
+                -1
+            };
+            let h = if update.min_height > 0 {
+                update.min_height as i32
             } else {
                 -1
             };
@@ -480,7 +478,7 @@ impl WorkspaceView {
             tab_path,
             panel_id: panel_id.to_string(),
             draft_name: draft_name.clone(),
-            is_layout,
+            _is_layout: is_layout,
             original_name: draft_name,
             original_workspace: self.workspace.clone(),
             original_dirty: self.dirty,
@@ -582,10 +580,7 @@ impl WorkspaceView {
 
     /// Compute the sibling info for a panel — used by the panel menu to
     /// decide which Move items to show.
-    pub fn panel_sibling_info(
-        &self,
-        panel_id: &str,
-    ) -> Option<crate::layout_ops::SiblingInfo> {
+    pub fn panel_sibling_info(&self, panel_id: &str) -> Option<crate::layout_ops::SiblingInfo> {
         crate::layout_ops::panel_sibling_info(&self.workspace.layout, panel_id)
     }
 
@@ -613,11 +608,8 @@ impl WorkspaceView {
             _ => return false,
         };
 
-        let moved = crate::layout_ops::move_panel_in_split(
-            &mut self.workspace.layout,
-            &focused_id,
-            delta,
-        );
+        let moved =
+            crate::layout_ops::move_panel_in_split(&mut self.workspace.layout, &focused_id, delta);
         if !moved {
             return false;
         }
@@ -997,8 +989,7 @@ impl WorkspaceView {
                 let Some(host) = self.hosts.get(&panel_id) else {
                     continue;
                 };
-                let Some((notebook, page_idx)) = find_notebook_page_index(host.widget())
-                else {
+                let Some((notebook, page_idx)) = find_notebook_page_index(host.widget()) else {
                     continue;
                 };
                 notebook.set_current_page(Some(page_idx));
@@ -1458,7 +1449,9 @@ impl WorkspaceView {
             return None;
         }
         let focused_id = self.focused_panel_id()?;
-        self.hosts.get(focused_id).and_then(|h| h.close_confirmation())
+        self.hosts
+            .get(focused_id)
+            .and_then(|h| h.close_confirmation())
     }
 
     pub fn close_focused(&mut self) -> bool {
@@ -1475,10 +1468,8 @@ impl WorkspaceView {
         // sibling in the same Tabs node (or the next one if we're at index 0).
         // Falls back to the generic focus-order approach when the panel isn't
         // inside a Tabs or is the only child.
-        let focus_after_close = crate::layout_ops::adjacent_tab_sibling_panel(
-            &self.workspace.layout,
-            &focused_id,
-        );
+        let focus_after_close =
+            crate::layout_ops::adjacent_tab_sibling_panel(&self.workspace.layout, &focused_id);
 
         // Run before_close script
         self.run_before_close(&focused_id);
@@ -1853,7 +1844,11 @@ fn layout_differs_meaningfully(a: &LayoutNode, b: &LayoutNode) -> bool {
             if ac.len() != bc.len() || ar.len() != br.len() {
                 return true;
             }
-            if ar.iter().zip(br.iter()).any(|(x, y)| (x - y).abs() > RATIO_EPS) {
+            if ar
+                .iter()
+                .zip(br.iter())
+                .any(|(x, y)| (x - y).abs() > RATIO_EPS)
+            {
                 return true;
             }
             ac.iter()
@@ -1928,7 +1923,7 @@ mod tests {
             id: id.to_string(),
             uuid: Uuid::new_v4(),
             name: name.to_string(),
-            panel_type: PanelType::Terminal,
+            panel_type: PanelType::Empty,
             target: Default::default(),
             startup_commands: Vec::new(),
             groups: Vec::new(),
@@ -2193,8 +2188,7 @@ mod tests {
                 &["Root 0", "Root 1"],
             );
 
-            let selected =
-                select_workspace_tabs_for_panel(&root.clone().upcast(), &layout, "p2");
+            let selected = select_workspace_tabs_for_panel(&root.clone().upcast(), &layout, "p2");
 
             assert!(selected);
             assert_eq!(root.current_page(), Some(1));
@@ -2281,8 +2275,7 @@ mod tests {
                 children: vec![panel("a"), panel("b")],
                 ratios: vec![0.5, 0.5],
             };
-            workspace.panels =
-                vec![panel_config("a", "Panel A"), panel_config("b", "Panel B")];
+            workspace.panels = vec![panel_config("a", "Panel A"), panel_config("b", "Panel B")];
 
             let mut view = WorkspaceView::build(&workspace, None);
             assert!(!view.is_dirty());
@@ -2327,7 +2320,9 @@ pub(crate) fn publish_terminal_breadcrumbs(workspace: &Workspace) {
             LayoutNode::Panel { id } => {
                 out.insert(id.clone(), trail.clone());
             }
-            LayoutNode::Tabs { children, labels, .. } => {
+            LayoutNode::Tabs {
+                children, labels, ..
+            } => {
                 for (i, child) in children.iter().enumerate() {
                     let label = labels
                         .get(i)

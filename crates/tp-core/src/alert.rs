@@ -23,9 +23,7 @@ impl CompiledAlert {
         match &self.rule.scope {
             AlertScope::All => true,
             AlertScope::Panels(ids) => ids.iter().any(|id| id == panel_id),
-            AlertScope::Groups(groups) => {
-                panel_groups.iter().any(|pg| groups.contains(pg))
-            }
+            AlertScope::Groups(groups) => panel_groups.iter().any(|pg| groups.contains(pg)),
         }
     }
 }

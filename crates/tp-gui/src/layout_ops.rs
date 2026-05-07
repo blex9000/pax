@@ -202,9 +202,7 @@ fn first_panel_in_subtree(node: &LayoutNode) -> Option<String> {
         LayoutNode::Panel { id } => Some(id.clone()),
         LayoutNode::Hsplit { children, .. }
         | LayoutNode::Vsplit { children, .. }
-        | LayoutNode::Tabs { children, .. } => {
-            children.iter().find_map(first_panel_in_subtree)
-        }
+        | LayoutNode::Tabs { children, .. } => children.iter().find_map(first_panel_in_subtree),
     }
 }
 
@@ -269,12 +267,7 @@ pub fn remove_from_layout(node: &LayoutNode, panel_id: &str) -> LayoutNode {
                             .cloned()
                             .unwrap_or_else(|| format!("Tab {}", i + 1)),
                     );
-                    new_tab_ids.push(
-                        tab_ids
-                            .get(i)
-                            .cloned()
-                            .unwrap_or_else(new_tab_id),
-                    );
+                    new_tab_ids.push(tab_ids.get(i).cloned().unwrap_or_else(new_tab_id));
                 }
             }
             if new_children.len() == 1 {
@@ -410,7 +403,9 @@ pub fn is_panel_with_id(node: &LayoutNode, panel_id: &str) -> bool {
 /// not an ancestor Tabs that contains it deeply nested.
 pub fn update_tab_label_in_layout(node: &mut LayoutNode, panel_id: &str, new_label: &str) -> bool {
     match node {
-        LayoutNode::Tabs { children, labels, .. } => {
+        LayoutNode::Tabs {
+            children, labels, ..
+        } => {
             // First: recurse into children to find a deeper Tabs match
             for child in children.iter_mut() {
                 if update_tab_label_in_layout(child, panel_id, new_label) {
@@ -440,7 +435,11 @@ pub fn update_tab_label_in_layout(node: &mut LayoutNode, panel_id: &str, new_lab
     }
 }
 
-pub fn update_tab_label_in_layout_by_id(node: &mut LayoutNode, tab_id: &str, new_label: &str) -> bool {
+pub fn update_tab_label_in_layout_by_id(
+    node: &mut LayoutNode,
+    tab_id: &str,
+    new_label: &str,
+) -> bool {
     match node {
         LayoutNode::Tabs {
             children,
@@ -921,7 +920,10 @@ mod tests {
         let moved = move_tab_in_layout(&mut layout, "b", -1);
 
         assert!(moved);
-        if let LayoutNode::Tabs { children, labels, .. } = &layout {
+        if let LayoutNode::Tabs {
+            children, labels, ..
+        } = &layout
+        {
             assert!(matches!(&children[0], LayoutNode::Panel { id } if id == "b"));
             assert!(matches!(&children[1], LayoutNode::Panel { id } if id == "a"));
             assert_eq!(labels, &["second", "first", "third"]);
@@ -954,7 +956,10 @@ mod tests {
         {
             assert_eq!(outer_labels, &["outer-left", "outer-right"]);
             if let LayoutNode::Vsplit { children, .. } = &outer_children[0] {
-                if let LayoutNode::Tabs { labels, children, .. } = &children[1] {
+                if let LayoutNode::Tabs {
+                    labels, children, ..
+                } = &children[1]
+                {
                     assert_eq!(labels, &["inner-c", "inner-b"]);
                     assert!(matches!(&children[0], LayoutNode::Panel { id } if id == "c"));
                     assert!(matches!(&children[1], LayoutNode::Panel { id } if id == "b"));
@@ -992,7 +997,10 @@ mod tests {
         let moved = move_tab_in_layout_steps(&mut layout, "a", 2);
 
         assert!(moved);
-        if let LayoutNode::Tabs { children, labels, .. } = &layout {
+        if let LayoutNode::Tabs {
+            children, labels, ..
+        } = &layout
+        {
             assert!(matches!(&children[0], LayoutNode::Panel { id } if id == "b"));
             assert!(matches!(&children[1], LayoutNode::Panel { id } if id == "c"));
             assert!(matches!(&children[2], LayoutNode::Panel { id } if id == "a"));
@@ -1322,15 +1330,15 @@ pub fn insert_sibling_in_layout(
     match layout {
         LayoutNode::Panel { .. } => false,
 
-        LayoutNode::Hsplit { children, ratios }
-        | LayoutNode::Vsplit { children, ratios } => {
+        LayoutNode::Hsplit { children, ratios } | LayoutNode::Vsplit { children, ratios } => {
             // Check each direct child: does it contain the target panel?
             if let Some(idx) = children
                 .iter()
                 .position(|child| subtree_contains_panel(child, panel_id))
             {
                 // If the child IS the panel directly, insert here.
-                let child_is_panel = matches!(&children[idx], LayoutNode::Panel { id } if id == panel_id);
+                let child_is_panel =
+                    matches!(&children[idx], LayoutNode::Panel { id } if id == panel_id);
                 // If the child is a Tabs node whose DIRECT children include
                 // the target panel (no intermediate split), the panel has no
                 // split parent inside the Tabs → climb to this split and

@@ -18,10 +18,7 @@
 use std::sync::atomic::{AtomicU64, Ordering};
 
 /// Collapse a batch of startup commands into a single shell command line.
-pub fn prepare_startup_command(
-    commands: &[String],
-    workspace_dir: Option<&str>,
-) -> Option<String> {
+pub fn prepare_startup_command(commands: &[String], workspace_dir: Option<&str>) -> Option<String> {
     if commands.is_empty() {
         return None;
     }
@@ -30,9 +27,7 @@ pub fn prepare_startup_command(
         return None;
     }
 
-    if !full_text.contains('\n')
-        && !full_text.starts_with("#!")
-        && !full_text.starts_with("file:")
+    if !full_text.contains('\n') && !full_text.starts_with("#!") && !full_text.starts_with("file:")
     {
         return Some(full_text);
     }

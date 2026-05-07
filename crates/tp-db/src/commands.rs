@@ -208,9 +208,9 @@ impl Database {
         &self,
         panel_uuid: &str,
     ) -> Result<std::collections::HashSet<String>> {
-        let mut stmt = self.conn.prepare(
-            "SELECT command FROM pinned_commands WHERE panel_uuid = ?1",
-        )?;
+        let mut stmt = self
+            .conn
+            .prepare("SELECT command FROM pinned_commands WHERE panel_uuid = ?1")?;
         let rows = stmt.query_map(rusqlite::params![panel_uuid], |row| row.get::<_, String>(0))?;
         Ok(rows.filter_map(|r| r.ok()).collect())
     }

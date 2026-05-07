@@ -79,8 +79,7 @@ pub fn build_command_history_popover(
 
     let history_child = stack.add_titled(&history_page.widget, Some("history"), "History");
     history_child.set_icon_name("document-open-recent-symbolic");
-    let favorites_child =
-        stack.add_titled(&favorites_page.widget, Some("favorites"), "Favorites");
+    let favorites_child = stack.add_titled(&favorites_page.widget, Some("favorites"), "Favorites");
     favorites_child.set_icon_name("starred-symbolic");
 
     // Refresh the favourites tab whenever it becomes visible — pinning
@@ -656,7 +655,6 @@ fn build_favorites_row(
     outer.append(&actions);
     outer.upcast()
 }
-
 
 // ── Shared row primitives ──────────────────────────────────────────────
 

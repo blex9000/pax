@@ -1,8 +1,9 @@
 #[cfg(feature = "sourceview")]
-pub mod editor_tabs;
+mod diff_view;
 #[cfg(feature = "sourceview")]
-mod text_context_menu;
-// Submodules for future tasks (stubs for now)
+mod dirty_state;
+#[cfg(feature = "sourceview")]
+pub mod editor_tabs;
 pub mod file_backend;
 #[cfg(feature = "sourceview")]
 pub mod file_tree;
@@ -13,7 +14,11 @@ pub mod fuzzy_finder;
 #[cfg(feature = "sourceview")]
 pub mod git_log;
 #[cfg(feature = "sourceview")]
+pub mod git_status;
+#[cfg(feature = "sourceview")]
 pub mod image_view;
+#[cfg(feature = "sourceview")]
+mod language_support;
 #[cfg(feature = "sourceview")]
 pub mod markdown_view;
 #[cfg(feature = "sourceview")]
@@ -21,13 +26,19 @@ pub mod notes_ruler;
 #[cfg(feature = "sourceview")]
 pub mod notes_state;
 #[cfg(feature = "sourceview")]
-pub mod tab_content;
-#[cfg(feature = "sourceview")]
-pub mod git_status;
+mod overview_ruler;
 #[cfg(feature = "sourceview")]
 pub mod project_search;
 #[cfg(feature = "sourceview")]
+mod tab_activation;
+#[cfg(feature = "sourceview")]
+pub mod tab_content;
+#[cfg(feature = "sourceview")]
 pub mod task;
+#[cfg(feature = "sourceview")]
+mod text_context_menu;
+#[cfg(feature = "sourceview")]
+mod text_shortcuts;
 
 use std::cell::{Cell, RefCell};
 use std::path::{Path, PathBuf};
@@ -238,8 +249,7 @@ impl CodeEditorPanel {
         // useful behind them and showing them is misleading.
         let is_git_repo = std::path::Path::new(root_dir).join(".git").exists();
         let sync_suppress: Rc<Cell<bool>> = Rc::new(Cell::new(false));
-        let sync_input_cb: Rc<RefCell<Option<PanelInputCallback>>> =
-            Rc::new(RefCell::new(None));
+        let sync_input_cb: Rc<RefCell<Option<PanelInputCallback>>> = Rc::new(RefCell::new(None));
         let state = Rc::new(RefCell::new(EditorState {
             root_dir: PathBuf::from(root_dir),
             open_files: Vec::new(),
@@ -433,17 +443,19 @@ impl CodeEditorPanel {
                 gtk4::glib::idle_add_local_once(move || {
                     let st = state_c2.borrow();
                     let Some(idx) = st.active_tab else { return };
-                    let Some(open_file) = st.open_files.get(idx) else { return };
-                    let Some(buf) = open_file.source_buffer() else { return };
-                    let Some(iter) = buf.iter_at_line(line) else { return };
+                    let Some(open_file) = st.open_files.get(idx) else {
+                        return;
+                    };
+                    let Some(buf) = open_file.source_buffer() else {
+                        return;
+                    };
+                    let Some(iter) = buf.iter_at_line(line) else {
+                        return;
+                    };
                     buf.place_cursor(&iter);
-                    tabs_c2.source_view.scroll_to_iter(
-                        &mut iter.clone(),
-                        0.1,
-                        true,
-                        0.5,
-                        0.3,
-                    );
+                    tabs_c2
+                        .source_view
+                        .scroll_to_iter(&mut iter.clone(), 0.1, true, 0.5, 0.3);
                 });
             }))
         };
@@ -768,9 +780,7 @@ impl CodeEditorPanel {
                                 st.active_tab
                                     .and_then(|i| st.open_files.get(i))
                                     .and_then(|f| match &f.content {
-                                        tab_content::TabContent::Image(img) => {
-                                            Some(img.clone())
-                                        }
+                                        tab_content::TabContent::Image(img) => Some(img.clone()),
                                         _ => None,
                                     })
                             };
@@ -806,7 +816,7 @@ impl CodeEditorPanel {
                                 if count > 0 {
                                     let next = (idx + 1) % count;
                                     drop(st);
-                                    tabs_ref.notebook.set_current_page(Some(next as u32));
+                                    tabs_ref.activate_tab(next, &state_c);
                                 }
                             }
                             return gtk4::glib::Propagation::Stop;
@@ -980,10 +990,7 @@ impl CodeEditorPanel {
             let backend_for_merge = state.borrow().backend.clone();
             let tabs_for_merge = tabs_rc.clone();
             let on_merge_open: file_watcher::OnMergeOpen = Rc::new(
-                move |path: &std::path::Path,
-                      disk: &str,
-                      mine: &str,
-                      apply: Rc<dyn Fn(&str)>| {
+                move |path: &std::path::Path, disk: &str, mine: &str, apply: Rc<dyn Fn(&str)>| {
                     tabs_for_merge.show_merge_diff(
                         path,
                         disk,
@@ -1011,8 +1018,9 @@ impl CodeEditorPanel {
         // at a time, so background tab mutations don't leak as sync events.
         {
             use gtk4::glib::SignalHandlerId;
-            let observed: Rc<RefCell<Option<(gtk4::TextBuffer, SignalHandlerId, SignalHandlerId)>>> =
-                Rc::new(RefCell::new(None));
+            let observed: Rc<
+                RefCell<Option<(gtk4::TextBuffer, SignalHandlerId, SignalHandlerId)>>,
+            > = Rc::new(RefCell::new(None));
             let install: Rc<dyn Fn(Option<gtk4::TextBuffer>)> = {
                 let input_cb = sync_input_cb.clone();
                 let suppress = sync_suppress.clone();
@@ -1196,8 +1204,7 @@ fn navigate_history(
             st.open_files.iter().position(|f| f.path == pos.path)
         };
         if let Some(idx) = already_open {
-            tabs.notebook.set_current_page(Some(idx as u32));
-            tabs.switch_to_buffer(idx, state);
+            tabs.activate_tab(idx, state);
         } else {
             // File is closed — reopen it, undo the nav push it causes
             tabs.open_file(&pos.path, state);

@@ -134,9 +134,7 @@ pub fn spawn(
         cmd.env("PAX_OUTPUT_DIR", dir);
     }
 
-    let mut child = cmd
-        .spawn()
-        .map_err(|e| format!("spawn failed: {}", e))?;
+    let mut child = cmd.spawn().map_err(|e| format!("spawn failed: {}", e))?;
 
     // Write code to stdin and close it so the interpreter reads EOF.
     use std::io::Write;
@@ -151,10 +149,18 @@ pub fn spawn(
     spawn_reader(child.stdout.take().unwrap(), tx.clone(), false);
     spawn_reader(child.stderr.take().unwrap(), tx.clone(), true);
 
-    let timeout = spec.timeout.unwrap_or(Duration::from_secs(super::DEFAULT_RUN_TIMEOUT_SECS));
+    let timeout = spec
+        .timeout
+        .unwrap_or(Duration::from_secs(super::DEFAULT_RUN_TIMEOUT_SECS));
     let is_watch = matches!(spec.mode, ExecMode::Watch { .. });
 
-    spawn_supervisor(child, pid, tx, stop_flag.clone(), if is_watch { None } else { Some(timeout) });
+    spawn_supervisor(
+        child,
+        pid,
+        tx,
+        stop_flag.clone(),
+        if is_watch { None } else { Some(timeout) },
+    );
 
     Ok((RunHandle { pid, stop_flag }, rx))
 }
@@ -186,11 +192,7 @@ fn which(name: &str) -> Option<std::path::PathBuf> {
     None
 }
 
-fn spawn_reader<R: std::io::Read + Send + 'static>(
-    stream: R,
-    tx: Sender<RunMsg>,
-    is_stderr: bool,
-) {
+fn spawn_reader<R: std::io::Read + Send + 'static>(stream: R, tx: Sender<RunMsg>, is_stderr: bool) {
     thread::spawn(move || {
         let reader = BufReader::new(stream);
         for line in reader.lines().flatten() {
@@ -225,7 +227,9 @@ fn spawn_supervisor(
         loop {
             match child.try_wait() {
                 Ok(Some(status)) => {
-                    let _ = tx.send(RunMsg::Finished { exit_code: status.code() });
+                    let _ = tx.send(RunMsg::Finished {
+                        exit_code: status.code(),
+                    });
                     return;
                 }
                 Ok(None) => {}
@@ -242,9 +246,10 @@ fn spawn_supervisor(
             }
             if let Some(t) = timeout {
                 if started.elapsed() >= t {
-                    let _ = tx.send(RunMsg::Output(OutputItem::Error(
-                        format!("timeout after {:?}", t),
-                    )));
+                    let _ = tx.send(RunMsg::Output(OutputItem::Error(format!(
+                        "timeout after {:?}",
+                        t
+                    ))));
                     kill_group();
                     let _ = child.kill();
                     let _ = tx.send(RunMsg::Finished { exit_code: None });
@@ -293,7 +298,9 @@ mod tests {
     fn runs_simple_bash() {
         let (_h, rx) = spawn(&once_spec(Lang::Bash), "echo hello\n", None, None).unwrap();
         let items = collect_until_finished(&rx);
-        assert!(items.iter().any(|i| matches!(i, OutputItem::Text(t) if t == "hello")));
+        assert!(items
+            .iter()
+            .any(|i| matches!(i, OutputItem::Text(t) if t == "hello")));
     }
 
     #[test]
@@ -325,6 +332,8 @@ mod tests {
     fn stderr_becomes_error_items() {
         let (_h, rx) = spawn(&once_spec(Lang::Bash), "echo oops 1>&2\n", None, None).unwrap();
         let items = collect_until_finished(&rx);
-        assert!(items.iter().any(|i| matches!(i, OutputItem::Error(t) if t == "oops")));
+        assert!(items
+            .iter()
+            .any(|i| matches!(i, OutputItem::Error(t) if t == "oops")));
     }
 }

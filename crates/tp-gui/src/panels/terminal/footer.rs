@@ -20,12 +20,7 @@ pub struct FooterFormat {
 /// strings. `user`, `host` and `home` are injected so the caller can
 /// capture them once at panel creation without re-reading env vars on
 /// every cwd change. Returns `None` for empty / non-`file://` inputs.
-pub fn format_cwd_footer(
-    uri: &str,
-    user: &str,
-    host: &str,
-    home: &str,
-) -> Option<FooterFormat> {
+pub fn format_cwd_footer(uri: &str, user: &str, host: &str, home: &str) -> Option<FooterFormat> {
     if uri.is_empty() {
         return None;
     }

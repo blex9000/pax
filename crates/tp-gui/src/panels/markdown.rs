@@ -300,27 +300,29 @@ impl MarkdownPanel {
                 let parent_window = parent_for_dialog
                     .root()
                     .and_then(|r| r.downcast::<gtk4::Window>().ok());
-                dialog.open(parent_window.as_ref(), gtk4::gio::Cancellable::NONE, move |result| {
-                    if let Ok(file) = result {
-                        if let Some(path) = file.path() {
-                            // Relative path if the image lives under the
-                            // markdown file's directory; absolute otherwise.
-                            let rel = host_dir
-                                .as_ref()
-                                .and_then(|hd| path.strip_prefix(hd).ok())
-                                .map(|p| p.to_path_buf())
-                                .unwrap_or(path);
-                            let alt = rel
-                                .file_stem()
-                                .and_then(|s| s.to_str())
-                                .unwrap_or("image");
-                            let snippet = format!("![{}]({})", alt, rel.to_string_lossy());
-                            if let Some(ref buf) = *br.borrow() {
-                                insert_at_cursor_buf(buf, &snippet);
+                dialog.open(
+                    parent_window.as_ref(),
+                    gtk4::gio::Cancellable::NONE,
+                    move |result| {
+                        if let Ok(file) = result {
+                            if let Some(path) = file.path() {
+                                // Relative path if the image lives under the
+                                // markdown file's directory; absolute otherwise.
+                                let rel = host_dir
+                                    .as_ref()
+                                    .and_then(|hd| path.strip_prefix(hd).ok())
+                                    .map(|p| p.to_path_buf())
+                                    .unwrap_or(path);
+                                let alt =
+                                    rel.file_stem().and_then(|s| s.to_str()).unwrap_or("image");
+                                let snippet = format!("![{}]({})", alt, rel.to_string_lossy());
+                                if let Some(ref buf) = *br.borrow() {
+                                    insert_at_cursor_buf(buf, &snippet);
+                                }
                             }
                         }
-                    }
-                });
+                    },
+                );
             });
             fmt_bar.append(&img_btn);
         }
@@ -418,8 +420,7 @@ impl MarkdownPanel {
         // suppressed during inbound apply to break feedback loops.
         {
             let mode_for_gate = mode.clone();
-            let gate: Rc<dyn Fn() -> bool> =
-                Rc::new(move || mode_for_gate.get() == Mode::Edit);
+            let gate: Rc<dyn Fn() -> bool> = Rc::new(move || mode_for_gate.get() == Mode::Edit);
             text_sync::connect_buffer_emit_input(
                 &source_buffer,
                 input_cb.clone(),
@@ -441,8 +442,7 @@ impl MarkdownPanel {
         // Lazy notebook engine — created on the first render that encounters
         // a notebook cell, dropped (and recreated) on render-mode re-entry
         // and reload so watch timers don't pile up across re-renders.
-        let notebook_engine: Rc<RefCell<Option<Rc<NotebookEngine>>>> =
-            Rc::new(RefCell::new(None));
+        let notebook_engine: Rc<RefCell<Option<Rc<NotebookEngine>>>> = Rc::new(RefCell::new(None));
 
         // Export PDF: pull current markdown source from buffer (edit
         // mode) or saved content cell (render mode) and run gtk's

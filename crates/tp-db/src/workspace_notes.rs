@@ -156,9 +156,7 @@ impl Database {
     }
 
     pub fn get_workspace_note(&self, id: i64) -> Result<Option<WorkspaceNote>> {
-        let sql = format!(
-            "SELECT {SELECT_COLUMNS} FROM workspace_notes WHERE id = ?1"
-        );
+        let sql = format!("SELECT {SELECT_COLUMNS} FROM workspace_notes WHERE id = ?1");
         self.conn
             .query_row(&sql, [id], row_to_note)
             .optional()
@@ -217,14 +215,10 @@ impl Database {
 
     /// Distinct tags observed on the notes of a panel (used to populate the
     /// tag filter dropdown).
-    pub fn list_tags_for_panel(
-        &self,
-        record_key: &str,
-        panel_id: &str,
-    ) -> Result<Vec<String>> {
-        let mut stmt = self.conn.prepare(
-            "SELECT tags FROM workspace_notes WHERE record_key = ?1 AND panel_id = ?2",
-        )?;
+    pub fn list_tags_for_panel(&self, record_key: &str, panel_id: &str) -> Result<Vec<String>> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT tags FROM workspace_notes WHERE record_key = ?1 AND panel_id = ?2")?;
         let rows = stmt.query_map(params![record_key, panel_id], |row| {
             let s: String = row.get(0)?;
             Ok(s)

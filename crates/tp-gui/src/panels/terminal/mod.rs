@@ -36,7 +36,7 @@ mod input;
 mod script_runner;
 mod shell_bootstrap;
 
-pub(crate) use footer::{format_cwd_footer, FooterFormat};
+pub(crate) use footer::format_cwd_footer;
 
 #[cfg(feature = "vte")]
 #[path = "vte_backend.rs"]

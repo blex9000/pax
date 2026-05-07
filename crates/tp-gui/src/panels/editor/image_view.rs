@@ -14,9 +14,7 @@ use std::rc::Rc;
 
 use super::tab_content::ImageTab;
 
-pub const IMAGE_EXTS: &[&str] = &[
-    "png", "jpg", "jpeg", "gif", "webp", "bmp", "ico", "svg",
-];
+pub const IMAGE_EXTS: &[&str] = &["png", "jpg", "jpeg", "gif", "webp", "bmp", "ico", "svg"];
 
 const ZOOM_MIN: f64 = 0.1;
 const ZOOM_MAX: f64 = 10.0;
@@ -31,10 +29,7 @@ pub fn build_image_tab(path: &Path) -> ImageTab {
     picture.set_content_fit(gtk4::ContentFit::Contain);
 
     let paintable = picture.paintable();
-    let natural_width = paintable
-        .as_ref()
-        .map(|p| p.intrinsic_width())
-        .unwrap_or(0);
+    let natural_width = paintable.as_ref().map(|p| p.intrinsic_width()).unwrap_or(0);
     let natural_height = paintable
         .as_ref()
         .map(|p| p.intrinsic_height())

@@ -85,7 +85,9 @@ const BQ_BAR_OFFSET_FROM_TEXT_START: f64 = 4.0;
 
 fn paint_blockquote_bars(tv: &gtk4::TextView, cr: &gtk4::cairo::Context) {
     let buffer = tv.buffer();
-    let Some(tag) = buffer.tag_table().lookup("bq") else { return };
+    let Some(tag) = buffer.tag_table().lookup("bq") else {
+        return;
+    };
 
     cr.set_source_rgb(BQ_BAR_RGB.0, BQ_BAR_RGB.1, BQ_BAR_RGB.2);
     cr.set_line_width(BQ_BAR_WIDTH);
@@ -406,7 +408,6 @@ fn is_block_marker_start(ev: &Event) -> bool {
     }
 }
 
-
 struct NotebookCapture {
     spec: pax_core::notebook_tag::NotebookCellSpec,
     body: String,
@@ -580,12 +581,7 @@ fn handle_start(buf: &gtk4::TextBuffer, it: &mut gtk4::TextIter, st: &mut Render
     }
 }
 
-fn handle_end(
-    buf: &gtk4::TextBuffer,
-    it: &mut gtk4::TextIter,
-    st: &mut RenderState,
-    tag: TagEnd,
-) {
+fn handle_end(buf: &gtk4::TextBuffer, it: &mut gtk4::TextIter, st: &mut RenderState, tag: TagEnd) {
     match tag {
         TagEnd::Paragraph => {
             buf.insert(it, "\n");
@@ -615,7 +611,10 @@ fn handle_end(
             }
             buf.insert(it, "\n");
         }
-        TagEnd::Emphasis | TagEnd::Strong | TagEnd::Strikethrough | TagEnd::Link
+        TagEnd::Emphasis
+        | TagEnd::Strong
+        | TagEnd::Strikethrough
+        | TagEnd::Link
         | TagEnd::Image => {
             st.inline_tags.pop();
         }
@@ -653,7 +652,6 @@ fn handle_end(
         _ => {}
     }
 }
-
 
 fn on_text(buf: &gtk4::TextBuffer, it: &mut gtk4::TextIter, st: &mut RenderState, text: &str) {
     if let Some(t) = st.table.as_mut() {

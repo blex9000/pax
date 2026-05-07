@@ -78,9 +78,10 @@ impl Database {
 
     /// Delete a single entry by id. Returns how many rows were removed (0 or 1).
     pub fn delete_metadata_entry(&self, id: i64) -> Result<usize> {
-        let n = self
-            .conn
-            .execute("DELETE FROM workspace_file_metadata_entries WHERE id = ?1", [id])?;
+        let n = self.conn.execute(
+            "DELETE FROM workspace_file_metadata_entries WHERE id = ?1",
+            [id],
+        )?;
         Ok(n)
     }
 

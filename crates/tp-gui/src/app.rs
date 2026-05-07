@@ -8,9 +8,12 @@ use std::cell::RefCell;
 use std::path::Path;
 use std::rc::Rc;
 
-use pax_core::workspace::Workspace;
+use pax_core::workspace::{LayoutNode, PanelConfig, PanelType, Workspace};
 
 use crate::actions::{self, DIRTY_INDICATOR, HEADER_WS_LABEL};
+use crate::dialogs::panel_config::{
+    PanelConfigDialogContext, PanelConfigInitial, WorkingDirChoice, WorkingDirScope,
+};
 use crate::panel_host::PanelAction;
 use crate::theme::Theme;
 use crate::widgets::status_bar::StatusBar;
@@ -52,6 +55,122 @@ fn focused_panel_is_code_editor(view: &WorkspaceView) -> bool {
             )
         })
         .unwrap_or(false)
+}
+
+fn working_dir_choices_for_workspace(
+    workspace: &Workspace,
+    exclude_panel_id: &str,
+) -> Vec<WorkingDirChoice> {
+    fn walk_layout(
+        node: &LayoutNode,
+        trail: &mut Vec<String>,
+        out: &mut std::collections::HashMap<String, Vec<String>>,
+    ) {
+        match node {
+            LayoutNode::Panel { id } => {
+                out.insert(id.clone(), trail.clone());
+            }
+            LayoutNode::Tabs {
+                children, labels, ..
+            } => {
+                for (i, child) in children.iter().enumerate() {
+                    let label = labels
+                        .get(i)
+                        .cloned()
+                        .filter(|s| !s.trim().is_empty())
+                        .unwrap_or_else(|| format!("tab{}", i + 1));
+                    trail.push(label);
+                    walk_layout(child, trail, out);
+                    trail.pop();
+                }
+            }
+            LayoutNode::Hsplit { children, .. } | LayoutNode::Vsplit { children, .. } => {
+                for child in children {
+                    walk_layout(child, trail, out);
+                }
+            }
+        }
+    }
+
+    fn terminal_scope(panel: &PanelConfig) -> WorkingDirScope {
+        if let Some(ssh) = &panel.ssh {
+            return WorkingDirScope::Remote {
+                host: ssh.host.clone(),
+            };
+        }
+
+        match &panel.panel_type {
+            PanelType::Ssh { host, .. } | PanelType::RemoteTmux { host, .. } => {
+                WorkingDirScope::Remote { host: host.clone() }
+            }
+            _ => WorkingDirScope::Local,
+        }
+    }
+
+    fn panel_working_dir(panel: &PanelConfig) -> Option<(String, WorkingDirScope)> {
+        let (value, scope) = match panel.effective_type() {
+            PanelType::Terminal => (panel.cwd.clone(), terminal_scope(panel)),
+            PanelType::CodeEditor {
+                root_dir,
+                ssh,
+                remote_path,
+                ..
+            } => {
+                if ssh.is_some() {
+                    (
+                        remote_path
+                            .filter(|p| !p.trim().is_empty())
+                            .or(Some(root_dir)),
+                        WorkingDirScope::Remote {
+                            host: ssh.map(|config| config.host).unwrap_or_default(),
+                        },
+                    )
+                } else {
+                    (Some(root_dir), WorkingDirScope::Local)
+                }
+            }
+            PanelType::Markdown { file } => (
+                Path::new(&file)
+                    .parent()
+                    .map(|p| p.to_string_lossy().to_string()),
+                WorkingDirScope::Local,
+            ),
+            _ => return None,
+        };
+        let value = value?;
+        let trimmed = value.trim();
+        if trimmed.is_empty() {
+            None
+        } else {
+            Some((trimmed.to_string(), scope))
+        }
+    }
+
+    let mut trails = std::collections::HashMap::new();
+    walk_layout(&workspace.layout, &mut Vec::new(), &mut trails);
+
+    workspace
+        .panels
+        .iter()
+        .filter(|panel| panel.id != exclude_panel_id)
+        .filter_map(|panel| {
+            let (working_dir, scope) = panel_working_dir(panel)?;
+            let mut path = trails.get(&panel.id).cloned().unwrap_or_default();
+            if !panel.name.trim().is_empty() {
+                path.push(panel.name.clone());
+            }
+            let panel_path = if path.is_empty() {
+                panel.id.clone()
+            } else {
+                path.join(" › ")
+            };
+            Some(WorkingDirChoice {
+                panel_path,
+                working_dir,
+                scope,
+            })
+        })
+        .collect()
 }
 
 #[derive(Clone, Copy)]
@@ -503,7 +622,11 @@ fn handle_alert_click(
 
     // Different workspace. Resolve its record + config path so we can
     // offer "this window" / "new window".
-    let Some(record) = db.find_workspace_by_record_key(&note.record_key).ok().flatten() else {
+    let Some(record) = db
+        .find_workspace_by_record_key(&note.record_key)
+        .ok()
+        .flatten()
+    else {
         status_bar
             .borrow()
             .set_message("Note's workspace is no longer in history");
@@ -532,44 +655,43 @@ fn handle_alert_click(
         window,
         &record.name,
         &path,
-        Rc::new(
-            move |decision| match decision {
-                crate::dialogs::open_workspace_choice::OpenWorkspaceDecision::Cancel => {}
-                crate::dialogs::open_workspace_choice::OpenWorkspaceDecision::NewWindow(p) => {
-                    if let Err(e) = crate::workspace_launcher::open_in_new_window(&p) {
+        Rc::new(move |decision| match decision {
+            crate::dialogs::open_workspace_choice::OpenWorkspaceDecision::Cancel => {}
+            crate::dialogs::open_workspace_choice::OpenWorkspaceDecision::NewWindow(p) => {
+                if let Err(e) = crate::workspace_launcher::open_in_new_window(&p) {
+                    sb_for_decision
+                        .borrow()
+                        .set_message(&format!("Failed to spawn new window: {}", e));
+                }
+            }
+            crate::dialogs::open_workspace_choice::OpenWorkspaceDecision::ThisWindow(p) => {
+                let load = ws_for_decision.borrow_mut().load_from_file(&p);
+                match load {
+                    Ok(()) => {
+                        let theme = apply_preferred_theme();
+                        ws_for_decision
+                            .borrow_mut()
+                            .set_workspace_theme_id_clean(theme.to_id());
+                        actions::update_dirty_ui(
+                            &ws_for_decision,
+                            &window_for_decision,
+                            &sa_for_decision,
+                        );
+                        // Try to focus the note panel in the freshly
+                        // loaded workspace.
+                        let _ = ws_for_decision.borrow_mut().focus_panel(&note_panel_id);
                         sb_for_decision
                             .borrow()
-                            .set_message(&format!("Failed to spawn new window: {}", e));
+                            .set_message(&format!("Opened: {}", p.display()));
+                    }
+                    Err(e) => {
+                        sb_for_decision
+                            .borrow()
+                            .set_message(&format!("Error: {}", e));
                     }
                 }
-                crate::dialogs::open_workspace_choice::OpenWorkspaceDecision::ThisWindow(p) => {
-                    let load = ws_for_decision.borrow_mut().load_from_file(&p);
-                    match load {
-                        Ok(()) => {
-                            let theme = apply_preferred_theme();
-                            ws_for_decision
-                                .borrow_mut()
-                                .set_workspace_theme_id_clean(theme.to_id());
-                            actions::update_dirty_ui(
-                                &ws_for_decision,
-                                &window_for_decision,
-                                &sa_for_decision,
-                            );
-                            // Try to focus the note panel in the freshly
-                            // loaded workspace.
-                            let _ =
-                                ws_for_decision.borrow_mut().focus_panel(&note_panel_id);
-                            sb_for_decision
-                                .borrow()
-                                .set_message(&format!("Opened: {}", p.display()));
-                        }
-                        Err(e) => {
-                            sb_for_decision.borrow().set_message(&format!("Error: {}", e));
-                        }
-                    }
-                }
-            },
-        ),
+            }
+        }),
     );
 }
 
@@ -665,15 +787,11 @@ fn run_keymap_action(
             if let Some((panel_id, is_synced)) = result {
                 let count = ws.borrow().sync_count();
                 if is_synced {
-                    sb.borrow().set_message(&format!(
-                        "Sync ON: {} ({} panels)",
-                        panel_id, count
-                    ));
+                    sb.borrow()
+                        .set_message(&format!("Sync ON: {} ({} panels)", panel_id, count));
                 } else {
-                    sb.borrow().set_message(&format!(
-                        "Sync OFF: {} ({} panels)",
-                        panel_id, count
-                    ));
+                    sb.borrow()
+                        .set_message(&format!("Sync OFF: {} ({} panels)", panel_id, count));
                 }
             }
         }
@@ -723,7 +841,11 @@ fn build_palette_items(
         let win = window.clone();
         PaletteItem {
             title: title.to_string(),
-            subtitle: if sub.is_empty() { None } else { Some(sub.to_string()) },
+            subtitle: if sub.is_empty() {
+                None
+            } else {
+                Some(sub.to_string())
+            },
             icon: Some(icon.to_string()),
             action: Rc::new(move || {
                 let _ = gtk4::prelude::WidgetExt::activate_action(
@@ -736,8 +858,18 @@ fn build_palette_items(
     };
 
     // ── Workspace ──────────────────────────────────────────────────
-    items.push(gio("New Workspace", "Workspace", "document-new-symbolic", "new"));
-    items.push(gio("Open Workspace…", "Ctrl+O · Workspace", "document-open-symbolic", "open"));
+    items.push(gio(
+        "New Workspace",
+        "Workspace",
+        "document-new-symbolic",
+        "new",
+    ));
+    items.push(gio(
+        "Open Workspace…",
+        "Ctrl+O · Workspace",
+        "document-open-symbolic",
+        "open",
+    ));
     items.push(gio(
         "Recent Workspaces…",
         "Workspace",
@@ -1104,29 +1236,28 @@ fn setup_workspace_ui(
                         view.workspace().ssh_configs.clone(),
                     ))
                 };
+                let working_dirs = {
+                    let view = ws.borrow();
+                    working_dir_choices_for_workspace(view.workspace(), &pid)
+                };
                 crate::dialogs::panel_config::show_panel_config_dialog(
                     &*win,
-                    default_name,
-                    &default_type,
-                    None,
-                    None,
-                    &[],
-                    None,
-                    0,
-                    0,
-                    saved_ssh,
-                    move |new_name,
-                          new_type,
-                          new_cwd,
-                          new_ssh,
-                          new_cmds,
-                          new_close,
-                          new_mw,
-                          new_mh| {
-                        ws2.borrow_mut().apply_panel_config(
-                            &pid, new_name, new_type, new_cwd, new_ssh, new_cmds, new_close,
-                            new_mw, new_mh,
-                        );
+                    PanelConfigInitial {
+                        panel_name: default_name,
+                        panel_type: &default_type,
+                        cwd: None,
+                        ssh: None,
+                        startup_commands: &[],
+                        before_close: None,
+                        min_width: 0,
+                        min_height: 0,
+                    },
+                    PanelConfigDialogContext {
+                        working_dirs,
+                        saved_ssh,
+                    },
+                    move |update| {
+                        ws2.borrow_mut().apply_panel_config(&pid, update);
                         actions::update_dirty_ui(&ws2, &win2, &sa2);
                     },
                 );
@@ -1391,6 +1522,10 @@ fn setup_workspace_ui(
                             view.workspace().ssh_configs.clone(),
                         ))
                     };
+                    let working_dirs = {
+                        let view = ws_for_cb.borrow();
+                        working_dir_choices_for_workspace(view.workspace(), &pid)
+                    };
                     // Sync changes back to workspace whenever the Rc is modified
                     let ws_sync = ws_for_cb.clone();
                     let saved_ssh_sync = saved_ssh.clone();
@@ -1416,28 +1551,23 @@ fn setup_workspace_ui(
                     let sync_stop = sync_active.clone();
                     crate::dialogs::panel_config::show_panel_config_dialog(
                         &*win_for_cb,
-                        &pname,
-                        &ptype,
-                        pcwd.as_deref(),
-                        pssh.as_ref(),
-                        &pcmds,
-                        pclose.as_deref(),
-                        pmw,
-                        pmh,
-                        saved_ssh,
-                        move |new_name,
-                              new_type,
-                              new_cwd,
-                              new_ssh,
-                              new_cmds,
-                              new_close,
-                              new_mw,
-                              new_mh| {
+                        PanelConfigInitial {
+                            panel_name: &pname,
+                            panel_type: &ptype,
+                            cwd: pcwd.as_deref(),
+                            ssh: pssh.as_ref(),
+                            startup_commands: &pcmds,
+                            before_close: pclose.as_deref(),
+                            min_width: pmw,
+                            min_height: pmh,
+                        },
+                        PanelConfigDialogContext {
+                            working_dirs,
+                            saved_ssh,
+                        },
+                        move |update| {
                             sync_stop.set(false);
-                            ws2.borrow_mut().apply_panel_config(
-                                &pid, new_name, new_type, new_cwd, new_ssh, new_cmds, new_close,
-                                new_mw, new_mh,
-                            );
+                            ws2.borrow_mut().apply_panel_config(&pid, update);
                             actions::update_dirty_ui(&ws2, &win2, &sa2);
                         },
                     );
@@ -1898,9 +2028,15 @@ fn setup_workspace_ui(
         let sb_weak = Rc::downgrade(&status_bar);
         let sa = save_action.clone();
         let handler: Rc<dyn Fn(i64)> = Rc::new(move |note_id: i64| {
-            let Some(ws_view) = ws_weak.upgrade() else { return; };
-            let Some(window) = window_weak.upgrade() else { return; };
-            let Some(status_bar) = sb_weak.upgrade() else { return; };
+            let Some(ws_view) = ws_weak.upgrade() else {
+                return;
+            };
+            let Some(window) = window_weak.upgrade() else {
+                return;
+            };
+            let Some(status_bar) = sb_weak.upgrade() else {
+                return;
+            };
             handle_alert_click(&ws_view, &window, &status_bar, &sa, note_id);
         });
         crate::widgets::alert_tray::register_note_click_handler(handler);
@@ -1926,7 +2062,8 @@ fn setup_workspace_ui(
                         let theme = apply_preferred_theme();
                         ws.borrow_mut().set_workspace_theme_id_clean(theme.to_id());
                         actions::update_dirty_ui(&ws, &win, &sa);
-                        sb.borrow().set_message(&format!("Opened: {}", path.display()));
+                        sb.borrow()
+                            .set_message(&format!("Opened: {}", path.display()));
                     }
                     Err(e) => sb.borrow().set_message(&format!("Error: {}", e)),
                 }
@@ -1985,9 +2122,7 @@ fn setup_workspace_ui(
                     gdk::Key::r | gdk::Key::z | gdk::Key::y => {
                         return glib::Propagation::Proceed;
                     }
-                    gdk::Key::s
-                        if focused_panel_uses_text_editing_shortcuts(&ws.borrow()) =>
-                    {
+                    gdk::Key::s if focused_panel_uses_text_editing_shortcuts(&ws.borrow()) => {
                         return glib::Propagation::Proceed;
                     }
                     gdk::Key::p if focused_panel_is_code_editor(&ws.borrow()) => {
@@ -2099,10 +2234,6 @@ fn load_css() {
     // Startup chrome should be deterministic. The welcome page always starts
     // from the preferred app theme if present, otherwise the default theme.
     apply_theme(load_preferred_theme());
-}
-
-fn new_workspace_with_preferred_theme(name: &str) -> Workspace {
-    workspace_with_theme(name, load_preferred_theme())
 }
 
 /// Welcome-screen / "untitled" entry point: open the workspace at the
@@ -2273,8 +2404,12 @@ pub(crate) fn apply_theme(theme: Theme) {
     // the base theme palette while the rest of the UI keeps the overrides.
     #[cfg(feature = "vte")]
     if let Some(ref c) = custom {
-        let bg = c.get("bg_surface").and_then(|h| gtk4::gdk::RGBA::parse(h).ok());
-        let fg = c.get("fg_content").and_then(|h| gtk4::gdk::RGBA::parse(h).ok());
+        let bg = c
+            .get("bg_surface")
+            .and_then(|h| gtk4::gdk::RGBA::parse(h).ok());
+        let fg = c
+            .get("fg_content")
+            .and_then(|h| gtk4::gdk::RGBA::parse(h).ok());
         if bg.is_some() || fg.is_some() {
             crate::theme::apply_custom_vte_colors(bg.as_ref(), fg.as_ref());
         }
@@ -2305,7 +2440,12 @@ pub(crate) fn apply_theme_with_overrides(
     crate::theme::set_current_theme(theme);
 
     let patched = crate::theme::apply_color_overrides(theme.css_overrides(), overrides);
-    let css = format!("{}\n{}\n{}", patched, crate::theme::BASE_CSS, theme.css_extra());
+    let css = format!(
+        "{}\n{}\n{}",
+        patched,
+        crate::theme::BASE_CSS,
+        theme.css_extra()
+    );
 
     let provider = gtk4::CssProvider::new();
     provider.load_from_data(&css);
@@ -2343,12 +2483,16 @@ pub(crate) fn apply_theme_with_overrides(
 mod tests {
     use super::{
         load_preferred_theme_from_db, normalize_workspace_theme_with_respect,
-        panel_type_uses_text_editing_shortcuts, workspace_with_theme, Theme,
-        APP_MENU_AUTOSAVE_ITEM, APP_MENU_FILE_ITEMS, APP_MENU_QUIT_ITEM, APP_MENU_SAVE_ITEM,
-        APP_MENU_SAVE_SECONDARY_ITEMS, APP_MENU_SETTINGS_ITEMS,
+        panel_type_uses_text_editing_shortcuts, working_dir_choices_for_workspace,
+        workspace_with_theme, Theme, APP_MENU_AUTOSAVE_ITEM, APP_MENU_FILE_ITEMS,
+        APP_MENU_QUIT_ITEM, APP_MENU_SAVE_ITEM, APP_MENU_SAVE_SECONDARY_ITEMS,
+        APP_MENU_SETTINGS_ITEMS,
     };
+    use crate::dialogs::panel_config::{WorkingDirChoice, WorkingDirScope};
     use pax_core::template::empty_workspace;
-    use pax_core::workspace::PanelType;
+    use pax_core::workspace::{
+        new_tab_id, LayoutNode, PanelConfig, PanelTarget, PanelType, SshConfig,
+    };
     use pax_db::Database;
 
     #[test]
@@ -2379,11 +2523,7 @@ mod tests {
         // Use the pure variant so the test doesn't depend on the user's
         // actual DB pref. With respect=false the user's preferred theme
         // always wins regardless of what the workspace JSON says.
-        let theme = normalize_workspace_theme_with_respect(
-            &mut workspace,
-            Theme::Graphite,
-            false,
-        );
+        let theme = normalize_workspace_theme_with_respect(&mut workspace, Theme::Graphite, false);
 
         assert_eq!(theme, Theme::Graphite);
         assert_eq!(workspace.settings.theme, Theme::Graphite.to_id());
@@ -2407,6 +2547,172 @@ mod tests {
         assert!(!panel_type_uses_text_editing_shortcuts(
             &PanelType::Terminal
         ));
+    }
+
+    fn test_panel(id: &str, name: &str, panel_type: PanelType, cwd: Option<&str>) -> PanelConfig {
+        PanelConfig {
+            id: id.to_string(),
+            uuid: uuid::Uuid::new_v4(),
+            name: name.to_string(),
+            panel_type,
+            target: PanelTarget::Local,
+            startup_commands: Vec::new(),
+            groups: Vec::new(),
+            record_output: false,
+            cwd: cwd.map(str::to_string),
+            env: Default::default(),
+            pre_script: None,
+            post_script: None,
+            before_close: None,
+            min_width: 0,
+            min_height: 0,
+            ssh: None,
+        }
+    }
+
+    #[test]
+    fn working_dir_choices_use_panel_breadcrumbs_and_skip_current_panel() {
+        let mut workspace = empty_workspace("test");
+        workspace.layout = LayoutNode::Tabs {
+            children: vec![
+                LayoutNode::Panel {
+                    id: "editor".into(),
+                },
+                LayoutNode::Hsplit {
+                    children: vec![
+                        LayoutNode::Panel {
+                            id: "term-a".into(),
+                        },
+                        LayoutNode::Panel {
+                            id: "term-b".into(),
+                        },
+                    ],
+                    ratios: vec![1.0, 1.0],
+                },
+                LayoutNode::Panel { id: "docs".into() },
+            ],
+            labels: vec!["Project".into(), "Shells".into(), "Docs".into()],
+            tab_ids: vec![new_tab_id(), new_tab_id(), new_tab_id()],
+        };
+        workspace.panels = vec![
+            test_panel(
+                "editor",
+                "Code",
+                PanelType::CodeEditor {
+                    root_dir: "/repo/app".into(),
+                    ssh: None,
+                    remote_path: None,
+                    poll_interval: None,
+                },
+                None,
+            ),
+            test_panel(
+                "term-a",
+                "Build Shell",
+                PanelType::Terminal,
+                Some("/repo/app"),
+            ),
+            test_panel("term-b", "No Cwd Shell", PanelType::Terminal, None),
+            test_panel(
+                "docs",
+                "Docs",
+                PanelType::Markdown {
+                    file: "docs/readme.md".into(),
+                },
+                None,
+            ),
+        ];
+
+        let choices = working_dir_choices_for_workspace(&workspace, "term-a");
+
+        assert_eq!(
+            choices,
+            vec![
+                WorkingDirChoice {
+                    panel_path: "Project › Code".into(),
+                    working_dir: "/repo/app".into(),
+                    scope: WorkingDirScope::Local,
+                },
+                WorkingDirChoice {
+                    panel_path: "Docs › Docs".into(),
+                    working_dir: "docs".into(),
+                    scope: WorkingDirScope::Local,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn working_dir_choices_mark_remote_panel_scope() {
+        let mut workspace = empty_workspace("test");
+        workspace.layout = LayoutNode::Tabs {
+            children: vec![
+                LayoutNode::Panel { id: "local".into() },
+                LayoutNode::Panel {
+                    id: "remote-term".into(),
+                },
+                LayoutNode::Panel {
+                    id: "remote-code".into(),
+                },
+            ],
+            labels: vec!["Local".into(), "Terminal".into(), "Editor".into()],
+            tab_ids: vec![new_tab_id(), new_tab_id(), new_tab_id()],
+        };
+        let mut remote_terminal = test_panel(
+            "remote-term",
+            "SSH Shell",
+            PanelType::Terminal,
+            Some("/srv/app"),
+        );
+        remote_terminal.ssh = Some(SshConfig {
+            host: "server-a".into(),
+            ..Default::default()
+        });
+        workspace.panels = vec![
+            test_panel(
+                "local",
+                "Local Shell",
+                PanelType::Terminal,
+                Some("/repo/app"),
+            ),
+            remote_terminal,
+            test_panel(
+                "remote-code",
+                "Remote Code",
+                PanelType::CodeEditor {
+                    root_dir: "/fallback".into(),
+                    ssh: Some(SshConfig {
+                        host: "server-b".into(),
+                        ..Default::default()
+                    }),
+                    remote_path: Some("/srv/code".into()),
+                    poll_interval: None,
+                },
+                None,
+            ),
+        ];
+
+        let choices = working_dir_choices_for_workspace(&workspace, "local");
+
+        assert_eq!(
+            choices,
+            vec![
+                WorkingDirChoice {
+                    panel_path: "Terminal › SSH Shell".into(),
+                    working_dir: "/srv/app".into(),
+                    scope: WorkingDirScope::Remote {
+                        host: "server-a".into(),
+                    },
+                },
+                WorkingDirChoice {
+                    panel_path: "Editor › Remote Code".into(),
+                    working_dir: "/srv/code".into(),
+                    scope: WorkingDirScope::Remote {
+                        host: "server-b".into(),
+                    },
+                },
+            ]
+        );
     }
 
     #[test]

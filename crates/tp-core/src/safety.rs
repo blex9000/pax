@@ -152,9 +152,18 @@ mod tests {
 
     #[test]
     fn notebook_blocks_rm_rf_absolute_paths() {
-        for cmd in &["rm -rf /home/user", "rm -rf /tmp", "rm -rf /etc", "rm -rf /var/log"] {
+        for cmd in &[
+            "rm -rf /home/user",
+            "rm -rf /tmp",
+            "rm -rf /etc",
+            "rm -rf /var/log",
+        ] {
             let r = check_notebook_command(cmd).unwrap();
-            assert!(matches!(r, SafetyCheck::Blocked(_)), "should block: {}", cmd);
+            assert!(
+                matches!(r, SafetyCheck::Blocked(_)),
+                "should block: {}",
+                cmd
+            );
         }
     }
 }

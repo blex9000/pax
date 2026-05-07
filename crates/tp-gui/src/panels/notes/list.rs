@@ -12,13 +12,11 @@ use std::rc::Rc;
 use gtk4::prelude::*;
 
 use pax_db::workspace_notes::{
-    NOTE_SEVERITIES, SEVERITY_IMPORTANT, SEVERITY_INFO, SEVERITY_WARNING, WorkspaceNote,
+    WorkspaceNote, NOTE_SEVERITIES, SEVERITY_IMPORTANT, SEVERITY_INFO, SEVERITY_WARNING,
 };
 
 use super::card::{build_note_card, NoteCardActions};
-use super::editor_dialog::{
-    draft_default, draft_from_note, open_note_dialog, NoteDraft,
-};
+use super::editor_dialog::{draft_default, draft_from_note, open_note_dialog, NoteDraft};
 
 /// Delay before the undo-toast auto-dismisses.
 const UNDO_TOAST_TIMEOUT_SECS: u32 = 5;
@@ -241,9 +239,7 @@ impl NoteListView {
         }
 
         if notes.is_empty() {
-            let placeholder = gtk4::Label::new(Some(
-                "No notes yet — click + to create one.",
-            ));
+            let placeholder = gtk4::Label::new(Some("No notes yet — click + to create one."));
             placeholder.add_css_class("dim-label");
             placeholder.set_margin_top(24);
             placeholder.set_margin_bottom(24);
@@ -426,14 +422,9 @@ impl NoteListView {
         let Some(note) = db.get_workspace_note(id).ok().flatten() else {
             return;
         };
-        if let Err(e) = db.update_workspace_note(
-            id,
-            &note.title,
-            &note.text,
-            &note.tags,
-            next,
-            note.alert_at,
-        ) {
+        if let Err(e) =
+            db.update_workspace_note(id, &note.title, &note.text, &note.tags, next, note.alert_at)
+        {
             tracing::warn!("notes: could not set severity {next} on {id}: {e}");
             return;
         }

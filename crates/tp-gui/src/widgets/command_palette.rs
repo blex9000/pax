@@ -263,7 +263,11 @@ impl CommandPalette {
     }
 
     fn activate_row(&self, idx: usize) {
-        let action = self.visible_items.borrow().get(idx).map(|i| i.action.clone());
+        let action = self
+            .visible_items
+            .borrow()
+            .get(idx)
+            .map(|i| i.action.clone());
         if let Some(action) = action {
             self.hide();
             action();

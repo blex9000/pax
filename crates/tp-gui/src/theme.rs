@@ -168,7 +168,11 @@ pub fn register_sourceview_buffer(buf: &sourceview5::Buffer) {
     {
         buf.set_style_scheme(Some(&scheme));
     } else {
-        tracing::warn!("sourceview scheme {} not found, available: {:?}", scheme_id, manager.scheme_ids());
+        tracing::warn!(
+            "sourceview scheme {} not found, available: {:?}",
+            scheme_id,
+            manager.scheme_ids()
+        );
     }
     SV_BUFFERS.with(|cell| {
         cell.borrow_mut().push(buf.clone());
@@ -363,7 +367,10 @@ pub fn parse_define_color(css: &str, token: &str) -> Option<String> {
 /// Replace `@define-color` values in a CSS string using the given overrides map.
 /// Lines whose token name appears in the map get their value swapped; other
 /// lines pass through unchanged.
-pub fn apply_color_overrides(base_css: &str, overrides: &std::collections::HashMap<String, String>) -> String {
+pub fn apply_color_overrides(
+    base_css: &str,
+    overrides: &std::collections::HashMap<String, String>,
+) -> String {
     let mut result = String::with_capacity(base_css.len());
     for line in base_css.lines() {
         let trimmed = line.trim();
@@ -2010,7 +2017,9 @@ mod tests {
         assert!(BASE_CSS.contains("margin-left: 14px;"));
         assert!(BASE_CSS.contains(".panel-action-btn { min-height: 9px;"));
         assert!(BASE_CSS.contains(".tab-close-btn { min-height: 11px;"));
-        assert!(BASE_CSS.contains(".panel-collapsed-overlay {\n  background-color: @window_bg_color;"));
+        assert!(
+            BASE_CSS.contains(".panel-collapsed-overlay {\n  background-color: @window_bg_color;")
+        );
         assert!(BASE_CSS.contains(".panel-collapsed-chip"));
         assert!(BASE_CSS.contains(".panel-collapsed-drag-strip"));
         assert!(BASE_CSS.contains("border-radius: 14px;"));
@@ -2019,7 +2028,9 @@ mod tests {
 
     #[test]
     fn collapsed_panels_use_panel_toolbar_surface_and_rounding() {
-        assert!(BASE_CSS.contains(".panel-collapsed-overlay {\n  background-color: @window_bg_color;"));
+        assert!(
+            BASE_CSS.contains(".panel-collapsed-overlay {\n  background-color: @window_bg_color;")
+        );
         assert!(BASE_CSS.contains("border: 1px solid @border_hard;"));
         assert!(BASE_CSS.contains("border-radius: 14px;"));
         assert!(BASE_CSS.contains(".panel-collapsed-chip {\n  background-color: transparent;"));
@@ -2077,12 +2088,10 @@ mod tests {
         assert!(BASE_CSS.contains(
             "box.panel-frame { border: 1px solid @border_hard; border-radius: 14px; margin: 6px; padding: 0; }"
         ));
-        assert!(BASE_CSS.contains(
-            "box.panel-frame > box.panel-title-bar { border-radius: 14px 14px 0 0; }"
-        ));
-        assert!(BASE_CSS.contains(
-            "box.panel-frame > box.panel-footer-bar { border-radius: 0 0 14px 14px; }"
-        ));
+        assert!(BASE_CSS
+            .contains("box.panel-frame > box.panel-title-bar { border-radius: 14px 14px 0 0; }"));
+        assert!(BASE_CSS
+            .contains("box.panel-frame > box.panel-footer-bar { border-radius: 0 0 14px 14px; }"));
     }
 
     #[test]

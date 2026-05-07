@@ -242,9 +242,10 @@ fn start_open_file_watcher(
                                 open_file.set_modified(false);
                             } else {
                                 let md = tab.clone();
-                                let apply_reload: Rc<dyn Fn(&str)> = Rc::new(move |content: &str| {
-                                    super::markdown_view::reload_from_disk(&md, content);
-                                });
+                                let apply_reload: Rc<dyn Fn(&str)> =
+                                    Rc::new(move |content: &str| {
+                                        super::markdown_view::reload_from_disk(&md, content);
+                                    });
                                 let on_merge: Rc<dyn Fn()> = {
                                     let path = open_file.path.clone();
                                     let disk = change.content.clone();

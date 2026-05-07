@@ -87,11 +87,7 @@ impl Database {
     }
 
     /// List all notes attached to a file in a workspace.
-    pub fn list_notes_for_file(
-        &self,
-        record_key: &str,
-        file_path: &str,
-    ) -> Result<Vec<FileNote>> {
+    pub fn list_notes_for_file(&self, record_key: &str, file_path: &str) -> Result<Vec<FileNote>> {
         Ok(self
             .list_metadata_by_file(record_key, NOTE_ENTRY_TYPE, file_path)?
             .into_iter()

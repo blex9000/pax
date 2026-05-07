@@ -49,7 +49,10 @@ mod tests {
     #[test]
     fn marker_image_path() {
         let item = parse_line("<<pax:image:/tmp/foo.png>>");
-        assert_eq!(item, OutputItem::Image(ImageSource::Path("/tmp/foo.png".into())));
+        assert_eq!(
+            item,
+            OutputItem::Image(ImageSource::Path("/tmp/foo.png".into()))
+        );
     }
 
     #[test]

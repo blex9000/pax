@@ -158,12 +158,7 @@ pub fn register_global(tray: Rc<AlertTray>) {
 /// silently if no tray exists (e.g. headless tests). `on_click` is
 /// invoked when the user clicks the toast body (outside its close
 /// button) — see `AlertTray::push`.
-pub fn emit(
-    title: &str,
-    body: &str,
-    workspace_name: Option<&str>,
-    on_click: Option<Rc<dyn Fn()>>,
-) {
+pub fn emit(title: &str, body: &str, workspace_name: Option<&str>, on_click: Option<Rc<dyn Fn()>>) {
     REGISTERED_TRAY.with(|cell| {
         if let Some(tray) = cell.borrow().as_ref() {
             tray.push(title, body, workspace_name, on_click);

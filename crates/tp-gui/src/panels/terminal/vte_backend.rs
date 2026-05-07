@@ -63,34 +63,31 @@ fn spawn_tcgetpgrp_poller(
 ) {
     let vte_weak = vte.downgrade();
     let last_busy: Rc<Cell<Option<bool>>> = Rc::new(Cell::new(None));
-    glib::timeout_add_local(
-        Duration::from_millis(TCGETPGRP_POLL_MS),
-        move || {
-            let Some(term) = vte_weak.upgrade() else {
-                return glib::ControlFlow::Break;
-            };
-            let Some(pid) = shell_pid.get() else {
-                return glib::ControlFlow::Continue;
-            };
-            let Some(pty) = term.pty() else {
-                return glib::ControlFlow::Continue;
-            };
-            let pgrp = unsafe { libc::tcgetpgrp(pty.fd().as_raw_fd()) };
-            if pgrp < 0 {
-                return glib::ControlFlow::Continue;
-            }
-            let busy = pgrp != pid;
-            if last_busy.get() != Some(busy) {
-                last_busy.set(Some(busy));
-                if let Ok(borrowed) = status_cb.try_borrow() {
-                    if let Some(ref cb) = *borrowed {
-                        cb(busy);
-                    }
+    glib::timeout_add_local(Duration::from_millis(TCGETPGRP_POLL_MS), move || {
+        let Some(term) = vte_weak.upgrade() else {
+            return glib::ControlFlow::Break;
+        };
+        let Some(pid) = shell_pid.get() else {
+            return glib::ControlFlow::Continue;
+        };
+        let Some(pty) = term.pty() else {
+            return glib::ControlFlow::Continue;
+        };
+        let pgrp = unsafe { libc::tcgetpgrp(pty.fd().as_raw_fd()) };
+        if pgrp < 0 {
+            return glib::ControlFlow::Continue;
+        }
+        let busy = pgrp != pid;
+        if last_busy.get() != Some(busy) {
+            last_busy.set(Some(busy));
+            if let Ok(borrowed) = status_cb.try_borrow() {
+                if let Some(ref cb) = *borrowed {
+                    cb(busy);
                 }
             }
-            glib::ControlFlow::Continue
-        },
-    );
+        }
+        glib::ControlFlow::Continue
+    });
 }
 
 pub struct TerminalInner {
@@ -136,7 +133,6 @@ impl TerminalInner {
         // Hide terminal during init commands (PS1, LS_COLORS, PROMPT_COMMAND).
         // After init, reset + reveal, then run startup scripts with output visible.
         vte.set_opacity(0.0);
-
 
         let pending_commands: Rc<RefCell<Vec<String>>> = Rc::new(RefCell::new(Vec::new()));
         let spawned: Rc<RefCell<bool>> = Rc::new(RefCell::new(false));
@@ -204,7 +200,8 @@ impl TerminalInner {
                     //     minimal green prompt ("$: ").
                     //   - emit_osc7: only VTE consumes OSC 7 to drive the
                     //     footer via `current-directory-uri-changed`.
-                    let shell_kind = super::shell_bootstrap::ShellKind::detect_from_path(&shell_for_cb);
+                    let shell_kind =
+                        super::shell_bootstrap::ShellKind::detect_from_path(&shell_for_cb);
                     let cmd_file = match panel_uuid_for_cb {
                         Some(u) => super::shell_bootstrap::cmd_file_path(&u),
                         None => std::path::PathBuf::new(),
@@ -226,15 +223,18 @@ impl TerminalInner {
                     // Reset wipes init noise, reveal the terminal, then
                     // run startup commands so their output is visible.
                     let vte_show = vte_for_cb.clone();
-                    glib::timeout_add_local_once(std::time::Duration::from_millis(800), move || {
-                        vte_show.reset(true, true);
-                        vte_show.feed_child(b"\n");
-                        vte_show.set_opacity(1.0);
-                        for cmd in &cmds {
-                            let line = format!(" {}\n", cmd);
-                            vte_show.feed_child(line.as_bytes());
-                        }
-                    });
+                    glib::timeout_add_local_once(
+                        std::time::Duration::from_millis(800),
+                        move || {
+                            vte_show.reset(true, true);
+                            vte_show.feed_child(b"\n");
+                            vte_show.set_opacity(1.0);
+                            for cmd in &cmds {
+                                let line = format!(" {}\n", cmd);
+                                vte_show.feed_child(line.as_bytes());
+                            }
+                        },
+                    );
                 }
             },
         );
@@ -481,9 +481,7 @@ impl TerminalInner {
     /// - `"file:<interpreter>:<path>"` → run an existing script file
     /// - Multi-line or shebang text → written to temp file, sourced, then deleted
     pub fn send_commands(&self, commands: &[String]) {
-        if let Some(line) =
-            prepare_startup_command(commands, self.workspace_dir.as_deref())
-        {
+        if let Some(line) = prepare_startup_command(commands, self.workspace_dir.as_deref()) {
             self.pending_commands.borrow_mut().push(line);
         }
     }

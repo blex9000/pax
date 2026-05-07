@@ -1,10 +1,9 @@
 //! Note-indicator drawing area. Mirrors the match-ruler pattern in
-//! `editor_tabs::build_match_overview_ruler` but paints small amber dots
+//! `overview_ruler::build_match_overview_ruler` but paints small amber dots
 //! at every line carrying a note in the active source tab, and exposes a
 //! click-to-jump gesture against whatever callback the owner wires up.
 
 use gtk4::prelude::*;
-use sourceview5::prelude::*;
 use std::cell::RefCell;
 use std::rc::Rc;
 
@@ -66,7 +65,13 @@ impl NotesRuler {
                 for &line in lines.borrow().iter() {
                     let y = (line as f64 / total) * h_f;
                     let cx = w_f / 2.0;
-                    cr.arc(cx, y + NOTES_DOT_RADIUS, NOTES_DOT_RADIUS, 0.0, std::f64::consts::TAU);
+                    cr.arc(
+                        cx,
+                        y + NOTES_DOT_RADIUS,
+                        NOTES_DOT_RADIUS,
+                        0.0,
+                        std::f64::consts::TAU,
+                    );
                     let _ = cr.fill();
                 }
             });
@@ -126,9 +131,7 @@ impl NotesRuler {
                 let h = widget_for_motion.height().max(1) as f64;
                 let total = (*total_c.borrow()).max(1) as f64;
                 let clicked = ((y / h).clamp(0.0, 1.0) * total) as i32;
-                let Some(target) =
-                    ls.iter().copied().min_by_key(|l| (*l - clicked).abs())
-                else {
+                let Some(target) = ls.iter().copied().min_by_key(|l| (*l - clicked).abs()) else {
                     widget_for_motion.set_cursor_from_name(Some("default"));
                     return;
                 };
@@ -158,9 +161,7 @@ impl NotesRuler {
                 let h = widget_for_tip.height().max(1) as f64;
                 let total = (*total_c.borrow()).max(1) as f64;
                 let clicked = ((y as f64 / h).clamp(0.0, 1.0) * total) as i32;
-                let Some(target) =
-                    ls.iter().copied().min_by_key(|l| (*l - clicked).abs())
-                else {
+                let Some(target) = ls.iter().copied().min_by_key(|l| (*l - clicked).abs()) else {
                     return false;
                 };
                 // Only show if the click is within a small pixel radius of
@@ -170,10 +171,7 @@ impl NotesRuler {
                 if (y as f64 - target_y).abs() > NOTES_TOOLTIP_HIT_RADIUS_PX {
                     return false;
                 }
-                let text = tooltip_cb
-                    .borrow()
-                    .as_ref()
-                    .and_then(|cb| cb(target));
+                let text = tooltip_cb.borrow().as_ref().and_then(|cb| cb(target));
                 match text {
                     Some(t) => {
                         tooltip.set_text(Some(&t));
@@ -219,5 +217,4 @@ impl NotesRuler {
         self.widget.set_visible(false);
         self.widget.queue_draw();
     }
-
 }

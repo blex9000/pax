@@ -1,5 +1,5 @@
-use gtk4::prelude::*;
 use gtk4::glib;
+use gtk4::prelude::*;
 
 /// Status bar at the bottom of the window.
 #[derive(Debug)]

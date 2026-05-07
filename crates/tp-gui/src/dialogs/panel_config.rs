@@ -2,53 +2,130 @@ use gtk4::prelude::*;
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use pax_core::workspace::{NamedSshConfig, PanelType, SshConfig};
+use pax_core::workspace::{NamedSshConfig, PanelConfigUpdate, PanelType, SshConfig};
 
-/// Callback: (name, panel_type, cwd, ssh, startup_commands, before_close, min_width, min_height)
-pub type ConfigDoneCallback = dyn Fn(String, PanelType, Option<String>, Option<SshConfig>, Vec<String>, Option<String>, u32, u32)
-    + 'static;
+pub type ConfigDoneCallback = dyn Fn(PanelConfigUpdate) + 'static;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum WorkingDirScope {
+    Local,
+    Remote { host: String },
+}
+
+impl WorkingDirScope {
+    fn label(&self) -> String {
+        match self {
+            Self::Local => "Local".to_string(),
+            Self::Remote { host } if host.trim().is_empty() => "Remote".to_string(),
+            Self::Remote { host } => format!("Remote: {}", host),
+        }
+    }
+
+    fn is_local(&self) -> bool {
+        matches!(self, Self::Local)
+    }
+
+    fn remote_host(&self) -> Option<&str> {
+        match self {
+            Self::Remote { host } => Some(host.as_str()),
+            Self::Local => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WorkingDirChoice {
+    pub panel_path: String,
+    pub working_dir: String,
+    pub scope: WorkingDirScope,
+}
+
+#[derive(Clone)]
+pub struct PanelConfigDialogContext {
+    pub working_dirs: Vec<WorkingDirChoice>,
+    pub saved_ssh: Rc<RefCell<Vec<NamedSshConfig>>>,
+}
+
+pub struct PanelConfigInitial<'a> {
+    pub panel_name: &'a str,
+    pub panel_type: &'a PanelType,
+    pub cwd: Option<&'a str>,
+    pub ssh: Option<&'a SshConfig>,
+    pub startup_commands: &'a [String],
+    pub before_close: Option<&'a str>,
+    pub min_width: u32,
+    pub min_height: u32,
+}
+
+struct TerminalConfigInitial<'a> {
+    panel_name: &'a str,
+    cwd: Option<&'a str>,
+    ssh: Option<&'a SshConfig>,
+    startup_commands: &'a [String],
+    before_close: Option<&'a str>,
+    min_width: u32,
+    min_height: u32,
+}
+
+struct CodeEditorConfigInitial<'a> {
+    panel_name: &'a str,
+    root_dir: &'a str,
+    existing_ssh: Option<&'a SshConfig>,
+    existing_remote_path: Option<&'a str>,
+    min_width: u32,
+    min_height: u32,
+}
+
+struct SshConfigEntries<'a> {
+    host: &'a gtk4::Entry,
+    port: &'a gtk4::Entry,
+    user: &'a gtk4::Entry,
+    password: &'a gtk4::PasswordEntry,
+    identity_file: &'a gtk4::Entry,
+    remote_path: Option<&'a gtk4::Entry>,
+}
+
+struct RemoteBrowseConfig<'a> {
+    host: &'a str,
+    user: &'a str,
+    password: &'a str,
+    identity_file: &'a str,
+    port: &'a str,
+    start_path: &'a str,
+}
 
 /// Show a configuration dialog for the given panel type.
 pub fn show_panel_config_dialog(
     parent: &impl IsA<gtk4::Window>,
-    panel_name: &str,
-    panel_type: &PanelType,
-    cwd: Option<&str>,
-    ssh: Option<&SshConfig>,
-    startup_commands: &[String],
-    before_close: Option<&str>,
-    min_width: u32,
-    min_height: u32,
-    saved_ssh: Rc<RefCell<Vec<NamedSshConfig>>>,
-    on_done: impl Fn(
-            String,
-            PanelType,
-            Option<String>,
-            Option<SshConfig>,
-            Vec<String>,
-            Option<String>,
-            u32,
-            u32,
-        ) + 'static,
+    initial: PanelConfigInitial<'_>,
+    context: PanelConfigDialogContext,
+    on_done: impl Fn(PanelConfigUpdate) + 'static,
 ) {
-    match panel_type {
+    match initial.panel_type {
         PanelType::Terminal | PanelType::Ssh { .. } | PanelType::RemoteTmux { .. } => {
             show_terminal_config(
                 parent,
-                panel_name,
-                cwd,
-                ssh,
-                startup_commands,
-                before_close,
-                min_width,
-                min_height,
-                saved_ssh,
+                TerminalConfigInitial {
+                    panel_name: initial.panel_name,
+                    cwd: initial.cwd,
+                    ssh: initial.ssh,
+                    startup_commands: initial.startup_commands,
+                    before_close: initial.before_close,
+                    min_width: initial.min_width,
+                    min_height: initial.min_height,
+                },
+                context,
                 on_done,
             )
         }
-        PanelType::Markdown { file } => {
-            show_markdown_config(parent, panel_name, file, min_width, min_height, on_done)
-        }
+        PanelType::Markdown { file } => show_markdown_config(
+            parent,
+            initial.panel_name,
+            file,
+            initial.min_width,
+            initial.min_height,
+            on_done,
+        ),
         PanelType::CodeEditor {
             root_dir,
             ssh: editor_ssh,
@@ -56,13 +133,15 @@ pub fn show_panel_config_dialog(
             ..
         } => show_code_editor_config(
             parent,
-            panel_name,
-            root_dir,
-            editor_ssh.as_ref(),
-            remote_path.as_deref(),
-            min_width,
-            min_height,
-            saved_ssh,
+            CodeEditorConfigInitial {
+                panel_name: initial.panel_name,
+                root_dir,
+                existing_ssh: editor_ssh.as_ref(),
+                existing_remote_path: remote_path.as_deref(),
+                min_width: initial.min_width,
+                min_height: initial.min_height,
+            },
+            context,
             on_done,
         ),
         PanelType::Empty => {}
@@ -101,6 +180,209 @@ fn add_field(vbox: &gtk4::Box, label: &str, value: &str, placeholder: &str) -> g
     entry
 }
 
+#[derive(Clone)]
+enum WorkingDirPickerTarget {
+    Local,
+    Remote { host_entry: gtk4::Entry },
+}
+
+impl WorkingDirPickerTarget {
+    fn title(&self) -> &'static str {
+        match self {
+            Self::Local => "Local Working Directories",
+            Self::Remote { .. } => "Remote Working Directories",
+        }
+    }
+
+    fn empty_message(&self) -> &'static str {
+        match self {
+            Self::Local => "No other local panel has a configured working directory.",
+            Self::Remote { .. } => "No other remote panel has a compatible working directory.",
+        }
+    }
+
+    fn has_candidate(&self, choice: &WorkingDirChoice) -> bool {
+        match self {
+            Self::Local => choice.scope.is_local(),
+            Self::Remote { .. } => choice.scope.remote_host().is_some(),
+        }
+    }
+
+    fn current_host(&self) -> Option<String> {
+        match self {
+            Self::Local => None,
+            Self::Remote { host_entry } => Some(host_entry.text().trim().to_string()),
+        }
+    }
+}
+
+fn compatible_working_dir_choices(
+    choices: &[WorkingDirChoice],
+    target: &WorkingDirPickerTarget,
+) -> Vec<WorkingDirChoice> {
+    let candidates = choices
+        .iter()
+        .filter(|choice| target.has_candidate(choice))
+        .cloned()
+        .collect::<Vec<_>>();
+
+    let Some(host) = target.current_host().filter(|host| !host.is_empty()) else {
+        return candidates;
+    };
+
+    let host_matches = candidates
+        .iter()
+        .filter(|choice| {
+            choice
+                .scope
+                .remote_host()
+                .is_some_and(|choice_host| choice_host.eq_ignore_ascii_case(&host))
+        })
+        .cloned()
+        .collect::<Vec<_>>();
+
+    if host_matches.is_empty() {
+        candidates
+    } else {
+        host_matches
+    }
+}
+
+fn make_working_dir_picker_button(
+    parent: &gtk4::Window,
+    target_entry: &gtk4::Entry,
+    choices: &[WorkingDirChoice],
+    target: WorkingDirPickerTarget,
+) -> gtk4::Button {
+    let button = gtk4::Button::from_icon_name("view-list-symbolic");
+    button.add_css_class("flat");
+    let has_candidates = choices.iter().any(|choice| target.has_candidate(choice));
+    button.set_sensitive(has_candidates);
+    button.set_tooltip_text(Some(if has_candidates {
+        "Use compatible working directory from another panel"
+    } else {
+        target.empty_message()
+    }));
+
+    let parent = parent.clone();
+    let entry = target_entry.clone();
+    let choices = choices.to_vec();
+    button.connect_clicked(move |_| {
+        let entry = entry.clone();
+        let compatible_choices = compatible_working_dir_choices(&choices, &target);
+        show_working_dir_picker(
+            &parent,
+            target.title(),
+            target.empty_message(),
+            &compatible_choices,
+            move |selected| {
+                entry.set_text(&selected);
+            },
+        );
+    });
+
+    button
+}
+
+fn show_working_dir_picker(
+    parent: &gtk4::Window,
+    title: &str,
+    empty_message: &str,
+    choices: &[WorkingDirChoice],
+    on_select: impl Fn(String) + 'static,
+) {
+    let dialog = gtk4::Window::builder()
+        .title(title)
+        .transient_for(parent)
+        .modal(true)
+        .default_width(560)
+        .default_height(420)
+        .build();
+    crate::theme::configure_dialog_window(&dialog);
+
+    let root = gtk4::Box::new(gtk4::Orientation::Vertical, 8);
+    root.set_margin_top(12);
+    root.set_margin_bottom(12);
+    root.set_margin_start(12);
+    root.set_margin_end(12);
+
+    let heading = gtk4::Label::new(Some("Select a working directory from another panel"));
+    heading.add_css_class("heading");
+    heading.set_halign(gtk4::Align::Start);
+    root.append(&heading);
+
+    let scroll = gtk4::ScrolledWindow::new();
+    scroll.set_vexpand(true);
+    scroll.set_hexpand(true);
+    scroll.set_hscrollbar_policy(gtk4::PolicyType::Never);
+    let list = gtk4::Box::new(gtk4::Orientation::Vertical, 4);
+
+    let on_select: Rc<dyn Fn(String)> = Rc::new(on_select);
+    for choice in choices {
+        let row = gtk4::Button::new();
+        row.add_css_class("flat");
+        row.add_css_class("notebook-target-row");
+        row.set_halign(gtk4::Align::Fill);
+        row.set_tooltip_text(Some(&choice.working_dir));
+
+        let body = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
+        let icon = gtk4::Image::from_icon_name("folder-symbolic");
+        icon.add_css_class("notebook-target-icon");
+        body.append(&icon);
+
+        let labels = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
+        labels.set_hexpand(true);
+        let primary = gtk4::Label::new(Some(&choice.panel_path));
+        primary.set_halign(gtk4::Align::Start);
+        primary.set_xalign(0.0);
+        labels.append(&primary);
+        let secondary_text = format!("{} - {}", choice.scope.label(), choice.working_dir);
+        let secondary = gtk4::Label::new(Some(&secondary_text));
+        secondary.add_css_class("dim-label");
+        secondary.add_css_class("caption");
+        secondary.set_halign(gtk4::Align::Start);
+        secondary.set_xalign(0.0);
+        secondary.set_selectable(true);
+        labels.append(&secondary);
+
+        body.append(&labels);
+        row.set_child(Some(&body));
+
+        let selected = choice.working_dir.clone();
+        let dialog_c = dialog.clone();
+        let on_select_c = on_select.clone();
+        row.connect_clicked(move |_| {
+            on_select_c(selected.clone());
+            dialog_c.close();
+        });
+        list.append(&row);
+    }
+
+    if choices.is_empty() {
+        let empty = gtk4::Label::new(Some(empty_message));
+        empty.add_css_class("dim-label");
+        empty.set_halign(gtk4::Align::Start);
+        list.append(&empty);
+    }
+
+    scroll.set_child(Some(&list));
+    root.append(&scroll);
+
+    let key_ctrl = gtk4::EventControllerKey::new();
+    let dialog_for_esc = dialog.clone();
+    key_ctrl.connect_key_pressed(move |_, key, _, _| {
+        if key == gtk4::gdk::Key::Escape {
+            dialog_for_esc.close();
+            return gtk4::glib::Propagation::Stop;
+        }
+        gtk4::glib::Propagation::Proceed
+    });
+    dialog.add_controller(key_ctrl);
+
+    dialog.set_child(Some(&root));
+    dialog.present();
+}
+
 /// Finalize a config dialog: wrap `content` in a scrollable region that fills
 /// the dialog vertically, append a bottom-aligned Cancel/Apply row, set the
 /// outer layout as the dialog's child, and present it.
@@ -109,11 +391,7 @@ fn add_field(vbox: &gtk4::Box, label: &str, value: &str, placeholder: &str) -> g
 /// not set the dialog's child or call `present()` themselves. This guarantees
 /// the buttons are always pinned to the bottom regardless of how much content
 /// the dialog holds.
-fn finalize_dialog(
-    dialog: &gtk4::Window,
-    content: &gtk4::Box,
-    on_apply: impl Fn() + 'static,
-) {
+fn finalize_dialog(dialog: &gtk4::Window, content: &gtk4::Box, on_apply: impl Fn() + 'static) {
     // Scrollable content region — grows to fill available vertical space so
     // the button row below stays pinned at the bottom of the window.
     let scroll = gtk4::ScrolledWindow::new();
@@ -369,25 +647,24 @@ fn detect_interpreters() -> Vec<String> {
 
 fn show_terminal_config(
     parent: &impl IsA<gtk4::Window>,
-    panel_name: &str,
-    cwd: Option<&str>,
-    ssh: Option<&SshConfig>,
-    startup_commands: &[String],
-    before_close: Option<&str>,
-    min_width: u32,
-    min_height: u32,
-    saved_ssh: Rc<RefCell<Vec<NamedSshConfig>>>,
-    on_done: impl Fn(
-            String,
-            PanelType,
-            Option<String>,
-            Option<SshConfig>,
-            Vec<String>,
-            Option<String>,
-            u32,
-            u32,
-        ) + 'static,
+    initial: TerminalConfigInitial<'_>,
+    context: PanelConfigDialogContext,
+    on_done: impl Fn(PanelConfigUpdate) + 'static,
 ) {
+    let TerminalConfigInitial {
+        panel_name,
+        cwd,
+        ssh,
+        startup_commands,
+        before_close,
+        min_width,
+        min_height,
+    } = initial;
+    let PanelConfigDialogContext {
+        working_dirs,
+        saved_ssh,
+    } = context;
+
     let dialog = make_dialog(parent, "Terminal Configuration");
     let vbox = gtk4::Box::new(gtk4::Orientation::Vertical, 8);
     vbox.set_margin_top(16);
@@ -410,6 +687,12 @@ fn show_terminal_config(
     cwd_browse.set_icon_name("folder-open-symbolic");
     cwd_browse.add_css_class("flat");
     cwd_browse.set_tooltip_text(Some("Browse..."));
+    let cwd_pick = make_working_dir_picker_button(
+        &dialog,
+        &cwd_entry,
+        &working_dirs,
+        WorkingDirPickerTarget::Local,
+    );
     let ce = cwd_entry.clone();
     let d_cwd = dialog.clone();
     cwd_browse.connect_clicked(move |_| {
@@ -428,6 +711,7 @@ fn show_terminal_config(
     });
     cwd_box.append(&cwd_label);
     cwd_box.append(&cwd_entry);
+    cwd_box.append(&cwd_pick);
     cwd_box.append(&cwd_browse);
     vbox.append(&cwd_box);
 
@@ -509,8 +793,17 @@ fn show_terminal_config(
     remote_browse_btn.add_css_class("flat");
     remote_browse_btn.set_tooltip_text(Some("Browse remote directories"));
     remote_browse_btn.set_sensitive(ssh_enabled);
+    let remote_pick_btn = make_working_dir_picker_button(
+        &dialog,
+        &remote_cwd_entry,
+        &working_dirs,
+        WorkingDirPickerTarget::Remote {
+            host_entry: ssh_host_entry.clone(),
+        },
+    );
     remote_cwd_row.append(&remote_cwd_label);
     remote_cwd_row.append(&remote_cwd_entry);
+    remote_cwd_row.append(&remote_pick_btn);
     remote_cwd_row.append(&remote_browse_btn);
     ssh_container.append(&remote_cwd_row);
 
@@ -553,12 +846,14 @@ fn show_terminal_config(
             if let Some(win) = btn.root().and_then(|r| r.downcast::<gtk4::Window>().ok()) {
                 show_remote_browse_dialog(
                     &win,
-                    &host,
-                    &user,
-                    &password,
-                    &key,
-                    &port,
-                    &start,
+                    RemoteBrowseConfig {
+                        host: &host,
+                        user: &user,
+                        password: &password,
+                        identity_file: &key,
+                        port: &port,
+                        start_path: &start,
+                    },
                     move |selected| {
                         pe.set_text(&selected);
                     },
@@ -577,12 +872,14 @@ fn show_terminal_config(
     add_ssh_save_load_buttons(
         &ssh_container,
         &saved_ssh,
-        &ssh_host_entry,
-        &ssh_port_entry,
-        &ssh_user_entry,
-        &ssh_pw_entry,
-        &ssh_id_entry,
-        Some(&remote_cwd_entry),
+        SshConfigEntries {
+            host: &ssh_host_entry,
+            port: &ssh_port_entry,
+            user: &ssh_user_entry,
+            password: &ssh_pw_entry,
+            identity_file: &ssh_id_entry,
+            remote_path: Some(&remote_cwd_entry),
+        },
     );
 
     ssh_container.set_sensitive(ssh_enabled);
@@ -847,13 +1144,31 @@ fn show_terminal_config(
 
         // Startup script (only if enabled)
         if !sc.is_active() {
-            on_done(name, PanelType::Terminal, cwd, ssh_config, vec![], before_close, mw, mh);
+            on_done(PanelConfigUpdate {
+                name,
+                panel_type: PanelType::Terminal,
+                cwd,
+                ssh: ssh_config,
+                startup_commands: vec![],
+                before_close,
+                min_width: mw,
+                min_height: mh,
+            });
             return;
         }
 
         let cmds = script_editor.get_script();
         if cmds.is_empty() {
-            on_done(name, PanelType::Terminal, cwd, ssh_config, vec![], before_close, mw, mh);
+            on_done(PanelConfigUpdate {
+                name,
+                panel_type: PanelType::Terminal,
+                cwd,
+                ssh: ssh_config,
+                startup_commands: vec![],
+                before_close,
+                min_width: mw,
+                min_height: mh,
+            });
             return;
         }
 
@@ -861,7 +1176,16 @@ fn show_terminal_config(
         let first = &cmds[0];
         if first.starts_with("file:") {
             let path = first.trim_start_matches("file:");
-            on_done(name, PanelType::Terminal, cwd, ssh_config, vec![format!("file:{}:{}", interpreter, path)], before_close, mw, mh);
+            on_done(PanelConfigUpdate {
+                name,
+                panel_type: PanelType::Terminal,
+                cwd,
+                ssh: ssh_config,
+                startup_commands: vec![format!("file:{}:{}", interpreter, path)],
+                before_close,
+                min_width: mw,
+                min_height: mh,
+            });
         } else {
             let script = if first.starts_with("#!") {
                 let rest = first.lines().skip(1).collect::<Vec<_>>().join("\n");
@@ -869,10 +1193,18 @@ fn show_terminal_config(
             } else {
                 format!("#!{}\n{}", interpreter, first.clone())
             };
-            on_done(name, PanelType::Terminal, cwd, ssh_config, vec![script], before_close, mw, mh);
+            on_done(PanelConfigUpdate {
+                name,
+                panel_type: PanelType::Terminal,
+                cwd,
+                ssh: ssh_config,
+                startup_commands: vec![script],
+                before_close,
+                min_width: mw,
+                min_height: mh,
+            });
         }
     });
-
 }
 
 fn show_markdown_config(
@@ -881,16 +1213,7 @@ fn show_markdown_config(
     file: &str,
     min_width: u32,
     min_height: u32,
-    on_done: impl Fn(
-            String,
-            PanelType,
-            Option<String>,
-            Option<SshConfig>,
-            Vec<String>,
-            Option<String>,
-            u32,
-            u32,
-        ) + 'static,
+    on_done: impl Fn(PanelConfigUpdate) + 'static,
 ) {
     let dialog = make_dialog(parent, "Markdown Configuration");
     let vbox = gtk4::Box::new(gtk4::Orientation::Vertical, 8);
@@ -1077,39 +1400,38 @@ fn show_markdown_config(
     finalize_dialog(&dialog, &vbox, move || {
         let name = name_entry.text().to_string();
         let file = file_entry.text().to_string();
-        on_done(
+        on_done(PanelConfigUpdate {
             name,
-            PanelType::Markdown { file },
-            None,
-            None,
-            vec![],
-            None,
-            mw_spin.value() as u32,
-            mh_spin.value() as u32,
-        );
+            panel_type: PanelType::Markdown { file },
+            cwd: None,
+            ssh: None,
+            startup_commands: vec![],
+            before_close: None,
+            min_width: mw_spin.value() as u32,
+            min_height: mh_spin.value() as u32,
+        });
     });
 }
 
 fn show_code_editor_config(
     parent: &impl IsA<gtk4::Window>,
-    panel_name: &str,
-    root_dir: &str,
-    existing_ssh: Option<&pax_core::workspace::SshConfig>,
-    existing_remote_path: Option<&str>,
-    min_width: u32,
-    min_height: u32,
-    saved_ssh: Rc<RefCell<Vec<NamedSshConfig>>>,
-    on_done: impl Fn(
-            String,
-            PanelType,
-            Option<String>,
-            Option<SshConfig>,
-            Vec<String>,
-            Option<String>,
-            u32,
-            u32,
-        ) + 'static,
+    initial: CodeEditorConfigInitial<'_>,
+    context: PanelConfigDialogContext,
+    on_done: impl Fn(PanelConfigUpdate) + 'static,
 ) {
+    let CodeEditorConfigInitial {
+        panel_name,
+        root_dir,
+        existing_ssh,
+        existing_remote_path,
+        min_width,
+        min_height,
+    } = initial;
+    let PanelConfigDialogContext {
+        working_dirs,
+        saved_ssh,
+    } = context;
+
     let dialog = make_dialog(parent, "Code Editor Configuration");
     let vbox = gtk4::Box::new(gtk4::Orientation::Vertical, 8);
     vbox.set_margin_top(16);
@@ -1131,8 +1453,15 @@ fn show_code_editor_config(
     let browse_btn = gtk4::Button::from_icon_name("folder-open-symbolic");
     browse_btn.add_css_class("flat");
     browse_btn.set_tooltip_text(Some("Browse..."));
+    let dir_pick_btn = make_working_dir_picker_button(
+        &dialog,
+        &dir_entry,
+        &working_dirs,
+        WorkingDirPickerTarget::Local,
+    );
     dir_row.append(&dir_label);
     dir_row.append(&dir_entry);
+    dir_row.append(&dir_pick_btn);
     dir_row.append(&browse_btn);
     vbox.append(&dir_row);
 
@@ -1248,8 +1577,17 @@ fn show_code_editor_config(
     remote_browse_btn.add_css_class("flat");
     remote_browse_btn.set_tooltip_text(Some("Browse remote directories"));
     remote_browse_btn.set_sensitive(has_ssh);
+    let remote_pick_btn = make_working_dir_picker_button(
+        &dialog,
+        &remote_path_entry,
+        &working_dirs,
+        WorkingDirPickerTarget::Remote {
+            host_entry: ssh_host_entry.clone(),
+        },
+    );
     remote_path_row.append(&remote_path_label);
     remote_path_row.append(&remote_path_entry);
+    remote_path_row.append(&remote_pick_btn);
     remote_path_row.append(&remote_browse_btn);
     ssh_fields.append(&remote_path_row);
 
@@ -1292,12 +1630,14 @@ fn show_code_editor_config(
             if let Some(win) = btn.root().and_then(|r| r.downcast::<gtk4::Window>().ok()) {
                 show_remote_browse_dialog(
                     &win,
-                    &host,
-                    &user,
-                    &password,
-                    &key,
-                    &port,
-                    &start_path,
+                    RemoteBrowseConfig {
+                        host: &host,
+                        user: &user,
+                        password: &password,
+                        identity_file: &key,
+                        port: &port,
+                        start_path: &start_path,
+                    },
                     move |selected| {
                         path_entry.set_text(&selected);
                     },
@@ -1310,12 +1650,14 @@ fn show_code_editor_config(
     add_ssh_save_load_buttons(
         &ssh_fields,
         &saved_ssh,
-        &ssh_host_entry,
-        &ssh_port_entry,
-        &ssh_user_entry,
-        &ssh_pass_entry,
-        &ssh_key_entry,
-        Some(&remote_path_entry),
+        SshConfigEntries {
+            host: &ssh_host_entry,
+            port: &ssh_port_entry,
+            user: &ssh_user_entry,
+            password: &ssh_pass_entry,
+            identity_file: &ssh_key_entry,
+            remote_path: Some(&remote_path_entry),
+        },
     );
 
     vbox.append(&ssh_fields);
@@ -1393,21 +1735,21 @@ fn show_code_editor_config(
             }
         };
 
-        on_done(
+        on_done(PanelConfigUpdate {
             name,
-            PanelType::CodeEditor {
+            panel_type: PanelType::CodeEditor {
                 root_dir,
                 ssh,
                 remote_path,
                 poll_interval: None,
             },
-            None,
-            None,
-            vec![],
-            None,
-            mw_spin.value() as u32,
-            mh_spin.value() as u32,
-        );
+            cwd: None,
+            ssh: None,
+            startup_commands: vec![],
+            before_close: None,
+            min_width: mw_spin.value() as u32,
+            min_height: mh_spin.value() as u32,
+        });
     });
 }
 
@@ -1416,13 +1758,17 @@ fn show_code_editor_config(
 fn add_ssh_save_load_buttons(
     container: &gtk4::Box,
     saved_ssh: &Rc<RefCell<Vec<NamedSshConfig>>>,
-    host_entry: &gtk4::Entry,
-    port_entry: &gtk4::Entry,
-    user_entry: &gtk4::Entry,
-    pass_entry: &gtk4::PasswordEntry,
-    key_entry: &gtk4::Entry,
-    remote_path_entry: Option<&gtk4::Entry>,
+    entries: SshConfigEntries<'_>,
 ) {
+    let SshConfigEntries {
+        host: host_entry,
+        port: port_entry,
+        user: user_entry,
+        password: pass_entry,
+        identity_file: key_entry,
+        remote_path: remote_path_entry,
+    } = entries;
+
     let btn_row = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
     btn_row.set_margin_top(4);
     btn_row.set_halign(gtk4::Align::End);
@@ -1717,16 +2063,19 @@ fn add_ssh_save_load_buttons(
 
 fn show_remote_browse_dialog(
     parent: &gtk4::Window,
-    host: &str,
-    user: &str,
-    password: &str,
-    identity_file: &str,
-    port: &str,
-    start_path: &str,
+    config: RemoteBrowseConfig<'_>,
     on_select: impl Fn(String) + 'static,
 ) {
     use std::cell::RefCell;
     use std::rc::Rc;
+    let RemoteBrowseConfig {
+        host,
+        user,
+        password,
+        identity_file,
+        port,
+        start_path,
+    } = config;
 
     let dialog = gtk4::Window::builder()
         .title("Browse Remote Directory")

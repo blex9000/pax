@@ -107,7 +107,8 @@ pub fn send(id: &str, data: &[u8]) -> bool {
 /// picker to disambiguate panels with the same short name.
 pub fn set_breadcrumb(id: &str, breadcrumb: &str) {
     BREADCRUMBS.with(|b| {
-        b.borrow_mut().insert(id.to_string(), breadcrumb.to_string());
+        b.borrow_mut()
+            .insert(id.to_string(), breadcrumb.to_string());
     });
 }
 

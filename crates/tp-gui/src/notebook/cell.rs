@@ -127,8 +127,8 @@ impl NotebookCell {
                 let engine_for_pick = engine.clone();
                 let stop_btn_for_pick = stop_btn.clone();
                 let spec_for_pick = spec_for_confirm.clone();
-                let on_pick: Rc<dyn Fn(RunTarget)> = Rc::new(move |target: RunTarget| {
-                    match target {
+                let on_pick: Rc<dyn Fn(RunTarget)> =
+                    Rc::new(move |target: RunTarget| match target {
                         RunTarget::Host => {
                             if spec_for_pick.confirm && !engine_for_pick.is_confirmed(id) {
                                 if !confirm_dialog_blocking() {
@@ -146,8 +146,7 @@ impl NotebookCell {
                                 terminal_registry::mru_record(&term_id);
                             }
                         }
-                    }
-                });
+                    });
                 show_run_target_dialog(parent_for_dialog.upcast_ref::<gtk4::Widget>(), on_pick);
             });
         }
@@ -174,7 +173,9 @@ impl NotebookCell {
             let status_text = status_text.clone();
             let stop_btn = stop_btn.clone();
             let cb: Rc<dyn Fn()> = Rc::new(move || {
-                let Some(engine) = engine_weak.upgrade() else { return };
+                let Some(engine) = engine_weak.upgrade() else {
+                    return;
+                };
                 let snapshot = engine.output_snapshot(id);
                 rebuild_output_box(&output_box, &snapshot);
                 let running = engine.is_running(id);
@@ -384,8 +385,7 @@ fn show_run_target_dialog(parent: &gtk4::Widget, on_pick: Rc<dyn Fn(RunTarget)>)
     }
 
     let mru = terminal_registry::mru_list();
-    let mru_ids: std::collections::HashSet<String> =
-        mru.iter().map(|t| t.id.clone()).collect();
+    let mru_ids: std::collections::HashSet<String> = mru.iter().map(|t| t.id.clone()).collect();
 
     if !mru.is_empty() {
         vbox.append(&section_separator("Suggested"));
@@ -403,7 +403,10 @@ fn show_run_target_dialog(parent: &gtk4::Widget, on_pick: Rc<dyn Fn(RunTarget)>)
     }
 
     let all = terminal_registry::list();
-    let available: Vec<_> = all.into_iter().filter(|t| !mru_ids.contains(&t.id)).collect();
+    let available: Vec<_> = all
+        .into_iter()
+        .filter(|t| !mru_ids.contains(&t.id))
+        .collect();
 
     if !available.is_empty() {
         vbox.append(&section_separator("Available"));

@@ -12,12 +12,7 @@ use libadwaita as adw;
 
 /// Send a desktop notification. `id` must be stable per logical event;
 /// pass `None` for one-offs (a fresh UUID is allocated).
-pub fn send_desktop(
-    app: &adw::Application,
-    id: Option<&str>,
-    title: &str,
-    body: &str,
-) {
+pub fn send_desktop(app: &adw::Application, id: Option<&str>, title: &str, body: &str) {
     let notif = gio::Notification::new(title);
     notif.set_body(Some(body));
     notif.set_priority(gio::NotificationPriority::Normal);

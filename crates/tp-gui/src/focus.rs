@@ -17,7 +17,10 @@ impl FocusManager {
     }
 
     pub fn from_ids(ids: Vec<String>) -> Self {
-        Self { order: ids, index: 0 }
+        Self {
+            order: ids,
+            index: 0,
+        }
     }
 
     pub fn focus_next(&mut self, hosts: &HashMap<String, PanelHost>) {

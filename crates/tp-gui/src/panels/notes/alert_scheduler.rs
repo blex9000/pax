@@ -110,8 +110,11 @@ fn emit_alert(app: &adw::Application, note: &pax_db::workspace_notes::WorkspaceN
     // Resolve the note's owning workspace name so the toast subtitle
     // tells the user which workspace the note lives in (critical when
     // it's not the one currently on screen).
-    let workspace_name =
-        open_db().and_then(|db| db.find_workspace_by_record_key(&note.record_key).ok().flatten());
+    let workspace_name = open_db().and_then(|db| {
+        db.find_workspace_by_record_key(&note.record_key)
+            .ok()
+            .flatten()
+    });
     let workspace_name_str = workspace_name.as_ref().map(|w| w.name.as_str());
 
     crate::notifications::send_desktop(app, None, &title, &body);
@@ -144,7 +147,9 @@ fn note_preview(text: &str) -> String {
     const MAX_PREVIEW_CHARS: usize = 120;
     let compacted: String = text
         .lines()
-        .map(|l| l.trim_start_matches(|c: char| c == '#' || c == '-' || c == '*' || c.is_whitespace()))
+        .map(|l| {
+            l.trim_start_matches(|c: char| c == '#' || c == '-' || c == '*' || c.is_whitespace())
+        })
         .filter(|l| !l.is_empty())
         .collect::<Vec<_>>()
         .join(" · ");

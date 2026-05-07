@@ -54,7 +54,12 @@ impl NotebookCellSpec {
                 return None;
             }
         }
-        Some(NotebookCellSpec { lang, mode, timeout, confirm })
+        Some(NotebookCellSpec {
+            lang,
+            mode,
+            timeout,
+            confirm,
+        })
     }
 }
 
@@ -63,7 +68,9 @@ fn parse_mode(tok: &str) -> Option<ExecMode> {
         "run" | "once" => Some(ExecMode::Once),
         _ => {
             if let Some(rest) = tok.strip_prefix("watch=") {
-                Some(ExecMode::Watch { interval: parse_duration(rest)? })
+                Some(ExecMode::Watch {
+                    interval: parse_duration(rest)?,
+                })
             } else {
                 None
             }
@@ -116,15 +123,30 @@ mod tests {
     fn watch_interval_seconds() {
         let s = NotebookCellSpec::parse("bash watch=5s").unwrap();
         assert_eq!(s.lang, Lang::Bash);
-        assert_eq!(s.mode, ExecMode::Watch { interval: Duration::from_secs(5) });
+        assert_eq!(
+            s.mode,
+            ExecMode::Watch {
+                interval: Duration::from_secs(5)
+            }
+        );
     }
 
     #[test]
     fn watch_interval_minutes_and_ms() {
         let s = NotebookCellSpec::parse("sh watch=2m").unwrap();
-        assert_eq!(s.mode, ExecMode::Watch { interval: Duration::from_secs(120) });
+        assert_eq!(
+            s.mode,
+            ExecMode::Watch {
+                interval: Duration::from_secs(120)
+            }
+        );
         let s = NotebookCellSpec::parse("sh watch=500ms").unwrap();
-        assert_eq!(s.mode, ExecMode::Watch { interval: Duration::from_millis(500) });
+        assert_eq!(
+            s.mode,
+            ExecMode::Watch {
+                interval: Duration::from_millis(500)
+            }
+        );
     }
 
     #[test]

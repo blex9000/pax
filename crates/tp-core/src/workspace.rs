@@ -112,6 +112,19 @@ pub struct PanelConfig {
     pub ssh: Option<SshConfig>,
 }
 
+/// In-memory update produced by the panel configuration dialog.
+#[derive(Debug, Clone, PartialEq)]
+pub struct PanelConfigUpdate {
+    pub name: String,
+    pub panel_type: PanelType,
+    pub cwd: Option<String>,
+    pub ssh: Option<SshConfig>,
+    pub startup_commands: Vec<String>,
+    pub before_close: Option<String>,
+    pub min_width: u32,
+    pub min_height: u32,
+}
+
 /// What kind of panel to create — determines the widget type.
 #[derive(Debug, Clone, Serialize, Default, PartialEq)]
 #[serde(tag = "type", rename_all = "snake_case")]

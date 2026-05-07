@@ -132,8 +132,7 @@ pub type PanelActionCallback = Rc<dyn Fn(&str, PanelAction)>;
 /// Callback that returns the current `SiblingInfo` for a panel — used by
 /// the panel menu to decide which Move items to show. Returning `None`
 /// hides all Move items (e.g. root or only-child).
-pub type SiblingInfoProvider =
-    Rc<dyn Fn(&str) -> Option<crate::layout_ops::SiblingInfo>>;
+pub type SiblingInfoProvider = Rc<dyn Fn(&str) -> Option<crate::layout_ops::SiblingInfo>>;
 
 /// Container widget that hosts a PanelBackend with title bar.
 pub struct PanelHost {
@@ -199,8 +198,7 @@ impl PanelHost {
             Rc::new(RefCell::new(None));
         // Create the backend Rc early so we can close over it in button handlers
         // wired below (before the struct is assembled).
-        let backend: Rc<RefCell<Option<Box<dyn PanelBackend>>>> =
-            Rc::new(RefCell::new(None));
+        let backend: Rc<RefCell<Option<Box<dyn PanelBackend>>>> = Rc::new(RefCell::new(None));
 
         // Title bar: CenterBox so the OSC title sits in the geometric center
         // of the bar regardless of the widths of start/end content.
@@ -339,7 +337,7 @@ impl PanelHost {
 
         // Command history button — visible only when backend is a terminal.
         let history_button = gtk4::Button::new();
-        history_button.set_icon_name("system-run-symbolic");
+        history_button.set_icon_name("utilities-terminal-symbolic");
         history_button.add_css_class("flat");
         history_button.add_css_class("panel-action-btn");
         history_button.set_tooltip_text(Some("Commands"));
@@ -374,8 +372,12 @@ impl PanelHost {
                     },
                     Err(_) => (None, None),
                 };
-                let Some(uuid) = panel_uuid else { return; };
-                let Some(input_cb) = input_cb else { return; };
+                let Some(uuid) = panel_uuid else {
+                    return;
+                };
+                let Some(input_cb) = input_cb else {
+                    return;
+                };
                 let popover = crate::dialogs::command_history::build_command_history_popover(
                     &uuid.simple().to_string(),
                     input_cb,
@@ -1090,18 +1092,10 @@ fn build_panel_menu(
             }
             SiblingKind::Vsplit => {
                 if info.index > 0 {
-                    items.push((
-                        "Move Up",
-                        "Swap with previous sibling",
-                        PanelAction::MoveUp,
-                    ));
+                    items.push(("Move Up", "Swap with previous sibling", PanelAction::MoveUp));
                 }
                 if info.index + 1 < info.len {
-                    items.push((
-                        "Move Down",
-                        "Swap with next sibling",
-                        PanelAction::MoveDown,
-                    ));
+                    items.push(("Move Down", "Swap with next sibling", PanelAction::MoveDown));
                 }
             }
         }

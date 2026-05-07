@@ -3,8 +3,8 @@ use libadwaita as adw;
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use crate::workspace_view::WorkspaceView;
 use crate::widgets::status_bar::StatusBar;
+use crate::workspace_view::WorkspaceView;
 
 thread_local! {
     pub static DIRTY_INDICATOR: RefCell<Option<gtk4::Button>> = RefCell::new(None);
@@ -66,7 +66,8 @@ fn do_save_internal(
             let save_result = ws.borrow_mut().save();
             match save_result {
                 Ok(path) => {
-                    sb.borrow().set_message(&format!("Saved: {}", path.display()));
+                    sb.borrow()
+                        .set_message(&format!("Saved: {}", path.display()));
                     update_dirty_ui(ws, window, save_action);
                     update_status_bar_path(ws, sb);
                     if let Some(ref cb) = after_save {
@@ -109,7 +110,8 @@ fn do_save_internal(
                     let save_result = ws.borrow_mut().save_as(&path);
                     match save_result {
                         Ok(()) => {
-                            sb.borrow().set_message(&format!("Saved: {}", path.display()));
+                            sb.borrow()
+                                .set_message(&format!("Saved: {}", path.display()));
                             update_dirty_ui(&ws, &win, &sa);
                             update_status_bar_path(&ws, &sb);
                             if let Some(ref cb) = after_save_cb {
@@ -206,12 +208,17 @@ pub fn confirm_discard_workspace_changes(
     vbox.set_margin_end(16);
 
     let ws_name = ws.borrow().workspace_name().to_string();
-    let title = gtk4::Label::new(Some(&format!("Save changes to \"{}\" before continuing?", ws_name)));
+    let title = gtk4::Label::new(Some(&format!(
+        "Save changes to \"{}\" before continuing?",
+        ws_name
+    )));
     title.set_wrap(true);
     title.set_halign(gtk4::Align::Start);
     vbox.append(&title);
 
-    let subtitle = gtk4::Label::new(Some("If you continue without saving, the current workspace changes will be lost."));
+    let subtitle = gtk4::Label::new(Some(
+        "If you continue without saving, the current workspace changes will be lost.",
+    ));
     subtitle.add_css_class("dim-label");
     subtitle.set_wrap(true);
     subtitle.set_halign(gtk4::Align::Start);
@@ -300,9 +307,9 @@ pub fn do_open(
                         match load_result {
                             Ok(()) => {
                                 let theme = crate::app::apply_preferred_theme();
-                                ws2.borrow_mut()
-                                    .set_workspace_theme_id_clean(theme.to_id());
-                                sb2.borrow().set_message(&format!("Opened: {}", path.display()));
+                                ws2.borrow_mut().set_workspace_theme_id_clean(theme.to_id());
+                                sb2.borrow()
+                                    .set_message(&format!("Opened: {}", path.display()));
                             }
                             Err(e) => {
                                 sb2.borrow().set_message(&format!("Open error: {}", e));
@@ -385,7 +392,8 @@ pub fn show_recent_dialog(
             };
             let path = std::path::PathBuf::from(path_str);
             if !path.exists() {
-                sb.borrow().set_message(&format!("File not found: {}", path.display()));
+                sb.borrow()
+                    .set_message(&format!("File not found: {}", path.display()));
                 return;
             }
             let ws_for_continue = ws.clone();
@@ -407,10 +415,9 @@ pub fn show_recent_dialog(
                         ws_for_continue
                             .borrow_mut()
                             .set_workspace_theme_id_clean(theme.to_id());
-                        sb_for_continue.borrow().set_message(&format!(
-                            "Opened: {}",
-                            path_for_continue.display()
-                        ));
+                        sb_for_continue
+                            .borrow()
+                            .set_message(&format!("Opened: {}", path_for_continue.display()));
                     }
                     Err(e) => {
                         sb_for_continue
@@ -448,7 +455,10 @@ pub fn show_recent_dialog(
         row.append(&path_label);
 
         let bottom_row = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
-        let stats = format!("Opened {} times • {}", record.open_count, record.last_opened);
+        let stats = format!(
+            "Opened {} times • {}",
+            record.open_count, record.last_opened
+        );
         let stats_label = gtk4::Label::new(Some(&stats));
         stats_label.add_css_class("dim-label");
         stats_label.add_css_class("caption");
@@ -511,9 +521,8 @@ pub fn show_recent_dialog(
             let dialog_for_spawn = dialog.clone();
             new_window_btn.connect_clicked(move |_| {
                 if let Some(ref path) = record.config_path {
-                    match crate::workspace_launcher::open_in_new_window(
-                        std::path::Path::new(path),
-                    ) {
+                    match crate::workspace_launcher::open_in_new_window(std::path::Path::new(path))
+                    {
                         Ok(()) => {
                             sb_for_spawn
                                 .borrow()
@@ -574,9 +583,11 @@ pub fn show_recent_dialog(
             });
         } else {
             open_btn.set_sensitive(false);
-            open_btn.set_tooltip_text(Some(
-                if record.config_path.is_some() { "File not found" } else { "No config file" },
-            ));
+            open_btn.set_tooltip_text(Some(if record.config_path.is_some() {
+                "File not found"
+            } else {
+                "No config file"
+            }));
         }
         bottom_row.append(&open_btn);
         row.append(&bottom_row);

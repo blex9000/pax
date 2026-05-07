@@ -175,10 +175,8 @@ impl Database {
 
     /// Remove a workspace record.
     pub fn remove_workspace(&self, name: &str) -> Result<()> {
-        self.conn.execute(
-            "DELETE FROM workspace_metadata WHERE name = ?1",
-            [name],
-        )?;
+        self.conn
+            .execute("DELETE FROM workspace_metadata WHERE name = ?1", [name])?;
         Ok(())
     }
 
@@ -203,8 +201,10 @@ mod tests {
     fn record_workspace_open_keeps_distinct_paths_with_same_name() {
         let db = Database::open_memory().unwrap();
 
-        db.record_workspace_open("dev", Some("/tmp/one.json")).unwrap();
-        db.record_workspace_open("dev", Some("/tmp/two.json")).unwrap();
+        db.record_workspace_open("dev", Some("/tmp/one.json"))
+            .unwrap();
+        db.record_workspace_open("dev", Some("/tmp/two.json"))
+            .unwrap();
 
         let rows = db.list_workspaces_limit(10).unwrap();
         assert_eq!(rows.len(), 2);
@@ -214,8 +214,10 @@ mod tests {
     fn record_workspace_open_increments_same_path_only_once() {
         let db = Database::open_memory().unwrap();
 
-        db.record_workspace_open("dev", Some("/tmp/one.json")).unwrap();
-        db.record_workspace_open("dev-renamed", Some("/tmp/one.json")).unwrap();
+        db.record_workspace_open("dev", Some("/tmp/one.json"))
+            .unwrap();
+        db.record_workspace_open("dev-renamed", Some("/tmp/one.json"))
+            .unwrap();
 
         let rows = db.list_workspaces_limit(10).unwrap();
         assert_eq!(rows.len(), 1);
@@ -241,8 +243,10 @@ mod tests {
     fn sync_workspace_path_updates_existing_path_record_name() {
         let db = Database::open_memory().unwrap();
 
-        db.record_workspace_open("draft", Some("/tmp/draft.json")).unwrap();
-        db.sync_workspace_path("renamed", "/tmp/draft.json").unwrap();
+        db.record_workspace_open("draft", Some("/tmp/draft.json"))
+            .unwrap();
+        db.sync_workspace_path("renamed", "/tmp/draft.json")
+            .unwrap();
 
         let rows = db.list_workspaces_limit(10).unwrap();
         assert_eq!(rows.len(), 1);

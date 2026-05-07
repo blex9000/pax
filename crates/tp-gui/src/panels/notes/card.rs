@@ -14,9 +14,7 @@
 use gtk4::prelude::*;
 use std::rc::Rc;
 
-use pax_db::workspace_notes::{
-    SEVERITY_IMPORTANT, SEVERITY_INFO, SEVERITY_WARNING, WorkspaceNote,
-};
+use pax_db::workspace_notes::{WorkspaceNote, SEVERITY_IMPORTANT, SEVERITY_INFO, SEVERITY_WARNING};
 
 /// Callbacks propagated to the caller (list view); the card itself never
 /// touches the database.
@@ -277,7 +275,11 @@ fn first_line_preview(text: &str) -> String {
 }
 
 fn format_alert_badge(alert_at: i64, fired_at: Option<i64>) -> String {
-    let prefix = if fired_at.is_some() { "⏰ fired " } else { "⏰ " };
+    let prefix = if fired_at.is_some() {
+        "⏰ fired "
+    } else {
+        "⏰ "
+    };
     format!("{prefix}{}", format_timestamp(alert_at))
 }
 

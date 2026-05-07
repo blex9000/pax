@@ -28,8 +28,18 @@ pub fn run_migrations(db: &Database) -> Result<()> {
     apply_sql_migration(db, &applied, "002_fts5", MIGRATION_002)?;
     ensure_workspace_metadata_key_migration(db, &applied)?;
     apply_sql_migration(db, &applied, "004_app_preferences", MIGRATION_004)?;
-    apply_sql_migration(db, &applied, "005_file_metadata", MIGRATION_005_FILE_METADATA)?;
-    apply_sql_migration(db, &applied, "006_workspace_notes", MIGRATION_006_WORKSPACE_NOTES)?;
+    apply_sql_migration(
+        db,
+        &applied,
+        "005_file_metadata",
+        MIGRATION_005_FILE_METADATA,
+    )?;
+    apply_sql_migration(
+        db,
+        &applied,
+        "006_workspace_notes",
+        MIGRATION_006_WORKSPACE_NOTES,
+    )?;
     apply_sql_migration(
         db,
         &applied,

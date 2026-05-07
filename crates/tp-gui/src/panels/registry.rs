@@ -370,7 +370,9 @@ pub fn build_default_registry() -> PanelRegistry {
                 .map(|s| s.to_string());
             let root_dir: String = match raw_root {
                 Some(ref r) => resolve_against_workspace(r, ws_dir),
-                None => ws_dir.map(|s| s.to_string()).unwrap_or_else(|| ".".to_string()),
+                None => ws_dir
+                    .map(|s| s.to_string())
+                    .unwrap_or_else(|| ".".to_string()),
             };
             let ssh_host = config.extra.get("ssh_host").cloned();
             let ssh_user = config.extra.get("ssh_user").cloned();

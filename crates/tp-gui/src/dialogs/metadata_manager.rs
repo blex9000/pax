@@ -95,10 +95,8 @@ pub fn show_metadata_manager(parent: Option<&gtk4::Window>) {
                 .unwrap_or_default()
                 .into_iter()
                 .map(|w| {
-                    let rk = pax_db::workspaces::compute_record_key(
-                        &w.name,
-                        w.config_path.as_deref(),
-                    );
+                    let rk =
+                        pax_db::workspaces::compute_record_key(&w.name, w.config_path.as_deref());
                     let label = match &w.config_path {
                         Some(path) if !path.trim().is_empty() => {
                             format!("{} ({})", w.name, path)
@@ -118,8 +116,7 @@ pub fn show_metadata_manager(parent: Option<&gtk4::Window>) {
             workspace_dropdown.set_selected(0);
             *workspaces.borrow_mut() = ws_rows;
 
-            let type_rows: Vec<String> =
-                db.list_metadata_entry_types().unwrap_or_default();
+            let type_rows: Vec<String> = db.list_metadata_entry_types().unwrap_or_default();
             let mut tlabels = vec![ALL_TYPES.to_string()];
             tlabels.extend(type_rows.iter().cloned());
             let tlabels_ref: Vec<&str> = tlabels.iter().map(String::as_str).collect();
@@ -186,11 +183,8 @@ pub fn show_metadata_manager(parent: Option<&gtk4::Window>) {
                     })
                     .collect()
             } else {
-                db.list_metadata_across_workspaces(
-                    search_opt.as_deref(),
-                    type_opt.as_deref(),
-                )
-                .unwrap_or_default()
+                db.list_metadata_across_workspaces(search_opt.as_deref(), type_opt.as_deref())
+                    .unwrap_or_default()
             };
 
             for (idx, entry) in entries.iter().enumerate() {
@@ -364,11 +358,7 @@ fn truncate_line(s: &str) -> String {
     }
 }
 
-fn confirm_delete(
-    parent: Option<&gtk4::Window>,
-    message: &str,
-    on_confirm: impl Fn() + 'static,
-) {
+fn confirm_delete(parent: Option<&gtk4::Window>, message: &str, on_confirm: impl Fn() + 'static) {
     let dialog = gtk4::Window::builder()
         .title("Confirm delete")
         .modal(true)

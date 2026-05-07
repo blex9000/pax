@@ -88,9 +88,9 @@ pub fn build_markdown_tab(content: &str) -> MarkdownTab {
     // it's visible in BOTH Rendered and Source modes (the dots are at
     // source-line proportions regardless of which view is shown). Hidden
     // by default — `update` toggles visibility when lines are present.
-    let notes_ruler = Rc::new(
-        crate::panels::editor::notes_ruler::NotesRuler::new(source_view.clone()),
-    );
+    let notes_ruler = Rc::new(crate::panels::editor::notes_ruler::NotesRuler::new(
+        source_view.clone(),
+    ));
     notes_ruler.widget.set_visible(false);
 
     // Rendered view (read-only TextView populated by the shared markdown renderer).

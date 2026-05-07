@@ -7,9 +7,7 @@ use std::rc::Rc;
 
 use gtk4::prelude::*;
 
-use pax_db::workspace_notes::{
-    SEVERITY_IMPORTANT, SEVERITY_INFO, SEVERITY_WARNING, WorkspaceNote,
-};
+use pax_db::workspace_notes::{WorkspaceNote, SEVERITY_IMPORTANT, SEVERITY_INFO, SEVERITY_WARNING};
 
 const SEVERITY_DISPLAY: &[(&str, &str)] = &[
     (SEVERITY_INFO, "Info"),
@@ -290,7 +288,9 @@ fn capture_draft(
     let title = title_entry.text().trim().to_string();
 
     let buf = text_view.buffer();
-    let text = buf.text(&buf.start_iter(), &buf.end_iter(), false).to_string();
+    let text = buf
+        .text(&buf.start_iter(), &buf.end_iter(), false)
+        .to_string();
 
     let tags: Vec<String> = tags_entry
         .text()
@@ -359,8 +359,11 @@ fn compose_alert_ts(
     let day = date.day_of_month();
     let hour = hour_spin.value_as_int();
     let minute = minute_spin.value_as_int();
-    let naive = chrono::NaiveDate::from_ymd_opt(year, month as u32, day as u32)?
-        .and_hms_opt(hour as u32, minute as u32, 0)?;
+    let naive = chrono::NaiveDate::from_ymd_opt(year, month as u32, day as u32)?.and_hms_opt(
+        hour as u32,
+        minute as u32,
+        0,
+    )?;
     Local
         .from_local_datetime(&naive)
         .single()

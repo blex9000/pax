@@ -118,10 +118,7 @@ fn run_print(parent: &gtk4::Window, markdown: &str, output_path: &Path) {
 
             let pages_ref = pages.borrow();
             let total_pages = pages_ref.len();
-            let (start, end) = pages_ref
-                .get(page_no as usize)
-                .copied()
-                .unwrap_or((0, 0));
+            let (start, end) = pages_ref.get(page_no as usize).copied().unwrap_or((0, 0));
 
             let mut y = 0.0_f64;
             for i in start..end {
@@ -130,7 +127,14 @@ fn run_print(parent: &gtk4::Window, markdown: &str, output_path: &Path) {
                 y += block.measure(ctx, page_width) + BLOCK_GAP_PT;
             }
 
-            draw_footer(ctx, &cr, page_no as usize + 1, total_pages, page_width, page_height);
+            draw_footer(
+                ctx,
+                &cr,
+                page_no as usize + 1,
+                total_pages,
+                page_width,
+                page_height,
+            );
         });
     }
 
@@ -145,10 +149,7 @@ fn run_print(parent: &gtk4::Window, markdown: &str, output_path: &Path) {
 enum Block {
     /// Heading at a given level. `markup` is Pango markup of inline
     /// content (no outer span wrapper — `draw` adds size/weight).
-    Heading {
-        level: HeadingLevel,
-        markup: String,
-    },
+    Heading { level: HeadingLevel, markup: String },
     /// Paragraph of inline markup.
     Paragraph { markup: String },
     /// Code block: monospace, no wrapping.
@@ -197,7 +198,11 @@ impl Block {
                 let layout = code_layout(ctx, text, page_width);
                 pu_to_pt(layout.size().1) + 2.0 * CODE_PAD_PT
             }
-            Block::List { items, ordered, start } => {
+            Block::List {
+                items,
+                ordered,
+                start,
+            } => {
                 let mut total = 0.0;
                 for (i, item) in items.iter().enumerate() {
                     let bullet = if *ordered {
@@ -278,7 +283,11 @@ impl Block {
                 cr.move_to(x + CODE_PAD_PT, y + CODE_PAD_PT);
                 pangocairo::functions::show_layout(cr, &layout);
             }
-            Block::List { items, ordered, start } => {
+            Block::List {
+                items,
+                ordered,
+                start,
+            } => {
                 let mut cy = y;
                 for (i, item) in items.iter().enumerate() {
                     let bullet = if *ordered {
@@ -386,7 +395,9 @@ fn code_layout(ctx: &gtk4::PrintContext, text: &str, max_width_pt: f64) -> gtk4:
 /// output across different PDF readers.
 fn apply_pdf_friendly_font_options(ctx: &gtk4::PrintContext) {
     let pango_ctx = ctx.create_pango_context();
-    let Ok(mut opts) = gtk4::cairo::FontOptions::new() else { return };
+    let Ok(mut opts) = gtk4::cairo::FontOptions::new() else {
+        return;
+    };
     opts.set_hint_style(gtk4::cairo::HintStyle::None);
     opts.set_hint_metrics(gtk4::cairo::HintMetrics::Off);
     opts.set_antialias(gtk4::cairo::Antialias::Default);

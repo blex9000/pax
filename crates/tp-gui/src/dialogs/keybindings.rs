@@ -85,16 +85,16 @@ pub fn show(parent: &impl IsA<gtk4::Window>) {
                 return gtk4::glib::Propagation::Stop;
             };
             // Apply to working copy.
-            working.borrow_mut().set_binding(state.action, binding.clone());
+            working
+                .borrow_mut()
+                .set_binding(state.action, binding.clone());
             // Repaint this row + any conflicting siblings.
             state.button.set_label(&binding.display());
             state.button.remove_css_class("suggested-action");
             // Conflict detection — if another action already had this
             // combo, mark it visually so the user can pick a different
             // shortcut for one of them.
-            let conflicts = working
-                .borrow()
-                .conflicts_with(&binding, state.action);
+            let conflicts = working.borrow().conflicts_with(&binding, state.action);
             if !conflicts.is_empty() {
                 state.button.add_css_class("destructive-action");
                 state.button.set_tooltip_text(Some(&format!(

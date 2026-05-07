@@ -28,16 +28,28 @@ fn font_search_paths() -> Vec<PathBuf> {
 
     // macOS .app bundle: <bundle>/Contents/Resources/fonts
     if let Some(ref exe) = exe {
-        if let Some(bundle_res) = exe.parent().and_then(|p| p.parent()).map(|p| p.join("Resources/fonts")) {
+        if let Some(bundle_res) = exe
+            .parent()
+            .and_then(|p| p.parent())
+            .map(|p| p.join("Resources/fonts"))
+        {
             paths.push(bundle_res);
         }
         // Flat install next to binary: <dir>/../resources/fonts
-        if let Some(flat) = exe.parent().and_then(|p| p.parent()).map(|p| p.join("resources/fonts")) {
+        if let Some(flat) = exe
+            .parent()
+            .and_then(|p| p.parent())
+            .map(|p| p.join("resources/fonts"))
+        {
             paths.push(flat);
         }
         // AppImage / Linux FHS-style install: <dir>/../share/fonts/pax
         // (bundled by scripts/build-appimage.sh into $APPDIR/usr/share/fonts/pax)
-        if let Some(fhs) = exe.parent().and_then(|p| p.parent()).map(|p| p.join("share/fonts/pax")) {
+        if let Some(fhs) = exe
+            .parent()
+            .and_then(|p| p.parent())
+            .map(|p| p.join("share/fonts/pax"))
+        {
             paths.push(fhs);
         }
     }

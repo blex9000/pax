@@ -82,8 +82,9 @@ impl GitStatusView {
 
         // Hidden until at least one file is staged; toggled in `update()`.
         let unstage_all_btn = gtk4::Button::with_label("Unstage All");
-        unstage_all_btn
-            .set_tooltip_text(Some("Unstage every staged file — equivalent to `git reset`"));
+        unstage_all_btn.set_tooltip_text(Some(
+            "Unstage every staged file — equivalent to `git reset`",
+        ));
         unstage_all_btn.set_visible(false);
         action_row.append(&unstage_all_btn);
 
@@ -112,15 +113,13 @@ impl GitStatusView {
         {
             let be = backend.clone();
             let action_cb = on_git_action.clone();
-            stage_all_btn.connect_clicked(move |_| {
-                match be.git_command(&["add", "-A"]) {
-                    Ok(_) => {
-                        tracing::info!("Staged all changes");
-                        action_cb();
-                    }
-                    Err(e) => {
-                        tracing::warn!("git add -A failed: {}", e);
-                    }
+            stage_all_btn.connect_clicked(move |_| match be.git_command(&["add", "-A"]) {
+                Ok(_) => {
+                    tracing::info!("Staged all changes");
+                    action_cb();
+                }
+                Err(e) => {
+                    tracing::warn!("git add -A failed: {}", e);
                 }
             });
         }
@@ -129,15 +128,13 @@ impl GitStatusView {
         {
             let be = backend.clone();
             let action_cb = on_git_action.clone();
-            unstage_all_btn.connect_clicked(move |_| {
-                match be.git_command(&["reset"]) {
-                    Ok(_) => {
-                        tracing::info!("Unstaged all changes");
-                        action_cb();
-                    }
-                    Err(e) => {
-                        tracing::warn!("git reset failed: {}", e);
-                    }
+            unstage_all_btn.connect_clicked(move |_| match be.git_command(&["reset"]) {
+                Ok(_) => {
+                    tracing::info!("Unstaged all changes");
+                    action_cb();
+                }
+                Err(e) => {
+                    tracing::warn!("git reset failed: {}", e);
                 }
             });
         }

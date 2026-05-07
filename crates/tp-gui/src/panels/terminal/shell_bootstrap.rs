@@ -218,7 +218,10 @@ fn bash_lines(cfg: &BootstrapConfig) -> Vec<String> {
     let cmd_file = cfg.cmd_file.display().to_string();
     let mut lines: Vec<String> = Vec::with_capacity(16);
     lines.push("set +o history".to_string());
-    lines.push(format!("export PAX_CMD_FILE='{}'", shell_escape_single(&cmd_file)));
+    lines.push(format!(
+        "export PAX_CMD_FILE='{}'",
+        shell_escape_single(&cmd_file)
+    ));
     if cfg.override_ps1 {
         lines.push(r"export PS1='\[\033[32m\]$:\[\033[0m\] '".to_string());
     }
@@ -255,7 +258,10 @@ fn bash_lines(cfg: &BootstrapConfig) -> Vec<String> {
 fn zsh_lines(cfg: &BootstrapConfig) -> Vec<String> {
     let cmd_file = cfg.cmd_file.display().to_string();
     let mut lines: Vec<String> = Vec::with_capacity(14);
-    lines.push(format!("export PAX_CMD_FILE='{}'", shell_escape_single(&cmd_file)));
+    lines.push(format!(
+        "export PAX_CMD_FILE='{}'",
+        shell_escape_single(&cmd_file)
+    ));
     if cfg.override_ps1 {
         // zsh prompt syntax (single-quoted to keep %F/%f literal until
         // the prompt is evaluated each time).

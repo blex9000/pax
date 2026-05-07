@@ -18,8 +18,7 @@ pub fn default_workspace_path(name: &str) -> Option<PathBuf> {
         .map(PathBuf::from)
         .filter(|p| !p.as_os_str().is_empty())
         .or_else(|| {
-            std::env::var_os("HOME")
-                .map(|h| PathBuf::from(h).join(".local").join("share"))
+            std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".local").join("share"))
         })?;
     let safe: String = name
         .chars()

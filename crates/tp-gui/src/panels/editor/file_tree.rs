@@ -201,9 +201,7 @@ impl FileTree {
             let root_for_btn = root_dir.to_path_buf();
             let on_jump = on_notes_jump.clone().expect("checked above");
             notes_btn.connect_clicked(move |btn| {
-                let parent = btn
-                    .root()
-                    .and_then(|r| r.downcast::<gtk4::Window>().ok());
+                let parent = btn.root().and_then(|r| r.downcast::<gtk4::Window>().ok());
                 let label = root_for_btn
                     .file_name()
                     .map(|s| s.to_string_lossy().into_owned())
@@ -485,7 +483,9 @@ impl FileTree {
                                             is_dir: false,
                                         });
                                         refresh_tree();
-                                        tracing::info!("editor.ft: create_file refresh_tree scheduled");
+                                        tracing::info!(
+                                            "editor.ft: create_file refresh_tree scheduled"
+                                        );
                                         on_open(&dest);
                                         tracing::info!(
                                             "editor.ft: create_file on_open done path={}",
@@ -542,7 +542,9 @@ impl FileTree {
                                             is_dir: true,
                                         });
                                         refresh_tree();
-                                        tracing::info!("editor.ft: create_dir refresh_tree scheduled");
+                                        tracing::info!(
+                                            "editor.ft: create_dir refresh_tree scheduled"
+                                        );
                                     }
                                 }),
                             );
@@ -552,9 +554,7 @@ impl FileTree {
                 menu_box.append(&create_folder_btn);
 
                 // ── Paste (only when clipboard is non-empty) ──
-                if let Some((source_path, source_is_dir)) =
-                    clipboard_for_menu.borrow().clone()
-                {
+                if let Some((source_path, source_is_dir)) = clipboard_for_menu.borrow().clone() {
                     let label = if source_is_dir {
                         "Paste Folder"
                     } else {
@@ -574,11 +574,7 @@ impl FileTree {
                             if source_name.is_empty() {
                                 return;
                             }
-                            let dest = unique_paste_destination(
-                                &target_dir,
-                                &source_name,
-                                &*be,
-                            );
+                            let dest = unique_paste_destination(&target_dir, &source_name, &*be);
                             tracing::info!(
                                 "editor.ft: paste begin source={} dest={} is_dir={}",
                                 source_path.display(),
@@ -590,10 +586,7 @@ impl FileTree {
                             } else {
                                 be.copy_file(&source_path, &dest)
                             };
-                            tracing::info!(
-                                "editor.ft: paste result ok={}",
-                                copy_result.is_ok()
-                            );
+                            tracing::info!("editor.ft: paste result ok={}", copy_result.is_ok());
                             if copy_result.is_ok() {
                                 history.borrow_mut().record(FileTreeOp::Copied {
                                     source: source_path.clone(),
@@ -647,8 +640,7 @@ impl FileTree {
                 // project root when nothing is selected). Remote (SSH) roots
                 // are skipped since we don't control the remote shell.
                 if !backend.is_remote() {
-                    let term_btn =
-                        make_item("utilities-terminal-symbolic", "Open in Terminal");
+                    let term_btn = make_item("utilities-terminal-symbolic", "Open in Terminal");
                     let term_dir = if selected_is_dir {
                         selected_path.clone()
                     } else {
@@ -840,10 +832,8 @@ impl FileTree {
                                     .file_name()
                                     .map(|n| n.to_string_lossy().to_string())
                                     .unwrap_or_else(|| p.display().to_string());
-                                let message = format!(
-                                    "Delete folder \"{}\" and everything inside it?",
-                                    name
-                                );
+                                let message =
+                                    format!("Delete folder \"{}\" and everything inside it?", name);
                                 glib::idle_add_local_once(move || {
                                     show_confirm_dialog(
                                         parent_window.as_ref(),
@@ -1341,7 +1331,10 @@ fn precompute_all_guides(entries: &[FileEntry]) -> Vec<RowGuides> {
             vec![]
         };
 
-        result.push(RowGuides { guides, is_last: is_last[i] });
+        result.push(RowGuides {
+            guides,
+            is_last: is_last[i],
+        });
 
         if depth > 0 {
             active_guides.resize(depth, false);
@@ -1466,8 +1459,10 @@ fn incremental_expand(
     // Update the toggled row (folder icon → folder-open, + → −)
     if let Some(row) = list_box.row_at_index(toggle_idx as i32) {
         row.set_child(Some(&build_row_widget(
-            &entries[toggle_idx], root,
-            &guide_data[toggle_idx].guides, guide_data[toggle_idx].is_last,
+            &entries[toggle_idx],
+            root,
+            &guide_data[toggle_idx].guides,
+            guide_data[toggle_idx].is_last,
         )));
     }
 
@@ -1498,8 +1493,10 @@ fn incremental_collapse(
     let guide_data = precompute_all_guides(entries);
     if let Some(row) = list_box.row_at_index(toggle_idx as i32) {
         row.set_child(Some(&build_row_widget(
-            &entries[toggle_idx], root,
-            &guide_data[toggle_idx].guides, guide_data[toggle_idx].is_last,
+            &entries[toggle_idx],
+            root,
+            &guide_data[toggle_idx].guides,
+            guide_data[toggle_idx].is_last,
         )));
     }
 }
@@ -1602,7 +1599,10 @@ fn request_tree_reload(
 
     run_blocking(
         move || {
-            tracing::info!("editor.ft: build_tree_snapshot thread begin req={}", request_id);
+            tracing::info!(
+                "editor.ft: build_tree_snapshot thread begin req={}",
+                request_id
+            );
             let result = build_tree_snapshot(
                 &build_root,
                 &expanded_dirs,
@@ -1989,7 +1989,11 @@ fn rename_destination_for_path(path: &Path, new_name: &str) -> Option<PathBuf> {
 /// `_copy_3`, … until a free slot is found. Preserves the extension so
 /// `foo.rs` pastes to `foo_copy.rs`, matching the existing Duplicate File
 /// convention.
-fn unique_paste_destination(target_dir: &Path, source_name: &str, backend: &dyn FileBackend) -> PathBuf {
+fn unique_paste_destination(
+    target_dir: &Path,
+    source_name: &str,
+    backend: &dyn FileBackend,
+) -> PathBuf {
     let base = target_dir.join(source_name);
     if !backend.file_exists(&base) {
         return base;
@@ -2162,9 +2166,9 @@ fn restore_from_trash(path: &Path) -> Result<(), String> {
         .collect();
     // Most recent last (largest time_deleted) so pop() returns newest.
     candidates.sort_by_key(|item| item.time_deleted);
-    let newest = candidates.pop().ok_or_else(|| {
-        format!("no trash item found for {}", path.display())
-    })?;
+    let newest = candidates
+        .pop()
+        .ok_or_else(|| format!("no trash item found for {}", path.display()))?;
     os_limited::restore_all(std::iter::once(newest))
         .map_err(|e| format!("trash restore failed: {:?}", e))
 }
@@ -2347,7 +2351,11 @@ fn redo_last_op(
             }
             r
         }
-        FileTreeOp::Copied { source, dest, is_dir } => {
+        FileTreeOp::Copied {
+            source,
+            dest,
+            is_dir,
+        } => {
             if *is_dir {
                 backend.copy_dir(source, dest)
             } else {
