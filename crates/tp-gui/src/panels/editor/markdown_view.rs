@@ -39,6 +39,8 @@ pub fn build_markdown_tab(content: &str) -> MarkdownTab {
     // Source view (markdown language highlighting).
     let buffer = sourceview5::Buffer::new(None::<&gtk4::TextTagTable>);
     buffer.set_text(content);
+    let start_iter = buffer.start_iter();
+    buffer.place_cursor(&start_iter);
     let lang_manager = sourceview5::LanguageManager::default();
     if let Some(lang) = lang_manager.language("markdown") {
         buffer.set_language(Some(&lang));
@@ -410,7 +412,12 @@ fn insert_at_cursor(buf: &gtk4::TextBuffer, text: &str) {
 /// editor_tabs.rs sees `current == saved` and clears the dirty flag.
 pub fn reload_from_disk(tab: &MarkdownTab, content: &str) {
     *tab.saved_content.borrow_mut() = content.to_string();
+    let cursor_offset = tab.buffer.cursor_position();
     tab.buffer.set_text(content);
+    let restored = tab
+        .buffer
+        .iter_at_offset(cursor_offset.min(tab.buffer.char_count()));
+    tab.buffer.place_cursor(&restored);
     tab.buffer.set_enable_undo(false);
     tab.buffer.set_enable_undo(true);
     if tab.mode.get() == MarkdownMode::Rendered {

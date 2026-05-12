@@ -215,7 +215,11 @@ fn start_open_file_watcher(
                             if !open_file.modified() {
                                 *saved.borrow_mut() = change.content.clone();
                                 sync_suppress.set(true);
+                                let cursor_offset = buffer.cursor_position();
                                 buffer.set_text(&change.content);
+                                let restored =
+                                    buffer.iter_at_offset(cursor_offset.min(buffer.char_count()));
+                                buffer.place_cursor(&restored);
                                 sync_suppress.set(false);
                                 buffer.set_enable_undo(false);
                                 buffer.set_enable_undo(true);
@@ -226,7 +230,11 @@ fn start_open_file_watcher(
                                     let saved_c = saved.clone();
                                     Rc::new(move |content: &str| {
                                         *saved_c.borrow_mut() = content.to_string();
+                                        let cursor_offset = buf.cursor_position();
                                         buf.set_text(content);
+                                        let restored =
+                                            buf.iter_at_offset(cursor_offset.min(buf.char_count()));
+                                        buf.place_cursor(&restored);
                                         buf.set_enable_undo(false);
                                         buf.set_enable_undo(true);
                                     })

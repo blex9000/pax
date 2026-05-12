@@ -3,6 +3,7 @@ use gtk4::prelude::*;
 use sourceview5::prelude::*;
 use std::cell::RefCell;
 use std::rc::Rc;
+use std::time::Duration;
 
 use super::language_support::keywords_for;
 use super::overview_ruler::collect_match_lines;
@@ -51,11 +52,9 @@ pub(super) fn apply_tab_view_state(
     if let Some(buf) = snapshot.source_buffer.as_ref() {
         source_view.set_buffer(Some(buf));
         source_view.set_visible(true);
-        let insert = buf.get_insert();
-        source_view.scroll_to_mark(&insert, 0.1, true, 0.0, 0.3);
         source_view.queue_resize();
         source_view.queue_draw();
-        schedule_source_view_repaint(source_view, buf);
+        schedule_source_view_refresh(source_view, buf);
     }
 
     status_lang.set_text(&snapshot.status_lang);
@@ -161,21 +160,41 @@ fn set_keyword_shadow_buffer(buffer: &sourceview5::Buffer, lang_id: Option<&str>
     buffer.set_text(&text);
 }
 
-fn schedule_source_view_repaint(source_view: &sourceview5::View, buffer: &sourceview5::Buffer) {
+fn schedule_source_view_refresh(source_view: &sourceview5::View, buffer: &sourceview5::Buffer) {
     let view_weak = Downgrade::downgrade(source_view);
     let buffer_weak = Downgrade::downgrade(buffer);
     gtk4::glib::idle_add_local_once(move || {
         let (Some(view), Some(buffer)) = (view_weak.upgrade(), buffer_weak.upgrade()) else {
             return;
         };
-        let current_matches = view
-            .buffer()
-            .downcast::<sourceview5::Buffer>()
-            .map(|current| current == buffer)
-            .unwrap_or(false);
-        if current_matches {
-            view.queue_resize();
-            view.queue_draw();
+        if !refresh_current_source_view(&view, &buffer) {
+            return;
         }
+
+        let view_weak = Downgrade::downgrade(&view);
+        let buffer_weak = Downgrade::downgrade(&buffer);
+        gtk4::glib::timeout_add_local_once(Duration::from_millis(16), move || {
+            let (Some(view), Some(buffer)) = (view_weak.upgrade(), buffer_weak.upgrade()) else {
+                return;
+            };
+            refresh_current_source_view(&view, &buffer);
+        });
     });
+}
+
+fn refresh_current_source_view(view: &sourceview5::View, buffer: &sourceview5::Buffer) -> bool {
+    let current_matches = view
+        .buffer()
+        .downcast::<sourceview5::Buffer>()
+        .map(|current| current == buffer.clone())
+        .unwrap_or(false);
+    if !current_matches {
+        return false;
+    }
+
+    let insert = buffer.get_insert();
+    view.scroll_to_mark(&insert, 0.0, true, 0.0, 0.0);
+    view.queue_resize();
+    view.queue_draw();
+    true
 }

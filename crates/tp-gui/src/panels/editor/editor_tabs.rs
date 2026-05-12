@@ -1375,6 +1375,8 @@ impl EditorTabs {
         // Create buffer
         let buf = sourceview5::Buffer::new(None::<&gtk4::TextTagTable>);
         buf.set_text(&content);
+        let start_iter = buf.start_iter();
+        buf.place_cursor(&start_iter);
         buf.set_highlight_syntax(true);
 
         // Detect language. GtkSourceView's mime/glob heuristics miss some
