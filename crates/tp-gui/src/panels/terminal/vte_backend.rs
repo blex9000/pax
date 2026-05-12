@@ -108,6 +108,9 @@ fn spawn_tcgetpgrp_poller(
         let Some(term) = vte_weak.upgrade() else {
             return glib::ControlFlow::Break;
         };
+        if !term.is_mapped() {
+            return glib::ControlFlow::Continue;
+        }
         let Some(pid) = shell_pid.get() else {
             return glib::ControlFlow::Continue;
         };

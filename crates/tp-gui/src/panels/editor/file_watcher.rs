@@ -9,6 +9,23 @@ use super::file_backend::FileBackend;
 use super::task::run_blocking;
 use super::EditorState;
 
+#[derive(Clone)]
+struct VisibilityGate {
+    widget: glib::WeakRef<gtk4::Widget>,
+}
+
+impl VisibilityGate {
+    fn new(widget: &gtk4::Widget) -> Self {
+        Self {
+            widget: widget.downgrade(),
+        }
+    }
+
+    fn is_active(&self) -> bool {
+        self.widget.upgrade().is_some_and(|w| w.is_mapped())
+    }
+}
+
 /// Opens the side-by-side merge view for a file that changed externally while
 /// the user has unsaved edits. Receives:
 ///   - the file path,
@@ -58,6 +75,7 @@ enum ApplyKind {
 /// Start all file watchers. Call once during CodeEditorPanel construction.
 pub fn start_watchers(
     state: Rc<RefCell<EditorState>>,
+    activity_widget: &gtk4::Widget,
     info_bar_container: gtk4::Box,
     on_merge_open: OnMergeOpen,
     on_tree_changed: Rc<dyn Fn()>,
@@ -66,18 +84,26 @@ pub fn start_watchers(
     let backend = state.borrow().backend.clone();
     let is_remote = backend.is_remote();
     let poll = state.borrow().poll_interval;
+    let gate = VisibilityGate::new(activity_widget);
 
     start_open_file_watcher(
         state.clone(),
+        gate.clone(),
         info_bar_container,
         on_merge_open,
         backend.clone(),
         is_remote,
     );
     if !is_remote {
-        start_tree_watcher(state.clone(), on_tree_changed, is_remote, poll);
+        start_tree_watcher(
+            state.clone(),
+            gate.clone(),
+            on_tree_changed,
+            is_remote,
+            poll,
+        );
     }
-    start_git_watcher(state, on_git_changed, backend, is_remote, poll);
+    start_git_watcher(state, gate, on_git_changed, backend, is_remote, poll);
 }
 
 pub fn request_git_status_refresh(on_changed: Rc<dyn Fn(String)>, backend: Arc<dyn FileBackend>) {
@@ -94,6 +120,7 @@ pub fn request_git_status_refresh(on_changed: Rc<dyn Fn(String)>, backend: Arc<d
 /// Watch open files for external changes (1s local, 5s remote).
 fn start_open_file_watcher(
     state: Rc<RefCell<EditorState>>,
+    gate: VisibilityGate,
     info_bar_container: gtk4::Box,
     on_merge_open: OnMergeOpen,
     backend: Arc<dyn FileBackend>,
@@ -102,6 +129,9 @@ fn start_open_file_watcher(
     let interval = if is_remote { 5 } else { 1 };
     let in_flight = Rc::new(Cell::new(false));
     glib::timeout_add_local(std::time::Duration::from_secs(interval), move || {
+        if !gate.is_active() {
+            return glib::ControlFlow::Continue;
+        }
         if in_flight.get() {
             return glib::ControlFlow::Continue;
         }
@@ -295,6 +325,7 @@ fn start_open_file_watcher(
 /// Watch file tree for structural changes (2s local, 30s remote).
 fn start_tree_watcher(
     state: Rc<RefCell<EditorState>>,
+    gate: VisibilityGate,
     on_changed: Rc<dyn Fn()>,
     is_remote: bool,
     poll: u64,
@@ -303,6 +334,9 @@ fn start_tree_watcher(
     let in_flight = Rc::new(Cell::new(false));
     let interval = poll;
     glib::timeout_add_local(std::time::Duration::from_secs(interval), move || {
+        if !gate.is_active() {
+            return glib::ControlFlow::Continue;
+        }
         if in_flight.get() {
             return glib::ControlFlow::Continue;
         }
@@ -344,6 +378,7 @@ fn start_tree_watcher(
 /// Watch git status (3s local, 15s remote).
 fn start_git_watcher(
     _state: Rc<RefCell<EditorState>>,
+    gate: VisibilityGate,
     on_changed: Rc<dyn Fn(String)>,
     backend: Arc<dyn FileBackend>,
     _is_remote: bool,
@@ -357,6 +392,7 @@ fn start_git_watcher(
         on_changed.clone(),
         backend.clone(),
         in_flight.clone(),
+        Some(gate.clone()),
     );
     glib::timeout_add_local(std::time::Duration::from_secs(interval), move || {
         request_polled_git_status(
@@ -364,6 +400,7 @@ fn start_git_watcher(
             on_changed.clone(),
             backend.clone(),
             in_flight.clone(),
+            Some(gate.clone()),
         );
         glib::ControlFlow::Continue
     });
@@ -374,7 +411,11 @@ fn request_polled_git_status(
     on_changed: Rc<dyn Fn(String)>,
     backend: Arc<dyn FileBackend>,
     in_flight: Rc<Cell<bool>>,
+    gate: Option<VisibilityGate>,
 ) {
+    if gate.as_ref().is_some_and(|gate| !gate.is_active()) {
+        return;
+    }
     if in_flight.get() {
         return;
     }

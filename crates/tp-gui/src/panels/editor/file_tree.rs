@@ -159,6 +159,7 @@ impl FileTree {
             backend,
             String::new(),
             None,
+            true,
         )
     }
 
@@ -171,6 +172,7 @@ impl FileTree {
         backend: Arc<dyn FileBackend>,
         record_key: String,
         on_notes_jump: Option<Rc<dyn Fn(&Path, i32)>>,
+        load_initial: bool,
     ) -> Self {
         let container = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
         container.add_css_class("editor-file-tree");
@@ -1049,23 +1051,25 @@ impl FileTree {
             request_seq,
         };
 
-        request_tree_reload(
-            &tree.list_box,
-            &tree.scroll,
-            &tree.root_dir,
-            &tree.entries,
-            &tree.file_index,
-            tree.backend.clone(),
-            tree.request_seq.clone(),
-            Vec::new(),
-            !is_remote,
-            if is_remote {
-                "Connecting to remote host..."
-            } else {
-                "Loading files..."
-            },
-            "No files found",
-        );
+        if load_initial {
+            request_tree_reload(
+                &tree.list_box,
+                &tree.scroll,
+                &tree.root_dir,
+                &tree.entries,
+                &tree.file_index,
+                tree.backend.clone(),
+                tree.request_seq.clone(),
+                Vec::new(),
+                !is_remote,
+                if is_remote {
+                    "Connecting to remote host..."
+                } else {
+                    "Loading files..."
+                },
+                "No files found",
+            );
+        }
 
         tree
     }

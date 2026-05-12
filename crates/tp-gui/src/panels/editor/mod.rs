@@ -480,6 +480,7 @@ impl CodeEditorPanel {
             backend.clone(),
             record_key_for_tree,
             on_notes_jump,
+            false,
         ));
 
         // Git status view
@@ -688,6 +689,17 @@ impl CodeEditorPanel {
 
         let widget = main_overlay.upcast::<gtk4::Widget>();
         widget.set_focusable(true);
+        {
+            let file_tree = file_tree.clone();
+            let loaded = Rc::new(Cell::new(false));
+            let loaded_c = loaded.clone();
+            widget.connect_map(move |_| {
+                if loaded_c.replace(true) {
+                    return;
+                }
+                file_tree.refresh();
+            });
+        }
         // Click anywhere to grab focus (needed for shortcuts without open file)
         {
             let w = widget.clone();
@@ -1004,6 +1016,7 @@ impl CodeEditorPanel {
             );
             file_watcher::start_watchers(
                 state.clone(),
+                &widget,
                 tabs_rc.info_bar_container.clone(),
                 on_merge_open,
                 Rc::new(move || {
