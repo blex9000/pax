@@ -7,6 +7,7 @@
 //! of the editor's content_stack. Image tabs (Task 5) are analogous.
 
 use std::cell::{Cell, RefCell};
+use std::path::PathBuf;
 use std::rc::Rc;
 
 /// Data that's specific to a source-code tab.
@@ -59,11 +60,13 @@ pub struct MarkdownTab {
 #[derive(Debug, Clone)]
 pub struct ImageTab {
     pub picture: gtk4::Picture,
+    pub path: Rc<RefCell<PathBuf>>,
     /// Natural width in pixels (image's intrinsic size). 0 when unknown.
     pub natural_width: i32,
     /// Natural height in pixels. 0 when unknown.
     pub natural_height: i32,
     pub zoom: Rc<Cell<f64>>,
+    pub rotation_degrees: Rc<Cell<i32>>,
     /// Reset-zoom button label — handle is kept so keyboard shortcuts (in
     /// the editor's top-level key handler) can update the displayed "100%"
     /// after zoom-in/out.

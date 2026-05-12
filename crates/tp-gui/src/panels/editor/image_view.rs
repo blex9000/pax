@@ -81,6 +81,12 @@ pub fn build_image_tab(path: &Path) -> ImageTab {
     let plus_btn = gtk4::Button::from_icon_name("zoom-in-symbolic");
     plus_btn.add_css_class("flat");
     plus_btn.set_tooltip_text(Some("Zoom in (Ctrl+=)"));
+    let rotate_left_btn = gtk4::Button::from_icon_name("object-rotate-left-symbolic");
+    rotate_left_btn.add_css_class("flat");
+    rotate_left_btn.set_tooltip_text(Some("Rotate left"));
+    let rotate_right_btn = gtk4::Button::from_icon_name("object-rotate-right-symbolic");
+    rotate_right_btn.add_css_class("flat");
+    rotate_right_btn.set_tooltip_text(Some("Rotate right"));
 
     // Rendered / Source toggle — inserted before the zoom controls so
     // it's on the left of them, visually grouping "view mode" separately
@@ -104,6 +110,8 @@ pub fn build_image_tab(path: &Path) -> ImageTab {
     .map(|pair| (pair.0, pair.1))
     .unzip();
 
+    header.append(&rotate_left_btn);
+    header.append(&rotate_right_btn);
     header.append(&minus_btn);
     header.append(&reset_btn);
     header.append(&plus_btn);
@@ -154,9 +162,11 @@ pub fn build_image_tab(path: &Path) -> ImageTab {
 
     let tab = ImageTab {
         picture: picture.clone(),
+        path: Rc::new(std::cell::RefCell::new(path.to_path_buf())),
         natural_width,
         natural_height,
         zoom: zoom.clone(),
+        rotation_degrees: Rc::new(Cell::new(0)),
         reset_button: reset_btn.clone(),
         outer: outer.upcast::<gtk4::Widget>(),
     };
@@ -165,6 +175,8 @@ pub fn build_image_tab(path: &Path) -> ImageTab {
     // controls (they don't apply to text); switching back reveals them.
     if let (Some(rendered_btn), Some(source_btn)) = (mode_bar_opt, source_stack_opt) {
         let stack_c = inner_stack.clone();
+        let rotate_left_c = rotate_left_btn.clone();
+        let rotate_right_c = rotate_right_btn.clone();
         let minus_c = minus_btn.clone();
         let reset_c = reset_btn.clone();
         let plus_c = plus_btn.clone();
@@ -173,11 +185,15 @@ pub fn build_image_tab(path: &Path) -> ImageTab {
                 return;
             }
             stack_c.set_visible_child_name("rendered");
+            rotate_left_c.set_visible(true);
+            rotate_right_c.set_visible(true);
             minus_c.set_visible(true);
             reset_c.set_visible(true);
             plus_c.set_visible(true);
         });
         let stack_c2 = inner_stack.clone();
+        let rotate_left_c2 = rotate_left_btn.clone();
+        let rotate_right_c2 = rotate_right_btn.clone();
         let minus_c2 = minus_btn.clone();
         let reset_c2 = reset_btn.clone();
         let plus_c2 = plus_btn.clone();
@@ -186,6 +202,8 @@ pub fn build_image_tab(path: &Path) -> ImageTab {
                 return;
             }
             stack_c2.set_visible_child_name("source");
+            rotate_left_c2.set_visible(false);
+            rotate_right_c2.set_visible(false);
             minus_c2.set_visible(false);
             reset_c2.set_visible(false);
             plus_c2.set_visible(false);
@@ -205,6 +223,14 @@ pub fn build_image_tab(path: &Path) -> ImageTab {
     {
         let tab_c = tab.clone();
         reset_btn.connect_clicked(move |_| zoom_reset(&tab_c));
+    }
+    {
+        let tab_c = tab.clone();
+        rotate_left_btn.connect_clicked(move |_| rotate_left(&tab_c));
+    }
+    {
+        let tab_c = tab.clone();
+        rotate_right_btn.connect_clicked(move |_| rotate_right(&tab_c));
     }
 
     // Apply initial zoom so the size request + "100%" label are consistent
@@ -226,13 +252,93 @@ pub fn zoom_reset(tab: &ImageTab) {
     set_zoom(tab, 1.0);
 }
 
+pub fn rotate_left(tab: &ImageTab) {
+    set_rotation(tab, tab.rotation_degrees.get() - 90);
+}
+
+pub fn rotate_right(tab: &ImageTab) {
+    set_rotation(tab, tab.rotation_degrees.get() + 90);
+}
+
 fn set_zoom(tab: &ImageTab, z: f64) {
     tab.zoom.set(z);
-    let w = (tab.natural_width as f64 * z) as i32;
-    let h = (tab.natural_height as f64 * z) as i32;
-    tab.picture.set_size_request(w, h);
+    apply_size_request(tab);
     tab.reset_button
         .set_label(&format!("{}%", (z * 100.0).round() as i32));
+}
+
+fn set_rotation(tab: &ImageTab, degrees: i32) {
+    tab.rotation_degrees.set(normalize_rotation(degrees));
+    apply_picture_rotation(tab);
+    apply_size_request(tab);
+}
+
+fn apply_picture_rotation(tab: &ImageTab) {
+    let rotation = normalize_rotation(tab.rotation_degrees.get());
+    let path = tab.path.borrow().clone();
+    if rotation == 0 {
+        tab.picture.set_filename(Some(&path));
+        return;
+    }
+
+    match rotated_pixbuf(&path, rotation) {
+        Some(pixbuf) => {
+            let texture = gtk4::gdk::Texture::for_pixbuf(&pixbuf);
+            tab.picture.set_paintable(Some(&texture));
+        }
+        None => {
+            tracing::warn!(
+                "image preview: failed to rotate {}; falling back to original",
+                path.display()
+            );
+            tab.picture.set_filename(Some(&path));
+        }
+    }
+}
+
+fn rotated_pixbuf(path: &Path, rotation: i32) -> Option<gtk4::gdk_pixbuf::Pixbuf> {
+    let pixbuf = gtk4::gdk_pixbuf::Pixbuf::from_file(path).ok()?;
+    pixbuf.rotate_simple(pixbuf_rotation(rotation))
+}
+
+fn pixbuf_rotation(rotation: i32) -> gtk4::gdk_pixbuf::PixbufRotation {
+    match normalize_rotation(rotation) {
+        90 => gtk4::gdk_pixbuf::PixbufRotation::Clockwise,
+        180 => gtk4::gdk_pixbuf::PixbufRotation::Upsidedown,
+        270 => gtk4::gdk_pixbuf::PixbufRotation::Counterclockwise,
+        _ => gtk4::gdk_pixbuf::PixbufRotation::None,
+    }
+}
+
+fn apply_size_request(tab: &ImageTab) {
+    let (base_w, base_h) = rotated_dimensions(
+        tab.natural_width,
+        tab.natural_height,
+        tab.rotation_degrees.get(),
+    );
+    tab.picture.set_size_request(
+        scaled_dimension(base_w, tab.zoom.get()),
+        scaled_dimension(base_h, tab.zoom.get()),
+    );
+}
+
+fn scaled_dimension(size: i32, zoom: f64) -> i32 {
+    if size <= 0 {
+        0
+    } else {
+        (size as f64 * zoom).round().max(1.0) as i32
+    }
+}
+
+fn rotated_dimensions(width: i32, height: i32, rotation: i32) -> (i32, i32) {
+    match normalize_rotation(rotation) {
+        90 | 270 => (height, width),
+        _ => (width, height),
+    }
+}
+
+fn normalize_rotation(degrees: i32) -> i32 {
+    degrees.rem_euclid(360)
 }
 
 fn padded_label(text: &str) -> gtk4::Label {
@@ -259,8 +365,37 @@ fn human_size(bytes: u64) -> String {
 
 /// Re-point the tab's `Picture` at the (possibly changed) file on disk.
 /// Image tabs have no local-edits concept, so this is always a silent reload.
-/// `natural_width`/`natural_height` and zoom are intentionally left alone:
-/// re-querying the paintable here would race the new pixbuf load.
+/// `natural_width`/`natural_height`, zoom, and rotation are intentionally left
+/// alone: re-querying the paintable here would race the new pixbuf load.
 pub fn reload_from_disk(tab: &ImageTab, path: &std::path::Path) {
-    tab.picture.set_filename(Some(path));
+    *tab.path.borrow_mut() = path.to_path_buf();
+    apply_picture_rotation(tab);
+    apply_size_request(tab);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{normalize_rotation, rotated_dimensions, scaled_dimension};
+
+    #[test]
+    fn rotation_degrees_are_normalized_to_quadrants() {
+        assert_eq!(normalize_rotation(0), 0);
+        assert_eq!(normalize_rotation(90), 90);
+        assert_eq!(normalize_rotation(450), 90);
+        assert_eq!(normalize_rotation(-90), 270);
+    }
+
+    #[test]
+    fn rotated_dimensions_swap_for_sideways_orientation() {
+        assert_eq!(rotated_dimensions(640, 480, 0), (640, 480));
+        assert_eq!(rotated_dimensions(640, 480, 90), (480, 640));
+        assert_eq!(rotated_dimensions(640, 480, 180), (640, 480));
+        assert_eq!(rotated_dimensions(640, 480, 270), (480, 640));
+    }
+
+    #[test]
+    fn scaled_dimension_keeps_unknown_size_as_zero() {
+        assert_eq!(scaled_dimension(0, 2.0), 0);
+        assert_eq!(scaled_dimension(10, 1.25), 13);
+    }
 }

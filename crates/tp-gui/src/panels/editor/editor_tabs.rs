@@ -2615,6 +2615,8 @@ impl EditorTabs {
             .or_else(|| fallback_language_for(&lang_manager, new_path));
         if let Some(buf) = open_file.source_buffer() {
             buf.set_language(new_lang.as_ref());
+        } else if let super::tab_content::TabContent::Image(img) = &open_file.content {
+            super::image_view::reload_from_disk(img, new_path);
         }
         tracing::info!(
             "editor.tabs: rename_open_file old={} new={}",
