@@ -21,12 +21,12 @@ where
     let callback = Rc::new(RefCell::new(Some(on_done)));
 
     let in_flight = IN_FLIGHT.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
-    tracing::debug!("task.run_blocking: thread spawn, in_flight={}", in_flight);
+    tracing::trace!("task.run_blocking: thread spawn, in_flight={}", in_flight);
     std::thread::spawn(move || {
         let result = task();
         *slot_thread.lock().unwrap() = Some(result);
         let remaining = IN_FLIGHT.fetch_sub(1, std::sync::atomic::Ordering::SeqCst) - 1;
-        tracing::debug!("task.run_blocking: thread done, in_flight={}", remaining);
+        tracing::trace!("task.run_blocking: thread done, in_flight={}", remaining);
     });
 
     glib::timeout_add_local(std::time::Duration::from_millis(16), move || {

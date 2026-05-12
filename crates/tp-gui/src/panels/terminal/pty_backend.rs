@@ -26,7 +26,6 @@ use alacritty_terminal::selection::{Selection, SelectionType};
 use alacritty_terminal::term::cell::{Cell, Flags};
 use alacritty_terminal::term::{Config as TermConfig, Term};
 use alacritty_terminal::vte::ansi::{Color as AnsiColor, CursorShape, NamedColor, Processor, Rgb};
-use gtk4::gdk;
 use gtk4::glib;
 use gtk4::prelude::*;
 use pangocairo::functions as pangocairo;
@@ -1450,6 +1449,36 @@ mod tests {
     }
 
     #[test]
+    fn output_preserves_manual_scroll_offset() {
+        let writer: Arc<Mutex<Box<dyn Write + Send>>> =
+            Arc::new(Mutex::new(Box::new(SharedWriter::default())));
+        let (ui_tx, _ui_rx) = mpsc::channel();
+        let window_size = Arc::new(Mutex::new(GridSize::default().window_size()));
+        let proxy = TerminalEventProxy {
+            writer,
+            ui_tx,
+            window_size,
+        };
+        let mut state = TermState::new(proxy);
+        state.term.resize(GridSize {
+            rows: 5,
+            cols: 20,
+            cell_width: 1,
+            cell_height: 1,
+        });
+
+        for line in 0..12 {
+            feed_test_bytes(&mut state, format!("line {line}\r\n").as_bytes());
+        }
+        state.term.scroll_display(Scroll::Delta(3));
+        let before = state.term.grid().display_offset();
+        assert!(before > 0);
+
+        feed_test_bytes(&mut state, b"more output\r\n");
+        assert!(state.term.grid().display_offset() >= before);
+    }
+
+    #[test]
     fn simple_selection_includes_both_endpoints() {
         let selection = simple_selection(
             Point::new(Line(0), Column(1)),
@@ -1475,5 +1504,10 @@ mod tests {
         assert!(send_user_input(&writer, &input_cb, b"echo hi\n"));
         assert_eq!(&*written.lock().expect("written bytes"), b"echo hi\n");
         assert_eq!(&*observed.borrow(), b"echo hi\n");
+    }
+
+    fn feed_test_bytes(state: &mut TermState, bytes: &[u8]) {
+        let TermState { term, parser } = state;
+        parser.advance(term, bytes);
     }
 }

@@ -1,6 +1,10 @@
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use tracing_subscriber::EnvFilter;
+
+const DEFAULT_LOG_FILTER: &str = "error,pax=error,pax_gui=error,pax_core=error,pax_db=error";
+const MAX_LOG_FILE_BYTES: u64 = 64 * 1024 * 1024;
 
 #[derive(Parser)]
 #[command(
@@ -74,14 +78,18 @@ fn main() -> Result<()> {
         .clone()
         .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
     std::fs::create_dir_all(&log_dir).ok();
+    let log_path = log_dir.join("pax.log");
+    prune_oversized_log(&log_path);
     let log_file = std::fs::OpenOptions::new()
         .create(true)
         .append(true)
-        .open(log_dir.join("pax.log"))
+        .open(&log_path)
         .unwrap_or_else(|_| std::fs::File::create("/tmp/pax.log").unwrap());
+    let log_filter =
+        EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(DEFAULT_LOG_FILTER));
 
     tracing_subscriber::fmt()
-        .with_env_filter("pax=debug,pax_gui=debug,pax_core=info")
+        .with_env_filter(log_filter)
         .with_writer(std::sync::Mutex::new(log_file))
         .with_ansi(false)
         .init();
@@ -204,4 +212,13 @@ fn main() -> Result<()> {
     }
 
     Ok(())
+}
+
+fn prune_oversized_log(path: &Path) {
+    let Ok(metadata) = std::fs::metadata(path) else {
+        return;
+    };
+    if metadata.len() > MAX_LOG_FILE_BYTES {
+        let _ = std::fs::remove_file(path);
+    }
 }

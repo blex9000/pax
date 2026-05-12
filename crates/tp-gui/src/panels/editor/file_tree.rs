@@ -313,20 +313,22 @@ impl FileTree {
             let on_open = on_file_open.clone();
             let gesture = gtk4::GestureClick::new();
             gesture.set_button(3); // right-click
+            gesture.set_propagation_phase(gtk4::PropagationPhase::Capture);
             gesture.connect_pressed(move |g, _n, x, y| {
+                g.set_state(gtk4::EventSequenceState::Claimed);
                 let Some(widget) = g.widget() else { return };
                 let Some(lb) = widget.downcast_ref::<gtk4::ListBox>() else {
                     return;
                 };
-                let clicked_row = lb.row_at_y(y as i32);
+                let clicked_row = context_row_at_point(lb, x, y);
                 if let Some(ref row) = clicked_row {
                     lb.select_row(Some(row));
+                } else {
+                    lb.unselect_all();
                 }
                 let clicked_idx = clicked_row.as_ref().map(|row| row.index() as usize);
-                let selected_idx = lb.selected_row().map(|row| row.index() as usize);
                 let ents = entries_c.borrow();
-                let selected_entry =
-                    resolve_tree_selection(&root, &ents, clicked_idx, selected_idx);
+                let selected_entry = context_menu_selection(&root, &ents, clicked_idx);
                 let selected_path = selected_entry
                     .as_ref()
                     .map(|entry| entry.path.clone())
@@ -335,7 +337,7 @@ impl FileTree {
                     .strip_prefix(&root)
                     .unwrap_or(&selected_path)
                     .to_path_buf();
-                let target_dir = creation_target_dir(&root, &ents, clicked_idx, selected_idx);
+                let target_dir = context_menu_target_dir(&root, &ents, clicked_idx);
                 let selected_is_dir = selected_entry
                     .as_ref()
                     .map(|entry| entry.is_dir)
@@ -2046,6 +2048,24 @@ fn creation_destination_for_dir(dir: &Path, name: &str) -> Option<PathBuf> {
     }
 }
 
+fn row_ancestor(widget: gtk4::Widget) -> Option<gtk4::ListBoxRow> {
+    let mut current = Some(widget);
+    while let Some(widget) = current {
+        if let Ok(row) = widget.clone().downcast::<gtk4::ListBoxRow>() {
+            return Some(row);
+        }
+        current = widget.parent();
+    }
+    None
+}
+
+fn context_row_at_point(list_box: &gtk4::ListBox, x: f64, y: f64) -> Option<gtk4::ListBoxRow> {
+    list_box
+        .pick(x, y, gtk4::PickFlags::DEFAULT)
+        .and_then(row_ancestor)
+        .or_else(|| list_box.row_at_y(y as i32))
+}
+
 fn resolve_tree_selection(
     root: &Path,
     entries: &[FileEntry],
@@ -2056,6 +2076,14 @@ fn resolve_tree_selection(
         .or(selected_index)
         .and_then(|idx| entries.get(idx).cloned())
         .or_else(|| entries.iter().find(|entry| entry.path == root).cloned())
+}
+
+fn context_menu_selection(
+    root: &Path,
+    entries: &[FileEntry],
+    clicked_index: Option<usize>,
+) -> Option<FileEntry> {
+    resolve_tree_selection(root, entries, clicked_index, None)
 }
 
 fn creation_target_dir(
@@ -2073,6 +2101,14 @@ fn creation_target_dir(
             .unwrap_or_else(|| root.to_path_buf()),
         None => root.to_path_buf(),
     }
+}
+
+fn context_menu_target_dir(
+    root: &Path,
+    entries: &[FileEntry],
+    clicked_index: Option<usize>,
+) -> PathBuf {
+    creation_target_dir(root, entries, clicked_index, None)
 }
 
 fn find_transient_parent_window(anchor: &impl IsA<gtk4::Widget>) -> Option<gtk4::Window> {
@@ -2660,6 +2696,67 @@ mod tests {
             root.join("src")
         );
         assert_eq!(creation_target_dir(&root, &entries, None, None), root);
+    }
+
+    #[test]
+    fn context_menu_ignores_stale_selection_when_click_misses_row() {
+        let root = PathBuf::from("/tmp/demo");
+        let entries = vec![
+            FileEntry {
+                path: root.join("src"),
+                name: "src".into(),
+                is_dir: true,
+                is_ignored: false,
+                depth: 0,
+                expanded: false,
+            },
+            FileEntry {
+                path: root.join("src/main.rs"),
+                name: "main.rs".into(),
+                is_dir: false,
+                is_ignored: false,
+                depth: 1,
+                expanded: false,
+            },
+        ];
+
+        assert_eq!(
+            context_menu_selection(&root, &entries, None).map(|entry| entry.path),
+            None
+        );
+        assert_eq!(context_menu_target_dir(&root, &entries, None), root);
+    }
+
+    #[test]
+    fn context_menu_uses_clicked_row_not_previous_selection() {
+        let root = PathBuf::from("/tmp/demo");
+        let entries = vec![
+            FileEntry {
+                path: root.join("src"),
+                name: "src".into(),
+                is_dir: true,
+                is_ignored: false,
+                depth: 0,
+                expanded: false,
+            },
+            FileEntry {
+                path: root.join("src/main.rs"),
+                name: "main.rs".into(),
+                is_dir: false,
+                is_ignored: false,
+                depth: 1,
+                expanded: false,
+            },
+        ];
+
+        assert_eq!(
+            context_menu_selection(&root, &entries, Some(1)).map(|entry| entry.path),
+            Some(root.join("src/main.rs"))
+        );
+        assert_eq!(
+            context_menu_target_dir(&root, &entries, Some(1)),
+            root.join("src")
+        );
     }
 
     #[test]

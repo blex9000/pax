@@ -637,19 +637,17 @@ impl EditorTabs {
         // `notes_ruler` creation — it needs the ruler to refresh after
         // Edit/Delete actions in the popover.
 
-        // Buffer-word autocompletion. The provider scans every registered
-        // buffer for words and offers them as proposals as the user types.
-        // 3 chars minimum to avoid noise from very short prefixes; the popup
-        // also shows icons for proposal types.
+        // Buffer-word provider kept available for a future in-editor
+        // completion UI. It is intentionally not attached to GtkSourceView's
+        // native completion popup, which can leave orphaned native surfaces.
         const COMPLETION_MIN_WORD_LEN: u32 = 3;
         let completion_words = sourceview5::CompletionWords::builder()
             .title("Words")
             .minimum_word_size(COMPLETION_MIN_WORD_LEN)
             .build();
         let completion = source_view.completion();
-        completion.set_show_icons(true);
-        completion.set_select_on_show(true);
-        completion.add_provider(&completion_words);
+        super::completion_lifecycle::configure(&completion);
+        super::completion_lifecycle::install_view_guards(&source_view);
 
         // Shadow buffer fed with language keywords so they appear in the
         // popup even before the user has typed them. Always registered with
@@ -1484,17 +1482,25 @@ impl EditorTabs {
             let state_c = state.clone();
             let nb = self.notebook.clone();
             let cs = self.content_stack.clone();
+            let completion_words = self.completion_words.clone();
+            let source_view = self.source_view.clone();
             let close_do_it = {
                 let state_c = state_c.clone();
                 let nb = nb.clone();
                 let cs = cs.clone();
+                let completion_words = completion_words.clone();
+                let source_view = source_view.clone();
                 Rc::new(move || {
+                    super::completion_lifecycle::suspend_until_idle(&source_view);
                     let (empty_after, new_idx);
                     let per_tab_child = format!("tab-{}", tab_id);
                     {
                         let mut st = state_c.borrow_mut();
                         if let Some(idx) = st.open_files.iter().position(|f| f.tab_id == tab_id) {
-                            st.open_files.remove(idx);
+                            let removed = st.open_files.remove(idx);
+                            if let Some(buf) = removed.writable_buffer() {
+                                completion_words.unregister(buf);
+                            }
                             empty_after = st.open_files.is_empty();
                             new_idx = if empty_after {
                                 0
@@ -1810,17 +1816,25 @@ impl EditorTabs {
             let state_c = state.clone();
             let nb = self.notebook.clone();
             let cs = self.content_stack.clone();
+            let completion_words = self.completion_words.clone();
+            let source_view = self.source_view.clone();
             let close_do_it = {
                 let state_c = state_c.clone();
                 let nb = nb.clone();
                 let cs = cs.clone();
+                let completion_words = completion_words.clone();
+                let source_view = source_view.clone();
                 Rc::new(move || {
+                    super::completion_lifecycle::suspend_until_idle(&source_view);
                     let (empty_after, new_idx);
                     let per_tab_child = format!("tab-{}", tab_id);
                     {
                         let mut st = state_c.borrow_mut();
                         if let Some(idx) = st.open_files.iter().position(|f| f.tab_id == tab_id) {
-                            st.open_files.remove(idx);
+                            let removed = st.open_files.remove(idx);
+                            if let Some(buf) = removed.writable_buffer() {
+                                completion_words.unregister(buf);
+                            }
                             empty_after = st.open_files.is_empty();
                             new_idx = if empty_after {
                                 0
@@ -2100,9 +2114,18 @@ impl EditorTabs {
         }
 
         let was_current = self.notebook.current_page() == Some(idx as u32);
+        if was_current {
+            let applied = self.switch_to_buffer(idx, state);
+            if applied {
+                super::fire_nav_state_changed(state);
+            }
+            return applied;
+        }
+
+        super::completion_lifecycle::suspend_until_idle(&self.source_view);
         self.notebook.set_current_page(Some(idx as u32));
         let applied = self.switch_to_buffer(idx, state);
-        if applied && was_current {
+        if applied {
             super::fire_nav_state_changed(state);
         }
         applied
@@ -2528,6 +2551,7 @@ impl EditorTabs {
 
     /// Remove the tab at the given index from the notebook and state.
     pub fn remove_tab(&self, idx: usize, state: &Rc<RefCell<EditorState>>) {
+        super::completion_lifecycle::suspend_until_idle(&self.source_view);
         let empty_after;
         let new_idx;
         {
@@ -2535,7 +2559,10 @@ impl EditorTabs {
             if idx >= st.open_files.len() {
                 return;
             }
-            st.open_files.remove(idx);
+            let removed = st.open_files.remove(idx);
+            if let Some(buf) = removed.writable_buffer() {
+                self.completion_words.unregister(buf);
+            }
             empty_after = st.open_files.is_empty();
             new_idx = if empty_after {
                 0

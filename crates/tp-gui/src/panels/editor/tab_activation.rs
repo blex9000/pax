@@ -1,3 +1,4 @@
+use gtk4::glib::clone::Downgrade;
 use gtk4::prelude::*;
 use sourceview5::prelude::*;
 use std::cell::RefCell;
@@ -33,7 +34,6 @@ pub(super) fn apply_tab_view_state(
     notes_ruler: &Rc<super::notes_ruler::NotesRuler>,
     keyword_shadow_buffer: &sourceview5::Buffer,
 ) -> bool {
-    source_view.completion().hide();
     set_active_tab_label(notebook, idx);
 
     let query = last_search_query.borrow().clone();
@@ -45,11 +45,17 @@ pub(super) fn apply_tab_view_state(
         tab_view_snapshot(open_file, &query)
     };
 
+    super::completion_lifecycle::suspend_until_idle(source_view);
     content_stack.set_visible_child_name(&snapshot.child_name);
+
     if let Some(buf) = snapshot.source_buffer.as_ref() {
         source_view.set_buffer(Some(buf));
+        source_view.set_visible(true);
         let insert = buf.get_insert();
         source_view.scroll_to_mark(&insert, 0.1, true, 0.0, 0.3);
+        source_view.queue_resize();
+        source_view.queue_draw();
+        schedule_source_view_repaint(source_view, buf);
     }
 
     status_lang.set_text(&snapshot.status_lang);
@@ -153,4 +159,23 @@ fn set_keyword_shadow_buffer(buffer: &sourceview5::Buffer, lang_id: Option<&str>
         None => String::new(),
     };
     buffer.set_text(&text);
+}
+
+fn schedule_source_view_repaint(source_view: &sourceview5::View, buffer: &sourceview5::Buffer) {
+    let view_weak = Downgrade::downgrade(source_view);
+    let buffer_weak = Downgrade::downgrade(buffer);
+    gtk4::glib::idle_add_local_once(move || {
+        let (Some(view), Some(buffer)) = (view_weak.upgrade(), buffer_weak.upgrade()) else {
+            return;
+        };
+        let current_matches = view
+            .buffer()
+            .downcast::<sourceview5::Buffer>()
+            .map(|current| current == buffer)
+            .unwrap_or(false);
+        if current_matches {
+            view.queue_resize();
+            view.queue_draw();
+        }
+    });
 }

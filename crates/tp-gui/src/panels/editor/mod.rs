@@ -1,4 +1,6 @@
 #[cfg(feature = "sourceview")]
+mod completion_lifecycle;
+#[cfg(feature = "sourceview")]
 mod diff_view;
 #[cfg(feature = "sourceview")]
 mod dirty_state;

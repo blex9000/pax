@@ -315,12 +315,12 @@ fn start_tree_watcher(
         let root_for_trace = root.clone();
         run_blocking(
             move || {
-                tracing::debug!(
+                tracing::trace!(
                     "editor.watcher: tree dir_hash begin root={}",
                     root_for_trace.display()
                 );
                 let h = dir_hash(&root, is_remote);
-                tracing::debug!(
+                tracing::trace!(
                     "editor.watcher: tree dir_hash end root={} hash={:x}",
                     root_for_trace.display(),
                     h

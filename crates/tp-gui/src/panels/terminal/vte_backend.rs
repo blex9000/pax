@@ -40,6 +40,7 @@ const VTE_SHELL_INTEGRATION_MINOR: u32 = 80;
 /// VTE runtime does not emit OSC 133 signals. 200ms is imperceptible
 /// from the user's side and CPU-free.
 const TCGETPGRP_POLL_MS: u64 = 200;
+const AUTO_SCROLL_BOTTOM_EPSILON: f64 = 1.0;
 
 /// True when the linked libvte runtime exposes the OSC 133 shell
 /// integration signals. Older runtimes (e.g. VTE 0.76 on Debian stable)
@@ -48,6 +49,46 @@ const TCGETPGRP_POLL_MS: u64 = 200;
 fn vte_has_shell_integration_signals() -> bool {
     let minor = unsafe { vte4::ffi::vte_get_minor_version() };
     minor >= VTE_SHELL_INTEGRATION_MINOR
+}
+
+fn setup_smart_scroll_on_output(vte: &vte4::Terminal) {
+    let update = Rc::new({
+        let vte = vte.clone();
+        move || {
+            let at_bottom = vte
+                .vadjustment()
+                .map(|adj| adjustment_is_at_bottom(&adj))
+                .unwrap_or(true);
+            vte.set_scroll_on_output(at_bottom);
+        }
+    });
+
+    if let Some(adj) = vte.vadjustment() {
+        let update = update.clone();
+        adj.connect_value_changed(move |_| update());
+    }
+
+    {
+        let update = update.clone();
+        vte.connect_vadjustment_notify(move |term| {
+            if let Some(adj) = term.vadjustment() {
+                let update = update.clone();
+                adj.connect_value_changed(move |_| update());
+            }
+            update();
+        });
+    }
+
+    update();
+}
+
+fn adjustment_is_at_bottom(adj: &gtk4::Adjustment) -> bool {
+    adjustment_values_are_at_bottom(adj.value(), adj.lower(), adj.upper(), adj.page_size())
+}
+
+fn adjustment_values_are_at_bottom(value: f64, lower: f64, upper: f64, page_size: f64) -> bool {
+    let bottom = (upper - page_size).max(lower);
+    value >= bottom - AUTO_SCROLL_BOTTOM_EPSILON
 }
 
 /// OSC 133 fallback: poll `tcgetpgrp` on the PTY master every
@@ -129,6 +170,7 @@ impl TerminalInner {
         vte.set_scrollback_lines(10_000);
         vte.set_allow_hyperlink(true);
         vte.set_font(Some(&super::terminal_font_description()));
+        setup_smart_scroll_on_output(&vte);
 
         // Hide terminal during init commands (PS1, LS_COLORS, PROMPT_COMMAND).
         // After init, reset + reveal, then run startup scripts with output visible.
@@ -530,5 +572,16 @@ impl TerminalInner {
         }
         crate::theme::unregister_vte_terminal(&self.vte);
         self.vte.feed_child(b"\x03");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn adjustment_bottom_detection_allows_small_float_jitter() {
+        assert!(adjustment_values_are_at_bottom(89.5, 0.0, 100.0, 10.0));
+        assert!(!adjustment_values_are_at_bottom(88.0, 0.0, 100.0, 10.0));
     }
 }
