@@ -130,8 +130,9 @@ pub fn build_image_tab(path: &Path) -> ImageTab {
 
     if is_svg {
         if let Ok(text) = std::fs::read_to_string(path) {
+            let text = super::text_content::displayable_gtk_text(&text);
             let buffer = sourceview5::Buffer::new(None::<&gtk4::TextTagTable>);
-            buffer.set_text(&text);
+            buffer.set_text(text.as_ref());
             if let Some(lang) = sourceview5::LanguageManager::default().language("xml") {
                 buffer.set_language(Some(&lang));
             }

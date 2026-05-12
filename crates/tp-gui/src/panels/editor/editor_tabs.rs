@@ -1374,7 +1374,13 @@ impl EditorTabs {
 
         // Create buffer
         let buf = sourceview5::Buffer::new(None::<&gtk4::TextTagTable>);
-        buf.set_text(&content);
+        if let Err(err) = super::text_content::set_source_buffer_text(&buf, &content) {
+            tracing::warn!(
+                "Cannot open file: {}",
+                super::text_content::file_text_error(path, err)
+            );
+            return None;
+        }
         let start_iter = buf.start_iter();
         buf.place_cursor(&start_iter);
         buf.set_highlight_syntax(true);
@@ -1756,7 +1762,16 @@ impl EditorTabs {
             }
         };
 
-        let md = super::markdown_view::build_markdown_tab(&content);
+        let md = match super::markdown_view::build_markdown_tab(&content) {
+            Ok(md) => md,
+            Err(err) => {
+                tracing::warn!(
+                    "Cannot open markdown: {}",
+                    super::text_content::file_text_error(path, err)
+                );
+                return None;
+            }
+        };
         self.completion_words.register(&md.buffer);
 
         let tab_id = alloc_tab_id();

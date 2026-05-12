@@ -213,14 +213,22 @@ fn start_open_file_watcher(
                                 continue;
                             }
                             if !open_file.modified() {
-                                *saved.borrow_mut() = change.content.clone();
                                 sync_suppress.set(true);
-                                let cursor_offset = buffer.cursor_position();
-                                buffer.set_text(&change.content);
-                                let restored =
-                                    buffer.iter_at_offset(cursor_offset.min(buffer.char_count()));
-                                buffer.place_cursor(&restored);
+                                let reload_result =
+                                    super::text_content::replace_source_buffer_text_preserving_cursor(
+                                        &buffer,
+                                        &change.content,
+                                    );
                                 sync_suppress.set(false);
+                                if let Err(err) = reload_result {
+                                    tracing::warn!(
+                                        "Skipped external reload for {}: {}",
+                                        open_file.path.display(),
+                                        err
+                                    );
+                                    continue;
+                                }
+                                *saved.borrow_mut() = change.content.clone();
                                 buffer.set_enable_undo(false);
                                 buffer.set_enable_undo(true);
                                 open_file.set_modified(false);
@@ -228,13 +236,21 @@ fn start_open_file_watcher(
                                 let apply_reload: Rc<dyn Fn(&str)> = {
                                     let buf = buffer.clone();
                                     let saved_c = saved.clone();
+                                    let path = open_file.path.clone();
                                     Rc::new(move |content: &str| {
+                                        if let Err(err) =
+                                            super::text_content::replace_source_buffer_text_preserving_cursor(
+                                                &buf, content,
+                                            )
+                                        {
+                                            tracing::warn!(
+                                                "Skipped reload for {}: {}",
+                                                path.display(),
+                                                err
+                                            );
+                                            return;
+                                        }
                                         *saved_c.borrow_mut() = content.to_string();
-                                        let cursor_offset = buf.cursor_position();
-                                        buf.set_text(content);
-                                        let restored =
-                                            buf.iter_at_offset(cursor_offset.min(buf.char_count()));
-                                        buf.place_cursor(&restored);
                                         buf.set_enable_undo(false);
                                         buf.set_enable_undo(true);
                                     })
@@ -276,13 +292,31 @@ fn start_open_file_watcher(
                                 continue;
                             }
                             if !open_file.modified() {
-                                super::markdown_view::reload_from_disk(&tab, &change.content);
+                                if let Err(err) =
+                                    super::markdown_view::reload_from_disk(&tab, &change.content)
+                                {
+                                    tracing::warn!(
+                                        "Skipped external markdown reload for {}: {}",
+                                        open_file.path.display(),
+                                        err
+                                    );
+                                    continue;
+                                }
                                 open_file.set_modified(false);
                             } else {
                                 let md = tab.clone();
+                                let path = open_file.path.clone();
                                 let apply_reload: Rc<dyn Fn(&str)> =
                                     Rc::new(move |content: &str| {
-                                        super::markdown_view::reload_from_disk(&md, content);
+                                        if let Err(err) =
+                                            super::markdown_view::reload_from_disk(&md, content)
+                                        {
+                                            tracing::warn!(
+                                                "Skipped markdown reload for {}: {}",
+                                                path.display(),
+                                                err
+                                            );
+                                        }
                                     });
                                 let on_merge: Rc<dyn Fn()> = {
                                     let path = open_file.path.clone();

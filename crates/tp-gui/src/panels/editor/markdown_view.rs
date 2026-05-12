@@ -32,13 +32,15 @@ const MD_NOTE_MARK_B: f32 = 0.25;
 const MD_NOTE_MARK_A: f32 = 0.25;
 const MD_NOTE_MARK_PRIORITY: i32 = 10;
 
-pub fn build_markdown_tab(content: &str) -> MarkdownTab {
+pub(super) fn build_markdown_tab(
+    content: &str,
+) -> Result<MarkdownTab, super::text_content::TextContentError> {
     let mode = Rc::new(Cell::new(MarkdownMode::Rendered));
     let saved_content = Rc::new(RefCell::new(content.to_string()));
 
     // Source view (markdown language highlighting).
     let buffer = sourceview5::Buffer::new(None::<&gtk4::TextTagTable>);
-    buffer.set_text(content);
+    super::text_content::set_source_buffer_text(&buffer, content)?;
     let start_iter = buffer.start_iter();
     buffer.place_cursor(&start_iter);
     let lang_manager = sourceview5::LanguageManager::default();
@@ -259,7 +261,7 @@ pub fn build_markdown_tab(content: &str) -> MarkdownTab {
         }));
     }
 
-    MarkdownTab {
+    Ok(MarkdownTab {
         buffer,
         source_view,
         rendered_view,
@@ -274,7 +276,7 @@ pub fn build_markdown_tab(content: &str) -> MarkdownTab {
         source_scroll,
         notes: crate::panels::editor::notes_state::NotesState::new(),
         notes_ruler,
-    }
+    })
 }
 
 /// Flip the tab between Rendered and Source modes. Drives the toggle
@@ -410,17 +412,16 @@ fn insert_at_cursor(buf: &gtk4::TextBuffer, text: &str) {
 /// replace the source buffer, clear undo, and re-render the rendered view if
 /// currently in Rendered mode. The connect_changed handler wired in
 /// editor_tabs.rs sees `current == saved` and clears the dirty flag.
-pub fn reload_from_disk(tab: &MarkdownTab, content: &str) {
+pub(super) fn reload_from_disk(
+    tab: &MarkdownTab,
+    content: &str,
+) -> Result<(), super::text_content::TextContentError> {
+    super::text_content::replace_source_buffer_text_preserving_cursor(&tab.buffer, content)?;
     *tab.saved_content.borrow_mut() = content.to_string();
-    let cursor_offset = tab.buffer.cursor_position();
-    tab.buffer.set_text(content);
-    let restored = tab
-        .buffer
-        .iter_at_offset(cursor_offset.min(tab.buffer.char_count()));
-    tab.buffer.place_cursor(&restored);
     tab.buffer.set_enable_undo(false);
     tab.buffer.set_enable_undo(true);
     if tab.mode.get() == MarkdownMode::Rendered {
         crate::markdown_render::render_markdown_to_view(&tab.rendered_view, content);
     }
+    Ok(())
 }

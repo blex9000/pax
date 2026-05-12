@@ -30,6 +30,11 @@ pub(super) fn build_diff_view_parts(
     old_content: &str,
     new_content: &str,
 ) -> DiffViewParts {
+    let old_display = super::text_content::displayable_gtk_text(old_content);
+    let new_display = super::text_content::displayable_gtk_text(new_content);
+    let old_content = old_display.as_ref();
+    let new_content = new_display.as_ref();
+
     let old_buf = sourceview5::Buffer::new(None::<&gtk4::TextTagTable>);
     old_buf.set_text(old_content);
     old_buf.set_highlight_syntax(true);
@@ -205,12 +210,16 @@ pub(super) fn show_commit_file_diff(
     let new_content = backend
         .git_show(&format!("{}:{}", commit_hash, file_rel))
         .unwrap_or_default();
+    let old_display = super::text_content::displayable_gtk_text(&old_content);
+    let new_display = super::text_content::displayable_gtk_text(&new_content);
+    let old_content = old_display.as_ref();
+    let new_content = new_display.as_ref();
 
     let old_buf = sourceview5::Buffer::new(None::<&gtk4::TextTagTable>);
-    old_buf.set_text(&old_content);
+    old_buf.set_text(old_content);
     old_buf.set_highlight_syntax(true);
     let new_buf = sourceview5::Buffer::new(None::<&gtk4::TextTagTable>);
-    new_buf.set_text(&new_content);
+    new_buf.set_text(new_content);
     new_buf.set_highlight_syntax(true);
 
     // Syntax highlighting
@@ -225,7 +234,7 @@ pub(super) fn show_commit_file_diff(
 
     // Highlight diff
     {
-        let diff = similar::TextDiff::from_lines(&old_content, &new_content);
+        let diff = similar::TextDiff::from_lines(old_content, new_content);
         let ensure_tags = |buf: &sourceview5::Buffer| {
             let tt = buf.tag_table();
             if tt.lookup("diff-del").is_none() {

@@ -30,7 +30,7 @@ pub trait FileBackend: std::fmt::Debug + Send + Sync {
     /// List entries in a directory (files and subdirectories).
     fn list_dir(&self, path: &Path) -> Result<Vec<DirEntry>, String>;
 
-    /// Read a file's contents as a UTF-8 string.
+    /// Read a file's contents as UTF-8 text suitable for GTK text buffers.
     fn read_file(&self, path: &Path) -> Result<String, String>;
 
     /// Write content to a file (creates or overwrites).
@@ -151,7 +151,9 @@ impl FileBackend for LocalFileBackend {
     }
 
     fn read_file(&self, path: &Path) -> Result<String, String> {
-        std::fs::read_to_string(path).map_err(|e| e.to_string())
+        let content = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
+        super::text_content::validate_file_text(path, &content)?;
+        Ok(content)
     }
 
     fn write_file(&self, path: &Path, content: &str) -> Result<(), String> {
@@ -484,7 +486,9 @@ impl FileBackend for SshFileBackend {
     }
 
     fn read_file(&self, path: &Path) -> Result<String, String> {
-        self.ssh_exec(&format!("cat {}", shell_quote(&path.to_string_lossy())))
+        let content = self.ssh_exec(&format!("cat {}", shell_quote(&path.to_string_lossy())))?;
+        super::text_content::validate_file_text(path, &content)?;
+        Ok(content)
     }
 
     fn write_file(&self, path: &Path, content: &str) -> Result<(), String> {
@@ -746,6 +750,19 @@ mod tests {
             results,
             vec![("src/main.rs".to_string(), 12, "Hello World".to_string())]
         );
+    }
+
+    #[test]
+    fn local_read_file_rejects_nul_content() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("binary-ish.env");
+        std::fs::write(&path, b"\0SECRET=1\n").unwrap();
+
+        let backend = LocalFileBackend::new(dir.path());
+        let err = backend.read_file(&path).unwrap_err();
+
+        assert!(err.contains("NUL byte"));
+        assert!(err.contains("binary-ish.env"));
     }
 
     #[test]

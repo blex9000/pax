@@ -37,6 +37,7 @@ mod tab_activation;
 pub mod tab_content;
 #[cfg(feature = "sourceview")]
 pub mod task;
+mod text_content;
 #[cfg(feature = "sourceview")]
 mod text_context_menu;
 #[cfg(feature = "sourceview")]

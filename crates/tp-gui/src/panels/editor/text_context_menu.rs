@@ -690,10 +690,13 @@ fn run_formatter(fmt: &Formatter, path: &Path, buffer: &sourceview5::Buffer) {
         return;
     }
 
-    // Preserve cursor position (best effort).
-    let mark = buffer.create_mark(None, &buffer.iter_at_mark(&buffer.get_insert()), true);
-    buffer.set_text(&formatted);
-    let restored = buffer.iter_at_mark(&mark);
-    buffer.place_cursor(&restored);
-    buffer.delete_mark(&mark);
+    if let Err(err) =
+        super::text_content::replace_source_buffer_text_preserving_cursor(buffer, &formatted)
+    {
+        tracing::warn!(
+            "formatter `{}` produced text that cannot be displayed: {}",
+            fmt.cmd,
+            err
+        );
+    }
 }
