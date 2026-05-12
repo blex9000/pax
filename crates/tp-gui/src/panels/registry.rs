@@ -409,6 +409,19 @@ pub fn build_default_registry() -> PanelRegistry {
         },
     );
 
+    // Docker Help
+    reg.register(
+        "docker_help",
+        "Docker Help",
+        "Docker containers, images, swarm health, and compose diagnostics",
+        "applications-system-symbolic",
+        false,
+        |config| {
+            let panel_config = super::docker_help::DockerHelpConfig::from_extra(&config.extra);
+            Box::new(super::docker_help::DockerHelpPanel::new(panel_config))
+        },
+    );
+
     // Notes
     reg.register(
         "note",

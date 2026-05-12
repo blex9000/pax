@@ -893,6 +893,7 @@ impl PanelHost {
             "terminal" => "utilities-terminal-symbolic",
             "markdown" => "text-x-generic-symbolic",
             "code_editor" => "accessories-text-editor-symbolic",
+            "docker_help" => "applications-system-symbolic",
             _ => "radio-symbolic", // Empty/chooser — dot
         };
         self.type_icon.set_icon_name(Some(icon_name));

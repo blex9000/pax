@@ -1197,7 +1197,8 @@ fn setup_workspace_ui(
         let win = window_rc.clone();
         let sa = save_action.clone();
         let cb: crate::panels::chooser::OnTypeChosen = Rc::new(move |panel_id, type_id| {
-            let needs_config = type_id == "markdown" || type_id == "code_editor";
+            let needs_config =
+                type_id == "markdown" || type_id == "code_editor" || type_id == "docker_help";
 
             if needs_config {
                 // For panels that need a file/directory, show config FIRST
@@ -1214,6 +1215,11 @@ fn setup_workspace_ui(
                         remote_path: None,
                         poll_interval: None,
                     },
+                    "docker_help" => pax_core::workspace::PanelType::DockerHelp {
+                        context: None,
+                        ssh: None,
+                        refresh_interval: None,
+                    },
                     _ => pax_core::workspace::PanelType::Terminal,
                 };
                 let pid = panel_id.to_string();
@@ -1225,6 +1231,7 @@ fn setup_workspace_ui(
                     "terminal" => "Terminal",
                     "markdown" => "README",
                     "code_editor" => "Code Editor",
+                    "docker_help" => "Docker Help",
                     _ => type_id,
                 };
                 let ws2 = ws.clone();

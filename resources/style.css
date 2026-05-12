@@ -88,6 +88,68 @@
     font-size: 12px;
 }
 
+/* ── Docker Help panel ───────────────────────────────────────────────── */
+.docker-help-panel {
+    background: transparent;
+}
+
+.docker-help-toolbar {
+    border-bottom: 1px solid alpha(@borders, 0.35);
+}
+
+.docker-summary-badge {
+    background: alpha(@window_fg_color, 0.07);
+    border: 1px solid alpha(@borders, 0.35);
+    border-radius: 999px;
+    padding: 2px 7px;
+}
+
+.docker-summary-value {
+    font-weight: 700;
+}
+
+.docker-list,
+.docker-list > row {
+    background: transparent;
+}
+
+.docker-row {
+    padding: 5px 8px;
+    border-bottom: 1px solid alpha(@borders, 0.25);
+}
+
+.docker-row:hover {
+    background: alpha(@accent_color, 0.08);
+}
+
+.docker-health-dot {
+    min-width: 18px;
+    margin-top: 2px;
+}
+
+.docker-health-ok {
+    color: #4ade80;
+}
+
+.docker-health-warn {
+    color: #fbbf24;
+}
+
+.docker-health-critical {
+    color: #fb7185;
+}
+
+.docker-action-button {
+    min-width: 26px;
+    min-height: 24px;
+    padding: 2px;
+}
+
+.docker-details {
+    font-family: "JetBrains Mono", "Fira Code", monospace;
+    font-size: 11px;
+}
+
 /* ── Note panel ─────────────────────────────────────────────────────────
  * Cards are the focal point: a soft surface with an accent rail on the
  * left that encodes severity, and a footer that collects tag chips, the

@@ -11,6 +11,7 @@ pub fn panel_type_to_id(pt: &PanelType) -> &'static str {
         PanelType::Terminal | PanelType::Ssh { .. } | PanelType::RemoteTmux { .. } => "terminal",
         PanelType::Markdown { .. } => "markdown",
         PanelType::CodeEditor { .. } => "code_editor",
+        PanelType::DockerHelp { .. } => "docker_help",
         PanelType::Note => "note",
     }
 }
@@ -50,6 +51,21 @@ pub fn panel_type_to_create_config(
                 extra.insert("remote_path".to_string(), rp.clone());
             }
         }
+        PanelType::DockerHelp {
+            context,
+            ssh,
+            refresh_interval,
+        } => {
+            if let Some(ref context) = context {
+                extra.insert("docker_context".to_string(), context.clone());
+            }
+            if let Some(ref ssh_cfg) = ssh {
+                insert_ssh_extra(&mut extra, ssh_cfg);
+            }
+            if let Some(interval) = refresh_interval {
+                extra.insert("refresh_interval".to_string(), interval.to_string());
+            }
+        }
         _ => {}
     }
     if let Some(dir) = workspace_dir {
@@ -74,6 +90,10 @@ pub fn insert_ssh_extra(extra: &mut HashMap<String, String>, ssh: &SshConfig) {
     if let Some(ref p) = ssh.password {
         extra.insert("ssh_password".to_string(), p.clone());
     }
+    if let Some(ref k) = ssh.identity_file {
+        extra.insert("ssh_identity".to_string(), k.clone());
+    }
+    extra.insert("ssh_port".to_string(), ssh.port.to_string());
     if let Some(ref s) = ssh.tmux_session {
         extra.insert("ssh_tmux_session".to_string(), s.clone());
     }
@@ -122,6 +142,23 @@ pub fn create_backend_from_registry(
                 extra.insert("remote_path".to_string(), rp.clone());
             }
             ("code_editor", extra)
+        }
+        PanelType::DockerHelp {
+            context,
+            ssh,
+            refresh_interval,
+        } => {
+            let mut extra = HashMap::new();
+            if let Some(ref context) = context {
+                extra.insert("docker_context".to_string(), context.clone());
+            }
+            if let Some(ref ssh_cfg) = ssh {
+                insert_ssh_extra(&mut extra, ssh_cfg);
+            }
+            if let Some(interval) = refresh_interval {
+                extra.insert("refresh_interval".to_string(), interval.to_string());
+            }
+            ("docker_help", extra)
         }
         PanelType::Note => {
             let mut extra = HashMap::new();

@@ -1,4 +1,5 @@
 pub mod chooser;
+pub mod docker_help;
 pub mod editor;
 pub mod markdown;
 pub mod notes;

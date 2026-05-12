@@ -76,6 +76,15 @@ struct CodeEditorConfigInitial<'a> {
     min_height: u32,
 }
 
+struct DockerHelpConfigInitial<'a> {
+    panel_name: &'a str,
+    context: Option<&'a str>,
+    existing_ssh: Option<&'a SshConfig>,
+    refresh_interval: Option<u64>,
+    min_width: u32,
+    min_height: u32,
+}
+
 struct SshConfigEntries<'a> {
     host: &'a gtk4::Entry,
     port: &'a gtk4::Entry,
@@ -138,6 +147,23 @@ pub fn show_panel_config_dialog(
                 root_dir,
                 existing_ssh: editor_ssh.as_ref(),
                 existing_remote_path: remote_path.as_deref(),
+                min_width: initial.min_width,
+                min_height: initial.min_height,
+            },
+            context,
+            on_done,
+        ),
+        PanelType::DockerHelp {
+            context: docker_context,
+            ssh,
+            refresh_interval,
+        } => show_docker_help_config(
+            parent,
+            DockerHelpConfigInitial {
+                panel_name: initial.panel_name,
+                context: docker_context.as_deref(),
+                existing_ssh: ssh.as_ref(),
+                refresh_interval: *refresh_interval,
                 min_width: initial.min_width,
                 min_height: initial.min_height,
             },
@@ -1751,6 +1777,217 @@ fn show_code_editor_config(
             min_height: mh_spin.value() as u32,
         });
     });
+}
+
+fn show_docker_help_config(
+    parent: &impl IsA<gtk4::Window>,
+    initial: DockerHelpConfigInitial<'_>,
+    context: PanelConfigDialogContext,
+    on_done: impl Fn(PanelConfigUpdate) + 'static,
+) {
+    let DockerHelpConfigInitial {
+        panel_name,
+        context: docker_context,
+        existing_ssh,
+        refresh_interval,
+        min_width,
+        min_height,
+    } = initial;
+    let PanelConfigDialogContext { saved_ssh, .. } = context;
+
+    let dialog = make_dialog(parent, "Docker Help Configuration");
+    let vbox = gtk4::Box::new(gtk4::Orientation::Vertical, 8);
+    vbox.set_margin_top(16);
+    vbox.set_margin_bottom(16);
+    vbox.set_margin_start(16);
+    vbox.set_margin_end(16);
+
+    let name_entry = add_field(&vbox, "Name:", panel_name, "Docker Help");
+    let context_entry = add_field(
+        &vbox,
+        "Docker context:",
+        docker_context.unwrap_or(""),
+        "(optional, e.g. production)",
+    );
+
+    let refresh_row = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
+    let refresh_label = gtk4::Label::new(Some("Auto refresh:"));
+    refresh_label.set_width_chars(15);
+    refresh_label.set_halign(gtk4::Align::Start);
+    let refresh_spin = gtk4::SpinButton::with_range(0.0, 3600.0, 5.0);
+    refresh_spin.set_value(refresh_interval.unwrap_or(0) as f64);
+    refresh_spin.set_tooltip_text(Some(
+        "Seconds between refreshes. 0 disables automatic refresh.",
+    ));
+    let refresh_hint = gtk4::Label::new(Some("seconds (0 = manual)"));
+    refresh_hint.add_css_class("dim-label");
+    refresh_hint.add_css_class("caption");
+    refresh_row.append(&refresh_label);
+    refresh_row.append(&refresh_spin);
+    refresh_row.append(&refresh_hint);
+    vbox.append(&refresh_row);
+
+    let hint = gtk4::Label::new(Some(
+        "Uses the Docker CLI locally or over SSH. The panel highlights unhealthy containers, under-replicated swarm services, and non-ready swarm nodes.",
+    ));
+    hint.add_css_class("dim-label");
+    hint.add_css_class("caption");
+    hint.set_wrap(true);
+    hint.set_halign(gtk4::Align::Start);
+    vbox.append(&hint);
+
+    vbox.append(&gtk4::Separator::new(gtk4::Orientation::Horizontal));
+
+    let has_ssh = existing_ssh.is_some();
+    let ssh_toggle = gtk4::Switch::new();
+    ssh_toggle.set_active(has_ssh);
+    ssh_toggle.set_valign(gtk4::Align::Center);
+
+    let ssh_header_row = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
+    ssh_header_row.set_margin_top(8);
+    ssh_header_row.set_margin_bottom(4);
+    let ssh_header = gtk4::Label::new(Some("Remote Docker Host (SSH)"));
+    ssh_header.add_css_class("heading");
+    ssh_header.set_halign(gtk4::Align::Start);
+    ssh_header.set_hexpand(true);
+    ssh_header_row.append(&ssh_header);
+    ssh_header_row.append(&ssh_toggle);
+    vbox.append(&ssh_header_row);
+
+    let ssh_fields = gtk4::Box::new(gtk4::Orientation::Vertical, 4);
+    ssh_fields.set_visible(has_ssh);
+    let ssh_hint = gtk4::Label::new(Some(
+        "Docker commands run on the remote host via ssh. Requires docker CLI on that host.",
+    ));
+    ssh_hint.add_css_class("dim-label");
+    ssh_hint.add_css_class("caption");
+    ssh_hint.set_wrap(true);
+    ssh_hint.set_halign(gtk4::Align::Start);
+    ssh_fields.append(&ssh_hint);
+
+    let ssh_host_entry = add_field(
+        &ssh_fields,
+        "SSH Host:",
+        existing_ssh.map(|s| s.host.as_str()).unwrap_or(""),
+        "server.example.com",
+    );
+    let ssh_user_entry = add_field(
+        &ssh_fields,
+        "User:",
+        existing_ssh.and_then(|s| s.user.as_deref()).unwrap_or(""),
+        "root",
+    );
+    let ssh_pass_entry = {
+        let row = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
+        let label = gtk4::Label::new(Some("Password:"));
+        label.set_width_chars(15);
+        label.set_halign(gtk4::Align::Start);
+        let entry = gtk4::PasswordEntry::new();
+        entry.set_show_peek_icon(true);
+        entry.set_hexpand(true);
+        if let Some(p) = existing_ssh.and_then(|s| s.password.as_deref()) {
+            entry.set_text(p);
+        }
+        entry.set_placeholder_text(Some("(key auth if empty)"));
+        row.append(&label);
+        row.append(&entry);
+        ssh_fields.append(&row);
+        entry
+    };
+    let ssh_key_entry = add_field(
+        &ssh_fields,
+        "Identity file:",
+        existing_ssh
+            .and_then(|s| s.identity_file.as_deref())
+            .unwrap_or(""),
+        "~/.ssh/id_rsa",
+    );
+    let ssh_port_entry = add_field(
+        &ssh_fields,
+        "Port:",
+        &existing_ssh
+            .map(|s| s.port.to_string())
+            .unwrap_or_else(|| "22".to_string()),
+        "22",
+    );
+
+    add_ssh_save_load_buttons(
+        &ssh_fields,
+        &saved_ssh,
+        SshConfigEntries {
+            host: &ssh_host_entry,
+            port: &ssh_port_entry,
+            user: &ssh_user_entry,
+            password: &ssh_pass_entry,
+            identity_file: &ssh_key_entry,
+            remote_path: None,
+        },
+    );
+    vbox.append(&ssh_fields);
+
+    {
+        let fields = ssh_fields.clone();
+        ssh_toggle.connect_state_set(move |_, active| {
+            fields.set_visible(active);
+            gtk4::glib::Propagation::Proceed
+        });
+    }
+
+    let (mw_spin, mh_spin) = add_min_size_fields(&vbox, min_width, min_height);
+
+    finalize_dialog(&dialog, &vbox, move || {
+        let name = name_entry.text().to_string();
+        let context = context_entry.text().trim().to_string().pipe_nonempty();
+        let refresh_value = refresh_spin.value() as u64;
+        let refresh_interval = if refresh_value == 0 {
+            None
+        } else {
+            Some(refresh_value)
+        };
+        let ssh_enabled = ssh_toggle.is_active();
+        let host_text = ssh_host_entry.text().trim().to_string();
+        let ssh = if ssh_enabled && !host_text.is_empty() {
+            Some(SshConfig {
+                host: host_text,
+                port: ssh_port_entry.text().parse().unwrap_or(22),
+                user: ssh_user_entry.text().trim().to_string().pipe_nonempty(),
+                password: ssh_pass_entry.text().to_string().pipe_nonempty(),
+                identity_file: ssh_key_entry.text().trim().to_string().pipe_nonempty(),
+                tmux_session: None,
+            })
+        } else {
+            None
+        };
+
+        on_done(PanelConfigUpdate {
+            name,
+            panel_type: PanelType::DockerHelp {
+                context,
+                ssh,
+                refresh_interval,
+            },
+            cwd: None,
+            ssh: None,
+            startup_commands: vec![],
+            before_close: None,
+            min_width: mw_spin.value() as u32,
+            min_height: mh_spin.value() as u32,
+        });
+    });
+}
+
+trait NonEmptyString {
+    fn pipe_nonempty(self) -> Option<String>;
+}
+
+impl NonEmptyString for String {
+    fn pipe_nonempty(self) -> Option<String> {
+        if self.trim().is_empty() {
+            None
+        } else {
+            Some(self)
+        }
+    }
 }
 
 /// Show a dialog to browse remote directories via SSH.

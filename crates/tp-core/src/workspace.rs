@@ -168,6 +168,18 @@ pub enum PanelType {
         #[serde(default)]
         poll_interval: Option<u64>,
     },
+    /// Docker local/remote operations and health diagnostics.
+    DockerHelp {
+        /// Optional Docker context name for local or remote docker CLI calls.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        context: Option<String>,
+        /// Optional SSH target. When set, docker commands run on the remote host.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        ssh: Option<SshConfig>,
+        /// Optional automatic refresh interval in seconds. 0/None means manual.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        refresh_interval: Option<u64>,
+    },
     /// Free-form workspace notes (markdown cards, tags, scheduled alerts).
     /// State lives in the database scoped by (record_key, panel_id);
     /// nothing to carry in the config.
@@ -207,6 +219,14 @@ enum KnownPanelType {
         remote_path: Option<String>,
         #[serde(default)]
         poll_interval: Option<u64>,
+    },
+    DockerHelp {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        context: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        ssh: Option<SshConfig>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        refresh_interval: Option<u64>,
     },
     Note,
 }
@@ -250,6 +270,15 @@ impl From<KnownPanelType> for PanelType {
                 remote_path,
                 poll_interval,
             },
+            KnownPanelType::DockerHelp {
+                context,
+                ssh,
+                refresh_interval,
+            } => PanelType::DockerHelp {
+                context,
+                ssh,
+                refresh_interval,
+            },
             KnownPanelType::Note => PanelType::Note,
         }
     }
@@ -270,11 +299,10 @@ impl<'de> Deserialize<'de> for PanelType {
         };
 
         match type_name {
-            "empty" | "terminal" | "ssh" | "remote_tmux" | "markdown" | "code_editor" | "note" => {
-                serde_json::from_value::<KnownPanelType>(value)
-                    .map(PanelType::from)
-                    .map_err(serde::de::Error::custom)
-            }
+            "empty" | "terminal" | "ssh" | "remote_tmux" | "markdown" | "code_editor"
+            | "docker_help" | "note" => serde_json::from_value::<KnownPanelType>(value)
+                .map(PanelType::from)
+                .map_err(serde::de::Error::custom),
             unknown => {
                 tracing::error!(
                     panel_type = unknown,

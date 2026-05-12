@@ -834,6 +834,11 @@ impl WorkspaceView {
                         poll_interval: None,
                     }
                 }
+                "docker_help" => PanelType::DockerHelp {
+                    context: None,
+                    ssh: None,
+                    refresh_interval: None,
+                },
                 "note" => PanelType::Note,
                 _ => PanelType::Terminal,
             };
@@ -851,8 +856,8 @@ impl WorkspaceView {
             host.set_title(type_id);
             host.set_type_icon(type_id);
         }
-        // markdown and code_editor need configuration first
-        matches!(type_id, "markdown" | "code_editor")
+        // markdown, code_editor, and docker_help need configuration first
+        matches!(type_id, "markdown" | "code_editor" | "docker_help")
     }
 
     /// Get a reference to the panel registry.

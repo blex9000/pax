@@ -129,6 +129,7 @@ pub fn build_tab_label(
             "terminal" => "utilities-terminal-symbolic",
             "markdown" => "text-x-generic-symbolic",
             "code_editor" => "accessories-text-editor-symbolic",
+            "docker_help" => "applications-system-symbolic",
             "note" => "text-editor-symbolic",
             _ => "radio-symbolic",
         }
