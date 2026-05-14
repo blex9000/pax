@@ -5,7 +5,7 @@ use std::rc::Rc;
 use uuid::Uuid;
 
 use pax_core::workspace::{
-    new_tab_id, LayoutNode, PanelConfig, PanelConfigUpdate, PanelType, Workspace,
+    new_tab_id, LayoutNode, MarkdownStorage, PanelConfig, PanelConfigUpdate, PanelType, Workspace,
 };
 
 use crate::backend_factory::{
@@ -325,6 +325,9 @@ impl WorkspaceView {
             ws_dir.as_deref(),
             Some(record_key.as_str()),
         );
+        config
+            .extra
+            .insert("__panel_id__".to_string(), panel_id.to_string());
         // Pass cwd and env from panel config
         config.cwd = update.cwd.clone();
         if let Some(panel_cfg) = self.workspace.panels.iter().find(|p| p.id == panel_id) {
@@ -822,7 +825,8 @@ impl WorkspaceView {
             panel_cfg.panel_type = match type_id {
                 "terminal" => PanelType::Terminal,
                 "markdown" => PanelType::Markdown {
-                    file: "README.md".to_string(),
+                    file: String::new(),
+                    storage: MarkdownStorage::Database,
                 },
                 "code_editor" => {
                     // Use home directory as default instead of "." which causes permission issues on macOS

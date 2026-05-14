@@ -2,7 +2,9 @@ use gtk4::prelude::*;
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use pax_core::workspace::{NamedSshConfig, PanelConfigUpdate, PanelType, SshConfig};
+use pax_core::workspace::{
+    MarkdownStorage, NamedSshConfig, PanelConfigUpdate, PanelType, SshConfig,
+};
 
 pub type ConfigDoneCallback = dyn Fn(PanelConfigUpdate) + 'static;
 
@@ -127,10 +129,11 @@ pub fn show_panel_config_dialog(
                 on_done,
             )
         }
-        PanelType::Markdown { file } => show_markdown_config(
+        PanelType::Markdown { file, storage } => show_markdown_config(
             parent,
             initial.panel_name,
             file,
+            storage,
             initial.min_width,
             initial.min_height,
             on_done,
@@ -1237,6 +1240,7 @@ fn show_markdown_config(
     parent: &impl IsA<gtk4::Window>,
     panel_name: &str,
     file: &str,
+    storage: &MarkdownStorage,
     min_width: u32,
     min_height: u32,
     on_done: impl Fn(PanelConfigUpdate) + 'static,
@@ -1249,6 +1253,30 @@ fn show_markdown_config(
     vbox.set_margin_end(16);
 
     let name_entry = add_field(&vbox, "Name:", panel_name, "Markdown");
+
+    let storage_row = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
+    let storage_lbl = gtk4::Label::new(Some("Storage:"));
+    storage_lbl.set_width_chars(15);
+    storage_lbl.set_halign(gtk4::Align::Start);
+    let db_btn = gtk4::ToggleButton::with_label("In-memory (DB)");
+    db_btn.set_tooltip_text(Some(
+        "Store this Markdown document in the workspace database, scoped to this panel.",
+    ));
+    let file_btn = gtk4::ToggleButton::with_label("Filesystem");
+    file_btn.set_group(Some(&db_btn));
+    file_btn.set_tooltip_text(Some("Use a physical .md file on disk."));
+    match storage {
+        MarkdownStorage::File => file_btn.set_active(true),
+        MarkdownStorage::Database => db_btn.set_active(true),
+    }
+    storage_row.append(&storage_lbl);
+    storage_row.append(&db_btn);
+    storage_row.append(&file_btn);
+    vbox.append(&storage_row);
+
+    let filesystem_box = gtk4::Box::new(gtk4::Orientation::Vertical, 8);
+    filesystem_box.set_sensitive(file_btn.is_active());
+    vbox.append(&filesystem_box);
 
     // Build the File row inline so the Browse button sits to the right of
     // the entry on the same row (instead of taking its own line below).
@@ -1265,7 +1293,8 @@ fn show_markdown_config(
     file_row.append(&file_lbl);
     file_row.append(&file_entry);
     file_row.append(&browse_btn);
-    vbox.append(&file_row);
+    file_row.set_sensitive(file_btn.is_active());
+    filesystem_box.append(&file_row);
 
     // Keep the panel name in sync with the file stem: if the user picks
     // "notes.md" as the file, the tab should read "notes" — unless they've
@@ -1287,7 +1316,11 @@ fn show_markdown_config(
         let name = name_entry.clone();
         let suppress = suppress_name_signal.clone();
         let edited = name_user_edited.clone();
+        let file_mode = file_btn.clone();
         file_entry.connect_changed(move |fe| {
+            if !file_mode.is_active() {
+                return;
+            }
             if edited.get() {
                 return;
             }
@@ -1301,6 +1334,39 @@ fn show_markdown_config(
                 name.set_text(stem);
                 suppress.set(false);
             }
+        });
+    }
+
+    {
+        let row = file_row.clone();
+        let filesystem_box = filesystem_box.clone();
+        let browse = browse_btn.clone();
+        let name = name_entry.clone();
+        let suppress = suppress_name_signal.clone();
+        let edited = name_user_edited.clone();
+        let fe = file_entry.clone();
+        file_btn.connect_toggled(move |btn| {
+            let is_file = btn.is_active();
+            filesystem_box.set_sensitive(is_file);
+            row.set_sensitive(is_file);
+            browse.set_sensitive(is_file);
+            if edited.get() {
+                return;
+            }
+            suppress.set(true);
+            if is_file {
+                let text = fe.text().to_string();
+                let stem = std::path::Path::new(&text)
+                    .file_stem()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or("");
+                if !stem.is_empty() {
+                    name.set_text(stem);
+                }
+            } else {
+                name.set_text("Markdown");
+            }
+            suppress.set(false);
         });
     }
 
@@ -1340,7 +1406,7 @@ fn show_markdown_config(
         recent_label.add_css_class("caption");
         recent_label.set_halign(gtk4::Align::Start);
         recent_label.set_margin_top(8);
-        vbox.append(&recent_label);
+        filesystem_box.append(&recent_label);
 
         let recent_scroll = gtk4::ScrolledWindow::new();
         recent_scroll.set_min_content_height(120);
@@ -1392,7 +1458,7 @@ fn show_markdown_config(
             recent_box.append(&row);
         }
         recent_scroll.set_child(Some(&recent_box));
-        vbox.append(&recent_scroll);
+        filesystem_box.append(&recent_scroll);
     }
 
     let (mw_spin, mh_spin) = add_min_size_fields(&vbox, min_width, min_height);
@@ -1425,10 +1491,19 @@ fn show_markdown_config(
 
     finalize_dialog(&dialog, &vbox, move || {
         let name = name_entry.text().to_string();
-        let file = file_entry.text().to_string();
+        let storage = if file_btn.is_active() {
+            MarkdownStorage::File
+        } else {
+            MarkdownStorage::Database
+        };
+        let file = if storage == MarkdownStorage::File {
+            file_entry.text().to_string()
+        } else {
+            String::new()
+        };
         on_done(PanelConfigUpdate {
             name,
-            panel_type: PanelType::Markdown { file },
+            panel_type: PanelType::Markdown { file, storage },
             cwd: None,
             ssh: None,
             startup_commands: vec![],

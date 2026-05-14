@@ -70,6 +70,12 @@ pub fn run_migrations(db: &Database) -> Result<()> {
         "011_pinned_commands",
         MIGRATION_011_PINNED_COMMANDS,
     )?;
+    apply_sql_migration(
+        db,
+        &applied,
+        "012_workspace_markdown_documents",
+        MIGRATION_012_WORKSPACE_MARKDOWN_DOCUMENTS,
+    )?;
 
     Ok(())
 }
@@ -420,6 +426,20 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_pinned_panel_cmd
     ON pinned_commands(panel_uuid, command);
 CREATE INDEX IF NOT EXISTS idx_pinned_panel_created
     ON pinned_commands(panel_uuid, created_at DESC);
+";
+
+const MIGRATION_012_WORKSPACE_MARKDOWN_DOCUMENTS: &str = "
+CREATE TABLE IF NOT EXISTS workspace_markdown_documents (
+    record_key  TEXT NOT NULL,
+    panel_id    TEXT NOT NULL,
+    content     TEXT NOT NULL DEFAULT '',
+    created_at  INTEGER NOT NULL,
+    updated_at  INTEGER NOT NULL,
+    PRIMARY KEY (record_key, panel_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_wmd_workspace
+    ON workspace_markdown_documents(record_key);
 ";
 
 #[cfg(test)]

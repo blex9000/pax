@@ -16,6 +16,120 @@ enum Mode {
     Edit,
 }
 
+#[derive(Debug, Clone)]
+enum MarkdownDocument {
+    File {
+        path: String,
+    },
+    Database {
+        record_key: String,
+        panel_id: String,
+    },
+}
+
+impl MarkdownDocument {
+    fn file(path: &str) -> Self {
+        Self::File {
+            path: path.to_string(),
+        }
+    }
+
+    fn database(record_key: String, panel_id: String) -> Self {
+        Self::Database {
+            record_key: if record_key.trim().is_empty() {
+                "__unknown_workspace__".to_string()
+            } else {
+                record_key
+            },
+            panel_id: if panel_id.trim().is_empty() {
+                "__markdown_panel__".to_string()
+            } else {
+                panel_id
+            },
+        }
+    }
+
+    fn label(&self) -> String {
+        match self {
+            Self::File { path } => path.clone(),
+            Self::Database { .. } => "In-memory markdown document".to_string(),
+        }
+    }
+
+    fn file_path(&self) -> Option<&str> {
+        match self {
+            Self::File { path } => Some(path.as_str()),
+            Self::Database { .. } => None,
+        }
+    }
+
+    fn load(&self) -> Result<String, String> {
+        match self {
+            Self::File { path } => std::fs::read_to_string(path).map_err(|e| e.to_string()),
+            Self::Database {
+                record_key,
+                panel_id,
+            } => Self::open_db()?
+                .get_or_create_markdown_document(record_key, panel_id)
+                .map_err(|e| e.to_string()),
+        }
+    }
+
+    fn save(&self, content: &str) -> Result<(), String> {
+        match self {
+            Self::File { path } => std::fs::write(path, content).map_err(|e| e.to_string()),
+            Self::Database {
+                record_key,
+                panel_id,
+            } => Self::open_db()?
+                .save_markdown_document(record_key, panel_id, content)
+                .map_err(|e| e.to_string()),
+        }
+    }
+
+    fn content_len(&self) -> i64 {
+        let Self::Database {
+            record_key,
+            panel_id,
+        } = self
+        else {
+            return 0;
+        };
+        Self::open_db()
+            .and_then(|db| {
+                db.markdown_document_len(record_key, panel_id)
+                    .map_err(|e| e.to_string())
+            })
+            .unwrap_or(0)
+    }
+
+    fn delete_persisted_state(&self) {
+        let Self::Database {
+            record_key,
+            panel_id,
+        } = self
+        else {
+            return;
+        };
+        match Self::open_db().and_then(|db| {
+            db.delete_markdown_document(record_key, panel_id)
+                .map(|_| ())
+                .map_err(|e| e.to_string())
+        }) {
+            Ok(()) => {}
+            Err(e) => tracing::warn!("markdown panel: failed to delete DB document: {e}"),
+        }
+    }
+
+    fn is_database(&self) -> bool {
+        matches!(self, Self::Database { .. })
+    }
+
+    fn open_db() -> Result<pax_db::Database, String> {
+        pax_db::Database::open(&pax_db::Database::default_path()).map_err(|e| e.to_string())
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum TextHistoryAction {
     Undo,
@@ -89,6 +203,9 @@ pub struct MarkdownPanel {
     input_cb: Rc<RefCell<Option<PanelInputCallback>>>,
     #[allow(dead_code)]
     file_path: String,
+    document: MarkdownDocument,
+    content: Rc<RefCell<String>>,
+    modified: Rc<Cell<bool>>,
     /// Lazily-created notebook engine. Created on the first render that
     /// encounters a notebook cell, dropped (and recreated) when render mode
     /// is re-entered or the file is reloaded so watch timers don't pile up.
@@ -100,13 +217,27 @@ impl std::fmt::Debug for MarkdownPanel {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("MarkdownPanel")
             .field("file_path", &self.file_path)
+            .field("document", &self.document)
             .finish()
     }
 }
 
 impl MarkdownPanel {
     pub fn new(file_path: &str) -> Self {
+        Self::new_file(file_path)
+    }
+
+    pub fn new_file(file_path: &str) -> Self {
         crate::recent_markdown::record(file_path);
+        Self::new_with_document(MarkdownDocument::file(file_path))
+    }
+
+    pub fn new_database(record_key: String, panel_id: String) -> Self {
+        Self::new_with_document(MarkdownDocument::database(record_key, panel_id))
+    }
+
+    fn new_with_document(document: MarkdownDocument) -> Self {
+        let file_path = document.label();
         let container = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
         let mode = Rc::new(Cell::new(Mode::Render));
         let content = Rc::new(RefCell::new(String::new()));
@@ -166,7 +297,7 @@ impl MarkdownPanel {
         help_btn.add_css_class("flat");
         help_btn.set_tooltip_text(Some("Markdown notebook help"));
 
-        let file_label = gtk4::Label::new(Some(file_path));
+        let file_label = gtk4::Label::new(Some(&file_path));
         file_label.add_css_class("dim-label");
         file_label.add_css_class("caption");
         file_label.set_hexpand(true);
@@ -279,7 +410,7 @@ impl MarkdownPanel {
             img_btn.set_tooltip_text(Some("Insert image (file picker)"));
             let br = edit_buf_ref.clone();
             let parent_for_dialog = container.clone();
-            let host_path = file_path.to_string();
+            let host_path = document.file_path().map(str::to_string);
             img_btn.connect_clicked(move |_| {
                 let dialog = gtk4::FileDialog::builder()
                     .title("Select image")
@@ -293,8 +424,9 @@ impl MarkdownPanel {
                 let filters = gtk4::gio::ListStore::new::<gtk4::FileFilter>();
                 filters.append(&filter);
                 dialog.set_filters(Some(&filters));
-                let host_dir = std::path::Path::new(&host_path)
-                    .parent()
+                let host_dir = host_path
+                    .as_deref()
+                    .and_then(|path| std::path::Path::new(path).parent())
                     .map(|p| p.to_path_buf());
                 let br = br.clone();
                 let parent_window = parent_for_dialog
@@ -334,6 +466,11 @@ impl MarkdownPanel {
                 "system-run-symbolic",
                 "Notebook cell (python run)",
                 "```python run\n\n```\n",
+            ),
+            (
+                "applications-graphics-symbolic",
+                "Mermaid flowchart",
+                "```mermaid\nflowchart TD\n    A[Start] --> B{Condition?}\n    B -- Yes --> C[Action 1]\n    B -- No --> D[Action 2]\n    C --> E[End]\n    D --> E\n```\n",
             ),
         ] {
             let btn = gtk4::Button::new();
@@ -452,7 +589,10 @@ impl MarkdownPanel {
             let ct = content.clone();
             let m = mode.clone();
             let sbuf = source_buffer.clone();
-            let fp = file_path.to_string();
+            let suggested_source = document
+                .file_path()
+                .map(str::to_string)
+                .unwrap_or_else(|| "document.md".to_string());
             export_pdf_btn.connect_clicked(move |_| {
                 let source = if m.get() == Mode::Edit {
                     sbuf.text(&sbuf.start_iter(), &sbuf.end_iter(), false)
@@ -463,8 +603,9 @@ impl MarkdownPanel {
                 let parent = parent_box
                     .root()
                     .and_then(|r| r.downcast::<gtk4::Window>().ok());
-                let suggested =
-                    crate::markdown_export::suggested_pdf_name(std::path::Path::new(&fp));
+                let suggested = crate::markdown_export::suggested_pdf_name(std::path::Path::new(
+                    &suggested_source,
+                ));
                 if let Some(win) = parent.as_ref() {
                     crate::markdown_export::export_markdown_to_pdf(win, &source, &suggested);
                 }
@@ -484,7 +625,8 @@ impl MarkdownPanel {
         };
 
         // Load initial content
-        let initial = std::fs::read_to_string(file_path)
+        let initial = document
+            .load()
             .unwrap_or_else(|e| format!("Error loading {}: {}", file_path, e));
         *content.borrow_mut() = initial.clone();
         render_with_notebook(&initial);
@@ -507,7 +649,7 @@ impl MarkdownPanel {
             let m = mode.clone();
             let fb = fmt_bar.clone();
             let mod_flag = modified.clone();
-            let fp = file_path.to_string();
+            let doc = document.clone();
             let sb = save_btn.clone();
             let st = stack.clone();
             let sbuf = source_buffer.clone();
@@ -525,7 +667,9 @@ impl MarkdownPanel {
                         .to_string();
                     *ct.borrow_mut() = text.clone();
                     if mod_flag.get() {
-                        let _ = std::fs::write(&fp, &text);
+                        if let Err(e) = doc.save(&text) {
+                            tracing::warn!("markdown panel: save failed: {e}");
+                        }
                         mod_flag.set(false);
                         sb.set_sensitive(false);
                     }
@@ -628,7 +772,7 @@ impl MarkdownPanel {
 
         // ── Save button ─────────────────────────────────────────────────
         {
-            let fp = file_path.to_string();
+            let doc = document.clone();
             let ct = content.clone();
             let sbuf = source_buffer.clone();
             let mod_flag = modified.clone();
@@ -638,7 +782,9 @@ impl MarkdownPanel {
                     .text(&sbuf.start_iter(), &sbuf.end_iter(), false)
                     .to_string();
                 *ct.borrow_mut() = text.clone();
-                let _ = std::fs::write(&fp, &text);
+                if let Err(e) = doc.save(&text) {
+                    tracing::warn!("markdown panel: save failed: {e}");
+                }
                 mod_flag.set(false);
                 sb2.set_sensitive(false);
             });
@@ -663,7 +809,7 @@ impl MarkdownPanel {
 
         // ── Reload button ────────────────────────────────────────────────
         {
-            let fp = file_path.to_string();
+            let doc = document.clone();
             let ct = content.clone();
             let sbuf = source_buffer.clone();
             let m = mode.clone();
@@ -673,7 +819,7 @@ impl MarkdownPanel {
             let r = render_with_notebook.clone();
             let nb_engine = notebook_engine.clone();
             reload_btn.connect_clicked(move |_| {
-                if let Ok(text) = std::fs::read_to_string(&fp) {
+                if let Ok(text) = doc.load() {
                     *ct.borrow_mut() = text.clone();
                     mod_flag.set(false);
                     sb.set_sensitive(false);
@@ -693,8 +839,7 @@ impl MarkdownPanel {
         }
 
         // ── File watch (500ms): silent reload when clean, conflict bar when dirty ─
-        {
-            let fp = file_path.to_string();
+        if let Some(fp) = document.file_path().map(str::to_string) {
             let ct = content.clone();
             let rv = render_view.clone();
             let m = mode.clone();
@@ -704,7 +849,7 @@ impl MarkdownPanel {
             let suppress = suppress_emit.clone();
             let nb_engine = notebook_engine.clone();
             let bar_slot = conflict_bar_slot.clone();
-            let last_mtime = Rc::new(Cell::new(get_mtime(file_path)));
+            let last_mtime = Rc::new(Cell::new(get_mtime(&fp)));
             glib::timeout_add_local(std::time::Duration::from_millis(500), move || {
                 let mtime = get_mtime(&fp);
                 if mtime == 0 || mtime == last_mtime.get() {
@@ -764,12 +909,51 @@ impl MarkdownPanel {
             suppress_emit,
             input_cb,
             file_path: file_path.to_string(),
+            document,
+            content,
+            modified,
             notebook_engine,
         }
     }
 
+    fn current_document_text(&self) -> String {
+        if self.edit_btn.is_active() {
+            self.source_buffer
+                .text(
+                    &self.source_buffer.start_iter(),
+                    &self.source_buffer.end_iter(),
+                    false,
+                )
+                .to_string()
+        } else {
+            self.content.borrow().clone()
+        }
+    }
+
+    fn save_database_document(&self) {
+        if !self.document.is_database() {
+            return;
+        }
+        let text = self.current_document_text();
+        *self.content.borrow_mut() = text.clone();
+        if let Err(e) = self.document.save(&text) {
+            tracing::warn!("markdown panel: failed to save DB document: {e}");
+        } else {
+            self.modified.set(false);
+        }
+    }
+
+    fn database_document_has_content(&self) -> bool {
+        if !self.document.is_database() {
+            return false;
+        }
+        !self.current_document_text().is_empty() || self.document.content_len() > 0
+    }
+
     pub fn reload(&mut self) {
-        if let Ok(text) = std::fs::read_to_string(&self.file_path) {
+        if let Ok(text) = self.document.load() {
+            *self.content.borrow_mut() = text.clone();
+            self.modified.set(false);
             *self.notebook_engine.borrow_mut() = None;
             render_with_engine(&self.render_view, &self.notebook_engine, &text);
         }
@@ -814,6 +998,28 @@ impl PanelBackend for MarkdownPanel {
     }
     fn footer_text(&self) -> Option<String> {
         Some(self.file_path.clone())
+    }
+
+    fn shutdown(&self) {
+        self.save_database_document();
+    }
+
+    fn get_text_content(&self) -> Option<String> {
+        Some(self.current_document_text())
+    }
+
+    fn close_confirmation(&self) -> Option<String> {
+        if !self.database_document_has_content() {
+            return None;
+        }
+        Some(
+            "This Markdown panel contains an in-memory document stored in the workspace database. Closing it will delete that document permanently. Continue?"
+                .to_string(),
+        )
+    }
+
+    fn on_permanent_close(&self) {
+        self.document.delete_persisted_state();
     }
 
     fn supports_sync(&self) -> bool {

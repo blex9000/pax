@@ -1,6 +1,7 @@
 pub mod commands;
 
 pub use commands::{CommandRecord, PinnedCommand};
+pub mod markdown_documents;
 pub mod metadata_entries;
 pub mod notes;
 pub mod output;

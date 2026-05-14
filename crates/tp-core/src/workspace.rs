@@ -125,6 +125,14 @@ pub struct PanelConfigUpdate {
     pub min_height: u32,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum MarkdownStorage {
+    #[default]
+    Database,
+    File,
+}
+
 /// What kind of panel to create — determines the widget type.
 #[derive(Debug, Clone, Serialize, Default, PartialEq)]
 #[serde(tag = "type", rename_all = "snake_case")]
@@ -153,8 +161,15 @@ pub enum PanelType {
         #[serde(default)]
         user: Option<String>,
     },
-    /// Markdown viewer
-    Markdown { file: String },
+    /// Markdown viewer/editor.
+    /// `Database` stores the document in Pax DB scoped by (record_key, panel_id).
+    /// `File` keeps the previous filesystem-backed behavior.
+    Markdown {
+        #[serde(default)]
+        file: String,
+        #[serde(default)]
+        storage: MarkdownStorage,
+    },
     /// Embedded code editor (local or remote via SSHFS)
     CodeEditor {
         root_dir: String,
@@ -209,7 +224,10 @@ enum KnownPanelType {
         user: Option<String>,
     },
     Markdown {
+        #[serde(default)]
         file: String,
+        #[serde(default)]
+        storage: Option<MarkdownStorage>,
     },
     CodeEditor {
         root_dir: String,
@@ -258,7 +276,16 @@ impl From<KnownPanelType> for PanelType {
                 session,
                 user,
             },
-            KnownPanelType::Markdown { file } => PanelType::Markdown { file },
+            KnownPanelType::Markdown { file, storage } => {
+                let storage = storage.unwrap_or_else(|| {
+                    if file.trim().is_empty() {
+                        MarkdownStorage::Database
+                    } else {
+                        MarkdownStorage::File
+                    }
+                });
+                PanelType::Markdown { file, storage }
+            }
             KnownPanelType::CodeEditor {
                 root_dir,
                 ssh,
@@ -602,7 +629,7 @@ impl Workspace {
 
 #[cfg(test)]
 mod tests {
-    use super::{new_tab_id, LayoutNode, PanelType, Workspace, WorkspaceSettings};
+    use super::{new_tab_id, LayoutNode, MarkdownStorage, PanelType, Workspace, WorkspaceSettings};
 
     #[test]
     fn workspace_settings_default_to_graphite_theme() {
@@ -620,6 +647,34 @@ mod tests {
             serde_json::from_str(r#"{ "type": "browser", "url": "https://example.com" }"#).unwrap();
 
         assert_eq!(panel_type, PanelType::Empty);
+    }
+
+    #[test]
+    fn legacy_markdown_file_deserializes_as_filesystem_storage() {
+        let panel_type: PanelType =
+            serde_json::from_str(r#"{ "type": "markdown", "file": "README.md" }"#).unwrap();
+
+        assert_eq!(
+            panel_type,
+            PanelType::Markdown {
+                file: "README.md".to_string(),
+                storage: MarkdownStorage::File,
+            }
+        );
+    }
+
+    #[test]
+    fn explicit_markdown_database_storage_deserializes() {
+        let panel_type: PanelType =
+            serde_json::from_str(r#"{ "type": "markdown", "storage": "database" }"#).unwrap();
+
+        assert_eq!(
+            panel_type,
+            PanelType::Markdown {
+                file: String::new(),
+                storage: MarkdownStorage::Database,
+            }
+        );
     }
 
     #[test]

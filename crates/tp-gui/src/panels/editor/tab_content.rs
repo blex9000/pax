@@ -15,6 +15,11 @@ use std::rc::Rc;
 pub struct SourceTab {
     pub buffer: sourceview5::Buffer,
     pub modified: bool,
+    /// Last known scroll position for the shared SourceView while this tab
+    /// was active. New tabs start at the top-left instead of inheriting the
+    /// previous file's adjustments.
+    pub scroll_x: Rc<Cell<f64>>,
+    pub scroll_y: Rc<Cell<f64>>,
     /// Content on disk at last open/save — drives dirty detection.
     pub saved_content: Rc<RefCell<String>>,
     /// Per-tab notes state (lives and dies with this source tab).

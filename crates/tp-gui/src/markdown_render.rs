@@ -8,6 +8,8 @@
 
 use gtk4::prelude::*;
 use pulldown_cmark::{CodeBlockKind, Event, HeadingLevel, Options, Parser, Tag, TagEnd};
+use regex::Regex;
+use std::collections::{BTreeMap, HashMap};
 use std::sync::OnceLock;
 use syntect::easy::HighlightLines;
 use syntect::highlighting::{FontStyle, Style, Theme as SyntectTheme, ThemeSet};
@@ -263,6 +265,24 @@ pub(crate) fn render_markdown_to_view_with_hook(
     let mut state = RenderState::default();
     let mut it = buf.end_iter();
     for (event, range) in parser {
+        // ── Mermaid diagram capture branch ───────────────────────────
+        if let Some(cap) = state.mermaid_collecting.as_mut() {
+            match &event {
+                Event::Text(t) => {
+                    cap.body.push_str(t);
+                    continue;
+                }
+                Event::End(TagEnd::CodeBlock) => {
+                    let cap = state.mermaid_collecting.take().unwrap();
+                    render_mermaid_into_view(tv, &buf, &mut it, &cap.body);
+                    buf.insert(&mut it, "\n");
+                    state.in_code_block = false;
+                    continue;
+                }
+                _ => continue,
+            }
+        }
+
         // ── highlighted code-block capture branch ────────────────────
         // Runs before the notebook branches so a snippet that opened with a
         // recognised language keeps collecting until End(CodeBlock) regardless
@@ -303,6 +323,17 @@ pub(crate) fn render_markdown_to_view_with_hook(
                     continue;
                 }
                 _ => continue, // swallow other inline events inside the cell
+            }
+        }
+
+        // ── Mermaid diagram start branch ─────────────────────────────
+        if let Event::Start(Tag::CodeBlock(CodeBlockKind::Fenced(info))) = &event {
+            if is_mermaid_info(info) {
+                state.in_code_block = true;
+                state.mermaid_collecting = Some(MermaidCapture {
+                    body: String::new(),
+                });
+                continue;
             }
         }
 
@@ -422,6 +453,10 @@ struct CodeCapture {
     body: String,
 }
 
+struct MermaidCapture {
+    body: String,
+}
+
 /// Inline formatting and structural state carried across events.
 struct RenderState {
     /// Inline tag names currently active (bold/italic/strike/link).
@@ -452,6 +487,10 @@ struct RenderState {
     /// at which point the captured body is highlighted and inserted directly
     /// into the surrounding TextBuffer with color tags — no child widget.
     code_capture: Option<CodeCapture>,
+    /// When set, we're inside a fenced `mermaid` block. Body text accumulates
+    /// until End(CodeBlock), then a compact GTK diagram widget is anchored
+    /// into the render TextView.
+    mermaid_collecting: Option<MermaidCapture>,
 }
 
 impl Default for RenderState {
@@ -467,6 +506,7 @@ impl Default for RenderState {
             pending_first_block: true,
             notebook_collecting: None,
             code_capture: None,
+            mermaid_collecting: None,
         }
     }
 }
@@ -812,6 +852,976 @@ fn render_table(buf: &gtk4::TextBuffer, it: &mut gtk4::TextIter, t: &TableState)
         }
     }
     buf.insert_with_tags_by_name(it, &border_row('└', '┴', '┘'), &["table"]);
+}
+
+// ── Mermaid flowchart rendering ──────────────────────────────────────────────
+//
+// Mermaid itself is a large JavaScript renderer. Pulling WebKit/Node into every
+// Markdown render path would be heavy and fragile, so Pax supports the common
+// `flowchart`/`graph` subset directly in GTK. Unsupported Mermaid diagram types
+// are surfaced as a small inline error rather than silently falling back to raw
+// source.
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum MermaidDirection {
+    TopDown,
+    BottomTop,
+    LeftRight,
+    RightLeft,
+}
+
+impl MermaidDirection {
+    fn is_horizontal(self) -> bool {
+        matches!(self, Self::LeftRight | Self::RightLeft)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum MermaidNodeShape {
+    Rect,
+    Round,
+    Diamond,
+    Circle,
+}
+
+#[derive(Debug, Clone)]
+struct MermaidNode {
+    id: String,
+    label: String,
+    shape: MermaidNodeShape,
+}
+
+#[derive(Debug, Clone)]
+struct MermaidEdge {
+    from: usize,
+    to: usize,
+    label: String,
+}
+
+#[derive(Debug, Clone)]
+struct MermaidDiagram {
+    direction: MermaidDirection,
+    nodes: Vec<MermaidNode>,
+    edges: Vec<MermaidEdge>,
+}
+
+#[derive(Debug, Clone)]
+struct ParsedNodeRef {
+    id: String,
+    label: Option<String>,
+    shape: MermaidNodeShape,
+}
+
+#[derive(Debug, Clone)]
+struct MermaidLayout {
+    width: i32,
+    height: i32,
+    direction: MermaidDirection,
+    nodes: Vec<MermaidLayoutNode>,
+    edges: Vec<MermaidLayoutEdge>,
+}
+
+#[derive(Debug, Clone)]
+struct MermaidLayoutNode {
+    label: String,
+    shape: MermaidNodeShape,
+    x: f64,
+    y: f64,
+    width: f64,
+    height: f64,
+}
+
+#[derive(Debug, Clone)]
+struct MermaidLayoutEdge {
+    from: usize,
+    to: usize,
+    label: String,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct DiagramRgba(f64, f64, f64, f64);
+
+#[derive(Debug, Clone, Copy)]
+struct MermaidPalette {
+    canvas: DiagramRgba,
+    node_fill: DiagramRgba,
+    node_stroke: DiagramRgba,
+    diamond_fill: DiagramRgba,
+    edge: DiagramRgba,
+    text: DiagramRgba,
+    muted_text: DiagramRgba,
+    label_fill: DiagramRgba,
+}
+
+fn is_mermaid_info(info: &str) -> bool {
+    info.split(|c: char| c.is_whitespace() || c == ',')
+        .next()
+        .is_some_and(|token| token.eq_ignore_ascii_case("mermaid"))
+}
+
+fn render_mermaid_into_view(
+    tv: &gtk4::TextView,
+    buf: &gtk4::TextBuffer,
+    it: &mut gtk4::TextIter,
+    body: &str,
+) {
+    let widget = match parse_mermaid_diagram(body) {
+        Ok(diagram) => build_mermaid_widget(diagram, body),
+        Err(message) => build_mermaid_error_widget(&message, body),
+    };
+    let anchor = buf.create_child_anchor(it);
+    tv.add_child_at_anchor(&widget, &anchor);
+}
+
+fn build_mermaid_widget(diagram: MermaidDiagram, source: &str) -> gtk4::Widget {
+    let layout = std::rc::Rc::new(layout_mermaid_diagram(&diagram));
+    let area = gtk4::DrawingArea::new();
+    area.set_content_width(layout.width);
+    area.set_content_height(layout.height);
+    area.set_size_request(layout.width, layout.height);
+    area.set_draw_func({
+        let layout = layout.clone();
+        move |_, cr, width, height| {
+            paint_mermaid_layout(cr, width, height, &layout);
+        }
+    });
+
+    let frame = gtk4::Frame::new(None);
+    frame.set_margin_top(8);
+    frame.set_margin_bottom(8);
+    frame.set_margin_start(4);
+    frame.set_margin_end(4);
+    frame.set_child(Some(&area));
+    wrap_mermaid_widget_with_edit(frame.upcast::<gtk4::Widget>(), source)
+}
+
+fn build_mermaid_error_widget(message: &str, source: &str) -> gtk4::Widget {
+    let row = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
+    row.set_margin_top(8);
+    row.set_margin_bottom(8);
+    row.set_margin_start(8);
+    row.set_margin_end(8);
+
+    let icon = gtk4::Image::from_icon_name("dialog-error-symbolic");
+    row.append(&icon);
+
+    let label = gtk4::Label::new(Some(&format!("Mermaid: {message}")));
+    label.set_wrap(true);
+    label.set_xalign(0.0);
+    label.add_css_class("dim-label");
+    row.append(&label);
+
+    let frame = gtk4::Frame::new(None);
+    frame.set_margin_top(8);
+    frame.set_margin_bottom(8);
+    frame.set_margin_start(4);
+    frame.set_margin_end(4);
+    frame.set_child(Some(&row));
+    wrap_mermaid_widget_with_edit(frame.upcast::<gtk4::Widget>(), source)
+}
+
+fn wrap_mermaid_widget_with_edit(content: gtk4::Widget, source: &str) -> gtk4::Widget {
+    let overlay = gtk4::Overlay::new();
+    overlay.set_child(Some(&content));
+
+    let edit_btn = gtk4::Button::with_label("Edit");
+    edit_btn.add_css_class("flat");
+    edit_btn.add_css_class("suggested-action");
+    edit_btn.set_tooltip_text(Some("Open this Mermaid diagram in the visual designer"));
+    edit_btn.set_halign(gtk4::Align::End);
+    edit_btn.set_valign(gtk4::Align::Start);
+    edit_btn.set_margin_top(12);
+    edit_btn.set_margin_end(12);
+    edit_btn.set_visible(false);
+    overlay.add_overlay(&edit_btn);
+
+    {
+        let enter_btn = edit_btn.clone();
+        let leave_btn = edit_btn.clone();
+        let motion = gtk4::EventControllerMotion::new();
+        motion.connect_enter(move |_, _, _| {
+            enter_btn.set_visible(true);
+        });
+        motion.connect_leave(move |_| {
+            leave_btn.set_visible(false);
+        });
+        overlay.add_controller(motion);
+    }
+
+    {
+        let source = source.to_string();
+        edit_btn.connect_clicked(move |btn| {
+            let Some(window) = btn
+                .root()
+                .and_then(|root| root.downcast::<gtk4::Window>().ok())
+            else {
+                return;
+            };
+            crate::dialogs::mermaid_designer::show_mermaid_designer_with_code(&window, &source);
+        });
+    }
+
+    overlay.upcast::<gtk4::Widget>()
+}
+
+fn parse_mermaid_diagram(source: &str) -> Result<MermaidDiagram, String> {
+    let mut builder = MermaidBuilder::default();
+    let mut direction = MermaidDirection::TopDown;
+    let mut saw_header = false;
+
+    for raw_line in source.lines() {
+        let line = raw_line.split("%%").next().unwrap_or("").trim();
+        if line.is_empty() {
+            continue;
+        }
+        for statement in line.split(';').map(str::trim).filter(|s| !s.is_empty()) {
+            if let Some(parsed_direction) = parse_mermaid_header(statement)? {
+                direction = parsed_direction;
+                saw_header = true;
+                continue;
+            }
+            if !saw_header && is_known_unsupported_mermaid_header(statement) {
+                return Err("only flowchart/graph Mermaid diagrams are supported".to_string());
+            }
+            if is_ignored_mermaid_statement(statement) {
+                continue;
+            }
+            if let Some((from, label, to)) = parse_mermaid_edge(statement) {
+                let from = builder.ensure_node(from);
+                let to = builder.ensure_node(to);
+                builder.edges.push(MermaidEdge { from, to, label });
+                continue;
+            }
+            if let Some(node_ref) = parse_mermaid_node_ref(statement) {
+                builder.ensure_node(node_ref);
+            }
+        }
+    }
+
+    if builder.nodes.is_empty() {
+        return Err("no supported flowchart nodes found".to_string());
+    }
+
+    Ok(MermaidDiagram {
+        direction,
+        nodes: builder.nodes,
+        edges: builder.edges,
+    })
+}
+
+#[derive(Default)]
+struct MermaidBuilder {
+    nodes: Vec<MermaidNode>,
+    node_index: HashMap<String, usize>,
+    edges: Vec<MermaidEdge>,
+}
+
+impl MermaidBuilder {
+    fn ensure_node(&mut self, node_ref: ParsedNodeRef) -> usize {
+        if let Some(idx) = self.node_index.get(&node_ref.id).copied() {
+            if let Some(label) = node_ref.label {
+                if !label.is_empty()
+                    && (self.nodes[idx].label == self.nodes[idx].id
+                        || self.nodes[idx].label != label)
+                {
+                    self.nodes[idx].label = label;
+                }
+            }
+            if node_ref.shape != MermaidNodeShape::Rect {
+                self.nodes[idx].shape = node_ref.shape;
+            }
+            return idx;
+        }
+
+        let idx = self.nodes.len();
+        let label = node_ref
+            .label
+            .filter(|label| !label.is_empty())
+            .unwrap_or_else(|| node_ref.id.clone());
+        self.nodes.push(MermaidNode {
+            id: node_ref.id.clone(),
+            label,
+            shape: node_ref.shape,
+        });
+        self.node_index.insert(node_ref.id, idx);
+        idx
+    }
+}
+
+fn parse_mermaid_header(statement: &str) -> Result<Option<MermaidDirection>, String> {
+    let mut parts = statement.split_whitespace();
+    let Some(kind) = parts.next() else {
+        return Ok(None);
+    };
+    if !kind.eq_ignore_ascii_case("flowchart") && !kind.eq_ignore_ascii_case("graph") {
+        return Ok(None);
+    }
+    let direction = match parts.next().unwrap_or("TD").to_ascii_uppercase().as_str() {
+        "TD" | "TB" => MermaidDirection::TopDown,
+        "BT" => MermaidDirection::BottomTop,
+        "LR" => MermaidDirection::LeftRight,
+        "RL" => MermaidDirection::RightLeft,
+        other => {
+            return Err(format!("unsupported flowchart direction `{other}`"));
+        }
+    };
+    Ok(Some(direction))
+}
+
+fn is_known_unsupported_mermaid_header(statement: &str) -> bool {
+    let first = statement.split_whitespace().next().unwrap_or("");
+    matches!(
+        first,
+        "sequenceDiagram"
+            | "classDiagram"
+            | "stateDiagram"
+            | "stateDiagram-v2"
+            | "erDiagram"
+            | "journey"
+            | "gantt"
+            | "pie"
+            | "gitGraph"
+            | "mindmap"
+            | "timeline"
+            | "quadrantChart"
+            | "requirementDiagram"
+            | "C4Context"
+    )
+}
+
+fn is_ignored_mermaid_statement(statement: &str) -> bool {
+    let first = statement.split_whitespace().next().unwrap_or("");
+    matches!(
+        first,
+        "subgraph" | "end" | "classDef" | "class" | "style" | "linkStyle" | "click"
+    )
+}
+
+fn parse_mermaid_edge(statement: &str) -> Option<(ParsedNodeRef, String, ParsedNodeRef)> {
+    for regex in [
+        mermaid_pipe_edge_re(),
+        mermaid_text_edge_re(),
+        mermaid_plain_edge_re(),
+    ] {
+        if let Some(caps) = regex.captures(statement) {
+            let from = parse_mermaid_node_ref(caps.name("from")?.as_str())?;
+            let to = parse_mermaid_node_ref(caps.name("to")?.as_str())?;
+            let label = caps
+                .name("label")
+                .map(|m| clean_mermaid_label(m.as_str()))
+                .unwrap_or_default();
+            return Some((from, label, to));
+        }
+    }
+    None
+}
+
+fn mermaid_pipe_edge_re() -> &'static Regex {
+    static CELL: OnceLock<Regex> = OnceLock::new();
+    CELL.get_or_init(|| {
+        Regex::new(r#"^(?P<from>.+?)\s*(?:-->|==>|-\.->|---)\s*\|(?P<label>[^|]+)\|\s*(?P<to>.+)$"#)
+            .expect("valid Mermaid pipe edge regex")
+    })
+}
+
+fn mermaid_text_edge_re() -> &'static Regex {
+    static CELL: OnceLock<Regex> = OnceLock::new();
+    CELL.get_or_init(|| {
+        Regex::new(r#"^(?P<from>.+?)\s+--\s+(?P<label>.+?)\s+--?>\s*(?P<to>.+)$"#)
+            .expect("valid Mermaid text edge regex")
+    })
+}
+
+fn mermaid_plain_edge_re() -> &'static Regex {
+    static CELL: OnceLock<Regex> = OnceLock::new();
+    CELL.get_or_init(|| {
+        Regex::new(r#"^(?P<from>.+?)\s*(?:-->|==>|-\.->|---)\s*(?P<to>.+)$"#)
+            .expect("valid Mermaid plain edge regex")
+    })
+}
+
+fn parse_mermaid_node_ref(raw: &str) -> Option<ParsedNodeRef> {
+    let raw = raw
+        .trim()
+        .trim_end_matches(';')
+        .split(":::")
+        .next()
+        .unwrap_or("")
+        .trim();
+    if raw.is_empty() {
+        return None;
+    }
+
+    for (open, close, shape) in [
+        ("((", "))", MermaidNodeShape::Circle),
+        ("{", "}", MermaidNodeShape::Diamond),
+        ("[", "]", MermaidNodeShape::Rect),
+        ("(", ")", MermaidNodeShape::Round),
+    ] {
+        if let Some(open_idx) = raw.find(open) {
+            if raw.ends_with(close) {
+                let id = raw[..open_idx].trim();
+                if id.is_empty() {
+                    return None;
+                }
+                let label_start = open_idx + open.len();
+                let label_end = raw.len().saturating_sub(close.len());
+                let label = clean_mermaid_label(&raw[label_start..label_end]);
+                return Some(ParsedNodeRef {
+                    id: id.to_string(),
+                    label: Some(label),
+                    shape,
+                });
+            }
+        }
+    }
+
+    let id = raw
+        .split_whitespace()
+        .next()
+        .unwrap_or("")
+        .trim_matches(|c: char| c == '"' || c == '\'');
+    if id.is_empty() {
+        return None;
+    }
+    Some(ParsedNodeRef {
+        id: id.to_string(),
+        label: None,
+        shape: MermaidNodeShape::Rect,
+    })
+}
+
+fn clean_mermaid_label(label: &str) -> String {
+    label
+        .trim()
+        .trim_matches(|c| c == '"' || c == '\'' || c == '`')
+        .replace("<br/>", "\n")
+        .replace("<br>", "\n")
+}
+
+fn layout_mermaid_diagram(diagram: &MermaidDiagram) -> MermaidLayout {
+    let layers = mermaid_layers(diagram);
+    let mut grouped: BTreeMap<usize, Vec<usize>> = BTreeMap::new();
+    for (idx, layer) in layers.iter().copied().enumerate() {
+        grouped.entry(layer).or_default().push(idx);
+    }
+
+    let sizes: Vec<(f64, f64)> = diagram
+        .nodes
+        .iter()
+        .map(|node| mermaid_node_size(&node.label, node.shape))
+        .collect();
+    let layer_gap = 88.0;
+    let node_gap = 34.0;
+    let margin = 28.0;
+    let horizontal = diagram.direction.is_horizontal();
+
+    let mut positions: Vec<Option<MermaidLayoutNode>> = vec![None; diagram.nodes.len()];
+    let mut total_width = margin * 2.0;
+    let mut total_height = margin * 2.0;
+
+    if horizontal {
+        let mut layer_widths = Vec::new();
+        let mut layer_heights = Vec::new();
+        for nodes in grouped.values() {
+            let width = nodes
+                .iter()
+                .map(|idx| sizes[*idx].0)
+                .fold(0.0_f64, f64::max);
+            let height = nodes.iter().map(|idx| sizes[*idx].1).sum::<f64>()
+                + node_gap * nodes.len().saturating_sub(1) as f64;
+            layer_widths.push(width);
+            layer_heights.push(height);
+        }
+        let content_height = layer_heights.iter().copied().fold(0.0_f64, f64::max);
+        let content_width = layer_widths.iter().sum::<f64>()
+            + layer_gap * layer_widths.len().saturating_sub(1) as f64;
+        total_width += content_width;
+        total_height += content_height;
+
+        let mut x = margin;
+        for ((_, nodes), (layer_width, layer_height)) in grouped.iter().zip(
+            layer_widths
+                .iter()
+                .copied()
+                .zip(layer_heights.iter().copied()),
+        ) {
+            let mut y = margin + (content_height - layer_height) / 2.0;
+            for idx in nodes {
+                let (w, h) = sizes[*idx];
+                positions[*idx] = Some(MermaidLayoutNode {
+                    label: diagram.nodes[*idx].label.clone(),
+                    shape: diagram.nodes[*idx].shape,
+                    x: x + layer_width / 2.0,
+                    y: y + h / 2.0,
+                    width: w,
+                    height: h,
+                });
+                y += h + node_gap;
+            }
+            x += layer_width + layer_gap;
+        }
+    } else {
+        let mut layer_widths = Vec::new();
+        let mut layer_heights = Vec::new();
+        for nodes in grouped.values() {
+            let width = nodes.iter().map(|idx| sizes[*idx].0).sum::<f64>()
+                + node_gap * nodes.len().saturating_sub(1) as f64;
+            let height = nodes
+                .iter()
+                .map(|idx| sizes[*idx].1)
+                .fold(0.0_f64, f64::max);
+            layer_widths.push(width);
+            layer_heights.push(height);
+        }
+        let content_width = layer_widths.iter().copied().fold(0.0_f64, f64::max);
+        let content_height = layer_heights.iter().sum::<f64>()
+            + layer_gap * layer_heights.len().saturating_sub(1) as f64;
+        total_width += content_width;
+        total_height += content_height;
+
+        let mut y = margin;
+        for ((_, nodes), (layer_width, layer_height)) in grouped.iter().zip(
+            layer_widths
+                .iter()
+                .copied()
+                .zip(layer_heights.iter().copied()),
+        ) {
+            let mut x = margin + (content_width - layer_width) / 2.0;
+            for idx in nodes {
+                let (w, h) = sizes[*idx];
+                positions[*idx] = Some(MermaidLayoutNode {
+                    label: diagram.nodes[*idx].label.clone(),
+                    shape: diagram.nodes[*idx].shape,
+                    x: x + w / 2.0,
+                    y: y + layer_height / 2.0,
+                    width: w,
+                    height: h,
+                });
+                x += w + node_gap;
+            }
+            y += layer_height + layer_gap;
+        }
+    }
+
+    MermaidLayout {
+        width: total_width.ceil() as i32,
+        height: total_height.ceil() as i32,
+        direction: diagram.direction,
+        nodes: positions.into_iter().flatten().collect(),
+        edges: diagram
+            .edges
+            .iter()
+            .map(|edge| MermaidLayoutEdge {
+                from: edge.from,
+                to: edge.to,
+                label: edge.label.clone(),
+            })
+            .collect(),
+    }
+}
+
+fn mermaid_layers(diagram: &MermaidDiagram) -> Vec<usize> {
+    let n = diagram.nodes.len();
+    let mut outgoing = vec![Vec::<usize>::new(); n];
+    let mut indegree = vec![0_usize; n];
+    for edge in &diagram.edges {
+        if edge.from < n && edge.to < n {
+            outgoing[edge.from].push(edge.to);
+            indegree[edge.to] += 1;
+        }
+    }
+
+    let mut layers = vec![0_usize; n];
+    let mut queue: std::collections::VecDeque<usize> = indegree
+        .iter()
+        .enumerate()
+        .filter_map(|(idx, degree)| (*degree == 0).then_some(idx))
+        .collect();
+    if queue.is_empty() && n > 0 {
+        queue.push_back(0);
+    }
+
+    let mut indegree_work = indegree;
+    let mut visited = vec![false; n];
+    while let Some(idx) = queue.pop_front() {
+        if visited[idx] {
+            continue;
+        }
+        visited[idx] = true;
+        for to in outgoing[idx].iter().copied() {
+            layers[to] = layers[to].max(layers[idx] + 1);
+            indegree_work[to] = indegree_work[to].saturating_sub(1);
+            if indegree_work[to] == 0 {
+                queue.push_back(to);
+            }
+        }
+    }
+
+    if matches!(
+        diagram.direction,
+        MermaidDirection::BottomTop | MermaidDirection::RightLeft
+    ) {
+        let max_layer = layers.iter().copied().max().unwrap_or(0);
+        for layer in &mut layers {
+            *layer = max_layer.saturating_sub(*layer);
+        }
+    }
+
+    layers
+}
+
+fn mermaid_node_size(label: &str, shape: MermaidNodeShape) -> (f64, f64) {
+    let max_line_width = label.lines().map(|line| line.width()).max().unwrap_or(1) as f64;
+    let line_count = label.lines().count().max(1) as f64;
+    let mut width = (max_line_width * 8.0 + 36.0).clamp(92.0, 280.0);
+    let mut height = (line_count * 18.0 + 26.0).clamp(44.0, 120.0);
+    match shape {
+        MermaidNodeShape::Diamond => {
+            width = (width + 26.0).max(112.0);
+            height = (height + 18.0).max(72.0);
+        }
+        MermaidNodeShape::Circle => {
+            let side = width.max(height).max(72.0);
+            width = side;
+            height = side;
+        }
+        MermaidNodeShape::Rect | MermaidNodeShape::Round => {}
+    }
+    (width, height)
+}
+
+fn paint_mermaid_layout(
+    cr: &gtk4::cairo::Context,
+    width: i32,
+    height: i32,
+    layout: &MermaidLayout,
+) {
+    let palette = current_mermaid_palette();
+
+    set_source(cr, palette.canvas);
+    rounded_rect(
+        cr,
+        0.5,
+        0.5,
+        (width - 1).max(1) as f64,
+        (height - 1).max(1) as f64,
+        12.0,
+    );
+    let _ = cr.fill();
+
+    for edge in &layout.edges {
+        let Some(from) = layout.nodes.get(edge.from) else {
+            continue;
+        };
+        let Some(to) = layout.nodes.get(edge.to) else {
+            continue;
+        };
+        paint_mermaid_edge(cr, layout.direction, from, to, &edge.label, palette);
+    }
+
+    for node in &layout.nodes {
+        paint_mermaid_node(cr, node, palette);
+    }
+}
+
+fn current_mermaid_palette() -> MermaidPalette {
+    match crate::theme::current_theme().to_id() {
+        "aurora" | "quantum" => MermaidPalette {
+            canvas: DiagramRgba(0.965, 0.976, 0.992, 1.0),
+            node_fill: DiagramRgba(1.0, 1.0, 1.0, 1.0),
+            node_stroke: DiagramRgba(0.11, 0.50, 0.78, 1.0),
+            diamond_fill: DiagramRgba(0.91, 0.965, 0.98, 1.0),
+            edge: DiagramRgba(0.29, 0.36, 0.48, 1.0),
+            text: DiagramRgba(0.06, 0.11, 0.20, 1.0),
+            muted_text: DiagramRgba(0.35, 0.42, 0.54, 1.0),
+            label_fill: DiagramRgba(0.965, 0.976, 0.992, 0.92),
+        },
+        _ => MermaidPalette {
+            canvas: DiagramRgba(0.055, 0.075, 0.105, 1.0),
+            node_fill: DiagramRgba(0.105, 0.135, 0.18, 1.0),
+            node_stroke: DiagramRgba(0.22, 0.72, 0.86, 1.0),
+            diamond_fill: DiagramRgba(0.08, 0.17, 0.22, 1.0),
+            edge: DiagramRgba(0.62, 0.70, 0.80, 1.0),
+            text: DiagramRgba(0.90, 0.93, 0.96, 1.0),
+            muted_text: DiagramRgba(0.70, 0.77, 0.84, 1.0),
+            label_fill: DiagramRgba(0.055, 0.075, 0.105, 0.94),
+        },
+    }
+}
+
+fn paint_mermaid_node(
+    cr: &gtk4::cairo::Context,
+    node: &MermaidLayoutNode,
+    palette: MermaidPalette,
+) {
+    let x = node.x - node.width / 2.0;
+    let y = node.y - node.height / 2.0;
+
+    match node.shape {
+        MermaidNodeShape::Diamond => {
+            cr.move_to(node.x, y);
+            cr.line_to(x + node.width, node.y);
+            cr.line_to(node.x, y + node.height);
+            cr.line_to(x, node.y);
+            cr.close_path();
+            set_source(cr, palette.diamond_fill);
+            let _ = cr.fill_preserve();
+        }
+        MermaidNodeShape::Circle => {
+            cr.save().ok();
+            cr.translate(node.x, node.y);
+            cr.scale(node.width / 2.0, node.height / 2.0);
+            cr.arc(0.0, 0.0, 1.0, 0.0, std::f64::consts::TAU);
+            cr.restore().ok();
+            set_source(cr, palette.node_fill);
+            let _ = cr.fill_preserve();
+        }
+        MermaidNodeShape::Round => {
+            rounded_rect(cr, x, y, node.width, node.height, 14.0);
+            set_source(cr, palette.node_fill);
+            let _ = cr.fill_preserve();
+        }
+        MermaidNodeShape::Rect => {
+            rounded_rect(cr, x, y, node.width, node.height, 6.0);
+            set_source(cr, palette.node_fill);
+            let _ = cr.fill_preserve();
+        }
+    }
+
+    set_source(cr, palette.node_stroke);
+    cr.set_line_width(1.4);
+    let _ = cr.stroke();
+
+    paint_centered_text(
+        cr,
+        &node.label,
+        node.x,
+        node.y,
+        node.width - 22.0,
+        palette.text,
+        10.5,
+        gtk4::pango::Weight::Medium,
+    );
+}
+
+fn paint_mermaid_edge(
+    cr: &gtk4::cairo::Context,
+    direction: MermaidDirection,
+    from: &MermaidLayoutNode,
+    to: &MermaidLayoutNode,
+    label: &str,
+    palette: MermaidPalette,
+) {
+    let (sx, sy, ex, ey, px, py) = if direction.is_horizontal() {
+        let sx = if to.x >= from.x {
+            from.x + from.width / 2.0
+        } else {
+            from.x - from.width / 2.0
+        };
+        let ex = if to.x >= from.x {
+            to.x - to.width / 2.0
+        } else {
+            to.x + to.width / 2.0
+        };
+        let mid_x = (sx + ex) / 2.0;
+        set_source(cr, palette.edge);
+        cr.set_line_width(1.4);
+        cr.move_to(sx, from.y);
+        cr.curve_to(mid_x, from.y, mid_x, to.y, ex, to.y);
+        let _ = cr.stroke();
+        (sx, from.y, ex, to.y, mid_x, to.y)
+    } else {
+        let sy = if to.y >= from.y {
+            from.y + from.height / 2.0
+        } else {
+            from.y - from.height / 2.0
+        };
+        let ey = if to.y >= from.y {
+            to.y - to.height / 2.0
+        } else {
+            to.y + to.height / 2.0
+        };
+        let mid_y = (sy + ey) / 2.0;
+        set_source(cr, palette.edge);
+        cr.set_line_width(1.4);
+        cr.move_to(from.x, sy);
+        cr.curve_to(from.x, mid_y, to.x, mid_y, to.x, ey);
+        let _ = cr.stroke();
+        (from.x, sy, to.x, ey, to.x, mid_y)
+    };
+
+    paint_arrowhead(cr, (ex, ey), (px, py), palette.edge);
+
+    let label = label.trim();
+    if !label.is_empty() {
+        let lx = (sx + ex) / 2.0;
+        let ly = (sy + ey) / 2.0;
+        paint_edge_label(cr, lx, ly, label, palette);
+    }
+}
+
+fn paint_arrowhead(
+    cr: &gtk4::cairo::Context,
+    end: (f64, f64),
+    previous: (f64, f64),
+    color: DiagramRgba,
+) {
+    let angle = (end.1 - previous.1).atan2(end.0 - previous.0);
+    let size = 8.0;
+    let a1 = angle + std::f64::consts::PI * 0.82;
+    let a2 = angle - std::f64::consts::PI * 0.82;
+    set_source(cr, color);
+    cr.move_to(end.0, end.1);
+    cr.line_to(end.0 + size * a1.cos(), end.1 + size * a1.sin());
+    cr.line_to(end.0 + size * a2.cos(), end.1 + size * a2.sin());
+    cr.close_path();
+    let _ = cr.fill();
+}
+
+fn paint_edge_label(
+    cr: &gtk4::cairo::Context,
+    x: f64,
+    y: f64,
+    label: &str,
+    palette: MermaidPalette,
+) {
+    let layout = pangocairo::functions::create_layout(cr);
+    let mut font = gtk4::pango::FontDescription::from_string("Sans 9");
+    font.set_weight(gtk4::pango::Weight::Medium);
+    layout.set_font_description(Some(&font));
+    layout.set_text(label);
+    let (tw, th) = layout.pixel_size();
+    let pad_x = 6.0;
+    let pad_y = 3.0;
+    let bx = x - tw as f64 / 2.0 - pad_x;
+    let by = y - th as f64 / 2.0 - pad_y;
+    rounded_rect(
+        cr,
+        bx,
+        by,
+        tw as f64 + pad_x * 2.0,
+        th as f64 + pad_y * 2.0,
+        7.0,
+    );
+    set_source(cr, palette.label_fill);
+    let _ = cr.fill();
+    set_source(cr, palette.muted_text);
+    cr.move_to(x - tw as f64 / 2.0, y - th as f64 / 2.0);
+    pangocairo::functions::show_layout(cr, &layout);
+}
+
+fn paint_centered_text(
+    cr: &gtk4::cairo::Context,
+    text: &str,
+    center_x: f64,
+    center_y: f64,
+    width: f64,
+    color: DiagramRgba,
+    size_points: f64,
+    weight: gtk4::pango::Weight,
+) {
+    let layout = pangocairo::functions::create_layout(cr);
+    let mut font = gtk4::pango::FontDescription::from_string("Sans");
+    font.set_size((size_points * gtk4::pango::SCALE as f64) as i32);
+    font.set_weight(weight);
+    layout.set_font_description(Some(&font));
+    layout.set_alignment(gtk4::pango::Alignment::Center);
+    layout.set_wrap(gtk4::pango::WrapMode::WordChar);
+    layout.set_width((width.max(20.0) * gtk4::pango::SCALE as f64) as i32);
+    layout.set_text(text);
+    let (tw, th) = layout.pixel_size();
+
+    set_source(cr, color);
+    cr.move_to(center_x - tw as f64 / 2.0, center_y - th as f64 / 2.0);
+    pangocairo::functions::show_layout(cr, &layout);
+}
+
+fn rounded_rect(cr: &gtk4::cairo::Context, x: f64, y: f64, w: f64, h: f64, radius: f64) {
+    let r = radius.min(w / 2.0).min(h / 2.0);
+    cr.new_sub_path();
+    cr.arc(x + w - r, y + r, r, -std::f64::consts::FRAC_PI_2, 0.0);
+    cr.arc(x + w - r, y + h - r, r, 0.0, std::f64::consts::FRAC_PI_2);
+    cr.arc(
+        x + r,
+        y + h - r,
+        r,
+        std::f64::consts::FRAC_PI_2,
+        std::f64::consts::PI,
+    );
+    cr.arc(
+        x + r,
+        y + r,
+        r,
+        std::f64::consts::PI,
+        std::f64::consts::PI * 1.5,
+    );
+    cr.close_path();
+}
+
+fn set_source(cr: &gtk4::cairo::Context, color: DiagramRgba) {
+    cr.set_source_rgba(color.0, color.1, color.2, color.3);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_mermaid_flowchart_edges_and_node_shapes() {
+        let diagram = parse_mermaid_diagram(
+            r#"
+flowchart TD
+    A[Start] --> B{Condition?}
+    B -- Yes --> C[Action 1]
+    B -- No --> D(Action 2)
+    C --> E((End))
+    D --> E
+"#,
+        )
+        .unwrap();
+
+        assert_eq!(diagram.direction, MermaidDirection::TopDown);
+        assert_eq!(diagram.nodes.len(), 5);
+        assert_eq!(diagram.edges.len(), 5);
+
+        let b = diagram.nodes.iter().find(|node| node.id == "B").unwrap();
+        assert_eq!(b.label, "Condition?");
+        assert_eq!(b.shape, MermaidNodeShape::Diamond);
+
+        let e = diagram.nodes.iter().find(|node| node.id == "E").unwrap();
+        assert_eq!(e.shape, MermaidNodeShape::Circle);
+
+        assert!(diagram.edges.iter().any(|edge| edge.label == "Yes"));
+        assert!(diagram.edges.iter().any(|edge| edge.label == "No"));
+    }
+
+    #[test]
+    fn parses_mermaid_pipe_edge_labels_and_lr_direction() {
+        let diagram = parse_mermaid_diagram(
+            r#"
+graph LR
+    A[Source] -->|valid| B[Target]
+"#,
+        )
+        .unwrap();
+
+        assert_eq!(diagram.direction, MermaidDirection::LeftRight);
+        assert_eq!(diagram.edges[0].label, "valid");
+    }
+
+    #[test]
+    fn rejects_unsupported_mermaid_diagram_types() {
+        let err = parse_mermaid_diagram(
+            r#"
+sequenceDiagram
+    Alice->>Bob: Hello
+"#,
+        )
+        .unwrap_err();
+
+        assert!(err.contains("only flowchart/graph"));
+    }
 }
 
 // ── syntect-driven code highlighting ─────────────────────────────────────────

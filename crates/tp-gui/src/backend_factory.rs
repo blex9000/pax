@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use pax_core::workspace::{PanelConfig, PanelType, SshConfig};
+use pax_core::workspace::{MarkdownStorage, PanelConfig, PanelType, SshConfig};
 
 use crate::panels::markdown::MarkdownPanel;
 use crate::panels::registry::{PanelCreateConfig, PanelRegistry};
@@ -24,8 +24,12 @@ pub fn panel_type_to_create_config(
 ) -> PanelCreateConfig {
     let mut extra = HashMap::new();
     match pt {
-        PanelType::Markdown { file } => {
+        PanelType::Markdown { file, storage } => {
             extra.insert("file".to_string(), file.clone());
+            extra.insert(
+                "markdown_storage".to_string(),
+                markdown_storage_id(storage).to_string(),
+            );
         }
         PanelType::CodeEditor {
             root_dir,
@@ -112,9 +116,13 @@ pub fn create_backend_from_registry(
         PanelType::Terminal | PanelType::Ssh { .. } | PanelType::RemoteTmux { .. } => {
             ("terminal", HashMap::new())
         }
-        PanelType::Markdown { file } => {
+        PanelType::Markdown { file, storage } => {
             let mut extra = HashMap::new();
             extra.insert("file".to_string(), file.clone());
+            extra.insert(
+                "markdown_storage".to_string(),
+                markdown_storage_id(storage).to_string(),
+            );
             ("markdown", extra)
         }
         PanelType::CodeEditor {
@@ -187,6 +195,7 @@ pub fn create_backend_from_registry(
         "__panel_uuid__".to_string(),
         panel_cfg.uuid.simple().to_string(),
     );
+    extra.insert("__panel_id__".to_string(), panel_cfg.id.clone());
     let config = PanelCreateConfig {
         shell: default_shell.to_string(),
         cwd: panel_cfg.cwd.clone(),
@@ -201,4 +210,11 @@ pub fn create_backend_from_registry(
     registry
         .create(type_id, &config)
         .unwrap_or_else(|| Box::new(MarkdownPanel::new("/dev/null")))
+}
+
+fn markdown_storage_id(storage: &MarkdownStorage) -> &'static str {
+    match storage {
+        MarkdownStorage::Database => "database",
+        MarkdownStorage::File => "file",
+    }
 }

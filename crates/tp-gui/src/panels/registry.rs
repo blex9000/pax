@@ -328,6 +328,27 @@ pub fn build_default_registry() -> PanelRegistry {
         false,
         |config| {
             let ws_dir = config.extra.get("__workspace_dir__").map(|s| s.as_str());
+            let storage = config
+                .extra
+                .get("markdown_storage")
+                .map(|s| s.as_str())
+                .unwrap_or("database");
+            if storage != "file" {
+                let record_key = config
+                    .extra
+                    .get("__workspace_record_key__")
+                    .cloned()
+                    .unwrap_or_default();
+                let panel_id = config
+                    .extra
+                    .get("__panel_id__")
+                    .cloned()
+                    .unwrap_or_default();
+                return Box::new(super::markdown::MarkdownPanel::new_database(
+                    record_key, panel_id,
+                ));
+            }
+
             // Fall back to the default name when the user didn't specify a file,
             // then anchor relative names to the workspace directory so "notes.md"
             // means "inside this workspace".
@@ -346,7 +367,7 @@ pub fn build_default_registry() -> PanelRegistry {
             // If the file doesn't exist yet, create it (empty) so the viewer
             // opens successfully instead of showing a load error.
             ensure_markdown_file_exists(&resolved);
-            Box::new(super::markdown::MarkdownPanel::new(&resolved))
+            Box::new(super::markdown::MarkdownPanel::new_file(&resolved))
         },
     );
 

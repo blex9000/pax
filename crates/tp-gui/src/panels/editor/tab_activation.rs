@@ -3,7 +3,6 @@ use gtk4::prelude::*;
 use sourceview5::prelude::*;
 use std::cell::RefCell;
 use std::rc::Rc;
-use std::time::Duration;
 
 use super::language_support::keywords_for;
 use super::overview_ruler::collect_match_lines;
@@ -12,6 +11,7 @@ use super::EditorState;
 struct TabViewSnapshot {
     child_name: String,
     source_buffer: Option<sourceview5::Buffer>,
+    source_scroll: Option<(f64, f64)>,
     status_lang: String,
     status_pos: String,
     modified: bool,
@@ -25,6 +25,7 @@ pub(super) fn apply_tab_view_state(
     state: &Rc<RefCell<EditorState>>,
     notebook: &gtk4::Notebook,
     source_view: &sourceview5::View,
+    source_scroll: &gtk4::ScrolledWindow,
     content_stack: &gtk4::Stack,
     status_lang: &gtk4::Label,
     status_pos: &gtk4::Label,
@@ -36,6 +37,7 @@ pub(super) fn apply_tab_view_state(
     keyword_shadow_buffer: &sourceview5::Buffer,
 ) -> bool {
     set_active_tab_label(notebook, idx);
+    remember_active_source_scroll(idx, state, source_scroll);
 
     let query = last_search_query.borrow().clone();
     let snapshot = {
@@ -52,9 +54,12 @@ pub(super) fn apply_tab_view_state(
     if let Some(buf) = snapshot.source_buffer.as_ref() {
         source_view.set_buffer(Some(buf));
         source_view.set_visible(true);
+        if let Some((scroll_x, scroll_y)) = snapshot.source_scroll {
+            restore_source_scroll(source_scroll, scroll_x, scroll_y);
+        }
         source_view.queue_resize();
         source_view.queue_draw();
-        schedule_source_view_refresh(source_view, buf);
+        schedule_source_view_refresh(source_view, source_scroll, buf, snapshot.source_scroll);
     }
 
     status_lang.set_text(&snapshot.status_lang);
@@ -101,6 +106,7 @@ fn tab_view_snapshot(open_file: &super::OpenFile, query: &str) -> TabViewSnapsho
             TabViewSnapshot {
                 child_name,
                 source_buffer: Some(source.buffer.clone()),
+                source_scroll: Some((source.scroll_x.get(), source.scroll_y.get())),
                 status_lang,
                 status_pos: buffer_position_label(&source.buffer),
                 modified: open_file.modified(),
@@ -112,6 +118,7 @@ fn tab_view_snapshot(open_file: &super::OpenFile, query: &str) -> TabViewSnapsho
         super::tab_content::TabContent::Markdown(md) => TabViewSnapshot {
             child_name,
             source_buffer: None,
+            source_scroll: None,
             status_lang: "Markdown".to_string(),
             status_pos: buffer_position_label(&md.buffer),
             modified: open_file.modified(),
@@ -122,6 +129,7 @@ fn tab_view_snapshot(open_file: &super::OpenFile, query: &str) -> TabViewSnapsho
         super::tab_content::TabContent::Image(_) => TabViewSnapshot {
             child_name,
             source_buffer: None,
+            source_scroll: None,
             status_lang: "Image".to_string(),
             status_pos: String::new(),
             modified: open_file.modified(),
@@ -160,29 +168,69 @@ fn set_keyword_shadow_buffer(buffer: &sourceview5::Buffer, lang_id: Option<&str>
     buffer.set_text(&text);
 }
 
-fn schedule_source_view_refresh(source_view: &sourceview5::View, buffer: &sourceview5::Buffer) {
+fn remember_active_source_scroll(
+    next_idx: usize,
+    state: &Rc<RefCell<EditorState>>,
+    source_scroll: &gtk4::ScrolledWindow,
+) {
+    let Ok(st) = state.try_borrow() else {
+        return;
+    };
+    let Some(active_idx) = st.active_tab else {
+        return;
+    };
+    if active_idx == next_idx {
+        return;
+    }
+    let Some(open_file) = st.open_files.get(active_idx) else {
+        return;
+    };
+    let super::tab_content::TabContent::Source(source) = &open_file.content else {
+        return;
+    };
+    source.scroll_x.set(source_scroll.hadjustment().value());
+    source.scroll_y.set(source_scroll.vadjustment().value());
+}
+
+fn restore_source_scroll(source_scroll: &gtk4::ScrolledWindow, scroll_x: f64, scroll_y: f64) {
+    set_adjustment_value(&source_scroll.hadjustment(), scroll_x);
+    set_adjustment_value(&source_scroll.vadjustment(), scroll_y);
+}
+
+fn set_adjustment_value(adjustment: &gtk4::Adjustment, value: f64) {
+    let max = (adjustment.upper() - adjustment.page_size()).max(adjustment.lower());
+    adjustment.set_value(value.clamp(adjustment.lower(), max));
+}
+
+fn schedule_source_view_refresh(
+    source_view: &sourceview5::View,
+    source_scroll: &gtk4::ScrolledWindow,
+    buffer: &sourceview5::Buffer,
+    scroll: Option<(f64, f64)>,
+) {
     let view_weak = Downgrade::downgrade(source_view);
+    let scroll_weak = Downgrade::downgrade(source_scroll);
     let buffer_weak = Downgrade::downgrade(buffer);
     gtk4::glib::idle_add_local_once(move || {
-        let (Some(view), Some(buffer)) = (view_weak.upgrade(), buffer_weak.upgrade()) else {
+        let (Some(view), Some(scroll_widget), Some(buffer)) = (
+            view_weak.upgrade(),
+            scroll_weak.upgrade(),
+            buffer_weak.upgrade(),
+        ) else {
             return;
         };
-        if !refresh_current_source_view(&view, &buffer) {
+        if !refresh_current_source_view(&view, &scroll_widget, &buffer, scroll) {
             return;
         }
-
-        let view_weak = Downgrade::downgrade(&view);
-        let buffer_weak = Downgrade::downgrade(&buffer);
-        gtk4::glib::timeout_add_local_once(Duration::from_millis(16), move || {
-            let (Some(view), Some(buffer)) = (view_weak.upgrade(), buffer_weak.upgrade()) else {
-                return;
-            };
-            refresh_current_source_view(&view, &buffer);
-        });
     });
 }
 
-fn refresh_current_source_view(view: &sourceview5::View, buffer: &sourceview5::Buffer) -> bool {
+fn refresh_current_source_view(
+    view: &sourceview5::View,
+    source_scroll: &gtk4::ScrolledWindow,
+    buffer: &sourceview5::Buffer,
+    scroll: Option<(f64, f64)>,
+) -> bool {
     let current_matches = view
         .buffer()
         .downcast::<sourceview5::Buffer>()
@@ -192,8 +240,9 @@ fn refresh_current_source_view(view: &sourceview5::View, buffer: &sourceview5::B
         return false;
     }
 
-    let insert = buffer.get_insert();
-    view.scroll_to_mark(&insert, 0.0, true, 0.0, 0.0);
+    if let Some((scroll_x, scroll_y)) = scroll {
+        restore_source_scroll(source_scroll, scroll_x, scroll_y);
+    }
     view.queue_resize();
     view.queue_draw();
     true

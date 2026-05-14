@@ -8,7 +8,7 @@ use std::cell::RefCell;
 use std::path::Path;
 use std::rc::Rc;
 
-use pax_core::workspace::{LayoutNode, PanelConfig, PanelType, Workspace};
+use pax_core::workspace::{LayoutNode, MarkdownStorage, PanelConfig, PanelType, Workspace};
 
 use crate::actions::{self, DIRTY_INDICATOR, HEADER_WS_LABEL};
 use crate::dialogs::panel_config::{
@@ -129,12 +129,17 @@ fn working_dir_choices_for_workspace(
                     (Some(root_dir), WorkingDirScope::Local)
                 }
             }
-            PanelType::Markdown { file } => (
-                Path::new(&file)
-                    .parent()
-                    .map(|p| p.to_string_lossy().to_string()),
-                WorkingDirScope::Local,
-            ),
+            PanelType::Markdown { file, storage } => {
+                if storage != MarkdownStorage::File {
+                    return None;
+                }
+                (
+                    Path::new(&file)
+                        .parent()
+                        .map(|p| p.to_string_lossy().to_string()),
+                    WorkingDirScope::Local,
+                )
+            }
             _ => return None,
         };
         let value = value?;
@@ -222,6 +227,13 @@ const APP_MENU_AUTOSAVE_ITEM: AppMenuItemSpec = AppMenuItemSpec {
     icon: "document-save-symbolic",
     tooltip: "Toggle workspace auto-save",
 };
+
+const APP_MENU_TOOLS_ITEMS: &[AppMenuItemSpec] = &[AppMenuItemSpec {
+    label: "Mermaid Designer…",
+    action: "app.mermaid_designer",
+    icon: "applications-graphics-symbolic",
+    tooltip: "Open the visual Mermaid diagram designer",
+}];
 
 const APP_MENU_SETTINGS_ITEMS: &[AppMenuItemSpec] = &[
     AppMenuItemSpec {
@@ -376,6 +388,13 @@ fn build_app_menu_popover(
             indicator.set_visible(enabled.get());
         });
     }
+
+    let sep = gtk4::Separator::new(gtk4::Orientation::Horizontal);
+    sep.set_margin_top(4);
+    sep.set_margin_bottom(4);
+    vbox.append(&sep);
+
+    append_app_menu_section(&vbox, &popover, window, APP_MENU_TOOLS_ITEMS);
 
     let sep = gtk4::Separator::new(gtk4::Orientation::Horizontal);
     sep.set_margin_top(4);
@@ -906,6 +925,12 @@ fn build_palette_items(
         "view-list-symbolic",
         "workspace_metadata",
     ));
+    items.push(gio(
+        "Mermaid Designer…",
+        "Tools",
+        "applications-graphics-symbolic",
+        "mermaid_designer",
+    ));
 
     // ── Layout ─────────────────────────────────────────────────────
     {
@@ -1204,10 +1229,10 @@ fn setup_workspace_ui(
                 // For panels that need a file/directory, show config FIRST
                 let default_type = match type_id {
                     "markdown" => pax_core::workspace::PanelType::Markdown {
-                        // Prefill with the same default the registry factory
-                        // would otherwise use, so the dialog shows the user
-                        // exactly what file will be opened/created.
-                        file: "README.md".to_string(),
+                        // New Markdown panels default to an internal DB
+                        // document; filesystem mode remains selectable.
+                        file: String::new(),
+                        storage: pax_core::workspace::MarkdownStorage::Database,
                     },
                     "code_editor" => pax_core::workspace::PanelType::CodeEditor {
                         root_dir: String::new(),
@@ -1229,7 +1254,7 @@ fn setup_workspace_ui(
                 // we match the default file stem so Name and File agree.
                 let default_name: &str = match type_id {
                     "terminal" => "Terminal",
-                    "markdown" => "README",
+                    "markdown" => "Markdown",
                     "code_editor" => "Code Editor",
                     "docker_help" => "Docker Help",
                     _ => type_id,
@@ -1921,6 +1946,16 @@ fn setup_workspace_ui(
         action_group.add_action(&action);
     }
 
+    // Mermaid visual designer
+    {
+        let action = gtk4::gio::SimpleAction::new("mermaid_designer", None);
+        let win = window_rc.clone();
+        action.connect_activate(move |_, _| {
+            crate::dialogs::mermaid_designer::show_mermaid_designer(win.as_ref());
+        });
+        action_group.add_action(&action);
+    }
+
     // Quit
     {
         let action = gtk4::gio::SimpleAction::new("quit", None);
@@ -2498,7 +2533,7 @@ mod tests {
     use crate::dialogs::panel_config::{WorkingDirChoice, WorkingDirScope};
     use pax_core::template::empty_workspace;
     use pax_core::workspace::{
-        new_tab_id, LayoutNode, PanelConfig, PanelTarget, PanelType, SshConfig,
+        new_tab_id, LayoutNode, MarkdownStorage, PanelConfig, PanelTarget, PanelType, SshConfig,
     };
     use pax_db::Database;
 
@@ -2549,6 +2584,7 @@ mod tests {
         assert!(panel_type_uses_text_editing_shortcuts(
             &PanelType::Markdown {
                 file: "notes.md".into(),
+                storage: MarkdownStorage::File,
             }
         ));
         assert!(!panel_type_uses_text_editing_shortcuts(
@@ -2625,6 +2661,7 @@ mod tests {
                 "Docs",
                 PanelType::Markdown {
                     file: "docs/readme.md".into(),
+                    storage: MarkdownStorage::File,
                 },
                 None,
             ),

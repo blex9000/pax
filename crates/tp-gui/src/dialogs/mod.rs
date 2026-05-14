@@ -1,6 +1,7 @@
 pub mod color_customizer;
 pub mod command_history;
 pub mod keybindings;
+pub mod mermaid_designer;
 pub mod metadata_manager;
 pub mod notebook_help;
 pub mod notes_dialog;

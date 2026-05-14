@@ -1,6 +1,6 @@
 use gtk4::prelude::*;
 use sourceview5::prelude::*;
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::path::Path;
 use std::rc::Rc;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -503,6 +503,7 @@ fn alloc_tab_id() -> u64 {
 pub struct EditorTabs {
     pub notebook: gtk4::Notebook,
     pub source_view: sourceview5::View,
+    source_scroll: gtk4::ScrolledWindow,
     /// Buffer-word completion provider — every opened buffer is registered
     /// here so the popup can suggest words from any file currently open.
     completion_words: sourceview5::CompletionWords,
@@ -807,6 +808,7 @@ impl EditorTabs {
             let cs = content_stack.clone();
             let nr = notes_ruler.clone();
             let keyword_shadow = keyword_shadow_buffer.clone();
+            let source_scroll_c = source_scroll.clone();
             notebook.connect_switch_page(move |_nb, _page, page_num| {
                 let idx = page_num as usize;
                 if apply_tab_view_state(
@@ -814,6 +816,7 @@ impl EditorTabs {
                     &state_c,
                     _nb,
                     &sv,
+                    &source_scroll_c,
                     &cs,
                     &lang_l,
                     &pos_l,
@@ -1182,6 +1185,7 @@ impl EditorTabs {
         Self {
             notebook,
             source_view,
+            source_scroll,
             completion_words,
             keyword_shadow_buffer,
             content_stack,
@@ -1202,6 +1206,25 @@ impl EditorTabs {
             active_view,
             notes_ruler,
         }
+    }
+
+    fn remember_active_source_scroll(&self, state: &Rc<RefCell<EditorState>>) {
+        let st = state.borrow();
+        let Some(idx) = st.active_tab else {
+            return;
+        };
+        let Some(open_file) = st.open_files.get(idx) else {
+            return;
+        };
+        let super::tab_content::TabContent::Source(source) = &open_file.content else {
+            return;
+        };
+        source
+            .scroll_x
+            .set(self.source_scroll.hadjustment().value());
+        source
+            .scroll_y
+            .set(self.source_scroll.vadjustment().value());
     }
 
     /// Refresh the notes ruler from the active source tab's NotesState.
@@ -1319,6 +1342,8 @@ impl EditorTabs {
     /// Open a file in a new tab. Returns the tab index.
     /// If the file is already open, switches to that tab.
     pub fn open_file(&self, path: &Path, state: &Rc<RefCell<EditorState>>) -> Option<usize> {
+        self.remember_active_source_scroll(state);
+
         // Push current position to navigation history before switching
         super::push_nav_position(state);
 
@@ -1464,6 +1489,8 @@ impl EditorTabs {
                 content: super::tab_content::TabContent::Source(super::tab_content::SourceTab {
                     buffer: buf.clone(),
                     modified: false,
+                    scroll_x: Rc::new(Cell::new(0.0)),
+                    scroll_y: Rc::new(Cell::new(0.0)),
                     saved_content: saved_content.clone(),
                     notes: super::notes_state::NotesState::new(),
                 }),
@@ -2155,6 +2182,7 @@ impl EditorTabs {
             state,
             &self.notebook,
             &self.source_view,
+            &self.source_scroll,
             &self.content_stack,
             &self.status_lang,
             &self.status_pos,
