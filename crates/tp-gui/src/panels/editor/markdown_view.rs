@@ -251,19 +251,22 @@ pub(super) fn build_markdown_tab(
         let buf = buffer.downgrade();
         let rv = rendered_view.downgrade();
         let mode_c = Rc::downgrade(&mode);
-        crate::theme::register_theme_observer(Rc::new(move || {
-            let (Some(buf), Some(rv), Some(mode_c)) =
-                (buf.upgrade(), rv.upgrade(), mode_c.upgrade())
-            else {
-                return;
-            };
-            if mode_c.get() == MarkdownMode::Rendered {
-                let text = buf
-                    .text(&buf.start_iter(), &buf.end_iter(), false)
-                    .to_string();
-                crate::markdown_render::render_markdown_to_view(&rv, &text);
-            }
-        }));
+        crate::theme::register_theme_observer_for_widget(
+            &rendered_view,
+            Rc::new(move || {
+                let (Some(buf), Some(rv), Some(mode_c)) =
+                    (buf.upgrade(), rv.upgrade(), mode_c.upgrade())
+                else {
+                    return;
+                };
+                if mode_c.get() == MarkdownMode::Rendered {
+                    let text = buf
+                        .text(&buf.start_iter(), &buf.end_iter(), false)
+                        .to_string();
+                    crate::markdown_render::render_markdown_to_view(&rv, &text);
+                }
+            }),
+        );
     }
 
     Ok(MarkdownTab {

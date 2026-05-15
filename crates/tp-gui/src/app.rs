@@ -1287,6 +1287,7 @@ fn setup_workspace_ui(
                     PanelConfigDialogContext {
                         working_dirs,
                         saved_ssh,
+                        on_close: None,
                     },
                     move |update| {
                         ws2.borrow_mut().apply_panel_config(&pid, update);
@@ -1580,7 +1581,8 @@ fn setup_workspace_ui(
                             gtk4::glib::ControlFlow::Continue
                         },
                     );
-                    let sync_stop = sync_active.clone();
+                    let sync_stop_apply = sync_active.clone();
+                    let sync_stop_close = sync_active.clone();
                     crate::dialogs::panel_config::show_panel_config_dialog(
                         &*win_for_cb,
                         PanelConfigInitial {
@@ -1596,9 +1598,12 @@ fn setup_workspace_ui(
                         PanelConfigDialogContext {
                             working_dirs,
                             saved_ssh,
+                            on_close: Some(std::rc::Rc::new(move || {
+                                sync_stop_close.set(false);
+                            })),
                         },
                         move |update| {
-                            sync_stop.set(false);
+                            sync_stop_apply.set(false);
                             ws2.borrow_mut().apply_panel_config(&pid, update);
                             actions::update_dirty_ui(&ws2, &win2, &sa2);
                         },
@@ -2199,12 +2204,21 @@ fn setup_workspace_ui(
 
     // Auto-save workspace every 30s if enabled, dirty, and has a config path
     {
-        let ws = ws_view.clone();
-        let sb = status_bar.clone();
-        let win = window_rc.clone();
-        let sa = save_action.clone();
-        let enabled = autosave_enabled.clone();
+        let ws = Rc::downgrade(&ws_view);
+        let sb = Rc::downgrade(&status_bar);
+        let win = Rc::downgrade(&window_rc);
+        let sa = save_action.downgrade();
+        let enabled = Rc::downgrade(&autosave_enabled);
         glib::timeout_add_local(std::time::Duration::from_secs(30), move || {
+            let (Some(ws), Some(sb), Some(win), Some(sa), Some(enabled)) = (
+                ws.upgrade(),
+                sb.upgrade(),
+                win.upgrade(),
+                sa.upgrade(),
+                enabled.upgrade(),
+            ) else {
+                return glib::ControlFlow::Break;
+            };
             if !enabled.get() {
                 return glib::ControlFlow::Continue;
             }

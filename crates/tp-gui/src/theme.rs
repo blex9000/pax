@@ -1,10 +1,16 @@
 /// Pax theme system — overrides libadwaita named colors via @define-color.
-use gtk4::prelude::IsA;
+use gtk4::prelude::*;
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ThemeObserverId(u64);
+
+struct ThemeObserver {
+    id: ThemeObserverId,
+    cb: Rc<dyn Fn()>,
+    is_alive: Option<Box<dyn Fn() -> bool>>,
+}
 
 thread_local! {
     static CURRENT_THEME: RefCell<Theme> = RefCell::new(Theme::default());
@@ -16,7 +22,7 @@ thread_local! {
     /// content without going through VTE/SourceView (e.g. the markdown
     /// TextView renderer) register a closure here and re-apply their theme
     /// on invocation.
-    static THEME_OBSERVERS: RefCell<Vec<(ThemeObserverId, Rc<dyn Fn()>)>> = RefCell::new(Vec::new());
+    static THEME_OBSERVERS: RefCell<Vec<ThemeObserver>> = RefCell::new(Vec::new());
     static NEXT_THEME_OBSERVER_ID: Cell<u64> = const { Cell::new(1) };
 }
 
@@ -29,14 +35,42 @@ pub fn register_theme_observer(cb: Rc<dyn Fn()>) -> ThemeObserverId {
         next.set(id.saturating_add(1).max(1));
         ThemeObserverId(id)
     });
-    THEME_OBSERVERS.with(|c| c.borrow_mut().push((id, cb)));
+    THEME_OBSERVERS.with(|c| {
+        c.borrow_mut().push(ThemeObserver {
+            id,
+            cb,
+            is_alive: None,
+        })
+    });
+    id
+}
+
+/// Register a theme observer whose lifetime follows a GTK widget. The
+/// observer is pruned automatically after the owner is finalized.
+pub fn register_theme_observer_for_widget<W>(owner: &W, cb: Rc<dyn Fn()>) -> ThemeObserverId
+where
+    W: IsA<gtk4::Widget> + ?Sized,
+{
+    let id = NEXT_THEME_OBSERVER_ID.with(|next| {
+        let id = next.get();
+        next.set(id.saturating_add(1).max(1));
+        ThemeObserverId(id)
+    });
+    let owner = owner.as_ref().downgrade();
+    THEME_OBSERVERS.with(|c| {
+        c.borrow_mut().push(ThemeObserver {
+            id,
+            cb,
+            is_alive: Some(Box::new(move || owner.upgrade().is_some())),
+        })
+    });
     id
 }
 
 /// Remove a previously registered theme observer. Safe to call multiple times.
 pub fn unregister_theme_observer(id: ThemeObserverId) {
     THEME_OBSERVERS.with(|c| {
-        c.borrow_mut().retain(|(observer_id, _)| *observer_id != id);
+        c.borrow_mut().retain(|observer| observer.id != id);
     });
 }
 
@@ -47,8 +81,14 @@ pub fn set_current_theme(theme: Theme) {
     apply_theme_to_all_terminals(theme);
     #[cfg(feature = "sourceview")]
     apply_theme_to_all_buffers(theme);
-    let observers: Vec<Rc<dyn Fn()>> =
-        THEME_OBSERVERS.with(|c| c.borrow().iter().map(|(_, cb)| cb.clone()).collect());
+    let observers: Vec<Rc<dyn Fn()>> = THEME_OBSERVERS.with(|c| {
+        let mut observers = c.borrow_mut();
+        observers.retain(|observer| observer.is_alive.as_ref().is_none_or(|is_alive| is_alive()));
+        observers
+            .iter()
+            .map(|observer| observer.cb.clone())
+            .collect()
+    });
     for cb in observers {
         cb();
     }

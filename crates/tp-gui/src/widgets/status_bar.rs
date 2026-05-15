@@ -38,10 +38,13 @@ impl StatusBar {
 
         // Update RAM usage every 2 seconds
         {
-            let label = ram_label.clone();
+            let label = ram_label.downgrade();
             // Set initial value
-            label.set_text(&format_ram_usage());
+            ram_label.set_text(&format_ram_usage());
             glib::timeout_add_local(std::time::Duration::from_secs(2), move || {
+                let Some(label) = label.upgrade() else {
+                    return glib::ControlFlow::Break;
+                };
                 label.set_text(&format_ram_usage());
                 glib::ControlFlow::Continue
             });

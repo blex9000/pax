@@ -573,6 +573,10 @@ impl TerminalInner {
         if !self.cmd_file.as_os_str().is_empty() {
             let _ = std::fs::remove_file(&self.cmd_file);
         }
+        *self.input_cb.borrow_mut() = None;
+        *self.title_cb.borrow_mut() = None;
+        *self.status_cb.borrow_mut() = None;
+        *self.cwd_cb.borrow_mut() = None;
         crate::theme::unregister_vte_terminal(&self.vte);
         self.vte.feed_child(b"\x03");
     }

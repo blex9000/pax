@@ -46,6 +46,7 @@ pub struct WorkingDirChoice {
 pub struct PanelConfigDialogContext {
     pub working_dirs: Vec<WorkingDirChoice>,
     pub saved_ssh: Rc<RefCell<Vec<NamedSshConfig>>>,
+    pub on_close: Option<Rc<dyn Fn()>>,
 }
 
 pub struct PanelConfigInitial<'a> {
@@ -420,7 +421,22 @@ fn show_working_dir_picker(
 /// not set the dialog's child or call `present()` themselves. This guarantees
 /// the buttons are always pinned to the bottom regardless of how much content
 /// the dialog holds.
-fn finalize_dialog(dialog: &gtk4::Window, content: &gtk4::Box, on_apply: impl Fn() + 'static) {
+fn finalize_dialog(
+    dialog: &gtk4::Window,
+    content: &gtk4::Box,
+    on_close: Option<Rc<dyn Fn()>>,
+    on_apply: impl Fn() + 'static,
+) {
+    if let Some(on_close) = on_close {
+        let did_close = Rc::new(std::cell::Cell::new(false));
+        dialog.connect_close_request(move |_| {
+            if !did_close.replace(true) {
+                on_close();
+            }
+            gtk4::glib::Propagation::Proceed
+        });
+    }
+
     // Scrollable content region — grows to fill available vertical space so
     // the button row below stays pinned at the bottom of the window.
     let scroll = gtk4::ScrolledWindow::new();
@@ -692,6 +708,7 @@ fn show_terminal_config(
     let PanelConfigDialogContext {
         working_dirs,
         saved_ssh,
+        on_close,
     } = context;
 
     let dialog = make_dialog(parent, "Terminal Configuration");
@@ -1092,7 +1109,7 @@ fn show_terminal_config(
     let ssh_id = ssh_id_entry.clone();
     let ssh_tmux = ssh_tmux_entry.clone();
     let rcwd = remote_cwd_entry.clone();
-    finalize_dialog(&dialog, &vbox, move || {
+    finalize_dialog(&dialog, &vbox, on_close, move || {
         let name = ne.text().to_string();
         let cwd_text = ce.text().to_string();
         let remote_cwd_text = rcwd.text().to_string();
@@ -1489,7 +1506,7 @@ fn show_markdown_config(
     doc_expander.set_child(Some(&doc_scroll));
     vbox.append(&doc_expander);
 
-    finalize_dialog(&dialog, &vbox, move || {
+    finalize_dialog(&dialog, &vbox, None, move || {
         let name = name_entry.text().to_string();
         let storage = if file_btn.is_active() {
             MarkdownStorage::File
@@ -1531,6 +1548,7 @@ fn show_code_editor_config(
     let PanelConfigDialogContext {
         working_dirs,
         saved_ssh,
+        on_close,
     } = context;
 
     let dialog = make_dialog(parent, "Code Editor Configuration");
@@ -1776,7 +1794,7 @@ fn show_code_editor_config(
 
     let (mw_spin, mh_spin) = add_min_size_fields(&vbox, min_width, min_height);
 
-    finalize_dialog(&dialog, &vbox, move || {
+    finalize_dialog(&dialog, &vbox, on_close, move || {
         let name = name_entry.text().to_string();
         let root_dir = dir_entry.text().to_string();
         let root_dir = if root_dir.is_empty() {
@@ -1868,7 +1886,11 @@ fn show_docker_help_config(
         min_width,
         min_height,
     } = initial;
-    let PanelConfigDialogContext { saved_ssh, .. } = context;
+    let PanelConfigDialogContext {
+        saved_ssh,
+        on_close,
+        ..
+    } = context;
 
     let dialog = make_dialog(parent, "Docker Help Configuration");
     let vbox = gtk4::Box::new(gtk4::Orientation::Vertical, 8);
@@ -2010,7 +2032,7 @@ fn show_docker_help_config(
 
     let (mw_spin, mh_spin) = add_min_size_fields(&vbox, min_width, min_height);
 
-    finalize_dialog(&dialog, &vbox, move || {
+    finalize_dialog(&dialog, &vbox, on_close, move || {
         let name = name_entry.text().to_string();
         let context = context_entry.text().trim().to_string().pipe_nonempty();
         let refresh_value = refresh_spin.value() as u64;
@@ -2198,9 +2220,12 @@ fn add_ssh_save_load_buttons(
             // Refresh list when items are deleted
             let populate_ref = populate.clone();
             let saved_for_poll = saved.clone();
-            let lb_for_poll = list_box.clone();
+            let lb_for_poll = list_box.downgrade();
             let last_count = Rc::new(std::cell::Cell::new(saved_for_poll.borrow().len()));
             gtk4::glib::timeout_add_local(std::time::Duration::from_millis(200), move || {
+                let Some(lb_for_poll) = lb_for_poll.upgrade() else {
+                    return gtk4::glib::ControlFlow::Break;
+                };
                 let current = saved_for_poll.borrow().len();
                 if current != last_count.get() {
                     last_count.set(current);
@@ -2528,7 +2553,12 @@ fn show_remote_browse_dialog(
 
             // Poll for result on main thread
             let slot = result_slot;
+            let lb = lb.downgrade();
+            let sl = sl.downgrade();
             gtk4::glib::timeout_add_local(std::time::Duration::from_millis(100), move || {
+                let (Some(lb), Some(sl)) = (lb.upgrade(), sl.upgrade()) else {
+                    return gtk4::glib::ControlFlow::Break;
+                };
                 let ready = slot.lock().unwrap().is_some();
                 if !ready {
                     return gtk4::glib::ControlFlow::Continue;

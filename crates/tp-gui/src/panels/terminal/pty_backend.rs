@@ -251,13 +251,17 @@ impl TerminalInner {
         }
 
         {
-            let drawing_area = drawing_area.clone();
-            let writer = writer.clone();
+            let drawing_area = drawing_area.downgrade();
+            let writer = Arc::downgrade(&writer);
             let title_cb_ref = title_cb.clone();
             let status_cb_ref = status_cb.clone();
             let cwd_cb_ref = cwd_cb.clone();
             let booted_loop = booted.clone();
             glib::timeout_add_local(Duration::from_millis(16), move || {
+                let (Some(drawing_area), Some(writer)) = (drawing_area.upgrade(), writer.upgrade())
+                else {
+                    return glib::ControlFlow::Break;
+                };
                 loop {
                     match ui_rx.try_recv() {
                         Ok(TerminalUiEvent::Render) => drawing_area.queue_draw(),
@@ -605,6 +609,10 @@ impl TerminalInner {
         if !self.cmd_file.as_os_str().is_empty() {
             let _ = std::fs::remove_file(&self.cmd_file);
         }
+        *self.input_cb.borrow_mut() = None;
+        *self.title_cb.borrow_mut() = None;
+        *self.status_cb.borrow_mut() = None;
+        *self.cwd_cb.borrow_mut() = None;
         if let Ok(mut writer) = self.writer.lock() {
             let _ = writer.flush();
         }
