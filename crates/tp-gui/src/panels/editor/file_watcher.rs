@@ -76,6 +76,7 @@ enum ApplyKind {
 pub fn start_watchers(
     state: Rc<RefCell<EditorState>>,
     activity_widget: &gtk4::Widget,
+    lifecycle: Rc<Cell<bool>>,
     info_bar_container: gtk4::Box,
     on_merge_open: OnMergeOpen,
     on_tree_changed: Rc<dyn Fn()>,
@@ -89,6 +90,7 @@ pub fn start_watchers(
     start_open_file_watcher(
         state.clone(),
         gate.clone(),
+        lifecycle.clone(),
         info_bar_container,
         on_merge_open,
         backend.clone(),
@@ -98,12 +100,21 @@ pub fn start_watchers(
         start_tree_watcher(
             state.clone(),
             gate.clone(),
+            lifecycle.clone(),
             on_tree_changed,
             is_remote,
             poll,
         );
     }
-    start_git_watcher(state, gate, on_git_changed, backend, is_remote, poll);
+    start_git_watcher(
+        state,
+        gate,
+        lifecycle,
+        on_git_changed,
+        backend,
+        is_remote,
+        poll,
+    );
 }
 
 pub fn request_git_status_refresh(on_changed: Rc<dyn Fn(String)>, backend: Arc<dyn FileBackend>) {
@@ -121,6 +132,7 @@ pub fn request_git_status_refresh(on_changed: Rc<dyn Fn(String)>, backend: Arc<d
 fn start_open_file_watcher(
     state: Rc<RefCell<EditorState>>,
     gate: VisibilityGate,
+    lifecycle: Rc<Cell<bool>>,
     info_bar_container: gtk4::Box,
     on_merge_open: OnMergeOpen,
     backend: Arc<dyn FileBackend>,
@@ -129,6 +141,9 @@ fn start_open_file_watcher(
     let interval = if is_remote { 5 } else { 1 };
     let in_flight = Rc::new(Cell::new(false));
     glib::timeout_add_local(std::time::Duration::from_secs(interval), move || {
+        if !lifecycle.get() {
+            return glib::ControlFlow::Break;
+        }
         if !gate.is_active() {
             return glib::ControlFlow::Continue;
         }
@@ -368,6 +383,7 @@ fn start_open_file_watcher(
 fn start_tree_watcher(
     state: Rc<RefCell<EditorState>>,
     gate: VisibilityGate,
+    lifecycle: Rc<Cell<bool>>,
     on_changed: Rc<dyn Fn()>,
     is_remote: bool,
     poll: u64,
@@ -376,6 +392,9 @@ fn start_tree_watcher(
     let in_flight = Rc::new(Cell::new(false));
     let interval = poll;
     glib::timeout_add_local(std::time::Duration::from_secs(interval), move || {
+        if !lifecycle.get() {
+            return glib::ControlFlow::Break;
+        }
         if !gate.is_active() {
             return glib::ControlFlow::Continue;
         }
@@ -421,6 +440,7 @@ fn start_tree_watcher(
 fn start_git_watcher(
     _state: Rc<RefCell<EditorState>>,
     gate: VisibilityGate,
+    lifecycle: Rc<Cell<bool>>,
     on_changed: Rc<dyn Fn(String)>,
     backend: Arc<dyn FileBackend>,
     _is_remote: bool,
@@ -437,6 +457,9 @@ fn start_git_watcher(
         Some(gate.clone()),
     );
     glib::timeout_add_local(std::time::Duration::from_secs(interval), move || {
+        if !lifecycle.get() {
+            return glib::ControlFlow::Break;
+        }
         request_polled_git_status(
             last_output.clone(),
             on_changed.clone(),

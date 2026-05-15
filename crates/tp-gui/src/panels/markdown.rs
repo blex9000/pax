@@ -211,6 +211,8 @@ pub struct MarkdownPanel {
     /// is re-entered or the file is reloaded so watch timers don't pile up.
     #[allow(dead_code)]
     notebook_engine: Rc<RefCell<Option<Rc<NotebookEngine>>>>,
+    theme_observer: crate::theme::ThemeObserverId,
+    watch_active: Rc<Cell<bool>>,
 }
 
 impl std::fmt::Debug for MarkdownPanel {
@@ -244,6 +246,7 @@ impl MarkdownPanel {
         let modified = Rc::new(Cell::new(false));
         let suppress_emit: Rc<Cell<bool>> = Rc::new(Cell::new(false));
         let input_cb: Rc<RefCell<Option<PanelInputCallback>>> = Rc::new(RefCell::new(None));
+        let watch_active = Rc::new(Cell::new(true));
 
         // ── Main toolbar ─────────────────────────────────────────────────
         let toolbar = gtk4::Box::new(gtk4::Orientation::Horizontal, 3);
@@ -632,16 +635,23 @@ impl MarkdownPanel {
         render_with_notebook(&initial);
 
         // Re-render on theme change so code blocks pick up the new palette.
-        {
-            let ct = content.clone();
-            let m = mode.clone();
-            let r = render_with_notebook.clone();
+        let theme_observer = {
+            let rv = render_view.downgrade();
+            let ct = Rc::downgrade(&content);
+            let m = Rc::downgrade(&mode);
+            let nb_engine = Rc::downgrade(&notebook_engine);
             crate::theme::register_theme_observer(Rc::new(move || {
+                let (Some(rv), Some(ct), Some(m), Some(nb_engine)) =
+                    (rv.upgrade(), ct.upgrade(), m.upgrade(), nb_engine.upgrade())
+                else {
+                    return;
+                };
                 if m.get() == Mode::Render {
-                    r(&ct.borrow());
+                    let text = ct.borrow().clone();
+                    render_with_engine(&rv, &nb_engine, &text);
                 }
-            }));
-        }
+            }))
+        };
 
         // ── Render button ────────────────────────────────────────────────
         {
@@ -849,8 +859,12 @@ impl MarkdownPanel {
             let suppress = suppress_emit.clone();
             let nb_engine = notebook_engine.clone();
             let bar_slot = conflict_bar_slot.clone();
+            let watch_active = watch_active.clone();
             let last_mtime = Rc::new(Cell::new(get_mtime(&fp)));
             glib::timeout_add_local(std::time::Duration::from_millis(500), move || {
+                if !watch_active.get() {
+                    return glib::ControlFlow::Break;
+                }
                 let mtime = get_mtime(&fp);
                 if mtime == 0 || mtime == last_mtime.get() {
                     return glib::ControlFlow::Continue;
@@ -913,6 +927,8 @@ impl MarkdownPanel {
             content,
             modified,
             notebook_engine,
+            theme_observer,
+            watch_active,
         }
     }
 
@@ -1001,6 +1017,9 @@ impl PanelBackend for MarkdownPanel {
     }
 
     fn shutdown(&self) {
+        self.watch_active.set(false);
+        crate::theme::unregister_theme_observer(self.theme_observer);
+        *self.notebook_engine.borrow_mut() = None;
         self.save_database_document();
     }
 

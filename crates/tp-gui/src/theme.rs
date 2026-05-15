@@ -1,26 +1,43 @@
 /// Pax theme system — overrides libadwaita named colors via @define-color.
 use gtk4::prelude::IsA;
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::rc::Rc;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ThemeObserverId(u64);
 
 thread_local! {
     static CURRENT_THEME: RefCell<Theme> = RefCell::new(Theme::default());
     #[cfg(feature = "vte")]
     static VTE_TERMINALS: RefCell<Vec<vte4::Terminal>> = RefCell::new(Vec::new());
     #[cfg(feature = "sourceview")]
-    static SV_BUFFERS: RefCell<Vec<sourceview5::Buffer>> = RefCell::new(Vec::new());
+    static SV_BUFFERS: RefCell<Vec<gtk4::glib::WeakRef<sourceview5::Buffer>>> = RefCell::new(Vec::new());
     /// Generic theme-change observers. Widgets that render theme-dependent
     /// content without going through VTE/SourceView (e.g. the markdown
     /// TextView renderer) register a closure here and re-apply their theme
     /// on invocation.
-    static THEME_OBSERVERS: RefCell<Vec<Rc<dyn Fn()>>> = RefCell::new(Vec::new());
+    static THEME_OBSERVERS: RefCell<Vec<(ThemeObserverId, Rc<dyn Fn()>)>> = RefCell::new(Vec::new());
+    static NEXT_THEME_OBSERVER_ID: Cell<u64> = const { Cell::new(1) };
 }
 
 /// Register a theme-change observer. The closure is invoked synchronously
-/// after every `set_current_theme` call. Observers are not automatically
-/// unregistered; this is acceptable for editor-lifetime widgets.
-pub fn register_theme_observer(cb: Rc<dyn Fn()>) {
-    THEME_OBSERVERS.with(|c| c.borrow_mut().push(cb));
+/// after every `set_current_theme` call. The returned id should be
+/// unregistered by short-lived panels to avoid retaining widget trees.
+pub fn register_theme_observer(cb: Rc<dyn Fn()>) -> ThemeObserverId {
+    let id = NEXT_THEME_OBSERVER_ID.with(|next| {
+        let id = next.get();
+        next.set(id.saturating_add(1).max(1));
+        ThemeObserverId(id)
+    });
+    THEME_OBSERVERS.with(|c| c.borrow_mut().push((id, cb)));
+    id
+}
+
+/// Remove a previously registered theme observer. Safe to call multiple times.
+pub fn unregister_theme_observer(id: ThemeObserverId) {
+    THEME_OBSERVERS.with(|c| {
+        c.borrow_mut().retain(|(observer_id, _)| *observer_id != id);
+    });
 }
 
 /// Set the current theme and update all registered VTE terminals and sourceview buffers.
@@ -31,7 +48,7 @@ pub fn set_current_theme(theme: Theme) {
     #[cfg(feature = "sourceview")]
     apply_theme_to_all_buffers(theme);
     let observers: Vec<Rc<dyn Fn()>> =
-        THEME_OBSERVERS.with(|c| c.borrow().iter().cloned().collect());
+        THEME_OBSERVERS.with(|c| c.borrow().iter().map(|(_, cb)| cb.clone()).collect());
     for cb in observers {
         cb();
     }
@@ -152,6 +169,7 @@ pub fn apply_custom_vte_colors(bg: Option<&gtk4::gdk::RGBA>, fg: Option<&gtk4::g
 /// Register a sourceview5 Buffer for theme updates.
 #[cfg(feature = "sourceview")]
 pub fn register_sourceview_buffer(buf: &sourceview5::Buffer) {
+    use gtk4::prelude::*;
     use sourceview5::prelude::*;
     let theme = current_theme();
     let scheme_id = theme.sourceview_scheme();
@@ -175,28 +193,31 @@ pub fn register_sourceview_buffer(buf: &sourceview5::Buffer) {
         );
     }
     SV_BUFFERS.with(|cell| {
-        cell.borrow_mut().push(buf.clone());
+        let mut buffers = cell.borrow_mut();
+        buffers.retain(|registered| registered.upgrade().is_some());
+        buffers.push(buf.downgrade());
     });
 }
 
 /// Apply theme to all registered sourceview buffers, pruning stale ones.
 #[cfg(feature = "sourceview")]
 fn apply_theme_to_all_buffers(theme: Theme) {
-    use gtk4::prelude::*;
     use sourceview5::prelude::*;
     SV_BUFFERS.with(|cell| {
         let mut buffers = cell.borrow_mut();
-        // Prune buffers with zero ref count (no longer in use)
-        buffers.retain(|buf| buf.tag_table().size() >= 0); // always true, but keeps ref alive
         let scheme_id = theme.sourceview_scheme();
         let fallback_id = theme.sourceview_scheme_fallback();
         let manager = sourceview5::StyleSchemeManager::default();
         let scheme = manager
             .scheme(scheme_id)
             .or_else(|| manager.scheme(fallback_id));
-        for buf in buffers.iter() {
+        buffers.retain(|buf| {
+            let Some(buf) = buf.upgrade() else {
+                return false;
+            };
             buf.set_style_scheme(scheme.as_ref());
-        }
+            true
+        });
     });
 }
 

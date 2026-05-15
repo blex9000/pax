@@ -248,10 +248,15 @@ pub(super) fn build_markdown_tab(
     // Re-render on theme change so theme-reactive colors in the renderer
     // (code block background) take effect without restarting the app.
     {
-        let buf = buffer.clone();
-        let rv = rendered_view.clone();
-        let mode_c = mode.clone();
+        let buf = buffer.downgrade();
+        let rv = rendered_view.downgrade();
+        let mode_c = Rc::downgrade(&mode);
         crate::theme::register_theme_observer(Rc::new(move || {
+            let (Some(buf), Some(rv), Some(mode_c)) =
+                (buf.upgrade(), rv.upgrade(), mode_c.upgrade())
+            else {
+                return;
+            };
             if mode_c.get() == MarkdownMode::Rendered {
                 let text = buf
                     .text(&buf.start_iter(), &buf.end_iter(), false)

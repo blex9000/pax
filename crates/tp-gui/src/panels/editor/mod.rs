@@ -184,6 +184,9 @@ pub struct CodeEditorPanel {
     suppress_emit: Rc<Cell<bool>>,
     /// Active sync-input observer wired by `PanelHost`.
     input_cb: Rc<RefCell<Option<PanelInputCallback>>>,
+    /// Shared lifecycle flag used by polling watchers to stop retaining this
+    /// panel after it is closed.
+    watch_active: Rc<Cell<bool>>,
 }
 
 #[cfg(feature = "sourceview")]
@@ -253,6 +256,7 @@ impl CodeEditorPanel {
         let is_git_repo = std::path::Path::new(root_dir).join(".git").exists();
         let sync_suppress: Rc<Cell<bool>> = Rc::new(Cell::new(false));
         let sync_input_cb: Rc<RefCell<Option<PanelInputCallback>>> = Rc::new(RefCell::new(None));
+        let watch_active: Rc<Cell<bool>> = Rc::new(Cell::new(true));
         let state = Rc::new(RefCell::new(EditorState {
             root_dir: PathBuf::from(root_dir),
             open_files: Vec::new(),
@@ -1018,6 +1022,7 @@ impl CodeEditorPanel {
             file_watcher::start_watchers(
                 state.clone(),
                 &widget,
+                watch_active.clone(),
                 tabs_rc.info_bar_container.clone(),
                 on_merge_open,
                 Rc::new(move || {
@@ -1121,6 +1126,7 @@ impl CodeEditorPanel {
             ssh_info: None,
             suppress_emit: sync_suppress,
             input_cb: sync_input_cb,
+            watch_active,
         }
     }
 }
@@ -1321,7 +1327,9 @@ fn show_recent_files_popup(state: &Rc<RefCell<EditorState>>, tabs: &Rc<editor_ta
 /// SSH ControlMaster connection is cleaned up by SshFileBackend::Drop.
 #[cfg(feature = "sourceview")]
 impl Drop for CodeEditorPanel {
-    fn drop(&mut self) {}
+    fn drop(&mut self) {
+        self.watch_active.set(false);
+    }
 }
 
 #[cfg(feature = "sourceview")]
@@ -1333,6 +1341,12 @@ impl PanelBackend for CodeEditorPanel {
         &self.widget
     }
     fn on_focus(&self) {}
+
+    fn shutdown(&self) {
+        self.watch_active.set(false);
+        *self.input_cb.borrow_mut() = None;
+        self.state.borrow_mut().on_nav_state_changed = None;
+    }
 
     fn ssh_label(&self) -> Option<String> {
         self.ssh_info.clone()
