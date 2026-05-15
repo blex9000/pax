@@ -31,9 +31,11 @@
 //! └── pty_backend.rs   ← Cross-platform PTY fallback (#[cfg(not(feature = "vte"))])
 //! ```
 
+mod export;
 mod footer;
 mod input;
 mod script_runner;
+mod scroll_to_bottom;
 mod shell_bootstrap;
 
 pub(crate) use footer::format_cwd_footer;

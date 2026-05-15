@@ -82,6 +82,55 @@ fn setup_smart_scroll_on_output(vte: &vte4::Terminal) {
     update();
 }
 
+fn build_terminal_overlay(vte: &vte4::Terminal) -> gtk4::Widget {
+    let overlay = gtk4::Overlay::new();
+    overlay.set_hexpand(true);
+    overlay.set_vexpand(true);
+    overlay.set_child(Some(vte));
+
+    let scroll_button = super::scroll_to_bottom::button();
+    setup_scroll_to_bottom_button(vte, &scroll_button);
+    overlay.add_overlay(&scroll_button);
+
+    overlay.upcast()
+}
+
+fn setup_scroll_to_bottom_button(vte: &vte4::Terminal, button: &gtk4::Button) {
+    let update = Rc::new({
+        let vte = vte.clone();
+        let button = button.clone();
+        move || update_scroll_to_bottom_button(&vte, &button)
+    });
+
+    if let Some(adj) = vte.vadjustment() {
+        let update = update.clone();
+        adj.connect_value_changed(move |_| update());
+    }
+
+    {
+        let update = update.clone();
+        vte.connect_vadjustment_notify(move |term| {
+            if let Some(adj) = term.vadjustment() {
+                let update = update.clone();
+                adj.connect_value_changed(move |_| update());
+            }
+            update();
+        });
+    }
+
+    let vte_for_click = vte.clone();
+    let button_for_click = button.clone();
+    button.connect_clicked(move |_| {
+        if let Some(adj) = vte_for_click.vadjustment() {
+            scroll_adjustment_to_bottom(&adj);
+        }
+        update_scroll_to_bottom_button(&vte_for_click, &button_for_click);
+        vte_for_click.grab_focus();
+    });
+
+    update();
+}
+
 fn adjustment_is_at_bottom(adj: &gtk4::Adjustment) -> bool {
     adjustment_values_are_at_bottom(adj.value(), adj.lower(), adj.upper(), adj.page_size())
 }
@@ -89,6 +138,19 @@ fn adjustment_is_at_bottom(adj: &gtk4::Adjustment) -> bool {
 fn adjustment_values_are_at_bottom(value: f64, lower: f64, upper: f64, page_size: f64) -> bool {
     let bottom = (upper - page_size).max(lower);
     value >= bottom - AUTO_SCROLL_BOTTOM_EPSILON
+}
+
+fn scroll_adjustment_to_bottom(adj: &gtk4::Adjustment) {
+    let bottom = (adj.upper() - adj.page_size()).max(adj.lower());
+    adj.set_value(bottom);
+}
+
+fn update_scroll_to_bottom_button(vte: &vte4::Terminal, button: &gtk4::Button) {
+    let visible = vte
+        .vadjustment()
+        .map(|adj| !adjustment_is_at_bottom(&adj))
+        .unwrap_or(false);
+    button.set_visible(visible);
 }
 
 /// OSC 133 fallback: poll `tcgetpgrp` on the PTY master every
@@ -364,7 +426,7 @@ impl TerminalInner {
         // Register VTE for theme color updates
         crate::theme::register_vte_terminal(&vte);
 
-        let widget = vte.clone().upcast::<gtk4::Widget>();
+        let widget = build_terminal_overlay(&vte);
         Self {
             vte,
             widget,
@@ -510,6 +572,35 @@ impl TerminalInner {
                 p.popdown();
             });
             menu_box.append(&paste_btn);
+
+            let save_btn = gtk4::Button::new();
+            save_btn.add_css_class("flat");
+            save_btn.add_css_class("app-popover-button");
+            let save_box = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
+            save_box.append(&gtk4::Image::from_icon_name("document-save-symbolic"));
+            let save_lbl = gtk4::Label::new(Some("Save Output..."));
+            save_lbl.set_hexpand(true);
+            save_lbl.set_halign(gtk4::Align::Start);
+            save_box.append(&save_lbl);
+            save_btn.set_child(Some(&save_box));
+            let v = vte.clone();
+            let p = popover.clone();
+            save_btn.connect_clicked(move |_| {
+                let anchor = v.upcast_ref::<gtk4::Widget>();
+                match super::export::vte_output_snapshot(&v) {
+                    Ok(bytes) => super::export::save_bytes_dialog(anchor, bytes),
+                    Err(err) => {
+                        tracing::warn!("terminal export: failed to snapshot VTE output: {}", err);
+                        super::export::show_error(
+                            anchor,
+                            "Could not read terminal output",
+                            &err.to_string(),
+                        );
+                    }
+                }
+                p.popdown();
+            });
+            menu_box.append(&save_btn);
 
             popover.set_child(Some(&menu_box));
             popover.set_parent(vte);

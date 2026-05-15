@@ -1088,6 +1088,22 @@ box.panel-footer-bar.terminal-panel-footer {
 vte-terminal {
   padding: 6px;
 }
+button.terminal-scroll-bottom {
+  min-width: 28px;
+  min-height: 28px;
+  padding: 0;
+  border-radius: 999px;
+  background-color: alpha(@accent_color, 0.88);
+  color: @accent_fg_color;
+  box-shadow: 0 4px 12px alpha(@window_fg_color, 0.22);
+}
+button.terminal-scroll-bottom:hover {
+  background-color: @accent_color;
+  color: @accent_fg_color;
+}
+button.terminal-scroll-bottom image {
+  -gtk-icon-size: 16px;
+}
 box.panel-footer-bar.editor-file-preview-footer,
 box.editor-file-preview-footer.panel-footer {
   background-color: @view_bg_color;

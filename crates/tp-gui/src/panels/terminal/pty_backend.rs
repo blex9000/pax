@@ -162,7 +162,15 @@ impl TerminalInner {
         scrolled.set_propagate_natural_width(false);
         scrolled.set_child(Some(&drawing_area));
 
-        let widget = scrolled.clone().upcast::<gtk4::Widget>();
+        let overlay = gtk4::Overlay::new();
+        overlay.set_hexpand(true);
+        overlay.set_vexpand(true);
+        overlay.set_child(Some(&scrolled));
+
+        let scroll_button = super::scroll_to_bottom::button();
+        overlay.add_overlay(&scroll_button);
+
+        let widget = overlay.clone().upcast::<gtk4::Widget>();
 
         let pty_system = native_pty_system();
         let pair = pty_system
@@ -257,6 +265,8 @@ impl TerminalInner {
             let status_cb_ref = status_cb.clone();
             let cwd_cb_ref = cwd_cb.clone();
             let booted_loop = booted.clone();
+            let term_state_for_events = term_state.clone();
+            let scroll_button_for_events = scroll_button.clone();
             glib::timeout_add_local(Duration::from_millis(16), move || {
                 let (Some(drawing_area), Some(writer)) = (drawing_area.upgrade(), writer.upgrade())
                 else {
@@ -264,7 +274,13 @@ impl TerminalInner {
                 };
                 loop {
                     match ui_rx.try_recv() {
-                        Ok(TerminalUiEvent::Render) => drawing_area.queue_draw(),
+                        Ok(TerminalUiEvent::Render) => {
+                            drawing_area.queue_draw();
+                            update_scroll_to_bottom_button(
+                                &scroll_button_for_events,
+                                &term_state_for_events,
+                            );
+                        }
                         Ok(TerminalUiEvent::TitleChanged(title)) => {
                             if let Ok(borrowed) = title_cb_ref.try_borrow() {
                                 if let Some(ref cb) = *borrowed {
@@ -446,6 +462,7 @@ impl TerminalInner {
         {
             let term_state = term_state.clone();
             let scroll_area = drawing_area.clone();
+            let scroll_button = scroll_button.clone();
             let scroll = gtk4::EventControllerScroll::new(
                 gtk4::EventControllerScrollFlags::VERTICAL
                     | gtk4::EventControllerScrollFlags::DISCRETE,
@@ -457,11 +474,27 @@ impl TerminalInner {
                 }
                 if let Ok(mut state) = term_state.lock() {
                     state.term.scroll_display(Scroll::Delta(step));
+                    scroll_button.set_visible(state.term.grid().display_offset() > 0);
                 }
                 scroll_area.queue_draw();
                 glib::Propagation::Stop
             });
             drawing_area.add_controller(scroll);
+        }
+
+        {
+            let term_state = term_state.clone();
+            let drawing_area = drawing_area.clone();
+            let scroll_button = scroll_button.clone();
+            let button_for_click = scroll_button.clone();
+            scroll_button.connect_clicked(move |_| {
+                if let Ok(mut state) = term_state.lock() {
+                    state.term.scroll_display(Scroll::Bottom);
+                }
+                button_for_click.set_visible(false);
+                drawing_area.queue_draw();
+                drawing_area.grab_focus();
+            });
         }
 
         {
@@ -934,6 +967,26 @@ fn setup_context_menu(
         });
         menu_box.append(&paste_btn);
 
+        let save_btn = gtk4::Button::new();
+        save_btn.add_css_class("flat");
+        save_btn.add_css_class("app-popover-button");
+        let save_box = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
+        save_box.append(&gtk4::Image::from_icon_name("document-save-symbolic"));
+        let save_lbl = gtk4::Label::new(Some("Save Output..."));
+        save_lbl.set_hexpand(true);
+        save_lbl.set_halign(gtk4::Align::Start);
+        save_box.append(&save_lbl);
+        save_btn.set_child(Some(&save_box));
+        let area_save = area.clone();
+        let state_save = state.clone();
+        let popover_save = popover.clone();
+        save_btn.connect_clicked(move |_| {
+            let text = terminal_output_text(&state_save);
+            super::export::save_bytes_dialog(area_save.upcast_ref(), text.into_bytes());
+            popover_save.popdown();
+        });
+        menu_box.append(&save_btn);
+
         popover.set_child(Some(&menu_box));
         popover.set_parent(&area);
         popover.set_pointing_to(Some(&gtk4::gdk::Rectangle::new(x as i32, y as i32, 1, 1)));
@@ -1187,6 +1240,27 @@ fn selection_text(term_state: &Arc<Mutex<TermState>>) -> Option<String> {
         .ok()
         .and_then(|state| state.term.selection_to_string())
         .filter(|text| !text.is_empty())
+}
+
+fn update_scroll_to_bottom_button(button: &gtk4::Button, term_state: &Arc<Mutex<TermState>>) {
+    let visible = term_state
+        .lock()
+        .map(|state| state.term.grid().display_offset() > 0)
+        .unwrap_or(false);
+    button.set_visible(visible);
+}
+
+fn terminal_output_text(term_state: &Arc<Mutex<TermState>>) -> String {
+    let Ok(state) = term_state.lock() else {
+        return String::new();
+    };
+    let grid = state.term.grid();
+    if grid.columns() == 0 || grid.total_lines() == 0 {
+        return String::new();
+    }
+    let start = Point::new(grid.topmost_line(), Column(0));
+    let end = Point::new(grid.bottommost_line(), grid.last_column());
+    state.term.bounds_to_string(start, end)
 }
 
 fn resolve_cell_colors(
