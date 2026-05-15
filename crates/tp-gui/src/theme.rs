@@ -1199,6 +1199,7 @@ paned > separator {
   box-shadow: none;
 }
 .dirty-indicator { color: #ff8c00; }
+.external-change-indicator { color: #2f9bff; }
 /* Higher-specificity override: the `.app-headerbar` global rule sets
  * `color: @window_fg_color` on every descendant image/button with specificity
  * (0,1,2), which would beat the bare `.dirty-indicator` rule above. Re-assert

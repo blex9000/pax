@@ -36,6 +36,7 @@ impl VisibilityGate {
 /// Wired from `mod.rs` through `start_watchers` so file_watcher stays
 /// decoupled from `EditorTabs`.
 pub type OnMergeOpen = Rc<dyn Fn(&Path, &str, &str, Rc<dyn Fn(&str)>)>;
+pub type OnExternalReload = Rc<dyn Fn(&Path)>;
 
 #[derive(Clone)]
 enum WatchedKind {
@@ -79,6 +80,7 @@ pub fn start_watchers(
     lifecycle: Rc<Cell<bool>>,
     info_bar_container: gtk4::Box,
     on_merge_open: OnMergeOpen,
+    on_external_reload: OnExternalReload,
     on_tree_changed: Rc<dyn Fn()>,
     on_git_changed: Rc<dyn Fn(String)>,
 ) {
@@ -93,6 +95,7 @@ pub fn start_watchers(
         lifecycle.clone(),
         info_bar_container,
         on_merge_open,
+        on_external_reload,
         backend.clone(),
         is_remote,
     );
@@ -135,6 +138,7 @@ fn start_open_file_watcher(
     lifecycle: Rc<Cell<bool>>,
     info_bar_container: gtk4::Box,
     on_merge_open: OnMergeOpen,
+    on_external_reload: OnExternalReload,
     backend: Arc<dyn FileBackend>,
     is_remote: bool,
 ) {
@@ -186,11 +190,13 @@ fn start_open_file_watcher(
         let backend_for_apply = backend.clone();
         let in_flight_c = in_flight.clone();
         let on_merge_open_c = on_merge_open.clone();
+        let on_external_reload_c = on_external_reload.clone();
         run_blocking(
             move || collect_open_file_changes(&snapshots, &*backend_for_task, is_remote),
             move |changes| {
                 in_flight_c.set(false);
 
+                let mut external_reloads = Vec::new();
                 let mut st = state_c.borrow_mut();
                 let sync_suppress = st.sync_suppress.clone();
                 for change in changes {
@@ -228,6 +234,7 @@ fn start_open_file_watcher(
                                 continue;
                             }
                             if !open_file.modified() {
+                                *saved.borrow_mut() = change.content.clone();
                                 sync_suppress.set(true);
                                 let reload_result =
                                     super::text_content::replace_source_buffer_text_preserving_cursor(
@@ -243,10 +250,11 @@ fn start_open_file_watcher(
                                     );
                                     continue;
                                 }
-                                *saved.borrow_mut() = change.content.clone();
                                 buffer.set_enable_undo(false);
                                 buffer.set_enable_undo(true);
                                 open_file.set_modified(false);
+                                open_file.set_external_modified(true);
+                                external_reloads.push(open_file.path.clone());
                             } else {
                                 let apply_reload: Rc<dyn Fn(&str)> = {
                                     let buf = buffer.clone();
@@ -318,6 +326,8 @@ fn start_open_file_watcher(
                                     continue;
                                 }
                                 open_file.set_modified(false);
+                                open_file.set_external_modified(true);
+                                external_reloads.push(open_file.path.clone());
                             } else {
                                 let md = tab.clone();
                                 let path = open_file.path.clone();
@@ -371,6 +381,10 @@ fn start_open_file_watcher(
                             }
                         }
                     }
+                }
+                drop(st);
+                for path in external_reloads {
+                    on_external_reload_c(&path);
                 }
             },
         );

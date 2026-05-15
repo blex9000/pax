@@ -22,6 +22,9 @@ pub struct SourceTab {
     pub scroll_y: Rc<Cell<f64>>,
     /// Content on disk at last open/save — drives dirty detection.
     pub saved_content: Rc<RefCell<String>>,
+    /// The file was reloaded from disk while clean. This is informational and
+    /// distinct from `modified`, which means local unsaved edits.
+    pub external_modified: bool,
     /// Per-tab notes state (lives and dies with this source tab).
     pub notes: crate::panels::editor::notes_state::NotesState,
 }
@@ -42,6 +45,7 @@ pub struct MarkdownTab {
     pub inner_stack: gtk4::Stack,
     pub mode: Rc<Cell<MarkdownMode>>,
     pub modified: bool,
+    pub external_modified: bool,
     pub saved_content: Rc<RefCell<String>>,
     /// Outer widget that lives in the editor's content_stack under `tab-{id}`.
     pub outer: gtk4::Widget,
@@ -118,6 +122,22 @@ impl TabContent {
         match self {
             TabContent::Source(s) => s.modified = v,
             TabContent::Markdown(m) => m.modified = v,
+            TabContent::Image(_) => {}
+        }
+    }
+
+    pub fn is_external_modified(&self) -> bool {
+        match self {
+            TabContent::Source(s) => s.external_modified,
+            TabContent::Markdown(m) => m.external_modified,
+            TabContent::Image(_) => false,
+        }
+    }
+
+    pub fn set_external_modified(&mut self, v: bool) {
+        match self {
+            TabContent::Source(s) => s.external_modified = v,
+            TabContent::Markdown(m) => m.external_modified = v,
             TabContent::Image(_) => {}
         }
     }

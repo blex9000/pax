@@ -159,6 +159,14 @@ impl OpenFile {
         self.content.set_modified(v);
     }
 
+    pub fn external_modified(&self) -> bool {
+        self.content.is_external_modified()
+    }
+
+    pub fn set_external_modified(&mut self, v: bool) {
+        self.content.set_external_modified(v);
+    }
+
     /// Dirty-tracking cell. `None` for tabs without a writable buffer (image).
     pub fn saved_content(&self) -> Option<&Rc<RefCell<String>>> {
         self.content.saved_content()
@@ -1008,6 +1016,8 @@ impl CodeEditorPanel {
             let file_tree_ref = file_tree.clone();
             let backend_for_merge = state.borrow().backend.clone();
             let tabs_for_merge = tabs_rc.clone();
+            let tabs_for_external_reload = tabs_rc.clone();
+            let state_for_external_reload = state.clone();
             let on_merge_open: file_watcher::OnMergeOpen = Rc::new(
                 move |path: &std::path::Path, disk: &str, mine: &str, apply: Rc<dyn Fn(&str)>| {
                     tabs_for_merge.show_merge_diff(
@@ -1025,6 +1035,9 @@ impl CodeEditorPanel {
                 watch_active.clone(),
                 tabs_rc.info_bar_container.clone(),
                 on_merge_open,
+                Rc::new(move |path| {
+                    tabs_for_external_reload.mark_external_update(&state_for_external_reload, path);
+                }),
                 Rc::new(move || {
                     file_tree_ref.refresh();
                 }),

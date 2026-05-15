@@ -276,6 +276,7 @@ pub(super) fn build_markdown_tab(
         inner_stack,
         mode,
         modified: false,
+        external_modified: false,
         saved_content,
         outer: outer.upcast::<gtk4::Widget>(),
         rendered_btn,
@@ -424,8 +425,8 @@ pub(super) fn reload_from_disk(
     tab: &MarkdownTab,
     content: &str,
 ) -> Result<(), super::text_content::TextContentError> {
-    super::text_content::replace_source_buffer_text_preserving_cursor(&tab.buffer, content)?;
     *tab.saved_content.borrow_mut() = content.to_string();
+    super::text_content::replace_source_buffer_text_preserving_cursor(&tab.buffer, content)?;
     tab.buffer.set_enable_undo(false);
     tab.buffer.set_enable_undo(true);
     if tab.mode.get() == MarkdownMode::Rendered {

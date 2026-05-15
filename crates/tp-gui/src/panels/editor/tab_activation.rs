@@ -15,6 +15,7 @@ struct TabViewSnapshot {
     status_lang: String,
     status_pos: String,
     modified: bool,
+    external_modified: bool,
     match_lines: Vec<i32>,
     note_lines: Option<(Vec<i32>, i32)>,
     keyword_lang_id: Option<String>,
@@ -64,11 +65,14 @@ pub(super) fn apply_tab_view_state(
 
     status_lang.set_text(&snapshot.status_lang);
     status_pos.set_text(&snapshot.status_pos);
-    status_modified.set_text(if snapshot.modified {
-        "\u{25CF} Modified"
+    let indicator = if snapshot.modified {
+        super::dirty_state::IndicatorState::Dirty
+    } else if snapshot.external_modified {
+        super::dirty_state::IndicatorState::External
     } else {
-        ""
-    });
+        super::dirty_state::IndicatorState::Clean
+    };
+    super::dirty_state::set_status_indicator(status_modified, indicator);
 
     let has_matches = !snapshot.match_lines.is_empty();
     *match_lines.borrow_mut() = snapshot.match_lines;
@@ -110,6 +114,7 @@ fn tab_view_snapshot(open_file: &super::OpenFile, query: &str) -> TabViewSnapsho
                 status_lang,
                 status_pos: buffer_position_label(&source.buffer),
                 modified: open_file.modified(),
+                external_modified: open_file.external_modified(),
                 match_lines: collect_match_lines(&source.buffer, query),
                 note_lines: Some((note_lines, source.buffer.line_count())),
                 keyword_lang_id,
@@ -122,6 +127,7 @@ fn tab_view_snapshot(open_file: &super::OpenFile, query: &str) -> TabViewSnapsho
             status_lang: "Markdown".to_string(),
             status_pos: buffer_position_label(&md.buffer),
             modified: open_file.modified(),
+            external_modified: open_file.external_modified(),
             match_lines: collect_match_lines(&md.buffer, query),
             note_lines: None,
             keyword_lang_id: None,
@@ -133,6 +139,7 @@ fn tab_view_snapshot(open_file: &super::OpenFile, query: &str) -> TabViewSnapsho
             status_lang: "Image".to_string(),
             status_pos: String::new(),
             modified: open_file.modified(),
+            external_modified: open_file.external_modified(),
             match_lines: Vec::new(),
             note_lines: None,
             keyword_lang_id: None,

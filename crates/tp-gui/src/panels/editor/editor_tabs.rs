@@ -1489,6 +1489,7 @@ impl EditorTabs {
                 content: super::tab_content::TabContent::Source(super::tab_content::SourceTab {
                     buffer: buf.clone(),
                     modified: false,
+                    external_modified: false,
                     scroll_x: Rc::new(Cell::new(0.0)),
                     scroll_y: Rc::new(Cell::new(0.0)),
                     saved_content: saved_content.clone(),
@@ -2195,6 +2196,39 @@ impl EditorTabs {
         )
     }
 
+    pub fn mark_external_update(&self, state: &Rc<RefCell<EditorState>>, path: &Path) {
+        let (idx, active) = {
+            let mut st = state.borrow_mut();
+            let Some(idx) = st.open_files.iter().position(|f| f.path == path) else {
+                return;
+            };
+            if st.open_files[idx].modified() {
+                return;
+            }
+            st.open_files[idx].set_external_modified(true);
+            (idx, st.active_tab == Some(idx))
+        };
+        self.set_tab_indicator(idx, dirty_state::IndicatorState::External);
+        if active {
+            dirty_state::set_status_indicator(
+                &self.status_modified,
+                dirty_state::IndicatorState::External,
+            );
+        }
+    }
+
+    fn set_tab_indicator(&self, idx: usize, state: dirty_state::IndicatorState) {
+        if let Some(page) = self.notebook.nth_page(Some(idx as u32)) {
+            if let Some(tab_label) = self.notebook.tab_label(&page) {
+                if let Some(dot) = tab_label.first_child() {
+                    if let Some(label) = dot.downcast_ref::<gtk4::Label>() {
+                        dirty_state::set_tab_indicator(label, state);
+                    }
+                }
+            }
+        }
+    }
+
     /// Show a side-by-side diff view for the given file (HEAD vs working).
     /// The diff replaces the content_stack view. Close button goes back to editor.
     pub fn show_diff(
@@ -2494,6 +2528,7 @@ impl EditorTabs {
 
     /// Save the currently active file.
     pub fn save_active(&self, state: &Rc<RefCell<EditorState>>, _root: &Path) {
+        let mut saved_idx = None;
         {
             let mut st = state.borrow_mut();
             let backend = st.backend.clone();
@@ -2511,7 +2546,9 @@ impl EditorTabs {
                         return;
                     }
                     open_file.set_modified(false);
+                    open_file.set_external_modified(false);
                     open_file.last_disk_mtime = get_mtime(&open_file.path);
+                    saved_idx = Some(idx);
                     // Update saved content so dirty detection compares against new save
                     if let Some(cell) = open_file.saved_content() {
                         *cell.borrow_mut() = text;
@@ -2557,21 +2594,16 @@ impl EditorTabs {
                             }
                         }
                     }
-                    // Clear the modified indicator in tab and status bar
-                    if let Some(page) = self.notebook.nth_page(Some(idx as u32)) {
-                        if let Some(tab_label) = self.notebook.tab_label(&page) {
-                            // Tab label is a Box: [dot, icon, name, close_btn]
-                            if let Some(dot) = tab_label.first_child() {
-                                if let Some(label) = dot.downcast_ref::<gtk4::Label>() {
-                                    label.set_text("");
-                                }
-                            }
-                        }
-                    }
                 }
             }
         }
-        self.status_modified.set_text("");
+        if let Some(idx) = saved_idx {
+            self.set_tab_indicator(idx, dirty_state::IndicatorState::Clean);
+        }
+        dirty_state::set_status_indicator(
+            &self.status_modified,
+            dirty_state::IndicatorState::Clean,
+        );
     }
 
     /// Close the active tab. If modified, save first then close.
