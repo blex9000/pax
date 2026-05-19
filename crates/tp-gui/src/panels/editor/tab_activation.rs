@@ -1,12 +1,14 @@
 use gtk4::glib::clone::Downgrade;
 use gtk4::prelude::*;
 use sourceview5::prelude::*;
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
 use super::language_support::keywords_for;
 use super::overview_ruler::collect_match_lines;
 use super::EditorState;
+
+const SOURCE_SCROLL_SETTLE_FRAMES: u8 = 3;
 
 struct TabViewSnapshot {
     child_name: String,
@@ -56,7 +58,7 @@ pub(super) fn apply_tab_view_state(
         source_view.set_buffer(Some(buf));
         source_view.set_visible(true);
         if let Some((scroll_x, scroll_y)) = snapshot.source_scroll {
-            restore_source_scroll(source_scroll, scroll_x, scroll_y);
+            restore_source_scroll(source_view, source_scroll, buf, scroll_x, scroll_y);
         }
         source_view.queue_resize();
         source_view.queue_draw();
@@ -199,9 +201,29 @@ fn remember_active_source_scroll(
     source.scroll_y.set(source_scroll.vadjustment().value());
 }
 
-fn restore_source_scroll(source_scroll: &gtk4::ScrolledWindow, scroll_x: f64, scroll_y: f64) {
+fn restore_source_scroll(
+    source_view: &sourceview5::View,
+    source_scroll: &gtk4::ScrolledWindow,
+    buffer: &sourceview5::Buffer,
+    scroll_x: f64,
+    scroll_y: f64,
+) {
+    if scroll_target_is_origin(source_scroll, scroll_x, scroll_y) {
+        let mut start = buffer.start_iter();
+        source_view.scroll_to_iter(&mut start, 0.0, true, 0.0, 0.0);
+    }
     set_adjustment_value(&source_scroll.hadjustment(), scroll_x);
     set_adjustment_value(&source_scroll.vadjustment(), scroll_y);
+}
+
+fn scroll_target_is_origin(
+    source_scroll: &gtk4::ScrolledWindow,
+    scroll_x: f64,
+    scroll_y: f64,
+) -> bool {
+    let h = source_scroll.hadjustment();
+    let v = source_scroll.vadjustment();
+    scroll_x <= h.lower() + 0.5 && scroll_y <= v.lower() + 0.5
 }
 
 fn set_adjustment_value(adjustment: &gtk4::Adjustment, value: f64) {
@@ -229,6 +251,35 @@ fn schedule_source_view_refresh(
         if !refresh_current_source_view(&view, &scroll_widget, &buffer, scroll) {
             return;
         }
+        schedule_source_scroll_settle(&view, &scroll_widget, &buffer, scroll);
+    });
+}
+
+fn schedule_source_scroll_settle(
+    source_view: &sourceview5::View,
+    source_scroll: &gtk4::ScrolledWindow,
+    buffer: &sourceview5::Buffer,
+    scroll: Option<(f64, f64)>,
+) {
+    let scroll_weak = Downgrade::downgrade(source_scroll);
+    let buffer_weak = Downgrade::downgrade(buffer);
+    let frames_left = Rc::new(Cell::new(SOURCE_SCROLL_SETTLE_FRAMES));
+    source_view.add_tick_callback(move |view, _| {
+        let (Some(scroll_widget), Some(buffer)) = (scroll_weak.upgrade(), buffer_weak.upgrade())
+        else {
+            return gtk4::glib::ControlFlow::Break;
+        };
+        if !refresh_current_source_view(view, &scroll_widget, &buffer, scroll) {
+            return gtk4::glib::ControlFlow::Break;
+        }
+
+        let remaining = frames_left.get().saturating_sub(1);
+        frames_left.set(remaining);
+        if remaining == 0 {
+            gtk4::glib::ControlFlow::Break
+        } else {
+            gtk4::glib::ControlFlow::Continue
+        }
     });
 }
 
@@ -248,8 +299,9 @@ fn refresh_current_source_view(
     }
 
     if let Some((scroll_x, scroll_y)) = scroll {
-        restore_source_scroll(source_scroll, scroll_x, scroll_y);
+        restore_source_scroll(view, source_scroll, buffer, scroll_x, scroll_y);
     }
+    source_scroll.queue_resize();
     view.queue_resize();
     view.queue_draw();
     true

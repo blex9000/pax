@@ -26,13 +26,11 @@ pub fn configure_icon_theme(icon_theme: &gtk4::IconTheme) {
         icon_theme.add_search_path(path);
     }
 
-    icon_theme.set_theme_name(Some(PAX_THEME_NAME));
     if let Some(settings) = gtk4::Settings::default() {
         settings.set_gtk_icon_theme_name(Some(PAX_THEME_NAME));
     }
 
     if missing_required_icons(icon_theme) {
-        icon_theme.set_theme_name(Some("Adwaita"));
         if let Some(settings) = gtk4::Settings::default() {
             settings.set_gtk_icon_theme_name(Some("Adwaita"));
         }
@@ -191,6 +189,7 @@ mod tests {
             pax_theme.join("symbolic/apps/code-symbolic.svg"),
             pax_theme.join("symbolic/categories/applications-development-symbolic.svg"),
             pax_theme.join("symbolic/actions/document-open-symbolic.svg"),
+            pax_theme.join("symbolic/actions/mermaid-flowchart-symbolic.svg"),
             pax_theme.join("symbolic/legacy/utilities-terminal-symbolic.svg"),
             pax_theme.join("symbolic/status/vcs-ignored-symbolic.svg"),
             pax_theme.join("symbolic/ui/window-close-symbolic.svg"),

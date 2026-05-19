@@ -656,8 +656,8 @@ fn setup_notebook_menu_widget(notebook: &gtk4::Notebook, action_cb: Option<Panel
     let add_btn = build_workspace_tab_add_label(notebook, action_cb.clone());
     // Wrap in a Box with margin_end so there's 6px between the "+" hover
     // background and the right edge — matching the 6px padding-left that
-    // the tabs container has on the opposite side. CSS margin-end on the
-    // action widget is ignored by GTK's Notebook layout.
+    // the tabs container has on the opposite side. Styling the action
+    // widget's margin from CSS is ignored by GTK's Notebook layout.
     let add_wrapper = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
     add_wrapper.set_margin_end(6);
     add_wrapper.append(&add_btn);

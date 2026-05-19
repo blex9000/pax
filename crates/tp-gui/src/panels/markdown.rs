@@ -471,7 +471,7 @@ impl MarkdownPanel {
                 "```python run\n\n```\n",
             ),
             (
-                "applications-graphics-symbolic",
+                "mermaid-flowchart-symbolic",
                 "Mermaid flowchart",
                 "```mermaid\nflowchart TD\n    A[Start] --> B{Condition?}\n    B -- Yes --> C[Action 1]\n    B -- No --> D[Action 2]\n    C --> E[End]\n    D --> E\n```\n",
             ),

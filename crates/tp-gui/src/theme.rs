@@ -826,8 +826,8 @@ box.workspace-tab-add-wrap {
   box-shadow: none;
   margin-top: 0;
   margin-bottom: 0;
-  margin-start: 0;
-  margin-end: 0;
+  margin-left: 0;
+  margin-right: 0;
   padding-top: 0;
   padding-bottom: 0;
   padding-left: 4px;
@@ -2159,6 +2159,8 @@ mod tests {
         assert!(BASE_CSS.contains("notebook.workspace-tabs > header > tabs > tab image"));
         assert!(BASE_CSS.contains("-gtk-icon-size: 13px;"));
         assert!(BASE_CSS.contains("box.workspace-tab-page-shell {"));
+        assert!(!BASE_CSS.contains("margin-start"));
+        assert!(!BASE_CSS.contains("margin-end"));
     }
 
     #[test]
