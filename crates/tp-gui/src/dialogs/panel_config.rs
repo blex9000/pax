@@ -54,6 +54,7 @@ pub struct PanelConfigInitial<'a> {
     pub panel_type: &'a PanelType,
     pub cwd: Option<&'a str>,
     pub ssh: Option<&'a SshConfig>,
+    pub ssh_enabled: bool,
     pub startup_commands: &'a [String],
     pub before_close: Option<&'a str>,
     pub min_width: u32,
@@ -64,6 +65,7 @@ struct TerminalConfigInitial<'a> {
     panel_name: &'a str,
     cwd: Option<&'a str>,
     ssh: Option<&'a SshConfig>,
+    ssh_enabled: bool,
     startup_commands: &'a [String],
     before_close: Option<&'a str>,
     min_width: u32,
@@ -121,6 +123,7 @@ pub fn show_panel_config_dialog(
                     panel_name: initial.panel_name,
                     cwd: initial.cwd,
                     ssh: initial.ssh,
+                    ssh_enabled: initial.ssh_enabled,
                     startup_commands: initial.startup_commands,
                     before_close: initial.before_close,
                     min_width: initial.min_width,
@@ -700,6 +703,7 @@ fn show_terminal_config(
         panel_name,
         cwd,
         ssh,
+        ssh_enabled,
         startup_commands,
         before_close,
         min_width,
@@ -767,9 +771,8 @@ fn show_terminal_config(
     ssh_sep.set_margin_bottom(2);
     vbox.append(&ssh_sep);
 
-    let ssh_enabled = ssh.is_some();
     let ssh_check = gtk4::CheckButton::with_label("SSH connection");
-    ssh_check.set_active(ssh_enabled);
+    ssh_check.set_active(ssh_enabled && ssh.is_some());
     vbox.append(&ssh_check);
 
     let ssh_container = gtk4::Box::new(gtk4::Orientation::Vertical, 4);
@@ -838,7 +841,7 @@ fn show_terminal_config(
     let remote_browse_btn = gtk4::Button::from_icon_name("folder-open-symbolic");
     remote_browse_btn.add_css_class("flat");
     remote_browse_btn.set_tooltip_text(Some("Browse remote directories"));
-    remote_browse_btn.set_sensitive(ssh_enabled);
+    remote_browse_btn.set_sensitive(ssh.map(|s| !s.host.trim().is_empty()).unwrap_or(false));
     let remote_pick_btn = make_working_dir_picker_button(
         &dialog,
         &remote_cwd_entry,
@@ -928,14 +931,7 @@ fn show_terminal_config(
         },
     );
 
-    ssh_container.set_sensitive(ssh_enabled);
     vbox.append(&ssh_container);
-    {
-        let sc = ssh_container.clone();
-        ssh_check.connect_toggled(move |btn| {
-            sc.set_sensitive(btn.is_active());
-        });
-    }
 
     let ssh_sep2 = gtk4::Separator::new(gtk4::Orientation::Horizontal);
     ssh_sep2.set_margin_top(4);
@@ -1129,40 +1125,38 @@ fn show_terminal_config(
         let mw = mw_spin.value() as u32;
         let mh = mh_spin.value() as u32;
 
-        // SSH config (only if enabled)
-        let ssh_config = if ssh_chk.is_active() {
-            let host = ssh_h.text().to_string();
-            if host.trim().is_empty() {
-                None
-            } else {
-                Some(SshConfig {
-                    host,
-                    port: ssh_p.text().parse().unwrap_or(22),
-                    user: if ssh_u.text().is_empty() {
-                        None
-                    } else {
-                        Some(ssh_u.text().to_string())
-                    },
-                    password: if ssh_pw.text().is_empty() {
-                        None
-                    } else {
-                        Some(ssh_pw.text().to_string())
-                    },
-                    identity_file: if ssh_id.text().is_empty() {
-                        None
-                    } else {
-                        Some(ssh_id.text().to_string())
-                    },
-                    tmux_session: if ssh_tmux.text().is_empty() {
-                        None
-                    } else {
-                        Some(ssh_tmux.text().to_string())
-                    },
-                })
-            }
-        } else {
+        // Preserve SSH details whenever a host is present. The checkbox only
+        // controls whether this saved config connects automatically.
+        let host = ssh_h.text().to_string();
+        let ssh_config = if host.trim().is_empty() {
             None
+        } else {
+            Some(SshConfig {
+                host,
+                port: ssh_p.text().parse().unwrap_or(22),
+                user: if ssh_u.text().is_empty() {
+                    None
+                } else {
+                    Some(ssh_u.text().to_string())
+                },
+                password: if ssh_pw.text().is_empty() {
+                    None
+                } else {
+                    Some(ssh_pw.text().to_string())
+                },
+                identity_file: if ssh_id.text().is_empty() {
+                    None
+                } else {
+                    Some(ssh_id.text().to_string())
+                },
+                tmux_session: if ssh_tmux.text().is_empty() {
+                    None
+                } else {
+                    Some(ssh_tmux.text().to_string())
+                },
+            })
         };
+        let ssh_enabled = ssh_chk.is_active() && ssh_config.is_some();
 
         // Before close (only if enabled)
         let before_close = if cc.is_active() {
@@ -1195,6 +1189,7 @@ fn show_terminal_config(
                 panel_type: PanelType::Terminal,
                 cwd,
                 ssh: ssh_config,
+                ssh_enabled,
                 startup_commands: vec![],
                 before_close,
                 min_width: mw,
@@ -1210,6 +1205,7 @@ fn show_terminal_config(
                 panel_type: PanelType::Terminal,
                 cwd,
                 ssh: ssh_config,
+                ssh_enabled,
                 startup_commands: vec![],
                 before_close,
                 min_width: mw,
@@ -1227,6 +1223,7 @@ fn show_terminal_config(
                 panel_type: PanelType::Terminal,
                 cwd,
                 ssh: ssh_config,
+                ssh_enabled,
                 startup_commands: vec![format!("file:{}:{}", interpreter, path)],
                 before_close,
                 min_width: mw,
@@ -1244,6 +1241,7 @@ fn show_terminal_config(
                 panel_type: PanelType::Terminal,
                 cwd,
                 ssh: ssh_config,
+                ssh_enabled,
                 startup_commands: vec![script],
                 before_close,
                 min_width: mw,
@@ -1523,6 +1521,7 @@ fn show_markdown_config(
             panel_type: PanelType::Markdown { file, storage },
             cwd: None,
             ssh: None,
+            ssh_enabled: true,
             startup_commands: vec![],
             before_close: None,
             min_width: mw_spin.value() as u32,
@@ -1864,6 +1863,7 @@ fn show_code_editor_config(
             },
             cwd: None,
             ssh: None,
+            ssh_enabled: true,
             startup_commands: vec![],
             before_close: None,
             min_width: mw_spin.value() as u32,
@@ -2065,6 +2065,7 @@ fn show_docker_help_config(
             },
             cwd: None,
             ssh: None,
+            ssh_enabled: true,
             startup_commands: vec![],
             before_close: None,
             min_width: mw_spin.value() as u32,

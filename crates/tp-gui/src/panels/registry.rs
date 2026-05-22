@@ -244,18 +244,23 @@ pub fn build_default_registry() -> PanelRegistry {
                 ws_dir,
                 panel_uuid,
             );
-            let is_ssh = config.extra.contains_key("ssh_host");
+            let is_ssh_configured = config.extra.contains_key("ssh_host");
+            let ssh_active = config
+                .extra
+                .get("__ssh_active__")
+                .map(|value| value == "true")
+                .unwrap_or(is_ssh_configured);
+            let is_ssh = is_ssh_configured && ssh_active;
 
-            // SSH connection if configured
+            // SSH target if configured. It may be saved but inactive, in
+            // which case the header shows "Connect" and the local shell opens.
             if let Some(host) = config.extra.get("ssh_host") {
                 let user = config.extra.get("ssh_user");
-                // Set SSH label for panel header indicator
                 let ssh_label = if let Some(u) = user {
                     format!("{}@{}", u, host)
                 } else {
                     host.clone()
                 };
-                panel.set_ssh_info(ssh_label);
                 let has_password = config.extra.contains_key("ssh_password");
                 let tmux_session = config.extra.get("ssh_tmux_session");
                 let ssh_target = if let Some(u) = user {
@@ -274,11 +279,11 @@ pub fn build_default_registry() -> PanelRegistry {
                 } else {
                     format!("ssh {}", ssh_target)
                 };
-                panel.send_commands(&[cmd]);
+                let mut connect_commands = vec![cmd];
                 // cd to remote path if specified
                 if let Some(cwd) = config.cwd.as_deref() {
                     if !cwd.is_empty() {
-                        panel.send_commands(&[format!("cd '{}'", cwd)]);
+                        connect_commands.push(format!("cd '{}'", cwd));
                     }
                 }
                 // Override PS1 and set PROMPT_COMMAND for OSC 7 on the remote shell
@@ -287,11 +292,17 @@ pub fn build_default_registry() -> PanelRegistry {
                 // the remote shell never executes these commands, and the fallback
                 // `clear` would end up wiping the SSH error from the local shell,
                 // turning connection failures into silent no-ops.
-                panel.send_commands(&[
+                connect_commands.extend([
                     " export PS1='\\[\\033[32m\\]$:\\[\\033[0m\\] '".to_string(),
                     " export PROMPT_COMMAND='printf \"\\033]7;file://%s%s\\033\\\\\" \"$HOSTNAME\" \"$PWD\"'".to_string(),
                     " export LS_COLORS='di=38;2;85;136;255:ln=36:so=35:pi=33:ex=32:bd=34;46:cd=34;43:su=30;41:sg=30;46:tw=30;42:ow=34;42'".to_string(),
                 ]);
+                panel.set_ssh_control(ssh_label, connect_commands.clone(), ssh_active);
+                if ssh_active {
+                    for command in &connect_commands {
+                        panel.send_commands(std::slice::from_ref(command));
+                    }
+                }
             }
             // Startup script commands
             if let Some(cmds_str) = config.extra.get("__startup_commands__") {

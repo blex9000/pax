@@ -31,3 +31,16 @@ pub fn open_in_new_window(config_path: &Path) -> io::Result<()> {
         .spawn()?;
     Ok(())
 }
+
+/// Launch a new Pax process that opens or creates the default workspace
+/// for `name`, mirroring the `pax new --name <name>` CLI path.
+pub fn open_new_workspace_in_new_window(name: &str) -> io::Result<()> {
+    let exe = std::env::current_exe()?;
+    Command::new(exe)
+        .arg("new")
+        .arg("--name")
+        .arg(name)
+        .env(crate::app::SECONDARY_INSTANCE_ENV, "1")
+        .spawn()?;
+    Ok(())
+}

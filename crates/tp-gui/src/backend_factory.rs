@@ -177,6 +177,10 @@ pub fn create_backend_from_registry(
 
     if let Some(ref ssh) = panel_cfg.effective_ssh() {
         insert_ssh_extra(&mut extra, ssh);
+        extra.insert(
+            "__ssh_active__".to_string(),
+            panel_cfg.effective_ssh_enabled().to_string(),
+        );
     }
 
     if !panel_cfg.startup_commands.is_empty() {

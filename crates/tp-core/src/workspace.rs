@@ -110,6 +110,9 @@ pub struct PanelConfig {
     /// SSH/remote connection settings (only for Terminal panels).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ssh: Option<SshConfig>,
+    /// Whether a Terminal panel should connect its saved SSH config on startup.
+    #[serde(default = "default_true", skip_serializing_if = "is_true")]
+    pub ssh_enabled: bool,
 }
 
 /// In-memory update produced by the panel configuration dialog.
@@ -119,6 +122,7 @@ pub struct PanelConfigUpdate {
     pub panel_type: PanelType,
     pub cwd: Option<String>,
     pub ssh: Option<SshConfig>,
+    pub ssh_enabled: bool,
     pub startup_commands: Vec<String>,
     pub before_close: Option<String>,
     pub min_width: u32,
@@ -385,6 +389,14 @@ fn default_ssh_port() -> u16 {
     22
 }
 
+fn default_true() -> bool {
+    true
+}
+
+fn is_true(value: &bool) -> bool {
+    *value
+}
+
 impl PanelConfig {
     /// Resolve the effective panel type.
     /// Legacy Ssh/RemoteTmux types are treated as Terminal (ssh config is in self.ssh).
@@ -473,6 +485,12 @@ impl PanelConfig {
     /// Returns true if this panel type supports text input (terminal-like).
     pub fn accepts_input(&self) -> bool {
         self.effective_type() == PanelType::Terminal
+    }
+
+    /// Terminal-specific connection state: saved SSH details may exist even
+    /// when automatic connection is disabled.
+    pub fn effective_ssh_enabled(&self) -> bool {
+        self.effective_ssh().is_some() && self.ssh_enabled
     }
 }
 
@@ -629,7 +647,10 @@ impl Workspace {
 
 #[cfg(test)]
 mod tests {
-    use super::{new_tab_id, LayoutNode, MarkdownStorage, PanelType, Workspace, WorkspaceSettings};
+    use super::{
+        new_tab_id, LayoutNode, MarkdownStorage, PanelConfig, PanelType, SshConfig, Workspace,
+        WorkspaceSettings,
+    };
 
     #[test]
     fn workspace_settings_default_to_graphite_theme() {
@@ -675,6 +696,58 @@ mod tests {
                 storage: MarkdownStorage::Database,
             }
         );
+    }
+
+    #[test]
+    fn terminal_ssh_enabled_defaults_true_for_legacy_configs() {
+        let panel: PanelConfig = serde_json::from_str(
+            r#"{
+                "id": "term",
+                "panel_type": { "type": "terminal" },
+                "ssh": { "host": "server.example.com" }
+            }"#,
+        )
+        .unwrap();
+
+        assert!(panel.ssh_enabled);
+        assert!(panel.effective_ssh_enabled());
+    }
+
+    #[test]
+    fn terminal_ssh_config_can_be_saved_inactive() {
+        let panel = PanelConfig {
+            id: "term".to_string(),
+            uuid: uuid::Uuid::new_v4(),
+            name: "Terminal".to_string(),
+            panel_type: PanelType::Terminal,
+            target: Default::default(),
+            startup_commands: Vec::new(),
+            groups: Vec::new(),
+            record_output: false,
+            cwd: None,
+            env: Default::default(),
+            pre_script: None,
+            post_script: None,
+            before_close: None,
+            min_width: 0,
+            min_height: 0,
+            ssh: Some(SshConfig {
+                host: "server.example.com".to_string(),
+                ..Default::default()
+            }),
+            ssh_enabled: false,
+        };
+
+        assert!(!panel.effective_ssh_enabled());
+        let json = serde_json::to_string(&panel).unwrap();
+        assert!(json.contains(r#""ssh_enabled":false"#));
+
+        let roundtrip: PanelConfig = serde_json::from_str(&json).unwrap();
+        assert_eq!(
+            roundtrip.effective_ssh().map(|ssh| ssh.host),
+            Some("server.example.com".to_string())
+        );
+        assert!(!roundtrip.effective_ssh_enabled());
     }
 
     #[test]

@@ -30,6 +30,91 @@ pub(crate) const PRIMARY_APP_ID: &str = "com.sinelec.pax";
 /// grouped under the same WM entry as the parent.
 pub(crate) const SECONDARY_INSTANCE_ENV: &str = "PAX_SECONDARY_INSTANCE";
 
+#[derive(Clone, Copy)]
+enum NewWorkspaceDecision {
+    ThisWindow,
+    NewWindow,
+    Cancel,
+}
+
+fn show_new_workspace_choice(
+    parent: &adw::ApplicationWindow,
+    on_decision: Rc<dyn Fn(NewWorkspaceDecision)>,
+) {
+    let dialog = gtk4::Window::builder()
+        .title("New workspace")
+        .transient_for(parent)
+        .modal(true)
+        .default_width(420)
+        .build();
+    crate::theme::configure_dialog_window(&dialog);
+
+    let root = gtk4::Box::new(gtk4::Orientation::Vertical, 12);
+    root.set_margin_top(12);
+    root.set_margin_bottom(12);
+    root.set_margin_start(16);
+    root.set_margin_end(16);
+
+    let heading = gtk4::Label::new(Some("Create a new workspace?"));
+    heading.add_css_class("title-4");
+    heading.set_halign(gtk4::Align::Start);
+    heading.set_wrap(true);
+    heading.set_xalign(0.0);
+    root.append(&heading);
+
+    let subtitle = gtk4::Label::new(Some(
+        "Choose whether to replace the current window or open the new workspace in a separate window.",
+    ));
+    subtitle.add_css_class("dim-label");
+    subtitle.set_halign(gtk4::Align::Start);
+    subtitle.set_wrap(true);
+    subtitle.set_xalign(0.0);
+    root.append(&subtitle);
+
+    let btn_row = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
+    btn_row.set_halign(gtk4::Align::End);
+    btn_row.set_margin_top(6);
+
+    let cancel_btn = gtk4::Button::with_label("Cancel");
+    let this_window_btn = gtk4::Button::with_label("Use this window");
+    let new_window_btn = gtk4::Button::with_label("Open in new window");
+    new_window_btn.add_css_class("suggested-action");
+
+    btn_row.append(&cancel_btn);
+    btn_row.append(&this_window_btn);
+    btn_row.append(&new_window_btn);
+    root.append(&btn_row);
+
+    dialog.set_child(Some(&root));
+
+    {
+        let d = dialog.clone();
+        let on_decision = on_decision.clone();
+        cancel_btn.connect_clicked(move |_| {
+            d.close();
+            on_decision(NewWorkspaceDecision::Cancel);
+        });
+    }
+    {
+        let d = dialog.clone();
+        let on_decision = on_decision.clone();
+        this_window_btn.connect_clicked(move |_| {
+            d.close();
+            on_decision(NewWorkspaceDecision::ThisWindow);
+        });
+    }
+    {
+        let d = dialog.clone();
+        let on_decision = on_decision.clone();
+        new_window_btn.connect_clicked(move |_| {
+            d.close();
+            on_decision(NewWorkspaceDecision::NewWindow);
+        });
+    }
+
+    dialog.present();
+}
+
 fn panel_type_uses_text_editing_shortcuts(panel_type: &pax_core::workspace::PanelType) -> bool {
     matches!(
         panel_type,
@@ -1279,6 +1364,7 @@ fn setup_workspace_ui(
                         panel_type: &default_type,
                         cwd: None,
                         ssh: None,
+                        ssh_enabled: true,
                         startup_commands: &[],
                         before_close: None,
                         min_width: 0,
@@ -1526,7 +1612,7 @@ fn setup_workspace_ui(
                     }
                 }
                 PanelAction::Configure => {
-                    let (pname, ptype, pcwd, pssh, pcmds, pclose, pmw, pmh) = {
+                    let (pname, ptype, pcwd, pssh, pssh_enabled, pcmds, pclose, pmw, pmh) = {
                         let view = ws_for_cb.borrow();
                         let ws = view.workspace();
                         let pcfg = ws.panel(panel_id);
@@ -1536,6 +1622,7 @@ fn setup_workspace_ui(
                                 .unwrap_or(pax_core::workspace::PanelType::Terminal),
                             pcfg.and_then(|p| p.cwd.clone()),
                             pcfg.and_then(|p| p.effective_ssh()),
+                            pcfg.map(|p| p.effective_ssh_enabled()).unwrap_or(false),
                             pcfg.map(|p| p.startup_commands.clone()).unwrap_or_default(),
                             pcfg.and_then(|p| p.before_close.clone()),
                             pcfg.map(|p| p.min_width).unwrap_or(0),
@@ -1590,6 +1677,7 @@ fn setup_workspace_ui(
                             panel_type: &ptype,
                             cwd: pcwd.as_deref(),
                             ssh: pssh.as_ref(),
+                            ssh_enabled: pssh_enabled,
                             startup_commands: &pcmds,
                             before_close: pclose.as_deref(),
                             min_width: pmw,
@@ -1830,21 +1918,53 @@ fn setup_workspace_ui(
         let sa = save_action.clone();
         let sb = status_bar.clone();
         action.connect_activate(move |_, _| {
-            let ws2 = ws.clone();
-            let sb2 = sb.clone();
-            let win2 = win.clone();
-            let sa2 = sa.clone();
-            let on_continue: Rc<dyn Fn()> = Rc::new(move || {
-                let (empty, save_path) = open_or_create_default_workspace("untitled");
-                let empty_theme = load_preferred_theme();
-                if let Err(e) = ws2.borrow_mut().load_workspace(empty, save_path.as_deref()) {
-                    sb2.borrow().set_message(&format!("Error: {}", e));
-                }
-                apply_theme(empty_theme);
-                actions::update_dirty_ui(&ws2, &win2, &sa2);
-                actions::update_status_bar_path(&ws2, &sb2);
-            });
-            actions::confirm_discard_workspace_changes(&ws, &sb, &win, &sa, on_continue);
+            let ws_for_decision = ws.clone();
+            let sb_for_decision = sb.clone();
+            let win_for_decision = win.clone();
+            let sa_for_decision = sa.clone();
+            show_new_workspace_choice(
+                win.as_ref(),
+                Rc::new(move |decision| match decision {
+                    NewWorkspaceDecision::Cancel => {}
+                    NewWorkspaceDecision::NewWindow => {
+                        match crate::workspace_launcher::open_new_workspace_in_new_window(
+                            "untitled",
+                        ) {
+                            Ok(()) => sb_for_decision
+                                .borrow()
+                                .set_message("Opened new workspace in new window"),
+                            Err(e) => sb_for_decision
+                                .borrow()
+                                .set_message(&format!("Failed to spawn new window: {}", e)),
+                        }
+                    }
+                    NewWorkspaceDecision::ThisWindow => {
+                        let ws2 = ws_for_decision.clone();
+                        let sb2 = sb_for_decision.clone();
+                        let win2 = win_for_decision.clone();
+                        let sa2 = sa_for_decision.clone();
+                        let on_continue: Rc<dyn Fn()> = Rc::new(move || {
+                            let (empty, save_path) = open_or_create_default_workspace("untitled");
+                            let empty_theme = load_preferred_theme();
+                            if let Err(e) =
+                                ws2.borrow_mut().load_workspace(empty, save_path.as_deref())
+                            {
+                                sb2.borrow().set_message(&format!("Error: {}", e));
+                            }
+                            apply_theme(empty_theme);
+                            actions::update_dirty_ui(&ws2, &win2, &sa2);
+                            actions::update_status_bar_path(&ws2, &sb2);
+                        });
+                        actions::confirm_discard_workspace_changes(
+                            &ws_for_decision,
+                            &sb_for_decision,
+                            &win_for_decision,
+                            &sa_for_decision,
+                            on_continue,
+                        );
+                    }
+                }),
+            );
         });
         action_group.add_action(&action);
     }
@@ -2624,6 +2744,7 @@ mod tests {
             min_width: 0,
             min_height: 0,
             ssh: None,
+            ssh_enabled: true,
         }
     }
 

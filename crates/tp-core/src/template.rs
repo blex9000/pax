@@ -24,6 +24,7 @@ pub fn empty_workspace(name: &str) -> Workspace {
             min_width: 0,
             min_height: 0,
             ssh: None,
+            ssh_enabled: true,
         }],
         groups: vec![],
         alerts: vec![],
@@ -54,6 +55,7 @@ pub fn simple_hsplit(name: &str, count: usize) -> Workspace {
             min_width: 0,
             min_height: 0,
             ssh: None,
+            ssh_enabled: true,
         })
         .collect();
 
@@ -98,6 +100,7 @@ pub fn grid_2x2(name: &str) -> Workspace {
             min_width: 0,
             min_height: 0,
             ssh: None,
+            ssh_enabled: true,
         })
         .collect();
 

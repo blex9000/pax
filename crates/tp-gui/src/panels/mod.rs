@@ -86,6 +86,22 @@ pub trait PanelBackend: std::fmt::Debug {
         None
     }
 
+    /// Runtime SSH connection state for panels that have a saved SSH target.
+    /// `None` means no SSH control should be shown.
+    fn ssh_is_connected(&self) -> Option<bool> {
+        None
+    }
+
+    /// Ask the backend to connect to its saved SSH target.
+    fn ssh_connect(&self) -> bool {
+        false
+    }
+
+    /// Ask the backend to disconnect from its active SSH target.
+    fn ssh_disconnect(&self) -> bool {
+        false
+    }
+
     /// Stable per-panel UUID. Returned by panels that participate in
     /// per-panel persistence (terminal command history, …). Default
     /// `None`: panels without persistence.

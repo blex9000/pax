@@ -3,6 +3,7 @@ use libadwaita as adw;
 use std::cell::RefCell;
 use std::rc::Rc;
 
+use crate::dialogs::open_workspace_choice::OpenWorkspaceDecision;
 use crate::widgets::status_bar::StatusBar;
 use crate::workspace_view::WorkspaceView;
 
@@ -295,35 +296,84 @@ pub fn do_open(
         move |result| {
             if let Ok(file) = result {
                 if let Some(path) = file.path() {
-                    let ws2 = ws.clone();
-                    let sb2 = sb.clone();
-                    let win2 = win.clone();
-                    let sa2 = sa.clone();
-                    let on_continue: Rc<dyn Fn()> = Rc::new(move || {
-                        // Drop the borrow_mut() guard before entering the arm,
-                        // otherwise the second borrow_mut() inside Ok(()) would
-                        // panic with "RefCell already borrowed".
-                        let load_result = ws2.borrow_mut().load_from_file(&path);
-                        match load_result {
-                            Ok(()) => {
-                                let theme = crate::app::apply_preferred_theme();
-                                ws2.borrow_mut().set_workspace_theme_id_clean(theme.to_id());
-                                sb2.borrow()
-                                    .set_message(&format!("Opened: {}", path.display()));
-                            }
-                            Err(e) => {
-                                sb2.borrow().set_message(&format!("Open error: {}", e));
-                                return;
-                            }
+                    let workspace_name = match read_workspace_name_for_dialog(&path) {
+                        Ok(name) => name,
+                        Err(e) => {
+                            sb.borrow().set_message(&format!("Open error: {}", e));
+                            return;
                         }
-                        update_dirty_ui(&ws2, &win2, &sa2);
-                        update_status_bar_path(&ws2, &sb2);
-                    });
-                    confirm_discard_workspace_changes(&ws, &sb, &win, &sa, on_continue);
+                    };
+                    let ws_for_choice = ws.clone();
+                    let sb_for_choice = sb.clone();
+                    let win_for_choice = win.clone();
+                    let sa_for_choice = sa.clone();
+                    crate::dialogs::open_workspace_choice::show(
+                        win.as_ref(),
+                        &workspace_name,
+                        &path,
+                        Rc::new(move |decision| match decision {
+                            OpenWorkspaceDecision::Cancel => {}
+                            OpenWorkspaceDecision::NewWindow(path) => {
+                                match crate::workspace_launcher::open_in_new_window(&path) {
+                                    Ok(()) => sb_for_choice.borrow().set_message(&format!(
+                                        "Opened in new window: {}",
+                                        path.display()
+                                    )),
+                                    Err(e) => sb_for_choice
+                                        .borrow()
+                                        .set_message(&format!("Failed to spawn new window: {}", e)),
+                                }
+                            }
+                            OpenWorkspaceDecision::ThisWindow(path) => {
+                                let ws2 = ws_for_choice.clone();
+                                let sb2 = sb_for_choice.clone();
+                                let win2 = win_for_choice.clone();
+                                let sa2 = sa_for_choice.clone();
+                                let on_continue: Rc<dyn Fn()> = Rc::new(move || {
+                                    // Drop the borrow_mut() guard before entering the arm,
+                                    // otherwise the second borrow_mut() inside Ok(()) would
+                                    // panic with "RefCell already borrowed".
+                                    let load_result = ws2.borrow_mut().load_from_file(&path);
+                                    match load_result {
+                                        Ok(()) => {
+                                            let theme = crate::app::apply_preferred_theme();
+                                            ws2.borrow_mut()
+                                                .set_workspace_theme_id_clean(theme.to_id());
+                                            sb2.borrow().set_message(&format!(
+                                                "Opened: {}",
+                                                path.display()
+                                            ));
+                                        }
+                                        Err(e) => {
+                                            sb2.borrow().set_message(&format!("Open error: {}", e));
+                                            return;
+                                        }
+                                    }
+                                    update_dirty_ui(&ws2, &win2, &sa2);
+                                    update_status_bar_path(&ws2, &sb2);
+                                });
+                                confirm_discard_workspace_changes(
+                                    &ws_for_choice,
+                                    &sb_for_choice,
+                                    &win_for_choice,
+                                    &sa_for_choice,
+                                    on_continue,
+                                );
+                            }
+                        }),
+                    );
                 }
             }
         },
     );
+}
+
+fn read_workspace_name_for_dialog(path: &std::path::Path) -> Result<String, String> {
+    let content = std::fs::read_to_string(path)
+        .map_err(|e| format!("Cannot read workspace file: {}: {}", path.display(), e))?;
+    let workspace: pax_core::workspace::Workspace = serde_json::from_str(&content)
+        .map_err(|e| format!("Invalid workspace JSON: {}: {}", path.display(), e))?;
+    Ok(workspace.name)
 }
 
 pub fn show_recent_dialog(

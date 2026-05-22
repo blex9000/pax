@@ -53,6 +53,8 @@ use crate::panels::{
     PanelCwdCallback, PanelInputCallback, PanelStatusCallback, PanelTitleCallback,
 };
 use backend::TerminalInner;
+use std::cell::Cell;
+use std::rc::Rc;
 
 // ── Shared terminal font configuration ──────────────────────────────────────
 
@@ -117,6 +119,13 @@ pub(crate) fn terminal_font_description() -> gtk4::pango::FontDescription {
     desc
 }
 
+#[derive(Debug, Clone)]
+pub struct SshControl {
+    label: String,
+    connect_commands: Vec<String>,
+    connected: Rc<Cell<bool>>,
+}
+
 /// Terminal panel — uses VTE4 on Linux, PTY+cell renderer fallback on macOS.
 ///
 /// Created by the panel registry when a `PanelType::Terminal` config is loaded.
@@ -124,8 +133,8 @@ pub(crate) fn terminal_font_description() -> gtk4::pango::FontDescription {
 #[derive(Debug)]
 pub struct TerminalPanel {
     inner: TerminalInner,
-    /// SSH connection label (e.g. "user@host") for remote terminals.
-    ssh_info: Option<String>,
+    /// Saved SSH target and runtime state for the header connect/disconnect button.
+    ssh_control: Option<SshControl>,
 }
 
 impl TerminalPanel {
@@ -138,13 +147,23 @@ impl TerminalPanel {
     ) -> Self {
         Self {
             inner: TerminalInner::new(shell, cwd, env, workspace_dir, panel_uuid),
-            ssh_info: None,
+            ssh_control: None,
         }
     }
 
-    /// Set the SSH label shown in the panel header.
-    pub fn set_ssh_info(&mut self, label: String) {
-        self.ssh_info = Some(label);
+    /// Set the SSH target shown in the panel header and controlled by its
+    /// connect/disconnect button.
+    pub fn set_ssh_control(
+        &mut self,
+        label: String,
+        connect_commands: Vec<String>,
+        connected: bool,
+    ) {
+        self.ssh_control = Some(SshControl {
+            label,
+            connect_commands,
+            connected: Rc::new(Cell::new(connected)),
+        });
     }
 
     /// Queue startup commands to execute once the shell is ready.
@@ -197,7 +216,41 @@ impl PanelBackend for TerminalPanel {
     }
 
     fn ssh_label(&self) -> Option<String> {
-        self.ssh_info.clone()
+        self.ssh_control
+            .as_ref()
+            .map(|control| control.label.clone())
+    }
+
+    fn ssh_is_connected(&self) -> Option<bool> {
+        self.ssh_control
+            .as_ref()
+            .map(|control| control.connected.get())
+    }
+
+    fn ssh_connect(&self) -> bool {
+        let Some(control) = self.ssh_control.as_ref() else {
+            return false;
+        };
+        if control.connected.get() {
+            return true;
+        }
+        for command in &control.connect_commands {
+            self.inner.send_commands(std::slice::from_ref(command));
+        }
+        control.connected.set(true);
+        true
+    }
+
+    fn ssh_disconnect(&self) -> bool {
+        let Some(control) = self.ssh_control.as_ref() else {
+            return false;
+        };
+        if !control.connected.get() {
+            return true;
+        }
+        self.inner.write_input(b"exit\n");
+        control.connected.set(false);
+        true
     }
 
     fn accepts_input(&self) -> bool {

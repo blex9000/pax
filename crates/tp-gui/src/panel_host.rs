@@ -145,6 +145,7 @@ pub struct PanelHost {
     status_icon: gtk4::Image,
     sync_button: gtk4::Button,
     zoom_button: gtk4::Button,
+    ssh_button: gtk4::Button,
     history_button: gtk4::Button,
     menu_button: gtk4::MenuButton,
     pub(crate) collapsed_view: gtk4::Widget,
@@ -178,6 +179,28 @@ impl Drop for PanelHost {
         // currently exposing a terminal, the entry would otherwise outlive
         // the panel and feed stale closures.
         crate::panels::terminal_registry::unregister(&self.panel_id);
+    }
+}
+
+fn update_ssh_button(button: &gtk4::Button, connected: Option<bool>) {
+    match connected {
+        Some(true) => {
+            button.set_visible(true);
+            button.set_icon_name("process-stop-symbolic");
+            button.set_tooltip_text(Some("Disconnect SSH"));
+            button.add_css_class("ssh-connected");
+        }
+        Some(false) => {
+            button.set_visible(true);
+            button.set_icon_name("network-server-symbolic");
+            button.set_tooltip_text(Some("Connect SSH"));
+            button.remove_css_class("ssh-connected");
+        }
+        None => {
+            button.set_visible(false);
+            button.set_tooltip_text(None);
+            button.remove_css_class("ssh-connected");
+        }
     }
 }
 
@@ -335,6 +358,37 @@ impl PanelHost {
             });
         }
 
+        // SSH connect/disconnect button — visible only for terminal backends
+        // with a saved SSH target.
+        let ssh_button = gtk4::Button::new();
+        ssh_button.add_css_class("flat");
+        ssh_button.add_css_class("panel-action-btn");
+        ssh_button.set_visible(false);
+        {
+            let backend_ref = backend.clone();
+            let button = ssh_button.clone();
+            ssh_button.connect_clicked(move |_| {
+                let next_state = match backend_ref.try_borrow() {
+                    Ok(borrowed) => match &*borrowed {
+                        Some(backend) => match backend.ssh_is_connected() {
+                            Some(true) => {
+                                backend.ssh_disconnect();
+                                backend.ssh_is_connected()
+                            }
+                            Some(false) => {
+                                backend.ssh_connect();
+                                backend.ssh_is_connected()
+                            }
+                            None => None,
+                        },
+                        None => None,
+                    },
+                    Err(_) => None,
+                };
+                update_ssh_button(&button, next_state);
+            });
+        }
+
         // Command history button — visible only when backend is a terminal.
         let history_button = gtk4::Button::new();
         history_button.set_icon_name("utilities-terminal-symbolic");
@@ -441,6 +495,7 @@ impl PanelHost {
         let end_box = gtk4::Box::new(gtk4::Orientation::Horizontal, 4);
         end_box.append(&sync_button);
         end_box.append(&zoom_button);
+        end_box.append(&ssh_button);
         end_box.append(&history_button);
         end_box.append(&menu_button);
 
@@ -585,6 +640,7 @@ impl PanelHost {
             status_icon,
             sync_button,
             zoom_button,
+            ssh_button,
             history_button,
             menu_button,
             collapsed_view: collapsed_view.upcast(),
@@ -695,6 +751,7 @@ impl PanelHost {
         } else {
             self.set_ssh_indicator(None);
         }
+        update_ssh_button(&self.ssh_button, backend.ssh_is_connected());
 
         // Static footer (file path for document panels, project dir for code
         // editor). Terminals drive their footer dynamically via OSC 7 and

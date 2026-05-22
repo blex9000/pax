@@ -278,7 +278,7 @@ impl WorkspaceView {
             update.name,
             update.panel_type,
             update.cwd,
-            update.ssh.is_some(),
+            update.ssh.is_some() && update.ssh_enabled,
             update.startup_commands.len(),
             update.before_close.is_some()
         );
@@ -293,6 +293,7 @@ impl WorkspaceView {
             panel_cfg.panel_type = update.panel_type.clone();
             panel_cfg.cwd = update.cwd.clone();
             panel_cfg.ssh = update.ssh.clone();
+            panel_cfg.ssh_enabled = update.ssh_enabled;
             panel_cfg.startup_commands = update.startup_commands.clone();
             panel_cfg.before_close = update.before_close.clone();
             panel_cfg.min_width = update.min_width;
@@ -341,6 +342,10 @@ impl WorkspaceView {
         if let Some(panel_cfg) = self.workspace.panels.iter().find(|p| p.id == panel_id) {
             if let Some(ref ssh) = panel_cfg.effective_ssh() {
                 insert_ssh_extra(&mut config.extra, ssh);
+                config.extra.insert(
+                    "__ssh_active__".to_string(),
+                    panel_cfg.effective_ssh_enabled().to_string(),
+                );
             }
         }
         // Pass startup commands via extra so the registry factory can queue them
@@ -1293,6 +1298,7 @@ impl WorkspaceView {
             min_width: 0,
             min_height: 0,
             ssh: None,
+            ssh_enabled: true,
         };
         let host = PanelHost::new(&new_id, &new_name, self.action_cb.clone());
         self.wire_sibling_info_provider_on(&host);
@@ -1435,6 +1441,7 @@ impl WorkspaceView {
             min_width: 0,
             min_height: 0,
             ssh: None,
+            ssh_enabled: true,
         }
     }
 
@@ -1945,6 +1952,7 @@ mod tests {
             min_width: 0,
             min_height: 0,
             ssh: None,
+            ssh_enabled: true,
         }
     }
 

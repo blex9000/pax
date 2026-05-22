@@ -618,12 +618,23 @@ impl TerminalInner {
     /// - Multi-line or shebang text → written to temp file, sourced, then deleted
     pub fn send_commands(&self, commands: &[String]) {
         if let Some(line) = prepare_startup_command(commands, self.workspace_dir.as_deref()) {
-            self.pending_commands.borrow_mut().push(line);
+            if *self._spawned.borrow() {
+                let line = format!(" {}\n", line);
+                self.vte.feed_child(line.as_bytes());
+            } else {
+                self.pending_commands.borrow_mut().push(line);
+            }
         }
     }
 
     pub fn queue_raw(&self, text: &str) {
-        self.pending_commands.borrow_mut().push(text.to_string());
+        if *self._spawned.borrow() {
+            let mut line = text.as_bytes().to_vec();
+            line.push(b'\n');
+            self.vte.feed_child(&line);
+        } else {
+            self.pending_commands.borrow_mut().push(text.to_string());
+        }
     }
 
     pub fn write_input(&self, data: &[u8]) -> bool {

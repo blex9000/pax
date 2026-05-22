@@ -17,6 +17,9 @@ use syntect::parsing::{SyntaxReference, SyntaxSet};
 use syntect::util::LinesWithEndings;
 use unicode_width::UnicodeWidthStr;
 
+const LINK_URI_TAG_PREFIX: &str = "markdown_link_uri_";
+const LINK_HANDLER_CLASS: &str = "markdown-link-handler-installed";
+
 /// Wrap `text_view` (currently the only child of `scrolled`) in a
 /// `gtk4::Overlay` containing a transparent `DrawingArea` that paints
 /// a blockquote-style left bar next to every range tagged `bq`. The
@@ -159,6 +162,8 @@ pub(crate) fn render_markdown_to_view_with_hook(
     content: &str,
     mut hook: Option<NotebookHook<'_>>,
 ) {
+    ensure_link_handlers(tv);
+
     let buf = tv.buffer();
     buf.set_text("");
     let tt = buf.tag_table();
@@ -396,6 +401,141 @@ pub(crate) fn render_markdown_to_view_with_hook(
     }
 }
 
+fn ensure_link_handlers(tv: &gtk4::TextView) {
+    if tv.has_css_class(LINK_HANDLER_CLASS) {
+        return;
+    }
+    tv.add_css_class(LINK_HANDLER_CLASS);
+
+    {
+        let tv_for_click = tv.clone();
+        let click = gtk4::GestureClick::new();
+        click.set_button(1);
+        click.set_propagation_phase(gtk4::PropagationPhase::Capture);
+        click.connect_released(move |gesture, _n_press, x, y| {
+            let Some(uri) = link_uri_at_view_coords(&tv_for_click, x, y) else {
+                return;
+            };
+            gesture.set_state(gtk4::EventSequenceState::Claimed);
+            open_link_uri(&uri);
+        });
+        tv.add_controller(click);
+    }
+
+    {
+        let tv_for_motion = tv.clone();
+        let motion = gtk4::EventControllerMotion::new();
+        motion.connect_motion(move |_, x, y| {
+            if link_uri_at_view_coords(&tv_for_motion, x, y).is_some() {
+                tv_for_motion.set_cursor_from_name(Some("pointer"));
+            } else {
+                tv_for_motion.set_cursor_from_name(None);
+            }
+        });
+        let tv_for_leave = tv.clone();
+        motion.connect_leave(move |_| {
+            tv_for_leave.set_cursor_from_name(None);
+        });
+        tv.add_controller(motion);
+    }
+}
+
+fn link_uri_at_view_coords(tv: &gtk4::TextView, x: f64, y: f64) -> Option<String> {
+    let (buf_x, buf_y) =
+        tv.window_to_buffer_coords(gtk4::TextWindowType::Widget, x as i32, y as i32);
+    let iter = tv.iter_at_location(buf_x, buf_y)?;
+    link_uri_at_iter(&iter)
+}
+
+fn link_uri_at_iter(iter: &gtk4::TextIter) -> Option<String> {
+    iter.tags().into_iter().find_map(|tag| {
+        let name = tag.name()?;
+        decode_link_uri_tag_name(name.as_str())
+    })
+}
+
+fn open_link_uri(uri: &str) {
+    let Some(uri) = normalize_browser_uri(uri) else {
+        tracing::warn!("markdown renderer: unsupported link URI: {}", uri);
+        return;
+    };
+    if let Err(e) =
+        gtk4::gio::AppInfo::launch_default_for_uri(&uri, None::<&gtk4::gio::AppLaunchContext>)
+    {
+        tracing::warn!("markdown renderer: failed to open link {}: {}", uri, e);
+    }
+}
+
+fn normalize_browser_uri(uri: &str) -> Option<String> {
+    let trimmed = uri.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    if let Some((scheme, _rest)) = trimmed.split_once(':') {
+        if is_valid_uri_scheme(scheme)
+            && matches!(scheme.to_ascii_lowercase().as_str(), "http" | "https")
+        {
+            return Some(trimmed.to_string());
+        }
+        return None;
+    }
+
+    trimmed
+        .strip_prefix("www.")
+        .map(|_| format!("https://{}", trimmed))
+}
+
+fn is_valid_uri_scheme(scheme: &str) -> bool {
+    let mut chars = scheme.chars();
+    let Some(first) = chars.next() else {
+        return false;
+    };
+    first.is_ascii_alphabetic()
+        && chars.all(|c| c.is_ascii_alphanumeric() || matches!(c, '+' | '.' | '-'))
+}
+
+fn ensure_link_uri_tag(buf: &gtk4::TextBuffer, uri: &str) {
+    let name = link_uri_tag_name(uri);
+    let table = buf.tag_table();
+    if table.lookup(&name).is_none() {
+        table.add(&gtk4::TextTag::new(Some(&name)));
+    }
+}
+
+fn link_uri_tag_name(uri: &str) -> String {
+    let mut out = String::with_capacity(LINK_URI_TAG_PREFIX.len() + uri.len() * 2);
+    out.push_str(LINK_URI_TAG_PREFIX);
+    for byte in uri.as_bytes() {
+        use std::fmt::Write;
+        let _ = write!(&mut out, "{:02x}", byte);
+    }
+    out
+}
+
+fn decode_link_uri_tag_name(name: &str) -> Option<String> {
+    let hex = name.strip_prefix(LINK_URI_TAG_PREFIX)?;
+    if hex.len() % 2 != 0 {
+        return None;
+    }
+    let mut bytes = Vec::with_capacity(hex.len() / 2);
+    for pair in hex.as_bytes().chunks_exact(2) {
+        let hi = hex_nibble(pair[0])?;
+        let lo = hex_nibble(pair[1])?;
+        bytes.push((hi << 4) | lo);
+    }
+    String::from_utf8(bytes).ok()
+}
+
+fn hex_nibble(b: u8) -> Option<u8> {
+    match b {
+        b'0'..=b'9' => Some(b - b'0'),
+        b'a'..=b'f' => Some(b - b'a' + 10),
+        b'A'..=b'F' => Some(b - b'A' + 10),
+        _ => None,
+    }
+}
+
 fn blank_lines_before(source: &str, next_start: usize) -> usize {
     let bytes = source.as_bytes();
     let mut pos = next_start;
@@ -459,8 +599,8 @@ struct MermaidCapture {
 
 /// Inline formatting and structural state carried across events.
 struct RenderState {
-    /// Inline tag names currently active (bold/italic/strike/link).
-    inline_tags: Vec<&'static str>,
+    /// Inline tag names currently active (bold/italic/strike/link/url-tag).
+    inline_tags: Vec<String>,
     /// Heading level in flight, if any.
     heading: Option<&'static str>,
     /// Depth of nested lists with each frame's next-ordinal (None = unordered).
@@ -585,11 +725,15 @@ fn handle_start(buf: &gtk4::TextBuffer, it: &mut gtk4::TextIter, st: &mut Render
         Tag::Item => {
             st.item_needs_marker = true;
         }
-        Tag::Emphasis => st.inline_tags.push("italic"),
-        Tag::Strong => st.inline_tags.push("bold"),
-        Tag::Strikethrough => st.inline_tags.push("strike"),
-        Tag::Link { .. } => st.inline_tags.push("link"),
-        Tag::Image { .. } => st.inline_tags.push("italic"),
+        Tag::Emphasis => st.inline_tags.push("italic".to_string()),
+        Tag::Strong => st.inline_tags.push("bold".to_string()),
+        Tag::Strikethrough => st.inline_tags.push("strike".to_string()),
+        Tag::Link { dest_url, .. } => {
+            ensure_link_uri_tag(buf, &dest_url);
+            st.inline_tags.push("link".to_string());
+            st.inline_tags.push(link_uri_tag_name(&dest_url));
+        }
+        Tag::Image { .. } => st.inline_tags.push("italic".to_string()),
         Tag::Table(_) => {
             st.table = Some(TableState {
                 rows: Vec::new(),
@@ -651,11 +795,11 @@ fn handle_end(buf: &gtk4::TextBuffer, it: &mut gtk4::TextIter, st: &mut RenderSt
             }
             buf.insert(it, "\n");
         }
-        TagEnd::Emphasis
-        | TagEnd::Strong
-        | TagEnd::Strikethrough
-        | TagEnd::Link
-        | TagEnd::Image => {
+        TagEnd::Emphasis | TagEnd::Strong | TagEnd::Strikethrough | TagEnd::Image => {
+            st.inline_tags.pop();
+        }
+        TagEnd::Link => {
+            st.inline_tags.pop();
             st.inline_tags.pop();
         }
         TagEnd::Table => {
@@ -715,9 +859,9 @@ fn on_inline_code(
         t.current_cell.push_str(code);
         return;
     }
-    let mut tags: Vec<&str> = effective_tags(st);
-    tags.push("code");
-    buf.insert_with_tags_by_name(it, code, &tags);
+    let mut tags = effective_tags(st);
+    tags.push("code".to_string());
+    insert_with_tag_names(buf, it, code, &tags);
 }
 
 /// Insert `text` with whatever inline/block tags the current state implies.
@@ -734,23 +878,33 @@ fn insert_inline(
     if tags.is_empty() {
         buf.insert(it, text);
     } else {
-        buf.insert_with_tags_by_name(it, text, &tags);
+        insert_with_tag_names(buf, it, text, &tags);
     }
 }
 
-fn effective_tags(st: &RenderState) -> Vec<&'static str> {
-    let mut tags: Vec<&'static str> = Vec::new();
+fn effective_tags(st: &RenderState) -> Vec<String> {
+    let mut tags: Vec<String> = Vec::new();
     if let Some(h) = st.heading {
-        tags.push(h);
+        tags.push(h.to_string());
     }
     if st.bq_depth > 0 {
-        tags.push("bq");
+        tags.push("bq".to_string());
     }
     if !st.lists.is_empty() && st.heading.is_none() {
-        tags.push("bullet");
+        tags.push("bullet".to_string());
     }
-    tags.extend(st.inline_tags.iter().copied());
+    tags.extend(st.inline_tags.iter().cloned());
     tags
+}
+
+fn insert_with_tag_names(
+    buf: &gtk4::TextBuffer,
+    it: &mut gtk4::TextIter,
+    text: &str,
+    tags: &[String],
+) {
+    let tag_refs: Vec<&str> = tags.iter().map(String::as_str).collect();
+    buf.insert_with_tags_by_name(it, text, &tag_refs);
 }
 
 fn emit_list_marker(buf: &gtk4::TextBuffer, it: &mut gtk4::TextIter, st: &mut RenderState) {
@@ -1821,6 +1975,28 @@ sequenceDiagram
         .unwrap_err();
 
         assert!(err.contains("only flowchart/graph"));
+    }
+
+    #[test]
+    fn link_uri_tag_name_round_trips_uri() {
+        let uri = "https://example.com/docs?q=markdown%20link#section";
+        let tag = link_uri_tag_name(uri);
+
+        assert_eq!(decode_link_uri_tag_name(&tag), Some(uri.to_string()));
+    }
+
+    #[test]
+    fn browser_uri_normalization_accepts_web_links_only() {
+        assert_eq!(
+            normalize_browser_uri("https://example.com/page"),
+            Some("https://example.com/page".to_string())
+        );
+        assert_eq!(
+            normalize_browser_uri("www.example.com/page"),
+            Some("https://www.example.com/page".to_string())
+        );
+        assert_eq!(normalize_browser_uri("javascript:alert(1)"), None);
+        assert_eq!(normalize_browser_uri("docs/intro.md"), None);
     }
 }
 
