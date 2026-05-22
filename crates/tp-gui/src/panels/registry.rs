@@ -250,7 +250,6 @@ pub fn build_default_registry() -> PanelRegistry {
                 .get("__ssh_active__")
                 .map(|value| value == "true")
                 .unwrap_or(is_ssh_configured);
-            let is_ssh = is_ssh_configured && ssh_active;
 
             // SSH target if configured. It may be saved but inactive, in
             // which case the header shows "Connect" and the local shell opens.
@@ -297,31 +296,30 @@ pub fn build_default_registry() -> PanelRegistry {
                     " export PROMPT_COMMAND='printf \"\\033]7;file://%s%s\\033\\\\\" \"$HOSTNAME\" \"$PWD\"'".to_string(),
                     " export LS_COLORS='di=38;2;85;136;255:ln=36:so=35:pi=33:ex=32:bd=34;46:cd=34;43:su=30;41:sg=30;46:tw=30;42:ow=34;42'".to_string(),
                 ]);
-                panel.set_ssh_control(ssh_label, connect_commands.clone(), ssh_active);
+                let connect_raw_commands = config
+                    .extra
+                    .get("__startup_commands__")
+                    .and_then(|cmds_str| remote_startup_command(cmds_str))
+                    .into_iter()
+                    .collect::<Vec<_>>();
+                panel.set_ssh_control(
+                    ssh_label,
+                    connect_commands.clone(),
+                    connect_raw_commands.clone(),
+                    ssh_active,
+                );
                 if ssh_active {
                     for command in &connect_commands {
                         panel.send_commands(std::slice::from_ref(command));
+                    }
+                    for command in &connect_raw_commands {
+                        panel.queue_raw(command);
                     }
                 }
             }
             // Startup script commands
             if let Some(cmds_str) = config.extra.get("__startup_commands__") {
-                if is_ssh {
-                    // For SSH: wrap script in a heredoc so it runs on the remote host.
-                    // Strip shebang — the heredoc pipes to bash directly.
-                    // Use queue_raw to avoid temp file processing.
-                    let script_body: String = cmds_str.lines()
-                        .filter(|l| !l.starts_with("#!"))
-                        .collect::<Vec<_>>()
-                        .join("\n");
-                    if !script_body.trim().is_empty() {
-                        let heredoc = format!(
-                            "cat << 'PAX_SCRIPT_EOF' | bash\n{}\nPAX_SCRIPT_EOF",
-                            script_body
-                        );
-                        panel.queue_raw(&heredoc);
-                    }
-                } else {
+                if !is_ssh_configured {
                     let cmds: Vec<String> = cmds_str.lines().map(|l| l.to_string()).collect();
                     panel.send_commands(&cmds);
                 }
@@ -479,9 +477,26 @@ pub fn build_default_registry() -> PanelRegistry {
     reg
 }
 
+fn remote_startup_command(cmds_str: &str) -> Option<String> {
+    // For SSH: wrap script in a heredoc so it runs on the remote host.
+    // Strip shebang because the heredoc pipes to bash directly.
+    let script_body = cmds_str
+        .lines()
+        .filter(|line| !line.starts_with("#!"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    if script_body.trim().is_empty() {
+        return None;
+    }
+    Some(format!(
+        "cat << 'PAX_SCRIPT_EOF' | bash\n{}\nPAX_SCRIPT_EOF",
+        script_body
+    ))
+}
+
 #[cfg(test)]
 mod tests {
-    use super::build_default_registry;
+    use super::{build_default_registry, remote_startup_command};
 
     #[test]
     fn default_registry_does_not_expose_browser_panel() {
@@ -489,5 +504,19 @@ mod tests {
 
         assert!(registry.get_type("browser").is_none());
         assert!(registry.types().iter().all(|panel| panel.id != "browser"));
+    }
+
+    #[test]
+    fn remote_startup_command_strips_shebang() {
+        let command = remote_startup_command("#!/bin/bash\necho ready").unwrap();
+
+        assert!(command.starts_with("cat << 'PAX_SCRIPT_EOF' | bash\n"));
+        assert!(command.contains("echo ready"));
+        assert!(!command.contains("#!/bin/bash"));
+    }
+
+    #[test]
+    fn remote_startup_command_ignores_empty_scripts() {
+        assert!(remote_startup_command("#!/bin/bash\n\n").is_none());
     }
 }

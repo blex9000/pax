@@ -123,6 +123,7 @@ pub(crate) fn terminal_font_description() -> gtk4::pango::FontDescription {
 pub struct SshControl {
     label: String,
     connect_commands: Vec<String>,
+    connect_raw_commands: Vec<String>,
     connected: Rc<Cell<bool>>,
 }
 
@@ -157,11 +158,13 @@ impl TerminalPanel {
         &mut self,
         label: String,
         connect_commands: Vec<String>,
+        connect_raw_commands: Vec<String>,
         connected: bool,
     ) {
         self.ssh_control = Some(SshControl {
             label,
             connect_commands,
+            connect_raw_commands,
             connected: Rc::new(Cell::new(connected)),
         });
     }
@@ -236,6 +239,9 @@ impl PanelBackend for TerminalPanel {
         }
         for command in &control.connect_commands {
             self.inner.send_commands(std::slice::from_ref(command));
+        }
+        for command in &control.connect_raw_commands {
+            self.inner.queue_raw(command);
         }
         control.connected.set(true);
         true
