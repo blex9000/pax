@@ -12,8 +12,17 @@ pub type PanelInputCallback = std::rc::Rc<dyn Fn(&[u8])>;
 pub type PanelTitleCallback = std::rc::Rc<dyn Fn(&str)>;
 
 pub use terminal_registry::TerminalRef;
-/// Invoked with `true` when the panel signals it is waiting for user input
-/// (shell at prompt, no command running) and `false` when a command starts.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SshConnectionState {
+    Disconnected,
+    Connecting,
+    Connected,
+}
+
+pub type PanelSshStateCallback = std::rc::Rc<dyn Fn(SshConnectionState)>;
+
+/// Invoked with `true` when the panel reports a foreground command is running
+/// and `false` when the shell returns to the prompt.
 pub type PanelStatusCallback = std::rc::Rc<dyn Fn(bool)>;
 /// Invoked with a `file://host/path` URI when the shell changes directory
 /// (OSC 7). Empty string signals reset. Used to drive the footer bar.
@@ -52,8 +61,8 @@ pub trait PanelBackend: std::fmt::Debug {
     /// panel (terminal OSC 0/2). Empty string signals title reset/clear.
     fn set_title_callback(&self, _callback: Option<PanelTitleCallback>) {}
 
-    /// Observe "waiting for input" state transitions derived from OSC 133
-    /// shell integration: `true` = shell at prompt, `false` = command running.
+    /// Observe foreground-command state transitions derived from OSC 133
+    /// shell integration: `true` = command running, `false` = shell prompt.
     /// Non-terminal panels leave this as no-op.
     fn set_status_callback(&self, _callback: Option<PanelStatusCallback>) {}
 
@@ -92,6 +101,16 @@ pub trait PanelBackend: std::fmt::Debug {
         None
     }
 
+    fn ssh_connection_state(&self) -> Option<SshConnectionState> {
+        self.ssh_is_connected().map(|connected| {
+            if connected {
+                SshConnectionState::Connected
+            } else {
+                SshConnectionState::Disconnected
+            }
+        })
+    }
+
     /// Ask the backend to connect to its saved SSH target.
     fn ssh_connect(&self) -> bool {
         false
@@ -101,6 +120,8 @@ pub trait PanelBackend: std::fmt::Debug {
     fn ssh_disconnect(&self) -> bool {
         false
     }
+
+    fn set_ssh_state_callback(&self, _callback: Option<PanelSshStateCallback>) {}
 
     /// Stable per-panel UUID. Returned by panels that participate in
     /// per-panel persistence (terminal command history, …). Default

@@ -347,7 +347,7 @@ impl TerminalInner {
         );
 
         // Right-click context menu for copy/paste
-        Self::setup_context_menu(&vte);
+        Self::setup_context_menu(&vte, input_cb.clone());
         Self::setup_input_observer(&vte, input_cb.clone());
         Self::setup_hyperlink_click(&vte);
 
@@ -454,6 +454,7 @@ impl TerminalInner {
         let key_controller = gtk4::EventControllerKey::new();
         key_controller.set_propagation_phase(gtk4::PropagationPhase::Capture);
         let vte_for_keys = vte.clone();
+        let input_cb_for_keys = input_cb.clone();
         key_controller.connect_key_pressed(move |_ctrl, key, _code, modifiers| {
             if let Some(action) = super::input::terminal_clipboard_action(key, modifiers) {
                 match action {
@@ -461,7 +462,10 @@ impl TerminalInner {
                         vte_for_keys.copy_clipboard_format(vte4::Format::Text);
                     }
                     super::input::TerminalClipboardAction::Paste => {
-                        vte_for_keys.paste_clipboard();
+                        Self::paste_clipboard_through_input(
+                            &vte_for_keys,
+                            input_cb_for_keys.clone(),
+                        );
                     }
                 }
                 return glib::Propagation::Stop;
@@ -477,6 +481,32 @@ impl TerminalInner {
             glib::Propagation::Proceed
         });
         vte.add_controller(key_controller);
+    }
+
+    fn send_user_input(
+        vte: &vte4::Terminal,
+        input_cb: &Rc<RefCell<Option<crate::panels::PanelInputCallback>>>,
+        text: &str,
+    ) {
+        vte.paste_text(text);
+        if let Ok(borrowed) = input_cb.try_borrow() {
+            if let Some(ref cb) = *borrowed {
+                cb(text.as_bytes());
+            }
+        }
+    }
+
+    fn paste_clipboard_through_input(
+        vte: &vte4::Terminal,
+        input_cb: Rc<RefCell<Option<crate::panels::PanelInputCallback>>>,
+    ) {
+        let vte = vte.clone();
+        vte.clipboard()
+            .read_text_async(None::<&gtk4::gio::Cancellable>, move |result| {
+                if let Ok(Some(text)) = result {
+                    Self::send_user_input(&vte, &input_cb, text.as_str());
+                }
+            });
     }
 
     /// Open OSC 8 hyperlinks under the cursor on Ctrl+left-click.
@@ -514,7 +544,10 @@ impl TerminalInner {
     }
 
     /// Build the right-click copy/paste context menu.
-    fn setup_context_menu(vte: &vte4::Terminal) {
+    fn setup_context_menu(
+        vte: &vte4::Terminal,
+        input_cb: Rc<RefCell<Option<crate::panels::PanelInputCallback>>>,
+    ) {
         let gesture = gtk4::GestureClick::new();
         gesture.set_button(3);
         let vte_for_menu = vte.clone();
@@ -566,9 +599,10 @@ impl TerminalInner {
             paste_box.append(&paste_hint);
             paste_btn.set_child(Some(&paste_box));
             let v = vte.clone();
+            let input_cb = input_cb.clone();
             let p = popover.clone();
             paste_btn.connect_clicked(move |_| {
-                v.paste_clipboard();
+                Self::paste_clipboard_through_input(&v, input_cb.clone());
                 p.popdown();
             });
             menu_box.append(&paste_btn);

@@ -50,10 +50,11 @@ mod backend;
 
 use super::PanelBackend;
 use crate::panels::{
-    PanelCwdCallback, PanelInputCallback, PanelStatusCallback, PanelTitleCallback,
+    PanelCwdCallback, PanelInputCallback, PanelSshStateCallback, PanelStatusCallback,
+    PanelTitleCallback, SshConnectionState,
 };
 use backend::TerminalInner;
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
 // ── Shared terminal font configuration ──────────────────────────────────────
@@ -84,6 +85,35 @@ const DEFAULT_TERMINAL_FONT: &str =
 /// noticeably affecting the Linux path (11 vs 10 px is within a pixel of
 /// rendering slack at this size).
 const DEFAULT_TERMINAL_FONT_PX: f64 = 10.0;
+
+const SSH_CONNECTED_MARKER_HOST: &str = "pax-ssh-connected";
+const SSH_DISCONNECTED_MARKER_HOST: &str = "pax-ssh-disconnected";
+const TERMINAL_LS_COLORS: &str =
+    "di=38;2;85;136;255:ln=36:so=35:pi=33:ex=32:bd=34;46:cd=34;43:su=30;41:sg=30;46:tw=30;42:ow=34;42";
+
+pub(crate) fn ssh_remote_bootstrap_command(cwd: Option<&str>) -> String {
+    let mut command = r#"if [ -n "${SSH_CONNECTION:-}" ]; then "#.to_string();
+    if let Some(cwd) = cwd.map(str::trim).filter(|cwd| !cwd.is_empty()) {
+        command.push_str("cd ");
+        command.push_str(&shell_quote(cwd));
+        command.push_str(" || true; ");
+    }
+    command.push_str(r#"export PS1='\[\033[32m\]$:\[\033[0m\] '; "#);
+    command.push_str(
+        r#"export PROMPT_COMMAND='printf "\033]7;file://%s@%s%s\033\\" "$USER" "$HOSTNAME" "$PWD"'; "#,
+    );
+    command.push_str("export LS_COLORS=");
+    command.push_str(&shell_quote(TERMINAL_LS_COLORS));
+    command.push_str("; ");
+    command.push_str(r#"printf '\033]7;file://pax-ssh-connected/%s\007' "$PWD"; "#);
+    command.push_str("clear; ");
+    command.push_str(r#"else printf '\033]7;file://pax-ssh-disconnected/%s\007' "$PWD"; fi"#);
+    command
+}
+
+fn shell_quote(value: &str) -> String {
+    format!("'{}'", value.replace('\'', "'\\''"))
+}
 
 /// Padding (in pixels) between the terminal content and the widget edges.
 ///
@@ -124,18 +154,29 @@ pub struct SshControl {
     label: String,
     connect_commands: Vec<String>,
     connect_raw_commands: Vec<String>,
-    connected: Rc<Cell<bool>>,
+    state: Rc<Cell<SshConnectionState>>,
+    connect_started: Rc<Cell<bool>>,
+    connect_commands_sent: Rc<Cell<bool>>,
 }
 
 /// Terminal panel — uses VTE4 on Linux, PTY+cell renderer fallback on macOS.
 ///
 /// Created by the panel registry when a `PanelType::Terminal` config is loaded.
 /// The backend is chosen at compile time via the `vte` feature flag.
-#[derive(Debug)]
 pub struct TerminalPanel {
     inner: TerminalInner,
     /// Saved SSH target and runtime state for the header connect/disconnect button.
     ssh_control: Option<SshControl>,
+    ssh_state_cb: Rc<RefCell<Option<PanelSshStateCallback>>>,
+}
+
+impl std::fmt::Debug for TerminalPanel {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("TerminalPanel")
+            .field("inner", &self.inner)
+            .field("ssh_control", &self.ssh_control)
+            .finish_non_exhaustive()
+    }
 }
 
 impl TerminalPanel {
@@ -149,6 +190,7 @@ impl TerminalPanel {
         Self {
             inner: TerminalInner::new(shell, cwd, env, workspace_dir, panel_uuid),
             ssh_control: None,
+            ssh_state_cb: Rc::new(RefCell::new(None)),
         }
     }
 
@@ -159,13 +201,19 @@ impl TerminalPanel {
         label: String,
         connect_commands: Vec<String>,
         connect_raw_commands: Vec<String>,
-        connected: bool,
+        connect_requested: bool,
     ) {
         self.ssh_control = Some(SshControl {
             label,
             connect_commands,
             connect_raw_commands,
-            connected: Rc::new(Cell::new(connected)),
+            state: Rc::new(Cell::new(if connect_requested {
+                SshConnectionState::Connecting
+            } else {
+                SshConnectionState::Disconnected
+            })),
+            connect_started: Rc::new(Cell::new(false)),
+            connect_commands_sent: Rc::new(Cell::new(false)),
         });
     }
 
@@ -179,6 +227,60 @@ impl TerminalPanel {
     pub fn queue_raw(&self, text: &str) {
         self.inner.queue_raw(text);
     }
+}
+
+fn set_ssh_state(
+    control: &SshControl,
+    state: SshConnectionState,
+    state_cb: &Rc<RefCell<Option<PanelSshStateCallback>>>,
+) {
+    if control.state.get() == state {
+        return;
+    }
+    control.state.set(state);
+    if state == SshConnectionState::Disconnected {
+        control.connect_started.set(false);
+        control.connect_commands_sent.set(false);
+    }
+    if let Ok(borrowed) = state_cb.try_borrow() {
+        if let Some(ref cb) = *borrowed {
+            cb(state);
+        }
+    }
+}
+
+fn update_ssh_state_from_status(
+    control: &SshControl,
+    busy: bool,
+    state_cb: &Rc<RefCell<Option<PanelSshStateCallback>>>,
+) {
+    match control.state.get() {
+        SshConnectionState::Connecting if busy => {
+            control.connect_started.set(true);
+        }
+        SshConnectionState::Connecting if control.connect_started.get() => {
+            set_ssh_state(control, SshConnectionState::Disconnected, state_cb);
+        }
+        SshConnectionState::Connected if !busy => {
+            set_ssh_state(control, SshConnectionState::Disconnected, state_cb);
+        }
+        _ => {}
+    }
+}
+
+fn is_ssh_connected_marker(uri: &str) -> bool {
+    is_ssh_marker(uri, SSH_CONNECTED_MARKER_HOST)
+}
+
+fn is_ssh_disconnected_marker(uri: &str) -> bool {
+    is_ssh_marker(uri, SSH_DISCONNECTED_MARKER_HOST)
+}
+
+fn is_ssh_marker(uri: &str, host: &str) -> bool {
+    let Some(rest) = uri.strip_prefix("file://") else {
+        return false;
+    };
+    rest.split('/').next() == Some(host)
 }
 
 impl PanelBackend for TerminalPanel {
@@ -207,11 +309,40 @@ impl PanelBackend for TerminalPanel {
     }
 
     fn set_status_callback(&self, callback: Option<PanelStatusCallback>) {
-        self.inner.set_status_callback(callback);
+        let ssh_control = self.ssh_control.clone();
+        let state_cb = self.ssh_state_cb.clone();
+        let wrapped = callback.map(|cb| {
+            Rc::new(move |busy: bool| {
+                if let Some(ref control) = ssh_control {
+                    update_ssh_state_from_status(control, busy, &state_cb);
+                }
+                cb(busy);
+            }) as PanelStatusCallback
+        });
+        self.inner.set_status_callback(wrapped);
     }
 
     fn set_cwd_callback(&self, callback: Option<PanelCwdCallback>) {
-        self.inner.set_cwd_callback(callback);
+        let ssh_control = self.ssh_control.clone();
+        let state_cb = self.ssh_state_cb.clone();
+        let wrapped = callback.map(|cb| {
+            Rc::new(move |uri: &str| {
+                if is_ssh_connected_marker(uri) {
+                    if let Some(ref control) = ssh_control {
+                        set_ssh_state(control, SshConnectionState::Connected, &state_cb);
+                    }
+                    return;
+                }
+                if is_ssh_disconnected_marker(uri) {
+                    if let Some(ref control) = ssh_control {
+                        set_ssh_state(control, SshConnectionState::Disconnected, &state_cb);
+                    }
+                    return;
+                }
+                cb(uri);
+            }) as PanelCwdCallback
+        });
+        self.inner.set_cwd_callback(wrapped);
     }
 
     fn panel_uuid(&self) -> Option<uuid::Uuid> {
@@ -227,23 +358,33 @@ impl PanelBackend for TerminalPanel {
     fn ssh_is_connected(&self) -> Option<bool> {
         self.ssh_control
             .as_ref()
-            .map(|control| control.connected.get())
+            .map(|control| control.state.get() == SshConnectionState::Connected)
+    }
+
+    fn ssh_connection_state(&self) -> Option<SshConnectionState> {
+        self.ssh_control.as_ref().map(|control| control.state.get())
     }
 
     fn ssh_connect(&self) -> bool {
         let Some(control) = self.ssh_control.as_ref() else {
             return false;
         };
-        if control.connected.get() {
-            return true;
+        match control.state.get() {
+            SshConnectionState::Connected => return true,
+            SshConnectionState::Connecting if control.connect_commands_sent.get() => return true,
+            SshConnectionState::Connecting => {}
+            SshConnectionState::Disconnected => {
+                set_ssh_state(control, SshConnectionState::Connecting, &self.ssh_state_cb);
+                control.connect_started.set(false);
+            }
         }
+        control.connect_commands_sent.set(true);
         for command in &control.connect_commands {
             self.inner.send_commands(std::slice::from_ref(command));
         }
         for command in &control.connect_raw_commands {
             self.inner.queue_raw(command);
         }
-        control.connected.set(true);
         true
     }
 
@@ -251,12 +392,25 @@ impl PanelBackend for TerminalPanel {
         let Some(control) = self.ssh_control.as_ref() else {
             return false;
         };
-        if !control.connected.get() {
+        if control.state.get() != SshConnectionState::Connected {
+            set_ssh_state(
+                control,
+                SshConnectionState::Disconnected,
+                &self.ssh_state_cb,
+            );
             return true;
         }
         self.inner.write_input(b"exit\n");
-        control.connected.set(false);
+        set_ssh_state(
+            control,
+            SshConnectionState::Disconnected,
+            &self.ssh_state_cb,
+        );
         true
+    }
+
+    fn set_ssh_state_callback(&self, callback: Option<PanelSshStateCallback>) {
+        *self.ssh_state_cb.borrow_mut() = callback;
     }
 
     fn accepts_input(&self) -> bool {
@@ -279,5 +433,78 @@ impl PanelBackend for TerminalPanel {
 
     fn shutdown(&self) {
         self.inner.shutdown();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn ssh_control(state: SshConnectionState) -> SshControl {
+        SshControl {
+            label: "dev@example.test".to_string(),
+            connect_commands: Vec::new(),
+            connect_raw_commands: Vec::new(),
+            state: Rc::new(Cell::new(state)),
+            connect_started: Rc::new(Cell::new(false)),
+            connect_commands_sent: Rc::new(Cell::new(false)),
+        }
+    }
+
+    fn no_state_callback() -> Rc<RefCell<Option<PanelSshStateCallback>>> {
+        Rc::new(RefCell::new(None))
+    }
+
+    #[test]
+    fn ssh_marker_uri_is_detected() {
+        assert!(is_ssh_connected_marker(
+            "file://pax-ssh-connected/home/user"
+        ));
+        assert!(is_ssh_disconnected_marker(
+            "file://pax-ssh-disconnected/home/user"
+        ));
+        assert!(!is_ssh_connected_marker("file://remote-host/home/user"));
+        assert!(!is_ssh_disconnected_marker("file://remote-host/home/user"));
+        assert!(!is_ssh_connected_marker(""));
+    }
+
+    #[test]
+    fn ssh_remote_bootstrap_clears_only_after_remote_success() {
+        let command = ssh_remote_bootstrap_command(Some("/srv/app's"));
+
+        assert!(command.starts_with(r#"if [ -n "${SSH_CONNECTION:-}" ]; then "#));
+        assert!(command.contains("cd '/srv/app'\\''s' || true;"));
+        assert!(command.contains("export PS1="));
+        assert!(command.contains("file://%s@%s%s"));
+        assert!(command.contains("pax-ssh-connected"));
+        assert!(command.contains("clear; else"));
+        assert!(command.contains("pax-ssh-disconnected"));
+
+        let disconnected_branch = command.split(" else ").nth(1).unwrap_or_default();
+        assert!(!disconnected_branch.contains("clear"));
+        assert!(!disconnected_branch.contains("export PS1"));
+    }
+
+    #[test]
+    fn queued_ssh_connect_ignores_prompt_before_command_start() {
+        let control = ssh_control(SshConnectionState::Connecting);
+        update_ssh_state_from_status(&control, false, &no_state_callback());
+
+        assert_eq!(control.state.get(), SshConnectionState::Connecting);
+        assert!(!control.connect_started.get());
+    }
+
+    #[test]
+    fn failed_ssh_connect_returns_to_disconnected_after_prompt() {
+        let control = ssh_control(SshConnectionState::Connecting);
+        let cb = no_state_callback();
+
+        update_ssh_state_from_status(&control, true, &cb);
+        assert_eq!(control.state.get(), SshConnectionState::Connecting);
+        assert!(control.connect_started.get());
+
+        update_ssh_state_from_status(&control, false, &cb);
+        assert_eq!(control.state.get(), SshConnectionState::Disconnected);
+        assert!(!control.connect_started.get());
     }
 }

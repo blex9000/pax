@@ -1052,6 +1052,12 @@ menubutton.panel-menu-btn > button {
   min-width: 9px;
   padding: 0;
 }
+separator.panel-action-separator {
+  min-height: 12px;
+  margin-left: 2px;
+  margin-right: 2px;
+  background-color: @border_soft;
+}
 .panel-action-btn:hover { opacity: 1.0; }
 .sync-active { opacity: 1.0; color: #e5a50a; }
 .zoom-active { opacity: 1.0; color: #5588ff; }
@@ -1103,6 +1109,10 @@ button.terminal-scroll-bottom:hover {
 }
 button.terminal-scroll-bottom image {
   -gtk-icon-size: 16px;
+  color: @accent_fg_color;
+}
+button.terminal-scroll-bottom:hover image {
+  color: @accent_fg_color;
 }
 box.panel-footer-bar.editor-file-preview-footer,
 box.editor-file-preview-footer.panel-footer {
@@ -1159,6 +1169,26 @@ row:selected .editor-note-row-actions,
 .markdown-toolbar togglebutton {
   margin-left: 1px;
   margin-right: 1px;
+}
+.mermaid-element-bar {
+  background-color: @view_bg_color;
+  color: @view_fg_color;
+  border-right: 1px solid alpha(@border_soft, 0.45);
+  padding: 8px 6px 6px 6px;
+}
+.mermaid-element-bar label.heading {
+  margin-bottom: 4px;
+}
+button.mermaid-element-btn,
+button.mermaid-element-btn.flat {
+  min-height: 26px;
+  padding: 0 8px;
+  margin-bottom: 2px;
+  border-radius: 6px;
+}
+button.mermaid-element-btn:hover,
+button.mermaid-element-btn.flat:hover {
+  background-color: @hover_bg;
 }
 /* In the code editor, the markdown mode-toggle and formatting toolbars sit
  * directly under the open-files tab bar (.editor-tabs). Match its
@@ -2119,6 +2149,8 @@ mod tests {
         assert!(BASE_CSS.contains("button:hover,\ntogglebutton:hover,\nmenubutton > button:hover"));
         assert!(BASE_CSS.contains("button:hover image,\ntogglebutton:hover image"));
         assert!(BASE_CSS.contains("color: @accent_color;"));
+        assert!(BASE_CSS
+            .contains("button.terminal-scroll-bottom:hover image {\n  color: @accent_fg_color;"));
         assert!(!BASE_CSS.contains("button.panel-action-btn:hover, menubutton.panel-menu-btn > button:hover, menubutton.app-menu-btn > button:hover, headerbar.app-headerbar button:hover, headerbar.app-headerbar menubutton > button:hover {\n  background-color: alpha"));
         assert!(!BASE_CSS.contains("box.workspace-tab-add-wrap > button.workspace-tab-add-btn:hover {\n  background-color: alpha"));
         assert!(!BASE_CSS.contains(

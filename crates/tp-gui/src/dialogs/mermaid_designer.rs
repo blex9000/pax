@@ -74,6 +74,7 @@ struct DesignerState {
     selected_node: Option<usize>,
     selected_edge: Option<usize>,
     connect_from: Option<usize>,
+    connect_preview: Option<ConnectPreview>,
     zoom: f64,
     pan_x: f64,
     pan_y: f64,
@@ -88,6 +89,7 @@ impl Default for DesignerState {
             selected_node: None,
             selected_edge: None,
             connect_from: None,
+            connect_preview: None,
             zoom: 1.0,
             pan_x: 120.0,
             pan_y: 90.0,
@@ -119,6 +121,7 @@ impl DesignerState {
             selected_node: None,
             selected_edge: None,
             connect_from: None,
+            connect_preview: None,
             zoom: 1.0,
             pan_x: 120.0,
             pan_y: 90.0,
@@ -171,6 +174,7 @@ impl DesignerState {
             self.nodes.remove(idx);
             self.selected_edge = None;
             self.connect_from = None;
+            self.connect_preview = None;
             return;
         }
         if let Some(idx) = self.selected_edge.take() {
@@ -203,6 +207,27 @@ enum DragMode {
         start_x: f64,
         start_y: f64,
     },
+    Connect {
+        from: usize,
+        start_screen_x: f64,
+        start_screen_y: f64,
+    },
+}
+
+#[derive(Debug, Clone, Copy)]
+struct ConnectPreview {
+    from: usize,
+    x: f64,
+    y: f64,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct EdgeRoute {
+    start: (f64, f64),
+    c1: (f64, f64),
+    c2: (f64, f64),
+    end: (f64, f64),
+    label: (f64, f64),
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -275,16 +300,60 @@ fn show_mermaid_designer_internal(parent: &impl IsA<gtk4::Window>, source: Optio
     canvas.set_draw_func({
         let state = state.clone();
         move |_, cr, width, height| {
-            paint_designer(cr, width, height, &state.borrow());
+            if let Ok(st) = state.try_borrow() {
+                paint_designer(cr, width, height, &st);
+            } else {
+                let palette = current_palette();
+                set_source(cr, palette.canvas);
+                cr.rectangle(0.0, 0.0, width as f64, height as f64);
+                let _ = cr.fill();
+            }
         }
     });
 
     let canvas_frame = gtk4::Frame::new(None);
-    canvas_frame.set_margin_start(8);
+    canvas_frame.set_hexpand(true);
+    canvas_frame.set_vexpand(true);
+    canvas_frame.set_margin_start(6);
     canvas_frame.set_margin_end(8);
     canvas_frame.set_margin_bottom(8);
     canvas_frame.set_child(Some(&canvas));
-    body.set_start_child(Some(&canvas_frame));
+
+    let canvas_shell = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
+    canvas_shell.set_hexpand(true);
+    canvas_shell.set_vexpand(true);
+
+    let element_buttons: Rc<RefCell<Vec<(MermaidShape, gtk4::Button)>>> =
+        Rc::new(RefCell::new(Vec::new()));
+    let element_bar = gtk4::Box::new(gtk4::Orientation::Vertical, 4);
+    element_bar.add_css_class("mermaid-element-bar");
+    element_bar.set_margin_start(8);
+    element_bar.set_margin_end(4);
+    element_bar.set_margin_bottom(8);
+    element_bar.set_size_request(150, -1);
+
+    let element_title = gtk4::Label::new(Some("Elements"));
+    element_title.set_halign(gtk4::Align::Start);
+    element_title.add_css_class("heading");
+    element_bar.append(&element_title);
+
+    for shape in MermaidShape::all() {
+        let btn = gtk4::Button::new();
+        let label = gtk4::Label::new(Some(shape.label()));
+        label.set_xalign(0.0);
+        label.set_halign(gtk4::Align::Start);
+        btn.set_child(Some(&label));
+        btn.add_css_class("flat");
+        btn.add_css_class("mermaid-element-btn");
+        btn.set_halign(gtk4::Align::Fill);
+        btn.set_tooltip_text(Some("Add element"));
+        element_bar.append(&btn);
+        element_buttons.borrow_mut().push((*shape, btn));
+    }
+
+    canvas_shell.append(&element_bar);
+    canvas_shell.append(&canvas_frame);
+    body.set_start_child(Some(&canvas_shell));
 
     let side = gtk4::Box::new(gtk4::Orientation::Vertical, 8);
     side.set_margin_top(8);
@@ -322,15 +391,6 @@ fn show_mermaid_designer_internal(parent: &impl IsA<gtk4::Window>, source: Optio
     let delete_btn = gtk4::Button::with_label("Delete Selection");
     delete_btn.add_css_class("destructive-action");
     side.append(&delete_btn);
-
-    let hint = gtk4::Label::new(Some(
-        "Drag nodes to move them. Drag empty canvas to pan. Mouse wheel zooms. Enable Connect, then click source and target nodes.",
-    ));
-    hint.set_wrap(true);
-    hint.set_xalign(0.0);
-    hint.add_css_class("dim-label");
-    hint.add_css_class("caption");
-    side.append(&hint);
 
     let code_title = gtk4::Label::new(Some("Mermaid Code"));
     code_title.set_halign(gtk4::Align::Start);
@@ -387,7 +447,10 @@ fn show_mermaid_designer_internal(parent: &impl IsA<gtk4::Window>, source: Optio
         let code_dirty = code_dirty.clone();
         let preserve_code_once = preserve_code_once.clone();
         Rc::new(move || {
-            let state_ref = state.borrow();
+            let Ok(state_ref) = state.try_borrow() else {
+                canvas.queue_draw();
+                return;
+            };
             sync_guard.set(true);
             if preserve_code_once.get() {
                 preserve_code_once.set(false);
@@ -503,15 +566,10 @@ fn show_mermaid_designer_internal(parent: &impl IsA<gtk4::Window>, source: Optio
         });
     }
 
-    // Shape add buttons.
-    for shape in MermaidShape::all() {
-        let btn = gtk4::Button::with_label(shape.label());
-        btn.add_css_class("flat");
-        toolbar.append(&btn);
+    for (shape, btn) in element_buttons.borrow().iter().cloned() {
         let state_c = state.clone();
         let canvas_c = canvas.clone();
         let refresh = refresh_ui.clone();
-        let shape = *shape;
         btn.connect_clicked(move |_| {
             let width = canvas_c.allocated_width().max(1) as f64;
             let height = canvas_c.allocated_height().max(1) as f64;
@@ -530,7 +588,7 @@ fn show_mermaid_designer_internal(parent: &impl IsA<gtk4::Window>, source: Optio
 
     let connect_btn = gtk4::ToggleButton::with_label("Connect");
     connect_btn.add_css_class("flat");
-    connect_btn.set_tooltip_text(Some("Click source node, then target node"));
+    connect_btn.set_tooltip_text(Some("Click or drag from source node to target node"));
     toolbar.append(&connect_btn);
     {
         let state = state.clone();
@@ -538,7 +596,11 @@ fn show_mermaid_designer_internal(parent: &impl IsA<gtk4::Window>, source: Optio
         let refresh = refresh_ui.clone();
         connect_btn.connect_toggled(move |btn| {
             connect_mode.set(btn.is_active());
-            state.borrow_mut().connect_from = None;
+            {
+                let mut st = state.borrow_mut();
+                st.connect_from = None;
+                st.connect_preview = None;
+            }
             refresh();
         });
     }
@@ -557,8 +619,10 @@ fn show_mermaid_designer_internal(parent: &impl IsA<gtk4::Window>, source: Optio
         let state = state.clone();
         let refresh = refresh_ui.clone();
         zoom_out_btn.connect_clicked(move |_| {
-            let mut st = state.borrow_mut();
-            st.zoom = (st.zoom / 1.2).clamp(ZOOM_MIN, ZOOM_MAX);
+            {
+                let mut st = state.borrow_mut();
+                st.zoom = (st.zoom / 1.2).clamp(ZOOM_MIN, ZOOM_MAX);
+            }
             refresh();
         });
     }
@@ -566,8 +630,10 @@ fn show_mermaid_designer_internal(parent: &impl IsA<gtk4::Window>, source: Optio
         let state = state.clone();
         let refresh = refresh_ui.clone();
         zoom_in_btn.connect_clicked(move |_| {
-            let mut st = state.borrow_mut();
-            st.zoom = (st.zoom * 1.2).clamp(ZOOM_MIN, ZOOM_MAX);
+            {
+                let mut st = state.borrow_mut();
+                st.zoom = (st.zoom * 1.2).clamp(ZOOM_MIN, ZOOM_MAX);
+            }
             refresh();
         });
     }
@@ -575,10 +641,12 @@ fn show_mermaid_designer_internal(parent: &impl IsA<gtk4::Window>, source: Optio
         let state = state.clone();
         let refresh = refresh_ui.clone();
         zoom_reset_btn.connect_clicked(move |_| {
-            let mut st = state.borrow_mut();
-            st.zoom = 1.0;
-            st.pan_x = 120.0;
-            st.pan_y = 90.0;
+            {
+                let mut st = state.borrow_mut();
+                st.zoom = 1.0;
+                st.pan_x = 120.0;
+                st.pan_y = 90.0;
+            }
             refresh();
         });
     }
@@ -603,13 +671,16 @@ fn show_mermaid_designer_internal(parent: &impl IsA<gtk4::Window>, source: Optio
         let state = state.clone();
         let refresh = refresh_ui.clone();
         clear_btn.connect_clicked(move |_| {
-            let mut st = state.borrow_mut();
-            st.nodes.clear();
-            st.edges.clear();
-            st.selected_node = None;
-            st.selected_edge = None;
-            st.connect_from = None;
-            st.next_id = 1;
+            {
+                let mut st = state.borrow_mut();
+                st.nodes.clear();
+                st.edges.clear();
+                st.selected_node = None;
+                st.selected_edge = None;
+                st.connect_from = None;
+                st.connect_preview = None;
+                st.next_id = 1;
+            }
             refresh();
         });
     }
@@ -661,7 +732,9 @@ fn show_mermaid_designer_internal(parent: &impl IsA<gtk4::Window>, source: Optio
         let state = state.clone();
         let refresh = refresh_ui.clone();
         delete_btn.connect_clicked(move |_| {
-            state.borrow_mut().delete_selection();
+            {
+                state.borrow_mut().delete_selection();
+            }
             refresh();
         });
     }
@@ -723,6 +796,7 @@ fn install_canvas_input(
                         st.connect_from = Some(idx);
                         st.select_node(idx);
                     }
+                    st.connect_preview = None;
                 }
                 refresh();
                 return;
@@ -748,13 +822,38 @@ fn install_canvas_input(
         let state = state.clone();
         let drag_mode = drag_mode.clone();
         let connect_mode = connect_mode.clone();
+        let refresh = refresh_ui.clone();
         drag.connect_drag_begin(move |_, x, y| {
-            if connect_mode.get() {
-                *drag_mode.borrow_mut() = DragMode::None;
-                return;
-            }
             let st = state.borrow();
             let (mx, my) = screen_to_model(&st, x, y);
+            if connect_mode.get() {
+                drop(st);
+                let hit = {
+                    let st = state.borrow();
+                    hit_node(&st, mx, my)
+                };
+                let Some(idx) = hit else {
+                    *drag_mode.borrow_mut() = DragMode::None;
+                    return;
+                };
+                {
+                    let mut st = state.borrow_mut();
+                    st.connect_from = Some(idx);
+                    st.connect_preview = Some(ConnectPreview {
+                        from: idx,
+                        x: mx,
+                        y: my,
+                    });
+                    st.select_node(idx);
+                }
+                *drag_mode.borrow_mut() = DragMode::Connect {
+                    from: idx,
+                    start_screen_x: x,
+                    start_screen_y: y,
+                };
+                refresh();
+                return;
+            }
             *drag_mode.borrow_mut() = if let Some(idx) = hit_node(&st, mx, my) {
                 let node = &st.nodes[idx];
                 DragMode::Node {
@@ -793,6 +892,14 @@ fn install_canvas_input(
                     st.pan_x = start_x + dx;
                     st.pan_y = start_y + dy;
                 }
+                DragMode::Connect {
+                    from,
+                    start_screen_x,
+                    start_screen_y,
+                } => {
+                    let (x, y) = screen_to_model(&st, start_screen_x + dx, start_screen_y + dy);
+                    st.connect_preview = Some(ConnectPreview { from, x, y });
+                }
                 DragMode::None => {}
             }
             drop(st);
@@ -800,8 +907,39 @@ fn install_canvas_input(
         });
     }
     {
+        let state = state.clone();
         let drag_mode = drag_mode.clone();
-        drag.connect_drag_end(move |_, _, _| {
+        let refresh = refresh_ui.clone();
+        drag.connect_drag_end(move |_, dx, dy| {
+            let mode = *drag_mode.borrow();
+            if let DragMode::Connect {
+                from,
+                start_screen_x,
+                start_screen_y,
+            } = mode
+            {
+                let mut st = state.borrow_mut();
+                let (x, y) = screen_to_model(&st, start_screen_x + dx, start_screen_y + dy);
+                if let Some(to) = hit_node(&st, x, y) {
+                    if from != to
+                        && !st
+                            .edges
+                            .iter()
+                            .any(|edge| edge.from == from && edge.to == to)
+                    {
+                        st.edges.push(DesignerEdge {
+                            from,
+                            to,
+                            label: String::new(),
+                        });
+                    }
+                    st.select_node(to);
+                }
+                st.connect_from = None;
+                st.connect_preview = None;
+                drop(st);
+                refresh();
+            }
             *drag_mode.borrow_mut() = DragMode::None;
         });
     }
@@ -839,6 +977,9 @@ fn paint_designer(cr: &gtk4::cairo::Context, width: i32, height: i32, state: &De
 
     for (idx, edge) in state.edges.iter().enumerate() {
         paint_edge(cr, state, edge, state.selected_edge == Some(idx), palette);
+    }
+    if let Some(preview) = state.connect_preview {
+        paint_connect_preview(cr, state, preview, palette);
     }
     for (idx, node) in state.nodes.iter().enumerate() {
         let selected = state.selected_node == Some(idx) || state.connect_from == Some(idx);
@@ -906,24 +1047,51 @@ fn paint_edge(
     let Some(to) = state.nodes.get(edge.to) else {
         return;
     };
-    let (sx, sy, ex, ey) = edge_endpoints(from, to);
+    let Some(route) = edge_route(from, to) else {
+        return;
+    };
     set_source(cr, if selected { p.selected } else { p.edge });
     cr.set_line_width(if selected { 2.5 } else { 1.5 });
-    cr.move_to(sx, sy);
-    let mid_x = (sx + ex) / 2.0;
-    let mid_y = (sy + ey) / 2.0;
-    cr.curve_to(mid_x, sy, mid_x, ey, ex, ey);
+    cr.move_to(route.start.0, route.start.1);
+    cr.curve_to(
+        route.c1.0,
+        route.c1.1,
+        route.c2.0,
+        route.c2.1,
+        route.end.0,
+        route.end.1,
+    );
     let _ = cr.stroke();
     paint_arrowhead(
         cr,
-        (ex, ey),
-        (mid_x, mid_y),
+        route.end,
+        route.c2,
         if selected { p.selected } else { p.edge },
     );
 
     if !edge.label.trim().is_empty() {
-        paint_edge_label(cr, mid_x, mid_y, &edge.label, p);
+        paint_edge_label(cr, route.label.0, route.label.1, &edge.label, p);
     }
+}
+
+fn paint_connect_preview(
+    cr: &gtk4::cairo::Context,
+    state: &DesignerState,
+    preview: ConnectPreview,
+    p: Palette,
+) {
+    let Some(from) = state.nodes.get(preview.from) else {
+        return;
+    };
+    let start = node_anchor(from, (preview.x, preview.y));
+    set_source(cr, p.selected);
+    cr.set_line_width(1.5);
+    cr.set_dash(&[8.0, 5.0], 0.0);
+    cr.move_to(start.0, start.1);
+    cr.line_to(preview.x, preview.y);
+    let _ = cr.stroke();
+    cr.set_dash(&[], 0.0);
+    paint_arrowhead(cr, (preview.x, preview.y), start, p.selected);
 }
 
 fn draw_shape_path(cr: &gtk4::cairo::Context, shape: MermaidShape, x: f64, y: f64, w: f64, h: f64) {
@@ -992,20 +1160,134 @@ fn node_size(node: &DesignerNode) -> (f64, f64) {
     (w, h)
 }
 
-fn edge_endpoints(from: &DesignerNode, to: &DesignerNode) -> (f64, f64, f64, f64) {
-    let (fw, fh) = node_size(from);
-    let (tw, th) = node_size(to);
-    let dx = to.x - from.x;
-    let dy = to.y - from.y;
-    if dx.abs() >= dy.abs() {
-        let sx = from.x + fw / 2.0 * dx.signum();
-        let ex = to.x - tw / 2.0 * dx.signum();
-        (sx, from.y, ex, to.y)
-    } else {
-        let sy = from.y + fh / 2.0 * dy.signum();
-        let ey = to.y - th / 2.0 * dy.signum();
-        (from.x, sy, to.x, ey)
+fn edge_route(from: &DesignerNode, to: &DesignerNode) -> Option<EdgeRoute> {
+    let start = node_anchor(from, (to.x, to.y));
+    let end = node_anchor(to, (from.x, from.y));
+    let dx = end.0 - start.0;
+    let dy = end.1 - start.1;
+    if dx.hypot(dy) < 1.0 {
+        return None;
     }
+
+    let (c1, c2) = if dx.abs() >= dy.abs() {
+        let sign = dx.signum();
+        let bend = (dx.abs() * 0.45).clamp(32.0, 120.0);
+        (
+            (start.0 + bend * sign, start.1),
+            (end.0 - bend * sign, end.1),
+        )
+    } else {
+        let sign = dy.signum();
+        let bend = (dy.abs() * 0.45).clamp(32.0, 120.0);
+        (
+            (start.0, start.1 + bend * sign),
+            (end.0, end.1 - bend * sign),
+        )
+    };
+
+    Some(EdgeRoute {
+        start,
+        c1,
+        c2,
+        end,
+        label: cubic_point(start, c1, c2, end, 0.5),
+    })
+}
+
+fn node_anchor(node: &DesignerNode, target: (f64, f64)) -> (f64, f64) {
+    let (w, h) = node_size(node);
+    let center = (node.x, node.y);
+    let dx = target.0 - center.0;
+    let dy = target.1 - center.1;
+    if dx.hypot(dy) <= f64::EPSILON {
+        return (node.x + w / 2.0, node.y);
+    }
+
+    if node.shape == MermaidShape::Circle {
+        let rx = w / 2.0;
+        let ry = h / 2.0;
+        let scale = 1.0 / ((dx / rx).powi(2) + (dy / ry).powi(2)).sqrt();
+        return (center.0 + dx * scale, center.1 + dy * scale);
+    }
+
+    let points = node_polygon(node, w, h);
+    ray_polygon_intersection(center, (dx, dy), &points).unwrap_or_else(|| {
+        let rx = w / 2.0;
+        let ry = h / 2.0;
+        let scale = 1.0 / ((dx / rx).powi(2) + (dy / ry).powi(2)).sqrt();
+        (center.0 + dx * scale, center.1 + dy * scale)
+    })
+}
+
+fn node_polygon(node: &DesignerNode, w: f64, h: f64) -> Vec<(f64, f64)> {
+    let x = node.x - w / 2.0;
+    let y = node.y - h / 2.0;
+    match node.shape {
+        MermaidShape::Diamond => vec![(node.x, y), (x + w, node.y), (node.x, y + h), (x, node.y)],
+        MermaidShape::Hexagon => vec![
+            (x + w * 0.24, y),
+            (x + w * 0.76, y),
+            (x + w, node.y),
+            (x + w * 0.76, y + h),
+            (x + w * 0.24, y + h),
+            (x, node.y),
+        ],
+        MermaidShape::Parallelogram => {
+            let skew = 18.0;
+            vec![(x + skew, y), (x + w, y), (x + w - skew, y + h), (x, y + h)]
+        }
+        MermaidShape::Rect
+        | MermaidShape::Round
+        | MermaidShape::Stadium
+        | MermaidShape::Database
+        | MermaidShape::Circle => vec![(x, y), (x + w, y), (x + w, y + h), (x, y + h)],
+    }
+}
+
+fn ray_polygon_intersection(
+    origin: (f64, f64),
+    direction: (f64, f64),
+    points: &[(f64, f64)],
+) -> Option<(f64, f64)> {
+    let mut best_t = f64::INFINITY;
+    let mut best = None;
+    for i in 0..points.len() {
+        let a = points[i];
+        let b = points[(i + 1) % points.len()];
+        let seg = (b.0 - a.0, b.1 - a.1);
+        let denom = cross(direction, seg);
+        if denom.abs() <= 1e-6 {
+            continue;
+        }
+        let ao = (a.0 - origin.0, a.1 - origin.1);
+        let t = cross(ao, seg) / denom;
+        let u = cross(ao, direction) / denom;
+        if t >= 0.0 && (-1e-6..=1.0 + 1e-6).contains(&u) && t < best_t {
+            best_t = t;
+            best = Some((origin.0 + direction.0 * t, origin.1 + direction.1 * t));
+        }
+    }
+    best
+}
+
+fn cross(a: (f64, f64), b: (f64, f64)) -> f64 {
+    a.0 * b.1 - a.1 * b.0
+}
+
+fn cubic_point(
+    p0: (f64, f64),
+    p1: (f64, f64),
+    p2: (f64, f64),
+    p3: (f64, f64),
+    t: f64,
+) -> (f64, f64) {
+    let mt = 1.0 - t;
+    let mt2 = mt * mt;
+    let t2 = t * t;
+    (
+        mt2 * mt * p0.0 + 3.0 * mt2 * t * p1.0 + 3.0 * mt * t2 * p2.0 + t2 * t * p3.0,
+        mt2 * mt * p0.1 + 3.0 * mt2 * t * p1.1 + 3.0 * mt * t2 * p2.1 + t2 * t * p3.1,
+    )
 }
 
 fn paint_centered_text(
@@ -1022,11 +1304,12 @@ fn paint_centered_text(
     layout.set_font_description(Some(&font));
     layout.set_alignment(gtk4::pango::Alignment::Center);
     layout.set_wrap(gtk4::pango::WrapMode::WordChar);
-    layout.set_width((width.max(20.0) * gtk4::pango::SCALE as f64) as i32);
+    let layout_width = width.max(20.0);
+    layout.set_width((layout_width * gtk4::pango::SCALE as f64) as i32);
     layout.set_text(text);
-    let (tw, th) = layout.pixel_size();
+    let (_, th) = layout.pixel_size();
     set_source(cr, color);
-    cr.move_to(x - tw as f64 / 2.0, y - th as f64 / 2.0);
+    cr.move_to(x - layout_width / 2.0, y - th as f64 / 2.0);
     pangocairo::functions::show_layout(cr, &layout);
 }
 
@@ -1148,9 +1431,22 @@ fn hit_edge(state: &DesignerState, x: f64, y: f64) -> Option<usize> {
     state.edges.iter().enumerate().find_map(|(idx, edge)| {
         let from = state.nodes.get(edge.from)?;
         let to = state.nodes.get(edge.to)?;
-        let distance = distance_to_segment((x, y), (from.x, from.y), (to.x, to.y));
+        let route = edge_route(from, to)?;
+        let distance = distance_to_edge_route((x, y), route);
         (distance <= 10.0).then_some(idx)
     })
+}
+
+fn distance_to_edge_route(point: (f64, f64), route: EdgeRoute) -> f64 {
+    let mut best = f64::INFINITY;
+    let mut prev = route.start;
+    for step in 1..=28 {
+        let t = step as f64 / 28.0;
+        let current = cubic_point(route.start, route.c1, route.c2, route.end, t);
+        best = best.min(distance_to_segment(point, prev, current));
+        prev = current;
+    }
+    best
 }
 
 fn distance_to_segment(point: (f64, f64), a: (f64, f64), b: (f64, f64)) -> f64 {
@@ -1519,6 +1815,13 @@ fn escape_mermaid_label(label: &str) -> String {
 mod tests {
     use super::*;
 
+    fn assert_close(actual: f64, expected: f64) {
+        assert!(
+            (actual - expected).abs() < 0.001,
+            "expected {actual} to be close to {expected}"
+        );
+    }
+
     #[test]
     fn generated_code_includes_nodes_edges_and_labels() {
         let mut state = DesignerState::default();
@@ -1570,5 +1873,48 @@ sequenceDiagram
         .unwrap_err();
 
         assert!(err.contains("flowchart/graph"));
+    }
+
+    #[test]
+    fn edge_route_uses_shape_boundaries_for_arrowheads() {
+        let from = DesignerNode {
+            id: "A".to_string(),
+            label: "A".to_string(),
+            shape: MermaidShape::Rect,
+            x: 0.0,
+            y: 0.0,
+        };
+        let to = DesignerNode {
+            id: "B".to_string(),
+            label: "B".to_string(),
+            shape: MermaidShape::Diamond,
+            x: 260.0,
+            y: 0.0,
+        };
+
+        let route = edge_route(&from, &to).unwrap();
+
+        assert_close(route.start.0, NODE_W / 2.0);
+        assert_close(route.start.1, 0.0);
+        assert_close(route.end.0, 180.0);
+        assert_close(route.end.1, 0.0);
+        assert!(route.c2.0 < route.end.0);
+        assert_close(route.c2.1, route.end.1);
+    }
+
+    #[test]
+    fn hit_edge_follows_rendered_curve() {
+        let mut state = DesignerState::empty();
+        let from = state.add_node(MermaidShape::Rect, "A", 0.0, 0.0);
+        let to = state.add_node(MermaidShape::Rect, "B", 260.0, 90.0);
+        state.edges.push(DesignerEdge {
+            from,
+            to,
+            label: String::new(),
+        });
+        let route = edge_route(&state.nodes[from], &state.nodes[to]).unwrap();
+
+        assert_eq!(hit_edge(&state, route.label.0, route.label.1), Some(0));
+        assert_eq!(hit_edge(&state, route.label.0, route.label.1 + 80.0), None);
     }
 }

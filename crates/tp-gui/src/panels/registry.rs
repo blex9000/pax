@@ -279,23 +279,8 @@ pub fn build_default_registry() -> PanelRegistry {
                     format!("ssh {}", ssh_target)
                 };
                 let mut connect_commands = vec![cmd];
-                // cd to remote path if specified
-                if let Some(cwd) = config.cwd.as_deref() {
-                    if !cwd.is_empty() {
-                        connect_commands.push(format!("cd '{}'", cwd));
-                    }
-                }
-                // Override PS1 and set PROMPT_COMMAND for OSC 7 on the remote shell
-                // (same as local terminal — minimal prompt + directory tracking +
-                // colored ls). Intentionally no trailing `clear`: when SSH fails
-                // the remote shell never executes these commands, and the fallback
-                // `clear` would end up wiping the SSH error from the local shell,
-                // turning connection failures into silent no-ops.
-                connect_commands.extend([
-                    " export PS1='\\[\\033[32m\\]$:\\[\\033[0m\\] '".to_string(),
-                    " export PROMPT_COMMAND='printf \"\\033]7;file://%s%s\\033\\\\\" \"$HOSTNAME\" \"$PWD\"'".to_string(),
-                    " export LS_COLORS='di=38;2;85;136;255:ln=36:so=35:pi=33:ex=32:bd=34;46:cd=34;43:su=30;41:sg=30;46:tw=30;42:ow=34;42'".to_string(),
-                ]);
+                connect_commands
+                    .push(super::terminal::ssh_remote_bootstrap_command(config.cwd.as_deref()));
                 let connect_raw_commands = config
                     .extra
                     .get("__startup_commands__")
@@ -304,18 +289,10 @@ pub fn build_default_registry() -> PanelRegistry {
                     .collect::<Vec<_>>();
                 panel.set_ssh_control(
                     ssh_label,
-                    connect_commands.clone(),
-                    connect_raw_commands.clone(),
+                    connect_commands,
+                    connect_raw_commands,
                     ssh_active,
                 );
-                if ssh_active {
-                    for command in &connect_commands {
-                        panel.send_commands(std::slice::from_ref(command));
-                    }
-                    for command in &connect_raw_commands {
-                        panel.queue_raw(command);
-                    }
-                }
             }
             // Startup script commands
             if let Some(cmds_str) = config.extra.get("__startup_commands__") {
@@ -489,7 +466,7 @@ fn remote_startup_command(cmds_str: &str) -> Option<String> {
         return None;
     }
     Some(format!(
-        "cat << 'PAX_SCRIPT_EOF' | bash\n{}\nPAX_SCRIPT_EOF",
+        "if [ -n \"${{SSH_CONNECTION:-}}\" ]; then\ncat << 'PAX_SCRIPT_EOF' | bash\n{}\nPAX_SCRIPT_EOF\nfi",
         script_body
     ))
 }
@@ -510,9 +487,11 @@ mod tests {
     fn remote_startup_command_strips_shebang() {
         let command = remote_startup_command("#!/bin/bash\necho ready").unwrap();
 
-        assert!(command.starts_with("cat << 'PAX_SCRIPT_EOF' | bash\n"));
+        assert!(command.starts_with("if [ -n \"${SSH_CONNECTION:-}\" ]; then\n"));
+        assert!(command.contains("cat << 'PAX_SCRIPT_EOF' | bash\n"));
         assert!(command.contains("echo ready"));
         assert!(!command.contains("#!/bin/bash"));
+        assert!(command.ends_with("\nfi"));
     }
 
     #[test]

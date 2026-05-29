@@ -3,6 +3,8 @@ use gtk4::prelude::*;
 use std::cell::RefCell;
 use std::rc::Rc;
 
+use crate::panels::SshConnectionState;
+
 /// Drag threshold baseline for collapsed panels.
 pub const COLLAPSE_SIZE: i32 = 44;
 /// Actual allocated size for a collapsed panel.
@@ -48,11 +50,21 @@ use crate::panels::{PanelBackend, PanelCwdCallback, PanelStatusCallback, PanelTi
 /// Strip control characters (C0 except tab, and DEL) and truncate to
 /// `MAX_OSC_TITLE_LEN` characters. Used to render OSC 0/2 title payloads
 /// safely in the centered panel header label.
+///
+/// Some terminal stacks surface OSC 7 current-directory URIs through the
+/// window-title path too. Those are already rendered in the footer, so hide
+/// `file://...` payloads from the header while keeping all other titles.
 pub(crate) fn sanitize_osc_title(raw: &str) -> String {
-    raw.chars()
+    let title: String = raw
+        .chars()
         .filter(|&c| c == '\t' || (c >= ' ' && c != '\u{7f}'))
         .take(MAX_OSC_TITLE_LEN)
-        .collect()
+        .collect();
+    if title.trim_start().starts_with("file://") {
+        String::new()
+    } else {
+        title
+    }
 }
 
 /// Actions that can be triggered from panel/tab menus.
@@ -146,6 +158,7 @@ pub struct PanelHost {
     sync_button: gtk4::Button,
     zoom_button: gtk4::Button,
     ssh_button: gtk4::Button,
+    ssh_separator: gtk4::Separator,
     history_button: gtk4::Button,
     menu_button: gtk4::MenuButton,
     pub(crate) collapsed_view: gtk4::Widget,
@@ -182,22 +195,40 @@ impl Drop for PanelHost {
     }
 }
 
-fn update_ssh_button(button: &gtk4::Button, connected: Option<bool>) {
-    match connected {
-        Some(true) => {
+fn update_ssh_button(
+    button: &gtk4::Button,
+    separator: &gtk4::Separator,
+    state: Option<SshConnectionState>,
+) {
+    match state {
+        Some(SshConnectionState::Connected) => {
             button.set_visible(true);
-            button.set_icon_name("process-stop-symbolic");
+            separator.set_visible(true);
+            button.set_sensitive(true);
+            button.set_icon_name("network-wired-disconnected-symbolic");
             button.set_tooltip_text(Some("Disconnect SSH"));
             button.add_css_class("ssh-connected");
         }
-        Some(false) => {
+        Some(SshConnectionState::Connecting) => {
             button.set_visible(true);
+            separator.set_visible(true);
+            button.set_sensitive(false);
+            button.set_icon_name("content-loading-symbolic");
+            button.set_tooltip_text(Some("Connecting SSH"));
+            button.remove_css_class("ssh-connected");
+        }
+        Some(SshConnectionState::Disconnected) => {
+            button.set_visible(true);
+            separator.set_visible(true);
+            button.set_sensitive(true);
             button.set_icon_name("network-server-symbolic");
             button.set_tooltip_text(Some("Connect SSH"));
             button.remove_css_class("ssh-connected");
         }
         None => {
             button.set_visible(false);
+            separator.set_visible(false);
+            button.set_sensitive(true);
             button.set_tooltip_text(None);
             button.remove_css_class("ssh-connected");
         }
@@ -364,28 +395,32 @@ impl PanelHost {
         ssh_button.add_css_class("flat");
         ssh_button.add_css_class("panel-action-btn");
         ssh_button.set_visible(false);
+        let ssh_separator = gtk4::Separator::new(gtk4::Orientation::Vertical);
+        ssh_separator.add_css_class("panel-action-separator");
+        ssh_separator.set_visible(false);
         {
             let backend_ref = backend.clone();
             let button = ssh_button.clone();
+            let separator = ssh_separator.clone();
             ssh_button.connect_clicked(move |_| {
                 let next_state = match backend_ref.try_borrow() {
                     Ok(borrowed) => match &*borrowed {
-                        Some(backend) => match backend.ssh_is_connected() {
-                            Some(true) => {
+                        Some(backend) => match backend.ssh_connection_state() {
+                            Some(SshConnectionState::Connected) => {
                                 backend.ssh_disconnect();
-                                backend.ssh_is_connected()
+                                backend.ssh_connection_state()
                             }
-                            Some(false) => {
+                            Some(SshConnectionState::Disconnected) => {
                                 backend.ssh_connect();
-                                backend.ssh_is_connected()
+                                backend.ssh_connection_state()
                             }
-                            None => None,
+                            state => state,
                         },
                         None => None,
                     },
                     Err(_) => None,
                 };
-                update_ssh_button(&button, next_state);
+                update_ssh_button(&button, &separator, next_state);
             });
         }
 
@@ -486,16 +521,18 @@ impl PanelHost {
             ssh_indicator.append(&ssh_lbl);
         }
 
-        // Layout: start=[icon][ssh][title], center=osc_title, end=[sync][zoom][menu]
+        // Layout: start=[icon][ssh][title], center=osc_title,
+        // end=[ssh][sep][sync][zoom][history][menu]
         let start_box = gtk4::Box::new(gtk4::Orientation::Horizontal, 4);
         start_box.append(&type_icon);
         start_box.append(&ssh_indicator);
         start_box.append(&title_stack);
 
         let end_box = gtk4::Box::new(gtk4::Orientation::Horizontal, 4);
+        end_box.append(&ssh_button);
+        end_box.append(&ssh_separator);
         end_box.append(&sync_button);
         end_box.append(&zoom_button);
-        end_box.append(&ssh_button);
         end_box.append(&history_button);
         end_box.append(&menu_button);
 
@@ -641,6 +678,7 @@ impl PanelHost {
             sync_button,
             zoom_button,
             ssh_button,
+            ssh_separator,
             history_button,
             menu_button,
             collapsed_view: collapsed_view.upcast(),
@@ -751,7 +789,16 @@ impl PanelHost {
         } else {
             self.set_ssh_indicator(None);
         }
-        update_ssh_button(&self.ssh_button, backend.ssh_is_connected());
+        update_ssh_button(
+            &self.ssh_button,
+            &self.ssh_separator,
+            backend.ssh_connection_state(),
+        );
+        let ssh_button = self.ssh_button.clone();
+        let ssh_separator = self.ssh_separator.clone();
+        backend.set_ssh_state_callback(Some(Rc::new(move |state| {
+            update_ssh_button(&ssh_button, &ssh_separator, Some(state));
+        })));
 
         // Static footer (file path for document panels, project dir for code
         // editor). Terminals drive their footer dynamically via OSC 7 and
@@ -835,6 +882,15 @@ impl PanelHost {
             }
         });
         backend.set_cwd_callback(Some(cwd_cb));
+
+        if backend.ssh_connection_state() == Some(SshConnectionState::Connecting) {
+            backend.ssh_connect();
+            update_ssh_button(
+                &self.ssh_button,
+                &self.ssh_separator,
+                backend.ssh_connection_state(),
+            );
+        }
 
         *self.backend.borrow_mut() = Some(backend);
 
@@ -1311,6 +1367,19 @@ mod tests {
         let (panel_id, data) = payload.as_ref().expect("callback payload");
         assert_eq!(panel_id, "p42");
         assert_eq!(data, b"ls -la");
+    }
+
+    #[test]
+    fn osc_title_sanitizer_hides_file_uri_payloads_only() {
+        assert_eq!(
+            sanitize_osc_title("file://guruai@MILFHAI00APD/home/guruai"),
+            ""
+        );
+        assert_eq!(
+            sanitize_osc_title("\u{1b}]7;ignored\u{7f} file://not-at-start"),
+            "]7;ignored file://not-at-start"
+        );
+        assert_eq!(sanitize_osc_title("vim src/main.rs"), "vim src/main.rs");
     }
 
     #[test]
