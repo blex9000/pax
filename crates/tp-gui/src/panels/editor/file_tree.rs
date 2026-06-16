@@ -322,7 +322,7 @@ impl FileTree {
                 let Some(lb) = widget.downcast_ref::<gtk4::ListBox>() else {
                     return;
                 };
-                let clicked_row = context_row_at_point(lb, x, y);
+                let clicked_row = context_row_at_y(lb, y);
                 if let Some(ref row) = clicked_row {
                     lb.select_row(Some(row));
                 } else {
@@ -2052,22 +2052,8 @@ fn creation_destination_for_dir(dir: &Path, name: &str) -> Option<PathBuf> {
     }
 }
 
-fn row_ancestor(widget: gtk4::Widget) -> Option<gtk4::ListBoxRow> {
-    let mut current = Some(widget);
-    while let Some(widget) = current {
-        if let Ok(row) = widget.clone().downcast::<gtk4::ListBoxRow>() {
-            return Some(row);
-        }
-        current = widget.parent();
-    }
-    None
-}
-
-fn context_row_at_point(list_box: &gtk4::ListBox, x: f64, y: f64) -> Option<gtk4::ListBoxRow> {
-    list_box
-        .pick(x, y, gtk4::PickFlags::DEFAULT)
-        .and_then(row_ancestor)
-        .or_else(|| list_box.row_at_y(y as i32))
+fn context_row_at_y(list_box: &gtk4::ListBox, y: f64) -> Option<gtk4::ListBoxRow> {
+    list_box.row_at_y(y as i32)
 }
 
 fn resolve_tree_selection(
