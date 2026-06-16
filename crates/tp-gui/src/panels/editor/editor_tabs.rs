@@ -1496,7 +1496,6 @@ impl EditorTabs {
                     notes: super::notes_state::NotesState::new(),
                 }),
             });
-            st.active_tab = Some(st.open_files.len() - 1);
             st.open_files.len() - 1
         };
 
@@ -1842,7 +1841,6 @@ impl EditorTabs {
                 name_label: label.clone(),
                 content: super::tab_content::TabContent::Markdown(md_state),
             });
-            st.active_tab = Some(st.open_files.len() - 1);
             st.open_files.len() - 1
         };
 
@@ -2089,7 +2087,6 @@ impl EditorTabs {
                 name_label: label.clone(),
                 content: super::tab_content::TabContent::Image(img),
             });
-            st.active_tab = Some(st.open_files.len() - 1);
             st.open_files.len() - 1
         };
 

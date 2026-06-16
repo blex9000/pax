@@ -40,7 +40,7 @@ pub(super) fn apply_tab_view_state(
     keyword_shadow_buffer: &sourceview5::Buffer,
 ) -> bool {
     set_active_tab_label(notebook, idx);
-    remember_active_source_scroll(idx, state, source_scroll);
+    remember_active_source_scroll(idx, state, source_view, source_scroll);
 
     let query = last_search_query.borrow().clone();
     let snapshot = {
@@ -180,6 +180,7 @@ fn set_keyword_shadow_buffer(buffer: &sourceview5::Buffer, lang_id: Option<&str>
 fn remember_active_source_scroll(
     next_idx: usize,
     state: &Rc<RefCell<EditorState>>,
+    source_view: &sourceview5::View,
     source_scroll: &gtk4::ScrolledWindow,
 ) {
     let Ok(st) = state.try_borrow() else {
@@ -197,6 +198,14 @@ fn remember_active_source_scroll(
     let super::tab_content::TabContent::Source(source) = &open_file.content else {
         return;
     };
+    let visible_matches_active = source_view
+        .buffer()
+        .downcast::<sourceview5::Buffer>()
+        .map(|visible| visible == source.buffer)
+        .unwrap_or(false);
+    if !visible_matches_active {
+        return;
+    }
     source.scroll_x.set(source_scroll.hadjustment().value());
     source.scroll_y.set(source_scroll.vadjustment().value());
 }
@@ -305,4 +314,117 @@ fn refresh_current_source_view(
     view.queue_resize();
     view.queue_draw();
     true
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::panels::editor::file_backend::{FileBackend, LocalFileBackend};
+    use crate::panels::editor::tab_content::{SourceTab, TabContent};
+    use crate::panels::editor::{OpenFile, SidebarMode};
+    use serial_test::serial;
+    use std::path::Path;
+    use std::sync::Arc;
+    use tempfile::tempdir;
+
+    fn state_with_source_tab(
+        root: &Path,
+        buffer: sourceview5::Buffer,
+        scroll_x: Rc<Cell<f64>>,
+        scroll_y: Rc<Cell<f64>>,
+    ) -> Rc<RefCell<EditorState>> {
+        let backend: Arc<dyn FileBackend> = Arc::new(LocalFileBackend::new(root));
+        Rc::new(RefCell::new(EditorState {
+            root_dir: root.to_path_buf(),
+            open_files: vec![OpenFile {
+                tab_id: 1,
+                path: root.join("active.rs"),
+                last_disk_mtime: 0,
+                name_label: gtk4::Label::new(Some("active.rs")),
+                content: TabContent::Source(SourceTab {
+                    buffer,
+                    modified: false,
+                    scroll_x,
+                    scroll_y,
+                    saved_content: Rc::new(RefCell::new(String::new())),
+                    external_modified: false,
+                    notes: crate::panels::editor::notes_state::NotesState::new(),
+                }),
+            }],
+            active_tab: Some(0),
+            sidebar_visible: true,
+            sidebar_mode: SidebarMode::Files,
+            backend,
+            poll_interval: 2,
+            nav_back: Vec::new(),
+            nav_forward: Vec::new(),
+            recent_files: Vec::new(),
+            on_nav_state_changed: None,
+            record_key: String::new(),
+            sync_suppress: Rc::new(Cell::new(false)),
+            sync_input_cb: Rc::new(RefCell::new(None)),
+        }))
+    }
+
+    fn set_scroll_offsets(scroll: &gtk4::ScrolledWindow, x: f64, y: f64) {
+        let h = gtk4::Adjustment::new(x, 0.0, 1000.0, 1.0, 10.0, 100.0);
+        let v = gtk4::Adjustment::new(y, 0.0, 1000.0, 1.0, 10.0, 100.0);
+        scroll.set_hadjustment(Some(&h));
+        scroll.set_vadjustment(Some(&v));
+    }
+
+    #[test]
+    #[serial]
+    fn remember_active_source_scroll_requires_visible_active_buffer() {
+        crate::test_support::run_on_gtk_thread(|| {
+            let dir = tempdir().unwrap();
+            let active_buffer = sourceview5::Buffer::new(None::<&gtk4::TextTagTable>);
+            let visible_buffer = sourceview5::Buffer::new(None::<&gtk4::TextTagTable>);
+            let scroll_x = Rc::new(Cell::new(0.0));
+            let scroll_y = Rc::new(Cell::new(0.0));
+            let state = state_with_source_tab(
+                dir.path(),
+                active_buffer,
+                scroll_x.clone(),
+                scroll_y.clone(),
+            );
+
+            let source_view = sourceview5::View::new();
+            source_view.set_buffer(Some(&visible_buffer));
+            let source_scroll = gtk4::ScrolledWindow::new();
+            set_scroll_offsets(&source_scroll, 0.0, 500.0);
+
+            remember_active_source_scroll(1, &state, &source_view, &source_scroll);
+
+            assert_eq!(scroll_x.get(), 0.0);
+            assert_eq!(scroll_y.get(), 0.0);
+        });
+    }
+
+    #[test]
+    #[serial]
+    fn remember_active_source_scroll_saves_matching_visible_buffer() {
+        crate::test_support::run_on_gtk_thread(|| {
+            let dir = tempdir().unwrap();
+            let active_buffer = sourceview5::Buffer::new(None::<&gtk4::TextTagTable>);
+            let scroll_x = Rc::new(Cell::new(0.0));
+            let scroll_y = Rc::new(Cell::new(0.0));
+            let state = state_with_source_tab(
+                dir.path(),
+                active_buffer.clone(),
+                scroll_x.clone(),
+                scroll_y.clone(),
+            );
+
+            let source_view = sourceview5::View::new();
+            source_view.set_buffer(Some(&active_buffer));
+            let source_scroll = gtk4::ScrolledWindow::new();
+            set_scroll_offsets(&source_scroll, 0.0, 500.0);
+
+            remember_active_source_scroll(1, &state, &source_view, &source_scroll);
+
+            assert_eq!(scroll_x.get(), 0.0);
+            assert_eq!(scroll_y.get(), 500.0);
+        });
+    }
 }
