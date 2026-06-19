@@ -278,15 +278,14 @@ pub fn build_default_registry() -> PanelRegistry {
                 } else {
                     format!("ssh {}", ssh_target)
                 };
-                let mut connect_commands = vec![cmd];
-                connect_commands
-                    .push(super::terminal::ssh_remote_bootstrap_command(config.cwd.as_deref()));
-                let connect_raw_commands = config
+                let connect_commands = vec![cmd];
+                let mut connect_raw_commands =
+                    vec![super::terminal::ssh_remote_bootstrap_command(config.cwd.as_deref())];
+                connect_raw_commands.extend(config
                     .extra
                     .get("__startup_commands__")
                     .and_then(|cmds_str| remote_startup_command(cmds_str))
-                    .into_iter()
-                    .collect::<Vec<_>>();
+                    .into_iter());
                 panel.set_ssh_control(
                     ssh_label,
                     connect_commands,

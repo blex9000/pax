@@ -553,6 +553,81 @@ pub struct EditorTabs {
     pub notes_ruler: Rc<super::notes_ruler::NotesRuler>,
 }
 
+/// GtkSourceView allows a SearchContext's buffer to become NULL after the
+/// original buffer is finalized, while sourceview5's generated `buffer()`
+/// getter assumes it is always non-NULL. Retain the buffer beside the context
+/// and compare that strong reference when deciding whether to rebuild.
+struct CachedSearchContext {
+    // Drop the context before the retained buffer.
+    context: sourceview5::SearchContext,
+    buffer: sourceview5::Buffer,
+}
+
+fn ensure_search_context(
+    cache: &RefCell<Option<CachedSearchContext>>,
+    buffer: &sourceview5::Buffer,
+    settings: &sourceview5::SearchSettings,
+) -> sourceview5::SearchContext {
+    let mut cached = cache.borrow_mut();
+    if cached
+        .as_ref()
+        .map(|entry| entry.buffer != *buffer)
+        .unwrap_or(true)
+    {
+        let context = sourceview5::SearchContext::new(buffer, Some(settings));
+        context.set_highlight(true);
+        *cached = Some(CachedSearchContext {
+            context,
+            buffer: buffer.clone(),
+        });
+    }
+    cached.as_ref().unwrap().context.clone()
+}
+
+fn persist_note_positions(record_key: &str, open_file: &super::OpenFile) {
+    if record_key.is_empty() {
+        return;
+    }
+
+    let (notes_opt, buffer_opt): (
+        Option<&super::notes_state::NotesState>,
+        Option<&sourceview5::Buffer>,
+    ) = match &open_file.content {
+        super::tab_content::TabContent::Source(source) => {
+            (Some(&source.notes), Some(&source.buffer))
+        }
+        super::tab_content::TabContent::Markdown(m) => (Some(&m.notes), Some(&m.buffer)),
+        _ => (None, None),
+    };
+
+    let (Some(notes), Some(buffer)) = (notes_opt, buffer_opt) else {
+        return;
+    };
+
+    let snapshot: Vec<(i64, i32, String)> = notes
+        .entries
+        .borrow()
+        .iter()
+        .filter_map(|e| {
+            let mark = e.mark.as_ref()?;
+            let line = super::notes_state::line_of_mark(buffer, mark);
+            let anchor = super::notes_state::line_content(buffer, line);
+            Some((e.db_id, line, anchor))
+        })
+        .collect();
+
+    if snapshot.is_empty() {
+        return;
+    }
+
+    let db_path = pax_db::Database::default_path();
+    if let Ok(db) = pax_db::Database::open(&db_path) {
+        for (id, line, anchor) in snapshot {
+            let _ = db.update_metadata_position(id, line, Some(&anchor));
+        }
+    }
+}
+
 impl EditorTabs {
     pub fn new(state: Rc<RefCell<EditorState>>) -> Self {
         let notebook = gtk4::Notebook::new();
@@ -903,22 +978,14 @@ impl EditorTabs {
         // Helper: get or create SearchContext for the active view's buffer.
         // Recreated transparently when the user switches to a different tab
         // because the buffer object changes underneath us.
-        let active_ctx: Rc<RefCell<Option<sourceview5::SearchContext>>> =
-            Rc::new(RefCell::new(None));
+        let active_ctx: Rc<RefCell<Option<CachedSearchContext>>> = Rc::new(RefCell::new(None));
         let ensure_ctx = {
             let av = active_view.clone();
             let ss = search_settings.clone();
             let ctx_cell = active_ctx.clone();
-            move || -> sourceview5::SearchContext {
-                let buf = av().buffer().downcast::<sourceview5::Buffer>().unwrap();
-                let mut cell = ctx_cell.borrow_mut();
-                let needs_new = cell.as_ref().map(|c| c.buffer() != buf).unwrap_or(true);
-                if needs_new {
-                    let ctx = sourceview5::SearchContext::new(&buf, Some(&ss));
-                    ctx.set_highlight(true);
-                    *cell = Some(ctx);
-                }
-                cell.as_ref().unwrap().clone()
+            move || -> Option<sourceview5::SearchContext> {
+                let buf = av().buffer().downcast::<sourceview5::Buffer>().ok()?;
+                Some(ensure_search_context(&ctx_cell, &buf, &ss))
             }
         };
 
@@ -932,7 +999,14 @@ impl EditorTabs {
             let lsq = last_search_query.clone();
             search_entry.connect_search_changed(move |entry| {
                 let text = entry.text().to_string();
-                let ctx = get_ctx();
+                let Some(ctx) = get_ctx() else {
+                    count_l.set_text("");
+                    *lsq.borrow_mut() = text;
+                    ml.borrow_mut().clear();
+                    mr.set_visible(false);
+                    mr.queue_draw();
+                    return;
+                };
                 let settings = ctx.settings();
                 settings.set_search_text(if text.is_empty() { None } else { Some(&text) });
                 // Connect count update (re-connected each time, but GTK handles duplicates)
@@ -981,7 +1055,9 @@ impl EditorTabs {
             let get_ctx = ensure_ctx.clone();
             let get_view = active_view.clone();
             next_btn.connect_clicked(move |_| {
-                let ctx = get_ctx();
+                let Some(ctx) = get_ctx() else {
+                    return;
+                };
                 let sv = get_view();
                 let buf = sv.buffer();
                 let (_, end) = buf.selection_bounds().unwrap_or_else(|| {
@@ -1000,7 +1076,9 @@ impl EditorTabs {
             let get_ctx = ensure_ctx.clone();
             let get_view = active_view.clone();
             prev_btn.connect_clicked(move |_| {
-                let ctx = get_ctx();
+                let Some(ctx) = get_ctx() else {
+                    return;
+                };
                 let sv = get_view();
                 let buf = sv.buffer();
                 let (start, _) = buf.selection_bounds().unwrap_or_else(|| {
@@ -1022,7 +1100,9 @@ impl EditorTabs {
             let get_ctx = ensure_ctx.clone();
             let get_view = active_view.clone();
             search_entry.connect_activate(move |_| {
-                let ctx = get_ctx();
+                let Some(ctx) = get_ctx() else {
+                    return;
+                };
                 let sv = get_view();
                 let buf = sv.buffer();
                 let (_, end) = buf.selection_bounds().unwrap_or_else(|| {
@@ -1046,7 +1126,9 @@ impl EditorTabs {
                 if !(is_enter && shift) {
                     return gtk4::glib::Propagation::Proceed;
                 }
-                let ctx = get_ctx();
+                let Some(ctx) = get_ctx() else {
+                    return gtk4::glib::Propagation::Proceed;
+                };
                 let sv = get_view();
                 let buf = sv.buffer();
                 let (start, _) = buf.selection_bounds().unwrap_or_else(|| {
@@ -1112,7 +1194,9 @@ impl EditorTabs {
             let get_view = active_view.clone();
             let re = replace_entry.clone();
             replace_btn.connect_clicked(move |_| {
-                let ctx = get_ctx();
+                let Some(ctx) = get_ctx() else {
+                    return;
+                };
                 let replace_text = re.text().to_string();
                 let sv = get_view();
                 let buf = sv.buffer();
@@ -1146,7 +1230,9 @@ impl EditorTabs {
             let re = replace_entry.clone();
             let count_l = match_count_label.clone();
             replace_all_btn.connect_clicked(move |_| {
-                let ctx = get_ctx();
+                let Some(ctx) = get_ctx() else {
+                    return;
+                };
                 let replace_text = re.text().to_string();
                 match ctx.replace_all(&replace_text) {
                     Ok(()) => count_l.set_text("All replaced"),
@@ -2550,47 +2636,7 @@ impl EditorTabs {
                     if let Some(cell) = open_file.saved_content() {
                         *cell.borrow_mut() = text;
                     }
-                    // Flush note positions: for each note on this tab, read
-                    // its current line from its mark and persist (line,
-                    // anchor) so the next reload is robust to edits the user
-                    // made during the session. Applies to both source and
-                    // markdown tabs (both carry a NotesState over a buffer).
-                    if !record_key.is_empty() {
-                        let (notes_opt, buffer_opt): (
-                            Option<&super::notes_state::NotesState>,
-                            Option<&sourceview5::Buffer>,
-                        ) = match &open_file.content {
-                            super::tab_content::TabContent::Source(source) => {
-                                (Some(&source.notes), Some(&source.buffer))
-                            }
-                            super::tab_content::TabContent::Markdown(m) => {
-                                (Some(&m.notes), Some(&m.buffer))
-                            }
-                            _ => (None, None),
-                        };
-                        if let (Some(notes), Some(buffer)) = (notes_opt, buffer_opt) {
-                            let snapshot: Vec<(i64, i32, String)> = notes
-                                .entries
-                                .borrow()
-                                .iter()
-                                .filter_map(|e| {
-                                    let mark = e.mark.as_ref()?;
-                                    let line = super::notes_state::line_of_mark(buffer, mark);
-                                    let anchor = super::notes_state::line_content(buffer, line);
-                                    Some((e.db_id, line, anchor))
-                                })
-                                .collect();
-                            if !snapshot.is_empty() {
-                                let db_path = pax_db::Database::default_path();
-                                if let Ok(db) = pax_db::Database::open(&db_path) {
-                                    for (id, line, anchor) in snapshot {
-                                        let _ =
-                                            db.update_metadata_position(id, line, Some(&anchor));
-                                    }
-                                }
-                            }
-                        }
-                    }
+                    persist_note_positions(&record_key, open_file);
                 }
             }
         }
@@ -2601,6 +2647,125 @@ impl EditorTabs {
             &self.status_modified,
             dirty_state::IndicatorState::Clean,
         );
+    }
+
+    fn save_modified_tabs(&self, state: &Rc<RefCell<EditorState>>) -> Vec<u64> {
+        let mut failed = Vec::new();
+        let mut st = state.borrow_mut();
+        let backend = st.backend.clone();
+        let record_key = st.record_key.clone();
+
+        for open_file in &mut st.open_files {
+            if !open_file.modified() {
+                continue;
+            }
+
+            let Some(buf) = open_file.writable_buffer().cloned() else {
+                tracing::warn!(
+                    "editor.tabs: cannot save read-only tab {}",
+                    open_file.path.display()
+                );
+                failed.push(open_file.tab_id);
+                continue;
+            };
+
+            let text = buf
+                .text(&buf.start_iter(), &buf.end_iter(), false)
+                .to_string();
+            if let Err(e) = backend.write_file(&open_file.path, &text) {
+                tracing::error!("Failed to save {}: {}", open_file.path.display(), e);
+                failed.push(open_file.tab_id);
+                continue;
+            }
+
+            open_file.set_modified(false);
+            open_file.set_external_modified(false);
+            open_file.last_disk_mtime = get_mtime(&open_file.path);
+            if let Some(cell) = open_file.saved_content() {
+                *cell.borrow_mut() = text;
+            }
+            persist_note_positions(&record_key, open_file);
+        }
+
+        failed
+    }
+
+    /// Close every open file. Modified writable tabs are saved first; tabs that
+    /// fail to save are left open so their buffer is not lost.
+    pub fn close_all_tabs(&self, state: &Rc<RefCell<EditorState>>) {
+        if state.borrow().open_files.is_empty() {
+            return;
+        }
+
+        let failed_ids = self.save_modified_tabs(state);
+        let indices: Vec<usize> = {
+            let st = state.borrow();
+            st.open_files
+                .iter()
+                .enumerate()
+                .filter(|(_, f)| !failed_ids.contains(&f.tab_id))
+                .map(|(idx, _)| idx)
+                .collect()
+        };
+
+        if indices.is_empty() {
+            if !failed_ids.is_empty() {
+                tracing::warn!(
+                    "editor.tabs: close_all kept {} tab(s) open after save failure",
+                    failed_ids.len()
+                );
+                super::fire_nav_state_changed(state);
+            }
+            return;
+        }
+
+        for idx in indices.into_iter().rev() {
+            self.remove_tab(idx, state);
+        }
+
+        {
+            let mut st = state.borrow_mut();
+            st.nav_back.clear();
+            st.nav_forward.clear();
+        }
+
+        if !failed_ids.is_empty() {
+            let first_failed = {
+                let st = state.borrow();
+                st.open_files
+                    .iter()
+                    .position(|f| failed_ids.contains(&f.tab_id))
+            };
+            if let Some(idx) = first_failed {
+                self.activate_tab(idx, state);
+            }
+            tracing::warn!(
+                "editor.tabs: close_all left {} unsaved tab(s) open after save failure",
+                failed_ids.len()
+            );
+        } else {
+            self.search_bar.set_visible(false);
+            self.search_settings.set_search_text(None::<&str>);
+            self.search_entry.set_text("");
+            self.replace_entry.set_text("");
+            self.replace_row.set_visible(false);
+            self.status_lang.set_text("Plain Text");
+            self.status_pos.set_text("Ln 1, Col 1");
+            dirty_state::set_status_indicator(
+                &self.status_modified,
+                dirty_state::IndicatorState::Clean,
+            );
+            self.notes_ruler.clear();
+            self.match_lines.borrow_mut().clear();
+            self.last_search_query.borrow_mut().clear();
+            self.match_ruler.set_visible(false);
+            self.match_ruler.queue_draw();
+            let empty = sourceview5::Buffer::new(None::<&gtk4::TextTagTable>);
+            crate::theme::register_sourceview_buffer(&empty);
+            self.source_view.set_buffer(Some(&empty));
+        }
+
+        super::fire_nav_state_changed(state);
     }
 
     /// Close the active tab. If modified, save first then close.
@@ -2628,12 +2793,14 @@ impl EditorTabs {
         super::completion_lifecycle::suspend_until_idle(&self.source_view);
         let empty_after;
         let new_idx;
+        let content_child_name;
         {
             let mut st = state.borrow_mut();
             if idx >= st.open_files.len() {
                 return;
             }
             let removed = st.open_files.remove(idx);
+            content_child_name = removed.content.content_stack_child_name(removed.tab_id);
             if let Some(buf) = removed.writable_buffer() {
                 self.completion_words.unregister(buf);
             }
@@ -2651,6 +2818,11 @@ impl EditorTabs {
         }
         // Borrow is dropped — safe to call notebook methods that trigger switch_page
         self.notebook.remove_page(Some(idx as u32));
+        if content_child_name != "editor" {
+            if let Some(w) = self.content_stack.child_by_name(&content_child_name) {
+                self.content_stack.remove(&w);
+            }
+        }
         if empty_after {
             self.notebook.set_show_tabs(false);
             self.content_stack.set_visible_child_name("welcome");
@@ -3039,4 +3211,44 @@ fn get_mtime(path: &Path) -> u64 {
                 .as_secs()
         })
         .unwrap_or(0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serial_test::serial;
+
+    #[test]
+    #[serial]
+    fn cached_search_context_retains_and_reuses_its_buffer() {
+        crate::test_support::run_on_gtk_thread(|| {
+            let cache = RefCell::new(None);
+            let settings = sourceview5::SearchSettings::new();
+            let buffer = sourceview5::Buffer::new(None::<&gtk4::TextTagTable>);
+
+            let first = ensure_search_context(&cache, &buffer, &settings);
+            let second = ensure_search_context(&cache, &buffer, &settings);
+            assert_eq!(first, second);
+
+            drop(buffer);
+            assert_eq!(first.buffer(), cache.borrow().as_ref().unwrap().buffer);
+        });
+    }
+
+    #[test]
+    #[serial]
+    fn cached_search_context_rebuilds_for_a_different_buffer() {
+        crate::test_support::run_on_gtk_thread(|| {
+            let cache = RefCell::new(None);
+            let settings = sourceview5::SearchSettings::new();
+            let first_buffer = sourceview5::Buffer::new(None::<&gtk4::TextTagTable>);
+            let second_buffer = sourceview5::Buffer::new(None::<&gtk4::TextTagTable>);
+
+            let first = ensure_search_context(&cache, &first_buffer, &settings);
+            let second = ensure_search_context(&cache, &second_buffer, &settings);
+
+            assert_ne!(first, second);
+            assert_eq!(second.buffer(), second_buffer);
+        });
+    }
 }

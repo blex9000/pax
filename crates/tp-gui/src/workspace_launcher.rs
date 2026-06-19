@@ -10,8 +10,9 @@
 //! CLI entry point for free and keeps per-workspace state (DB handles,
 //! theme providers, alert schedulers) fully isolated.
 
+use std::ffi::OsString;
 use std::io;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 /// Launch a new Pax process that opens the given workspace config file.
@@ -23,7 +24,7 @@ use std::process::Command;
 /// them into a single taskbar entry — minimize-then-restore could only
 /// surface one of them at a time.
 pub fn open_in_new_window(config_path: &Path) -> io::Result<()> {
-    let exe = std::env::current_exe()?;
+    let exe = launcher_executable(std::env::var_os("APPIMAGE"))?;
     Command::new(exe)
         .arg("launch")
         .arg(config_path)
@@ -32,15 +33,32 @@ pub fn open_in_new_window(config_path: &Path) -> io::Result<()> {
     Ok(())
 }
 
-/// Launch a new Pax process that opens or creates the default workspace
-/// for `name`, mirroring the `pax new --name <name>` CLI path.
-pub fn open_new_workspace_in_new_window(name: &str) -> io::Result<()> {
-    let exe = std::env::current_exe()?;
-    Command::new(exe)
-        .arg("new")
-        .arg("--name")
-        .arg(name)
-        .env(crate::app::SECONDARY_INSTANCE_ENV, "1")
-        .spawn()?;
-    Ok(())
+fn launcher_executable(appimage: Option<OsString>) -> io::Result<PathBuf> {
+    if let Some(path) = appimage.filter(|path| !path.is_empty()) {
+        return Ok(PathBuf::from(path));
+    }
+    std::env::current_exe()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn launcher_executable_prefers_appimage_path() {
+        let appimage = Some(OsString::from("/opt/Pax-x86_64.AppImage"));
+
+        assert_eq!(
+            launcher_executable(appimage).unwrap(),
+            PathBuf::from("/opt/Pax-x86_64.AppImage")
+        );
+    }
+
+    #[test]
+    fn launcher_executable_ignores_empty_appimage_path() {
+        assert_eq!(
+            launcher_executable(Some(OsString::new())).unwrap(),
+            std::env::current_exe().unwrap()
+        );
+    }
 }

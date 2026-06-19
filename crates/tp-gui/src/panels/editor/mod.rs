@@ -371,7 +371,12 @@ impl CodeEditorPanel {
         reveal_btn.add_css_class("flat");
         reveal_btn.set_tooltip_text(Some("Reveal active file in tree"));
 
+        let close_all_btn = gtk4::Button::from_icon_name("window-close-symbolic");
+        close_all_btn.add_css_class("flat");
+        close_all_btn.set_tooltip_text(Some("Close all open files (Ctrl+Shift+W)"));
+
         activity_bar.append(&reveal_btn);
+        activity_bar.append(&close_all_btn);
         activity_bar.append(&bar_spacer);
         activity_bar.append(&recent_btn);
 
@@ -387,6 +392,7 @@ impl CodeEditorPanel {
             let nav_back = nav_back_btn.clone();
             let nav_fwd = nav_fwd_btn.clone();
             let reveal = reveal_btn.clone();
+            let close_all = close_all_btn.clone();
             let recent = recent_btn.clone();
             let state_c = state.clone();
             let refresh: Rc<dyn Fn()> = Rc::new(move || {
@@ -394,6 +400,7 @@ impl CodeEditorPanel {
                 nav_back.set_sensitive(!st.nav_back.is_empty());
                 nav_fwd.set_sensitive(!st.nav_forward.is_empty());
                 reveal.set_sensitive(st.active_tab.is_some());
+                close_all.set_sensitive(!st.open_files.is_empty());
                 recent.set_sensitive(!st.recent_files.is_empty());
             });
             state.borrow_mut().on_nav_state_changed = Some(refresh.clone());
@@ -760,7 +767,8 @@ impl CodeEditorPanel {
             widget.add_controller(shortcut_ctrl);
         }
 
-        // Keybindings: Ctrl+S save, Ctrl+W close, Ctrl+Tab next tab, Ctrl+B sidebar, Ctrl+P fuzzy finder, Ctrl+Shift+G git view
+        // Keybindings: Ctrl+S save, Ctrl+W close, Ctrl+Shift+W close all, Ctrl+Tab next tab,
+        // Ctrl+B sidebar, Ctrl+P fuzzy finder, Ctrl+Shift+G git view
         {
             let state_c = state.clone();
             let key_ctrl = gtk4::EventControllerKey::new();
@@ -792,6 +800,10 @@ impl CodeEditorPanel {
                             markdown_view::toggle_mode(&md);
                             return gtk4::glib::Propagation::Stop;
                         }
+                    }
+                    if shift && matches!(key, gtk4::gdk::Key::w | gtk4::gdk::Key::W) {
+                        tabs_ref.close_all_tabs(&state_c);
+                        return gtk4::glib::Propagation::Stop;
                     }
                     // Ctrl+= / Ctrl++ / Ctrl+- / Ctrl+0 → image zoom.
                     if !shift {
@@ -990,6 +1002,13 @@ impl CodeEditorPanel {
             let tc = tabs_rc.clone();
             recent_btn.connect_clicked(move |_| {
                 show_recent_files_popup(&sc, &tc);
+            });
+        }
+        {
+            let sc = state.clone();
+            let tc = tabs_rc.clone();
+            close_all_btn.connect_clicked(move |_| {
+                tc.close_all_tabs(&sc);
             });
         }
 

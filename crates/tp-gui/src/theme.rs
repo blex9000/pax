@@ -524,7 +524,7 @@ window:not(.app-dialog) headerbar:not(.app-headerbar) button {
 window:not(.app-dialog) headerbar:not(.app-headerbar) button:hover {
   background-color: @hover_bg;
 }
-box.panel-title-bar, box.panel-footer-bar, .status-bar, .markdown-toolbar { background-color: @window_bg_color; color: @window_fg_color; }
+box.panel-title-wrap, box.panel-title-bar, box.panel-ssh-status-bar, box.panel-footer-bar, .status-bar, .markdown-toolbar { background-color: @window_bg_color; color: @window_fg_color; }
 button,
 menubutton > button,
 togglebutton {
@@ -976,11 +976,67 @@ box.panel-frame.panel-collapsed-placeholder {
 box.panel-frame > box { margin: 0; padding: 0; }
 box.panel-frame > box.panel-title-bar { border-radius: 14px 14px 0 0; }
 box.panel-frame > box.panel-footer-bar { border-radius: 0 0 14px 14px; }
+box.panel-title-wrap { margin: 0; padding: 0; }
 box.panel-title-bar { padding: 0 4px; margin: 0; min-height: 13px; border-bottom: none; }
 .panel-title { font-size: 10px; font-weight: bold; }
 box.panel-frame box.panel-title-bar {
   background-color: transparent;
   border-bottom: none;
+}
+box.panel-frame box.panel-title-wrap,
+box.panel-frame box.panel-ssh-status-bar {
+  background-color: transparent;
+}
+box.panel-ssh-status-bar {
+  min-height: 19px;
+  padding: 0 6px 3px 31px;
+  border-top: 1px solid alpha(@border_soft, 0.22);
+}
+.panel-ssh-status-icon {
+  -gtk-icon-size: 12px;
+  min-height: 12px;
+  min-width: 12px;
+  opacity: 0.92;
+}
+.panel-ssh-target {
+  color: alpha(@window_fg_color, 0.82);
+  font-size: 10px;
+}
+.panel-ssh-state {
+  font-size: 10px;
+  font-weight: 600;
+  margin-left: 3px;
+}
+.ssh-state-connected {
+  color: #2ec27e;
+}
+.ssh-state-connecting {
+  color: #e5a50a;
+}
+.ssh-state-disconnected {
+  color: #c01c28;
+}
+button.panel-action-btn.panel-ssh-control-btn {
+  min-height: 15px;
+  min-width: 15px;
+  margin-left: 2px;
+  margin-right: 4px;
+  opacity: 0.86;
+}
+button.panel-action-btn.panel-ssh-control-btn image {
+  -gtk-icon-size: 11px;
+}
+button.panel-action-btn.panel-ssh-control-btn.ssh-connected image {
+  color: #c01c28;
+}
+box.panel-ssh-status-bar separator.panel-action-separator {
+  min-height: 13px;
+  margin-left: 4px;
+  margin-right: 2px;
+  opacity: 0.55;
+}
+box.panel-frame.panel-unfocused box.panel-ssh-status-bar {
+  opacity: 0.72;
 }
 /* Focused panels keep the same gray borders as unfocused ones — only the
    type icon switches to the accent color so focus is communicated via a
@@ -2121,6 +2177,9 @@ mod tests {
         assert!(BASE_CSS.contains("-gtk-icon-size: 12px;"));
         assert!(BASE_CSS.contains("box.panel-title-bar { padding: 0 4px;"));
         assert!(BASE_CSS.contains(".panel-title { font-size: 10px;"));
+        assert!(BASE_CSS.contains("box.panel-ssh-status-bar"));
+        assert!(BASE_CSS.contains(".panel-ssh-control-btn"));
+        assert!(BASE_CSS.contains(".ssh-state-disconnected"));
         assert!(BASE_CSS.contains(".panel-title-type-icon"));
         assert!(BASE_CSS.contains("margin-left: 14px;"));
         assert!(BASE_CSS.contains(".panel-action-btn { min-height: 9px;"));

@@ -159,11 +159,14 @@ pub struct PanelHost {
     zoom_button: gtk4::Button,
     ssh_button: gtk4::Button,
     ssh_separator: gtk4::Separator,
+    ssh_status_bar: gtk4::Box,
+    ssh_status_icon: gtk4::Image,
+    ssh_status_target_label: gtk4::Label,
+    ssh_status_state_label: gtk4::Label,
     history_button: gtk4::Button,
     menu_button: gtk4::MenuButton,
     pub(crate) collapsed_view: gtk4::Widget,
     collapsed_icon: gtk4::Image,
-    ssh_indicator: gtk4::Box,
     pub(crate) footer_bar: gtk4::Box,
     pub(crate) footer_label: gtk4::Label,
     widget: gtk4::Widget,
@@ -176,6 +179,7 @@ pub struct PanelHost {
     /// computes the panel's current `SiblingInfo` so the menu (rebuilt
     /// on every ⋮ open) reflects the live layout.
     sibling_info_provider_ref: Rc<RefCell<Option<SiblingInfoProvider>>>,
+    panel_menu_sibling_cache: Rc<RefCell<Option<Option<crate::layout_ops::SiblingInfo>>>>,
     /// Shared input callback used by terminal-like backends for sync propagation.
     sync_input_cb_ref: Rc<RefCell<Option<crate::panels::PanelInputCallback>>>,
     /// External observers of OSC 133 waiting-state transitions. Used so
@@ -195,9 +199,28 @@ impl Drop for PanelHost {
     }
 }
 
+const SSH_STATE_CLASSES: [&str; 3] = [
+    "ssh-state-connected",
+    "ssh-state-connecting",
+    "ssh-state-disconnected",
+];
+
+fn set_ssh_state_class(icon: &gtk4::Image, label: &gtk4::Label, class_name: Option<&'static str>) {
+    for css_class in SSH_STATE_CLASSES {
+        icon.remove_css_class(css_class);
+        label.remove_css_class(css_class);
+    }
+    if let Some(css_class) = class_name {
+        icon.add_css_class(css_class);
+        label.add_css_class(css_class);
+    }
+}
+
 fn update_ssh_button(
     button: &gtk4::Button,
     separator: &gtk4::Separator,
+    state_icon: &gtk4::Image,
+    state_label: &gtk4::Label,
     state: Option<SshConnectionState>,
 ) {
     match state {
@@ -208,6 +231,11 @@ fn update_ssh_button(
             button.set_icon_name("network-wired-disconnected-symbolic");
             button.set_tooltip_text(Some("Disconnect SSH"));
             button.add_css_class("ssh-connected");
+            state_icon.set_icon_name(Some("network-server-symbolic"));
+            state_icon.set_tooltip_text(Some("SSH connected"));
+            state_label.set_text("Connected");
+            state_label.set_tooltip_text(Some("SSH connected"));
+            set_ssh_state_class(state_icon, state_label, Some("ssh-state-connected"));
         }
         Some(SshConnectionState::Connecting) => {
             button.set_visible(true);
@@ -216,14 +244,24 @@ fn update_ssh_button(
             button.set_icon_name("content-loading-symbolic");
             button.set_tooltip_text(Some("Connecting SSH"));
             button.remove_css_class("ssh-connected");
+            state_icon.set_icon_name(Some("content-loading-symbolic"));
+            state_icon.set_tooltip_text(Some("SSH connecting"));
+            state_label.set_text("Connecting");
+            state_label.set_tooltip_text(Some("SSH connecting"));
+            set_ssh_state_class(state_icon, state_label, Some("ssh-state-connecting"));
         }
         Some(SshConnectionState::Disconnected) => {
             button.set_visible(true);
             separator.set_visible(true);
             button.set_sensitive(true);
             button.set_icon_name("network-server-symbolic");
-            button.set_tooltip_text(Some("Connect SSH"));
+            button.set_tooltip_text(Some("Reconnect SSH"));
             button.remove_css_class("ssh-connected");
+            state_icon.set_icon_name(Some("network-wired-disconnected-symbolic"));
+            state_icon.set_tooltip_text(Some("SSH disconnected"));
+            state_label.set_text("Disconnected");
+            state_label.set_tooltip_text(Some("SSH disconnected"));
+            set_ssh_state_class(state_icon, state_label, Some("ssh-state-disconnected"));
         }
         None => {
             button.set_visible(false);
@@ -231,6 +269,10 @@ fn update_ssh_button(
             button.set_sensitive(true);
             button.set_tooltip_text(None);
             button.remove_css_class("ssh-connected");
+            state_icon.set_tooltip_text(None);
+            state_label.set_text("");
+            state_label.set_tooltip_text(None);
+            set_ssh_state_class(state_icon, state_label, None);
         }
     }
 }
@@ -250,6 +292,7 @@ impl PanelHost {
             Rc::new(RefCell::new(action_cb.clone()));
         let sibling_info_provider_ref: Rc<RefCell<Option<SiblingInfoProvider>>> =
             Rc::new(RefCell::new(None));
+        let panel_menu_sibling_cache = Rc::new(RefCell::new(None));
         // Create the backend Rc early so we can close over it in button handlers
         // wired below (before the struct is assembled).
         let backend: Rc<RefCell<Option<Box<dyn PanelBackend>>>> = Rc::new(RefCell::new(None));
@@ -389,11 +432,43 @@ impl PanelHost {
             });
         }
 
+        let ssh_status_bar = gtk4::Box::new(gtk4::Orientation::Horizontal, 6);
+        ssh_status_bar.add_css_class("panel-ssh-status-bar");
+        ssh_status_bar.set_visible(false);
+
+        let ssh_status_left = gtk4::Box::new(gtk4::Orientation::Horizontal, 5);
+        ssh_status_left.set_hexpand(true);
+        ssh_status_left.set_halign(gtk4::Align::Fill);
+
+        let ssh_status_icon = gtk4::Image::from_icon_name("network-server-symbolic");
+        ssh_status_icon.add_css_class("panel-ssh-status-icon");
+        ssh_status_icon.set_pixel_size(12);
+
+        let ssh_status_target_label = gtk4::Label::new(None);
+        ssh_status_target_label.add_css_class("panel-ssh-target");
+        ssh_status_target_label.add_css_class("caption");
+        ssh_status_target_label.set_ellipsize(gtk4::pango::EllipsizeMode::End);
+        ssh_status_target_label.set_max_width_chars(42);
+        ssh_status_target_label.set_halign(gtk4::Align::Start);
+        ssh_status_target_label.set_hexpand(true);
+        ssh_status_target_label.set_xalign(0.0);
+
+        let ssh_status_state_label = gtk4::Label::new(None);
+        ssh_status_state_label.add_css_class("panel-ssh-state");
+        ssh_status_state_label.add_css_class("caption");
+        ssh_status_state_label.set_halign(gtk4::Align::Start);
+        ssh_status_state_label.set_xalign(0.0);
+
+        ssh_status_left.append(&ssh_status_icon);
+        ssh_status_left.append(&ssh_status_target_label);
+        ssh_status_left.append(&ssh_status_state_label);
+
         // SSH connect/disconnect button — visible only for terminal backends
         // with a saved SSH target.
         let ssh_button = gtk4::Button::new();
         ssh_button.add_css_class("flat");
         ssh_button.add_css_class("panel-action-btn");
+        ssh_button.add_css_class("panel-ssh-control-btn");
         ssh_button.set_visible(false);
         let ssh_separator = gtk4::Separator::new(gtk4::Orientation::Vertical);
         ssh_separator.add_css_class("panel-action-separator");
@@ -402,6 +477,8 @@ impl PanelHost {
             let backend_ref = backend.clone();
             let button = ssh_button.clone();
             let separator = ssh_separator.clone();
+            let state_icon = ssh_status_icon.clone();
+            let state_label = ssh_status_state_label.clone();
             ssh_button.connect_clicked(move |_| {
                 let next_state = match backend_ref.try_borrow() {
                     Ok(borrowed) => match &*borrowed {
@@ -420,7 +497,7 @@ impl PanelHost {
                     },
                     Err(_) => None,
                 };
-                update_ssh_button(&button, &separator, next_state);
+                update_ssh_button(&button, &separator, &state_icon, &state_label, next_state);
             });
         }
 
@@ -491,6 +568,7 @@ impl PanelHost {
         // Build popover menu
         let popover = build_panel_menu(panel_id, action_cb, None);
         menu_button.set_popover(Some(&popover));
+        *panel_menu_sibling_cache.borrow_mut() = Some(None);
 
         // Rebuild the menu on every ⋮ click so Move items reflect the
         // current layout (which the static popover above can't see).
@@ -498,39 +576,32 @@ impl PanelHost {
             let panel_id_c = panel_id.to_string();
             let action_ref = action_cb_ref.clone();
             let sib_ref = sibling_info_provider_ref.clone();
+            let menu_cache = panel_menu_sibling_cache.clone();
             menu_button.set_create_popup_func(move |btn| {
-                let action_cb = action_ref.borrow().clone();
                 let sibling_info = sib_ref.borrow().as_ref().and_then(|f| f(&panel_id_c));
+                if menu_cache
+                    .try_borrow()
+                    .is_ok_and(|cached| *cached == Some(sibling_info))
+                {
+                    return;
+                }
+                let action_cb = action_ref.borrow().clone();
                 let popover = build_panel_menu(&panel_id_c, action_cb, sibling_info);
                 btn.set_popover(Some(&popover));
+                if let Ok(mut cached) = menu_cache.try_borrow_mut() {
+                    *cached = Some(sibling_info);
+                }
             });
         }
 
-        // SSH indicator (hidden by default, shown for remote panels)
-        let ssh_indicator = gtk4::Box::new(gtk4::Orientation::Horizontal, 3);
-        ssh_indicator.set_visible(false);
-        ssh_indicator.set_margin_end(4);
-        {
-            let ssh_icon = gtk4::Image::from_icon_name("network-server-symbolic");
-            ssh_icon.set_pixel_size(12);
-            ssh_indicator.append(&ssh_icon);
-            let ssh_lbl = gtk4::Label::new(None);
-            ssh_lbl.add_css_class("caption");
-            ssh_lbl.add_css_class("dim-label");
-            ssh_lbl.set_ellipsize(gtk4::pango::EllipsizeMode::End);
-            ssh_indicator.append(&ssh_lbl);
-        }
-
-        // Layout: start=[icon][ssh][title], center=osc_title,
-        // end=[ssh][sep][sync][zoom][history][menu]
+        // Layout: first row start=[icon][title], center=osc_title,
+        // end=[sync][zoom][history][menu]. SSH panels get a second row
+        // below with target, connection state, and connect/disconnect action.
         let start_box = gtk4::Box::new(gtk4::Orientation::Horizontal, 4);
         start_box.append(&type_icon);
-        start_box.append(&ssh_indicator);
         start_box.append(&title_stack);
 
         let end_box = gtk4::Box::new(gtk4::Orientation::Horizontal, 4);
-        end_box.append(&ssh_button);
-        end_box.append(&ssh_separator);
         end_box.append(&sync_button);
         end_box.append(&zoom_button);
         end_box.append(&history_button);
@@ -548,6 +619,10 @@ impl PanelHost {
         title_bar.set_start_widget(Some(&start_box));
         title_bar.set_center_widget(Some(&center_box));
         title_bar.set_end_widget(Some(&end_box));
+
+        ssh_status_bar.append(&ssh_status_left);
+        ssh_status_bar.append(&ssh_separator);
+        ssh_status_bar.append(&ssh_button);
 
         // Click on title bar → focus this panel
         {
@@ -568,7 +643,12 @@ impl PanelHost {
             title_bar.add_controller(gesture);
         }
 
-        container.append(&title_bar);
+        let title_wrap = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
+        title_wrap.add_css_class("panel-title-wrap");
+        title_wrap.append(&title_bar);
+        title_wrap.append(&ssh_status_bar);
+
+        container.append(&title_wrap);
 
         // Footer bar
         let footer_bar = gtk4::Box::new(gtk4::Orientation::Horizontal, 4);
@@ -679,11 +759,14 @@ impl PanelHost {
             zoom_button,
             ssh_button,
             ssh_separator,
+            ssh_status_bar,
+            ssh_status_icon,
+            ssh_status_target_label,
+            ssh_status_state_label,
             history_button,
             menu_button,
             collapsed_view: collapsed_view.upcast(),
             collapsed_icon,
-            ssh_indicator,
             footer_bar,
             footer_label,
             widget,
@@ -692,6 +775,7 @@ impl PanelHost {
             focused: RefCell::new(false),
             action_cb_ref,
             sibling_info_provider_ref,
+            panel_menu_sibling_cache,
             sync_input_cb_ref: Rc::new(RefCell::new(None)),
             status_listeners: Rc::new(RefCell::new(Vec::new())),
             last_waiting: Rc::new(std::cell::Cell::new(false)),
@@ -714,6 +798,9 @@ impl PanelHost {
         }
         let popover = build_panel_menu(&self.panel_id, Some(cb), None);
         self.menu_button.set_popover(Some(&popover));
+        if let Ok(mut cached) = self.panel_menu_sibling_cache.try_borrow_mut() {
+            *cached = Some(None);
+        }
     }
 
     /// Install a closure that the menu uses (on each ⋮ open) to compute
@@ -722,6 +809,9 @@ impl PanelHost {
     pub fn set_sibling_info_provider(&self, provider: SiblingInfoProvider) {
         if let Ok(mut r) = self.sibling_info_provider_ref.try_borrow_mut() {
             *r = Some(provider);
+        }
+        if let Ok(mut cached) = self.panel_menu_sibling_cache.try_borrow_mut() {
+            *cached = None;
         }
     }
 
@@ -792,12 +882,22 @@ impl PanelHost {
         update_ssh_button(
             &self.ssh_button,
             &self.ssh_separator,
+            &self.ssh_status_icon,
+            &self.ssh_status_state_label,
             backend.ssh_connection_state(),
         );
         let ssh_button = self.ssh_button.clone();
         let ssh_separator = self.ssh_separator.clone();
+        let ssh_status_icon = self.ssh_status_icon.clone();
+        let ssh_status_state_label = self.ssh_status_state_label.clone();
         backend.set_ssh_state_callback(Some(Rc::new(move |state| {
-            update_ssh_button(&ssh_button, &ssh_separator, Some(state));
+            update_ssh_button(
+                &ssh_button,
+                &ssh_separator,
+                &ssh_status_icon,
+                &ssh_status_state_label,
+                Some(state),
+            );
         })));
 
         // Static footer (file path for document panels, project dir for code
@@ -888,6 +988,8 @@ impl PanelHost {
             update_ssh_button(
                 &self.ssh_button,
                 &self.ssh_separator,
+                &self.ssh_status_icon,
+                &self.ssh_status_state_label,
                 backend.ssh_connection_state(),
             );
         }
@@ -1018,20 +1120,20 @@ impl PanelHost {
         }
     }
 
-    /// Show or hide the SSH connection indicator in the title bar.
+    /// Show or hide the SSH connection row below the title bar.
     pub fn set_ssh_indicator(&self, label: Option<&str>) {
         if let Some(text) = label {
-            self.ssh_indicator.set_visible(true);
-            // Update the label (second child of ssh_indicator)
-            if let Some(icon) = self.ssh_indicator.first_child() {
-                if let Some(lbl_widget) = icon.next_sibling() {
-                    if let Some(lbl) = lbl_widget.downcast_ref::<gtk4::Label>() {
-                        lbl.set_text(text);
-                    }
-                }
-            }
+            self.ssh_status_bar.set_visible(true);
+            self.ssh_status_target_label.set_text(text);
+            self.ssh_status_target_label.set_tooltip_text(Some(text));
         } else {
-            self.ssh_indicator.set_visible(false);
+            self.ssh_status_bar.set_visible(false);
+            self.ssh_status_target_label.set_text("");
+            self.ssh_status_target_label.set_tooltip_text(None);
+            self.ssh_status_state_label.set_text("");
+            self.ssh_status_state_label.set_tooltip_text(None);
+            self.ssh_status_icon.set_tooltip_text(None);
+            set_ssh_state_class(&self.ssh_status_icon, &self.ssh_status_state_label, None);
         }
     }
 
@@ -1399,6 +1501,73 @@ mod tests {
         crate::test_support::run_on_gtk_thread(|| {
             let host = PanelHost::new("panel-1", "Panel", None);
             assert_eq!(host.outer.overflow(), gtk4::Overflow::Hidden);
+        });
+    }
+
+    #[test]
+    #[serial]
+    fn ssh_status_row_toggles_target_label() {
+        crate::test_support::run_on_gtk_thread(|| {
+            let host = PanelHost::new("panel-1", "Panel", None);
+
+            assert!(!host.ssh_status_bar.is_visible());
+            host.set_ssh_indicator(Some("guruai@10.253.42.33"));
+            assert!(host.ssh_status_bar.is_visible());
+            assert_eq!(
+                host.ssh_status_target_label.text().as_str(),
+                "guruai@10.253.42.33"
+            );
+            assert_eq!(
+                host.ssh_status_target_label
+                    .tooltip_text()
+                    .map(|text| text.to_string()),
+                Some("guruai@10.253.42.33".to_string())
+            );
+
+            host.set_ssh_indicator(None);
+            assert!(!host.ssh_status_bar.is_visible());
+            assert!(host.ssh_status_target_label.text().is_empty());
+            assert!(host.ssh_status_state_label.text().is_empty());
+        });
+    }
+
+    #[test]
+    #[serial]
+    fn ssh_state_widgets_follow_connection_state() {
+        crate::test_support::run_on_gtk_thread(|| {
+            let button = gtk4::Button::new();
+            let separator = gtk4::Separator::new(gtk4::Orientation::Vertical);
+            let state_icon = gtk4::Image::new();
+            let state_label = gtk4::Label::new(None);
+
+            update_ssh_button(
+                &button,
+                &separator,
+                &state_icon,
+                &state_label,
+                Some(SshConnectionState::Disconnected),
+            );
+            assert!(button.is_visible());
+            assert!(separator.is_visible());
+            assert!(button.is_sensitive());
+            assert_eq!(state_label.text().as_str(), "Disconnected");
+            assert!(state_label.has_css_class("ssh-state-disconnected"));
+            assert_eq!(
+                button.tooltip_text().map(|text| text.to_string()),
+                Some("Reconnect SSH".to_string())
+            );
+
+            update_ssh_button(
+                &button,
+                &separator,
+                &state_icon,
+                &state_label,
+                Some(SshConnectionState::Connected),
+            );
+            assert_eq!(state_label.text().as_str(), "Connected");
+            assert!(button.has_css_class("ssh-connected"));
+            assert!(state_label.has_css_class("ssh-state-connected"));
+            assert!(!state_label.has_css_class("ssh-state-disconnected"));
         });
     }
 }

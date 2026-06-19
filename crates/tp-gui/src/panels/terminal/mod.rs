@@ -98,14 +98,19 @@ pub(crate) fn ssh_remote_bootstrap_command(cwd: Option<&str>) -> String {
         command.push_str(&shell_quote(cwd));
         command.push_str(" || true; ");
     }
-    command.push_str(r#"export PS1='\[\033[32m\]$:\[\033[0m\] '; "#);
     command.push_str(
-        r#"export PROMPT_COMMAND='printf "\033]7;file://%s@%s%s\033\\" "$USER" "$HOSTNAME" "$PWD"'; "#,
+        r#"export PAX_REMOTE_HOST="${HOSTNAME:-${HOST:-$(hostname 2>/dev/null || printf localhost)}}"; "#,
+    );
+    command.push_str(
+        r#"if [ -n "${ZSH_VERSION:-}" ]; then export PROMPT='%F{green}$:%f '; else export PS1='\[\033[32m\]$:\[\033[0m\] '; fi; "#,
     );
     command.push_str("export LS_COLORS=");
     command.push_str(&shell_quote(TERMINAL_LS_COLORS));
     command.push_str("; ");
-    command.push_str(r#"printf '\033]7;file://pax-ssh-connected/%s\007' "$PWD"; "#);
+    command.push_str(r#"printf '\033]0;%s@%s: %s\007' "$USER" "$PAX_REMOTE_HOST" "$PWD"; "#);
+    command.push_str(
+        r#"printf '\033]7;file://pax-ssh-connected/%s@%s%s\007' "$USER" "$PAX_REMOTE_HOST" "$PWD"; "#,
+    );
     command.push_str("clear; ");
     command.push_str(r#"else printf '\033]7;file://pax-ssh-disconnected/%s\007' "$PWD"; fi"#);
     command
@@ -276,6 +281,15 @@ fn is_ssh_disconnected_marker(uri: &str) -> bool {
     is_ssh_marker(uri, SSH_DISCONNECTED_MARKER_HOST)
 }
 
+fn ssh_connected_marker_cwd_uri(uri: &str) -> Option<String> {
+    let payload = uri.strip_prefix("file://pax-ssh-connected/")?;
+    let (authority, _) = payload.split_once('/')?;
+    if authority.is_empty() || !authority.contains('@') {
+        return None;
+    }
+    Some(format!("file://{payload}"))
+}
+
 fn is_ssh_marker(uri: &str, host: &str) -> bool {
     let Some(rest) = uri.strip_prefix("file://") else {
         return false;
@@ -330,6 +344,9 @@ impl PanelBackend for TerminalPanel {
                 if is_ssh_connected_marker(uri) {
                     if let Some(ref control) = ssh_control {
                         set_ssh_state(control, SshConnectionState::Connected, &state_cb);
+                    }
+                    if let Some(remote_uri) = ssh_connected_marker_cwd_uri(uri) {
+                        cb(&remote_uri);
                     }
                     return;
                 }
@@ -466,6 +483,16 @@ mod tests {
         assert!(!is_ssh_connected_marker("file://remote-host/home/user"));
         assert!(!is_ssh_disconnected_marker("file://remote-host/home/user"));
         assert!(!is_ssh_connected_marker(""));
+        assert_eq!(
+            ssh_connected_marker_cwd_uri(
+                "file://pax-ssh-connected/guruai@MILFHAI00APA/home/guruai"
+            ),
+            Some("file://guruai@MILFHAI00APA/home/guruai".to_string())
+        );
+        assert_eq!(
+            ssh_connected_marker_cwd_uri("file://pax-ssh-connected/home/guruai"),
+            None
+        );
     }
 
     #[test]
@@ -474,15 +501,24 @@ mod tests {
 
         assert!(command.starts_with(r#"if [ -n "${SSH_CONNECTION:-}" ]; then "#));
         assert!(command.contains("cd '/srv/app'\\''s' || true;"));
+        assert!(command.contains("export PAX_REMOTE_HOST="));
+        assert!(command.contains("export PROMPT='%F{green}$:%f '"));
         assert!(command.contains("export PS1="));
-        assert!(command.contains("file://%s@%s%s"));
+        assert!(command.contains("file://pax-ssh-connected/%s@%s%s"));
+        assert!(command.contains(r#"printf '\033]0;%s@%s: %s\007'"#));
         assert!(command.contains("pax-ssh-connected"));
+        assert!(!command.contains("PROMPT_COMMAND"));
+        assert!(!command.contains("precmd"));
         assert!(command.contains("clear; else"));
         assert!(command.contains("pax-ssh-disconnected"));
 
-        let disconnected_branch = command.split(" else ").nth(1).unwrap_or_default();
+        let disconnected_branch = command
+            .rsplit_once(" else ")
+            .map(|(_, branch)| branch)
+            .unwrap_or_default();
         assert!(!disconnected_branch.contains("clear"));
         assert!(!disconnected_branch.contains("export PS1"));
+        assert!(!disconnected_branch.contains("export PROMPT"));
     }
 
     #[test]

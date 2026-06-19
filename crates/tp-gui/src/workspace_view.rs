@@ -12,7 +12,7 @@ use crate::backend_factory::{
     create_backend_from_registry, insert_ssh_extra, panel_type_to_create_config, panel_type_to_id,
 };
 use crate::focus::FocusManager;
-use crate::layout_ops::{remove_from_layout, replace_in_layout};
+use crate::layout_ops::{remove_from_layout, replace_in_layout, SiblingInfo, SiblingKind};
 use crate::panel_host::{PanelActionCallback, PanelHost, SiblingInfoProvider};
 use crate::panels::chooser::{ChooserPanel, OnTypeChosen};
 use crate::panels::registry::{self, PanelCreateConfig, PanelRegistry};
@@ -27,6 +27,58 @@ pub enum MoveDirection {
     Right,
     Up,
     Down,
+}
+
+fn build_sibling_info_cache(node: &LayoutNode) -> HashMap<String, SiblingInfo> {
+    fn walk(node: &LayoutNode, out: &mut HashMap<String, SiblingInfo>) {
+        match node {
+            LayoutNode::Panel { .. } => {}
+            LayoutNode::Hsplit { children, .. } => {
+                record_direct_panel_siblings(children, SiblingKind::Hsplit, out);
+                for child in children {
+                    walk(child, out);
+                }
+            }
+            LayoutNode::Vsplit { children, .. } => {
+                record_direct_panel_siblings(children, SiblingKind::Vsplit, out);
+                for child in children {
+                    walk(child, out);
+                }
+            }
+            LayoutNode::Tabs { children, .. } => {
+                record_direct_panel_siblings(children, SiblingKind::Tabs, out);
+                for child in children {
+                    walk(child, out);
+                }
+            }
+        }
+    }
+
+    fn record_direct_panel_siblings(
+        children: &[LayoutNode],
+        kind: SiblingKind,
+        out: &mut HashMap<String, SiblingInfo>,
+    ) {
+        if children.len() < 2 {
+            return;
+        }
+        for (index, child) in children.iter().enumerate() {
+            if let LayoutNode::Panel { id } = child {
+                out.insert(
+                    id.clone(),
+                    SiblingInfo {
+                        kind,
+                        index,
+                        len: children.len(),
+                    },
+                );
+            }
+        }
+    }
+
+    let mut out = HashMap::new();
+    walk(node, &mut out);
+    out
 }
 
 #[derive(Clone)]
@@ -55,6 +107,7 @@ pub struct WorkspaceView {
     next_panel_id: usize,
     action_cb: Option<PanelActionCallback>,
     sibling_info_provider: Option<SiblingInfoProvider>,
+    sibling_info_cache: HashMap<String, SiblingInfo>,
     registry: PanelRegistry,
     on_type_chosen: Option<OnTypeChosen>,
     layout_change_cb: Option<Rc<dyn Fn()>>,
@@ -85,6 +138,7 @@ impl WorkspaceView {
         let config_path_str = config_path.map(|p| p.to_string_lossy().to_string());
         let record_key = workspace.record_key(config_path_str.as_deref());
         let mut hosts = HashMap::new();
+        let sibling_info_cache = build_sibling_info_cache(&workspace.layout);
 
         for panel_cfg in &workspace.panels {
             let host = PanelHost::new(&panel_cfg.id, &panel_cfg.name, None);
@@ -149,6 +203,7 @@ impl WorkspaceView {
             next_panel_id,
             action_cb: None,
             sibling_info_provider: None,
+            sibling_info_cache,
             registry,
             on_type_chosen: None,
             layout_change_cb: None,
@@ -245,6 +300,7 @@ impl WorkspaceView {
         self.root_widget = root_widget;
         self.hosts = hosts;
         self.workspace = ws;
+        self.rebuild_sibling_info_cache();
         self.registry = registry;
         self.dirty = false;
         self.tab_edit = None;
@@ -588,8 +644,8 @@ impl WorkspaceView {
 
     /// Compute the sibling info for a panel — used by the panel menu to
     /// decide which Move items to show.
-    pub fn panel_sibling_info(&self, panel_id: &str) -> Option<crate::layout_ops::SiblingInfo> {
-        crate::layout_ops::panel_sibling_info(&self.workspace.layout, panel_id)
+    pub fn panel_sibling_info(&self, panel_id: &str) -> Option<SiblingInfo> {
+        self.sibling_info_cache.get(panel_id).copied()
     }
 
     /// Move the focused panel by one position in its parent split or
@@ -1121,6 +1177,7 @@ impl WorkspaceView {
         root_widget.set_hexpand(true);
         self.root_box.prepend(&root_widget);
         self.root_widget = root_widget;
+        self.rebuild_sibling_info_cache();
         self.connect_layout_change_watchers();
 
         // Reconnect all callbacks on all hosts + notebooks
@@ -1617,6 +1674,10 @@ impl WorkspaceView {
 
     // ── Layout model updates ─────────────────────────────────────────────
 
+    fn rebuild_sibling_info_cache(&mut self) {
+        self.sibling_info_cache = build_sibling_info_cache(&self.workspace.layout);
+    }
+
     fn rebuild_focus_order(&mut self) {
         self.dirty = true;
         let ids: Vec<String> = self
@@ -1968,6 +2029,35 @@ mod tests {
             notes_file: None,
             settings: Default::default(),
             ssh_configs: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn sibling_info_cache_matches_recursive_lookup() {
+        let layout = tabs(
+            vec![
+                LayoutNode::Hsplit {
+                    children: vec![
+                        panel("a"),
+                        LayoutNode::Vsplit {
+                            children: vec![panel("b"), panel("c")],
+                            ratios: vec![0.5, 0.5],
+                        },
+                    ],
+                    ratios: vec![0.5, 0.5],
+                },
+                panel("d"),
+            ],
+            &["left", "right"],
+        );
+        let cache = build_sibling_info_cache(&layout);
+
+        for panel_id in ["a", "b", "c", "d"] {
+            assert_eq!(
+                cache.get(panel_id).copied(),
+                crate::layout_ops::panel_sibling_info(&layout, panel_id),
+                "cached sibling info diverged for {panel_id}"
+            );
         }
     }
 

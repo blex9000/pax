@@ -123,6 +123,14 @@ fn panel_type_uses_text_editing_shortcuts(panel_type: &pax_core::workspace::Pane
     )
 }
 
+fn panel_type_uses_working_dir_picker(panel_type: &pax_core::workspace::PanelType) -> bool {
+    matches!(
+        panel_type,
+        pax_core::workspace::PanelType::Terminal
+            | pax_core::workspace::PanelType::CodeEditor { .. }
+    )
+}
+
 fn focused_panel_uses_text_editing_shortcuts(view: &WorkspaceView) -> bool {
     view.focused_panel_id()
         .and_then(|id| view.workspace().panel(id))
@@ -146,14 +154,26 @@ fn working_dir_choices_for_workspace(
     workspace: &Workspace,
     exclude_panel_id: &str,
 ) -> Vec<WorkingDirChoice> {
+    #[derive(Clone)]
+    struct WorkingDirCandidate {
+        panel_name: String,
+        working_dir: String,
+        scope: WorkingDirScope,
+    }
+
     fn walk_layout(
         node: &LayoutNode,
         trail: &mut Vec<String>,
-        out: &mut std::collections::HashMap<String, Vec<String>>,
+        candidates: &std::collections::HashMap<String, WorkingDirCandidate>,
+        seen: &mut std::collections::HashSet<String>,
+        out: &mut Vec<WorkingDirChoice>,
     ) {
         match node {
             LayoutNode::Panel { id } => {
-                out.insert(id.clone(), trail.clone());
+                if let Some(candidate) = candidates.get(id) {
+                    seen.insert(id.clone());
+                    out.push(working_dir_choice_from_trail(id, trail, candidate));
+                }
             }
             LayoutNode::Tabs {
                 children, labels, ..
@@ -165,15 +185,36 @@ fn working_dir_choices_for_workspace(
                         .filter(|s| !s.trim().is_empty())
                         .unwrap_or_else(|| format!("tab{}", i + 1));
                     trail.push(label);
-                    walk_layout(child, trail, out);
+                    walk_layout(child, trail, candidates, seen, out);
                     trail.pop();
                 }
             }
             LayoutNode::Hsplit { children, .. } | LayoutNode::Vsplit { children, .. } => {
                 for child in children {
-                    walk_layout(child, trail, out);
+                    walk_layout(child, trail, candidates, seen, out);
                 }
             }
+        }
+    }
+
+    fn working_dir_choice_from_trail(
+        id: &str,
+        trail: &[String],
+        candidate: &WorkingDirCandidate,
+    ) -> WorkingDirChoice {
+        let mut path = trail.to_vec();
+        if !candidate.panel_name.trim().is_empty() {
+            path.push(candidate.panel_name.clone());
+        }
+        let panel_path = if path.is_empty() {
+            id.to_string()
+        } else {
+            path.join(" › ")
+        };
+        WorkingDirChoice {
+            panel_path,
+            working_dir: candidate.working_dir.clone(),
+            scope: candidate.scope.clone(),
         }
     }
 
@@ -236,31 +277,44 @@ fn working_dir_choices_for_workspace(
         }
     }
 
-    let mut trails = std::collections::HashMap::new();
-    walk_layout(&workspace.layout, &mut Vec::new(), &mut trails);
-
-    workspace
+    let candidates = workspace
         .panels
         .iter()
         .filter(|panel| panel.id != exclude_panel_id)
         .filter_map(|panel| {
             let (working_dir, scope) = panel_working_dir(panel)?;
-            let mut path = trails.get(&panel.id).cloned().unwrap_or_default();
-            if !panel.name.trim().is_empty() {
-                path.push(panel.name.clone());
-            }
-            let panel_path = if path.is_empty() {
-                panel.id.clone()
-            } else {
-                path.join(" › ")
-            };
-            Some(WorkingDirChoice {
-                panel_path,
-                working_dir,
-                scope,
-            })
+            Some((
+                panel.id.clone(),
+                WorkingDirCandidate {
+                    panel_name: panel.name.clone(),
+                    working_dir,
+                    scope,
+                },
+            ))
         })
-        .collect()
+        .collect::<std::collections::HashMap<_, _>>();
+
+    if candidates.is_empty() {
+        return Vec::new();
+    }
+
+    let mut choices = Vec::with_capacity(candidates.len());
+    let mut seen = std::collections::HashSet::with_capacity(candidates.len());
+    walk_layout(
+        &workspace.layout,
+        &mut Vec::new(),
+        &candidates,
+        &mut seen,
+        &mut choices,
+    );
+
+    for (id, candidate) in &candidates {
+        if !seen.contains(id) {
+            choices.push(working_dir_choice_from_trail(id, &[], candidate));
+        }
+    }
+
+    choices
 }
 
 #[derive(Clone, Copy)]
@@ -616,7 +670,7 @@ fn setup_welcome_ui(window: &Rc<adw::ApplicationWindow>) {
         use crate::widgets::welcome::WelcomeChoice;
         match choice {
             WelcomeChoice::NewWorkspace => {
-                let (ws, save_path) = open_or_create_default_workspace("untitled");
+                let (ws, save_path) = create_fresh_or_unsaved_default_workspace("untitled");
                 setup_workspace_ui(&win, ws, save_path.as_deref());
             }
             WelcomeChoice::OpenFile => {
@@ -1642,9 +1696,11 @@ fn setup_workspace_ui(
                             view.workspace().ssh_configs.clone(),
                         ))
                     };
-                    let working_dirs = {
+                    let working_dirs = if panel_type_uses_working_dir_picker(&ptype) {
                         let view = ws_for_cb.borrow();
                         working_dir_choices_for_workspace(view.workspace(), &pid)
+                    } else {
+                        Vec::new()
                     };
                     // Sync changes back to workspace whenever the Rc is modified
                     let ws_sync = ws_for_cb.clone();
@@ -1927,15 +1983,18 @@ fn setup_workspace_ui(
                 Rc::new(move |decision| match decision {
                     NewWorkspaceDecision::Cancel => {}
                     NewWorkspaceDecision::NewWindow => {
-                        match crate::workspace_launcher::open_new_workspace_in_new_window(
-                            "untitled",
-                        ) {
-                            Ok(()) => sb_for_decision
-                                .borrow()
-                                .set_message("Opened new workspace in new window"),
-                            Err(e) => sb_for_decision
-                                .borrow()
-                                .set_message(&format!("Failed to spawn new window: {}", e)),
+                        match create_fresh_default_workspace("untitled") {
+                            Ok((_workspace, path)) => {
+                                match crate::workspace_launcher::open_in_new_window(&path) {
+                                    Ok(()) => sb_for_decision
+                                        .borrow()
+                                        .set_message("Opened new workspace in new window"),
+                                    Err(e) => sb_for_decision
+                                        .borrow()
+                                        .set_message(&format!("Failed to spawn new window: {}", e)),
+                                }
+                            }
+                            Err(e) => sb_for_decision.borrow().set_message(&e),
                         }
                     }
                     NewWorkspaceDecision::ThisWindow => {
@@ -1944,7 +2003,8 @@ fn setup_workspace_ui(
                         let win2 = win_for_decision.clone();
                         let sa2 = sa_for_decision.clone();
                         let on_continue: Rc<dyn Fn()> = Rc::new(move || {
-                            let (empty, save_path) = open_or_create_default_workspace("untitled");
+                            let (empty, save_path) =
+                                create_fresh_or_unsaved_default_workspace("untitled");
                             let empty_theme = load_preferred_theme();
                             if let Err(e) =
                                 ws2.borrow_mut().load_workspace(empty, save_path.as_deref())
@@ -2412,21 +2472,57 @@ fn load_css() {
     apply_theme(load_preferred_theme());
 }
 
-/// Welcome-screen / "untitled" entry point: open the workspace at the
-/// platform's default path for `name` if it already exists, otherwise
-/// build a fresh themed workspace and persist it there before handing
-/// it back. The returned `Option<PathBuf>` is the save path that should
-/// be threaded into `setup_workspace_ui` so per-panel UUIDs survive
-/// restarts of `pax` even when the user never explicitly hits Save.
-fn open_or_create_default_workspace(name: &str) -> (Workspace, Option<std::path::PathBuf>) {
+/// GUI "New Workspace" entry point: always create a fresh workspace file,
+/// even when a previous untitled workspace already exists.
+fn create_fresh_default_workspace(name: &str) -> Result<(Workspace, std::path::PathBuf), String> {
     let theme = load_preferred_theme();
-    let Some(path) = pax_core::config::default_workspace_path(name) else {
-        return (workspace_with_theme(name, theme), None);
-    };
-    match pax_core::config::open_or_create(&path, || workspace_with_theme(name, theme)) {
-        Ok(ws) => (ws, Some(path)),
-        Err(_) => (workspace_with_theme(name, theme), None),
+    let base_path = pax_core::config::default_workspace_path(name)
+        .ok_or_else(|| "Cannot resolve default workspace path".to_string())?;
+    let path = fresh_workspace_path_for(&base_path);
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|e| format!("Cannot create workspace directory: {}", e))?;
     }
+    let workspace = workspace_with_theme(name, theme);
+    pax_core::config::save_workspace(&workspace, &path)
+        .map_err(|e| format!("Cannot create workspace: {}", e))?;
+    Ok((workspace, path))
+}
+
+fn create_fresh_or_unsaved_default_workspace(
+    name: &str,
+) -> (Workspace, Option<std::path::PathBuf>) {
+    match create_fresh_default_workspace(name) {
+        Ok((workspace, path)) => (workspace, Some(path)),
+        Err(_) => (workspace_with_theme(name, load_preferred_theme()), None),
+    }
+}
+
+fn fresh_workspace_path_for(base_path: &Path) -> std::path::PathBuf {
+    if !base_path.exists() {
+        return base_path.to_path_buf();
+    }
+
+    let parent = base_path.parent().unwrap_or_else(|| Path::new(""));
+    let stem = base_path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .filter(|s| !s.is_empty())
+        .unwrap_or("workspace");
+    let extension = base_path.extension().and_then(|s| s.to_str());
+
+    for index in 2.. {
+        let filename = match extension {
+            Some(ext) if !ext.is_empty() => format!("{}-{}.{}", stem, index, ext),
+            _ => format!("{}-{}", stem, index),
+        };
+        let candidate = parent.join(filename);
+        if !candidate.exists() {
+            return candidate;
+        }
+    }
+
+    unreachable!("unbounded workspace path search exhausted")
 }
 
 fn normalize_workspace_theme(workspace: &mut Workspace, preferred_theme: Theme) -> Theme {
@@ -2658,8 +2754,9 @@ pub(crate) fn apply_theme_with_overrides(
 #[cfg(test)]
 mod tests {
     use super::{
-        load_preferred_theme_from_db, normalize_workspace_theme_with_respect,
-        panel_type_uses_text_editing_shortcuts, working_dir_choices_for_workspace,
+        fresh_workspace_path_for, load_preferred_theme_from_db,
+        normalize_workspace_theme_with_respect, panel_type_uses_text_editing_shortcuts,
+        panel_type_uses_working_dir_picker, working_dir_choices_for_workspace,
         workspace_with_theme, Theme, APP_MENU_AUTOSAVE_ITEM, APP_MENU_FILE_ITEMS,
         APP_MENU_QUIT_ITEM, APP_MENU_SAVE_ITEM, APP_MENU_SAVE_SECONDARY_ITEMS,
         APP_MENU_SETTINGS_ITEMS,
@@ -2692,6 +2789,29 @@ mod tests {
     }
 
     #[test]
+    fn fresh_workspace_path_uses_base_path_when_available() {
+        let dir = unique_temp_dir("fresh-base");
+        let base = dir.join("untitled.json");
+
+        assert_eq!(fresh_workspace_path_for(&base), base);
+
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn fresh_workspace_path_skips_existing_workspace_files() {
+        let dir = unique_temp_dir("fresh-numbered");
+        std::fs::create_dir_all(&dir).unwrap();
+        let base = dir.join("untitled.json");
+        std::fs::write(&base, "{}").unwrap();
+        std::fs::write(dir.join("untitled-2.json"), "{}").unwrap();
+
+        assert_eq!(fresh_workspace_path_for(&base), dir.join("untitled-3.json"));
+
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
     fn workspace_theme_is_normalized_to_saved_preference() {
         let mut workspace = empty_workspace("test");
         workspace.settings.theme = Theme::Aurora.to_id().to_string();
@@ -2703,6 +2823,14 @@ mod tests {
 
         assert_eq!(theme, Theme::Graphite);
         assert_eq!(workspace.settings.theme, Theme::Graphite.to_id());
+    }
+
+    fn unique_temp_dir(prefix: &str) -> std::path::PathBuf {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        std::env::temp_dir().join(format!("pax-{}-{}-{}", prefix, std::process::id(), nanos))
     }
 
     #[test]
@@ -2724,6 +2852,22 @@ mod tests {
         assert!(!panel_type_uses_text_editing_shortcuts(
             &PanelType::Terminal
         ));
+    }
+
+    #[test]
+    fn working_dir_picker_is_only_built_for_panels_that_use_it() {
+        assert!(panel_type_uses_working_dir_picker(&PanelType::Terminal));
+        assert!(panel_type_uses_working_dir_picker(&PanelType::CodeEditor {
+            root_dir: ".".into(),
+            ssh: None,
+            remote_path: None,
+            poll_interval: None,
+        }));
+        assert!(!panel_type_uses_working_dir_picker(&PanelType::Markdown {
+            file: "notes.md".into(),
+            storage: MarkdownStorage::File,
+        }));
+        assert!(!panel_type_uses_working_dir_picker(&PanelType::Note));
     }
 
     fn test_panel(id: &str, name: &str, panel_type: PanelType, cwd: Option<&str>) -> PanelConfig {
