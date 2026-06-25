@@ -157,6 +157,7 @@ pub struct PanelHost {
     status_icon: gtk4::Image,
     sync_button: gtk4::Button,
     zoom_button: gtk4::Button,
+    voice_button: gtk4::Button,
     ssh_button: gtk4::Button,
     ssh_separator: gtk4::Separator,
     ssh_status_bar: gtk4::Box,
@@ -432,6 +433,32 @@ impl PanelHost {
             });
         }
 
+        // Voice command button — shared by all input-capable panels. The
+        // current slice uses a typed transcript popover; the audio/STT backend
+        // will feed the same protocol entry point.
+        let voice_button = crate::widgets::voice_command::build_voice_command_button(
+            Rc::new({
+                let backend_ref = backend.clone();
+                move || {
+                    backend_ref
+                        .try_borrow()
+                        .ok()
+                        .and_then(|borrowed| borrowed.as_ref().map(|b| b.panel_type().to_string()))
+                }
+            }),
+            Rc::new({
+                let backend_ref = backend.clone();
+                move |bytes: &[u8]| {
+                    backend_ref
+                        .try_borrow()
+                        .ok()
+                        .and_then(|borrowed| borrowed.as_ref().map(|b| b.write_input(bytes)))
+                        .unwrap_or(false)
+                }
+            }),
+        );
+        voice_button.set_visible(false);
+
         let ssh_status_bar = gtk4::Box::new(gtk4::Orientation::Horizontal, 6);
         ssh_status_bar.add_css_class("panel-ssh-status-bar");
         ssh_status_bar.set_visible(false);
@@ -595,7 +622,7 @@ impl PanelHost {
         }
 
         // Layout: first row start=[icon][title], center=osc_title,
-        // end=[sync][zoom][history][menu]. SSH panels get a second row
+        // end=[sync][zoom][voice][history][menu]. SSH panels get a second row
         // below with target, connection state, and connect/disconnect action.
         let start_box = gtk4::Box::new(gtk4::Orientation::Horizontal, 4);
         start_box.append(&type_icon);
@@ -604,6 +631,7 @@ impl PanelHost {
         let end_box = gtk4::Box::new(gtk4::Orientation::Horizontal, 4);
         end_box.append(&sync_button);
         end_box.append(&zoom_button);
+        end_box.append(&voice_button);
         end_box.append(&history_button);
         end_box.append(&menu_button);
 
@@ -757,6 +785,7 @@ impl PanelHost {
             status_icon,
             sync_button,
             zoom_button,
+            voice_button,
             ssh_button,
             ssh_separator,
             ssh_status_bar,
@@ -924,6 +953,8 @@ impl PanelHost {
                 backend.set_input_callback(borrowed.clone());
             }
         }
+
+        self.voice_button.set_visible(backend.accepts_input());
 
         // Reset any leftover OSC title from a previous backend and wire the
         // new backend to push title updates into the centered label. The Label
