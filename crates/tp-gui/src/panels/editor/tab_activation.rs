@@ -1,19 +1,15 @@
-use gtk4::glib::clone::Downgrade;
 use gtk4::prelude::*;
 use sourceview5::prelude::*;
-use std::cell::{Cell, RefCell};
+use std::cell::RefCell;
 use std::rc::Rc;
 
 use super::language_support::keywords_for;
 use super::overview_ruler::collect_match_lines;
 use super::EditorState;
 
-const SOURCE_SCROLL_SETTLE_FRAMES: u8 = 3;
-
 struct TabViewSnapshot {
     child_name: String,
-    source_buffer: Option<sourceview5::Buffer>,
-    source_scroll: Option<(f64, f64)>,
+    visible_view: Option<sourceview5::View>,
     status_lang: String,
     status_pos: String,
     modified: bool,
@@ -27,8 +23,6 @@ pub(super) fn apply_tab_view_state(
     idx: usize,
     state: &Rc<RefCell<EditorState>>,
     notebook: &gtk4::Notebook,
-    source_view: &sourceview5::View,
-    source_scroll: &gtk4::ScrolledWindow,
     content_stack: &gtk4::Stack,
     status_lang: &gtk4::Label,
     status_pos: &gtk4::Label,
@@ -40,7 +34,7 @@ pub(super) fn apply_tab_view_state(
     keyword_shadow_buffer: &sourceview5::Buffer,
 ) -> bool {
     set_active_tab_label(notebook, idx);
-    remember_active_source_scroll(idx, state, source_view, source_scroll);
+    remember_active_source_scroll(idx, state);
 
     let query = last_search_query.borrow().clone();
     let snapshot = {
@@ -51,18 +45,13 @@ pub(super) fn apply_tab_view_state(
         tab_view_snapshot(open_file, &query)
     };
 
-    super::completion_lifecycle::suspend_until_idle(source_view);
+    if let Some(view) = snapshot.visible_view.as_ref() {
+        super::completion_lifecycle::suspend_until_idle(view);
+    }
     content_stack.set_visible_child_name(&snapshot.child_name);
-
-    if let Some(buf) = snapshot.source_buffer.as_ref() {
-        source_view.set_buffer(Some(buf));
-        source_view.set_visible(true);
-        if let Some((scroll_x, scroll_y)) = snapshot.source_scroll {
-            restore_source_scroll(source_view, source_scroll, buf, scroll_x, scroll_y);
-        }
-        source_view.queue_resize();
-        source_view.queue_draw();
-        schedule_source_view_refresh(source_view, source_scroll, buf, snapshot.source_scroll);
+    if let Some(view) = snapshot.visible_view.as_ref() {
+        view.queue_resize();
+        view.queue_draw();
     }
 
     status_lang.set_text(&snapshot.status_lang);
@@ -111,8 +100,7 @@ fn tab_view_snapshot(open_file: &super::OpenFile, query: &str) -> TabViewSnapsho
             let note_lines = source.notes.current_lines(&source.buffer);
             TabViewSnapshot {
                 child_name,
-                source_buffer: Some(source.buffer.clone()),
-                source_scroll: Some((source.scroll_x.get(), source.scroll_y.get())),
+                visible_view: Some(source.source_view.clone()),
                 status_lang,
                 status_pos: buffer_position_label(&source.buffer),
                 modified: open_file.modified(),
@@ -124,8 +112,7 @@ fn tab_view_snapshot(open_file: &super::OpenFile, query: &str) -> TabViewSnapsho
         }
         super::tab_content::TabContent::Markdown(md) => TabViewSnapshot {
             child_name,
-            source_buffer: None,
-            source_scroll: None,
+            visible_view: Some(md.source_view.clone()),
             status_lang: "Markdown".to_string(),
             status_pos: buffer_position_label(&md.buffer),
             modified: open_file.modified(),
@@ -136,8 +123,7 @@ fn tab_view_snapshot(open_file: &super::OpenFile, query: &str) -> TabViewSnapsho
         },
         super::tab_content::TabContent::Image(_) => TabViewSnapshot {
             child_name,
-            source_buffer: None,
-            source_scroll: None,
+            visible_view: None,
             status_lang: "Image".to_string(),
             status_pos: String::new(),
             modified: open_file.modified(),
@@ -177,12 +163,7 @@ fn set_keyword_shadow_buffer(buffer: &sourceview5::Buffer, lang_id: Option<&str>
     buffer.set_text(&text);
 }
 
-fn remember_active_source_scroll(
-    next_idx: usize,
-    state: &Rc<RefCell<EditorState>>,
-    source_view: &sourceview5::View,
-    source_scroll: &gtk4::ScrolledWindow,
-) {
+fn remember_active_source_scroll(next_idx: usize, state: &Rc<RefCell<EditorState>>) {
     let Ok(st) = state.try_borrow() else {
         return;
     };
@@ -198,122 +179,12 @@ fn remember_active_source_scroll(
     let super::tab_content::TabContent::Source(source) = &open_file.content else {
         return;
     };
-    let visible_matches_active = source_view
-        .buffer()
-        .downcast::<sourceview5::Buffer>()
-        .map(|visible| visible == source.buffer)
-        .unwrap_or(false);
-    if !visible_matches_active {
-        return;
-    }
-    source.scroll_x.set(source_scroll.hadjustment().value());
-    source.scroll_y.set(source_scroll.vadjustment().value());
-}
-
-fn restore_source_scroll(
-    source_view: &sourceview5::View,
-    source_scroll: &gtk4::ScrolledWindow,
-    buffer: &sourceview5::Buffer,
-    scroll_x: f64,
-    scroll_y: f64,
-) {
-    if scroll_target_is_origin(source_scroll, scroll_x, scroll_y) {
-        let mut start = buffer.start_iter();
-        source_view.scroll_to_iter(&mut start, 0.0, true, 0.0, 0.0);
-    }
-    set_adjustment_value(&source_scroll.hadjustment(), scroll_x);
-    set_adjustment_value(&source_scroll.vadjustment(), scroll_y);
-}
-
-fn scroll_target_is_origin(
-    source_scroll: &gtk4::ScrolledWindow,
-    scroll_x: f64,
-    scroll_y: f64,
-) -> bool {
-    let h = source_scroll.hadjustment();
-    let v = source_scroll.vadjustment();
-    scroll_x <= h.lower() + 0.5 && scroll_y <= v.lower() + 0.5
-}
-
-fn set_adjustment_value(adjustment: &gtk4::Adjustment, value: f64) {
-    let max = (adjustment.upper() - adjustment.page_size()).max(adjustment.lower());
-    adjustment.set_value(value.clamp(adjustment.lower(), max));
-}
-
-fn schedule_source_view_refresh(
-    source_view: &sourceview5::View,
-    source_scroll: &gtk4::ScrolledWindow,
-    buffer: &sourceview5::Buffer,
-    scroll: Option<(f64, f64)>,
-) {
-    let view_weak = Downgrade::downgrade(source_view);
-    let scroll_weak = Downgrade::downgrade(source_scroll);
-    let buffer_weak = Downgrade::downgrade(buffer);
-    gtk4::glib::idle_add_local_once(move || {
-        let (Some(view), Some(scroll_widget), Some(buffer)) = (
-            view_weak.upgrade(),
-            scroll_weak.upgrade(),
-            buffer_weak.upgrade(),
-        ) else {
-            return;
-        };
-        if !refresh_current_source_view(&view, &scroll_widget, &buffer, scroll) {
-            return;
-        }
-        schedule_source_scroll_settle(&view, &scroll_widget, &buffer, scroll);
-    });
-}
-
-fn schedule_source_scroll_settle(
-    source_view: &sourceview5::View,
-    source_scroll: &gtk4::ScrolledWindow,
-    buffer: &sourceview5::Buffer,
-    scroll: Option<(f64, f64)>,
-) {
-    let scroll_weak = Downgrade::downgrade(source_scroll);
-    let buffer_weak = Downgrade::downgrade(buffer);
-    let frames_left = Rc::new(Cell::new(SOURCE_SCROLL_SETTLE_FRAMES));
-    source_view.add_tick_callback(move |view, _| {
-        let (Some(scroll_widget), Some(buffer)) = (scroll_weak.upgrade(), buffer_weak.upgrade())
-        else {
-            return gtk4::glib::ControlFlow::Break;
-        };
-        if !refresh_current_source_view(view, &scroll_widget, &buffer, scroll) {
-            return gtk4::glib::ControlFlow::Break;
-        }
-
-        let remaining = frames_left.get().saturating_sub(1);
-        frames_left.set(remaining);
-        if remaining == 0 {
-            gtk4::glib::ControlFlow::Break
-        } else {
-            gtk4::glib::ControlFlow::Continue
-        }
-    });
-}
-
-fn refresh_current_source_view(
-    view: &sourceview5::View,
-    source_scroll: &gtk4::ScrolledWindow,
-    buffer: &sourceview5::Buffer,
-    scroll: Option<(f64, f64)>,
-) -> bool {
-    let current_matches = view
-        .buffer()
-        .downcast::<sourceview5::Buffer>()
-        .map(|current| current == buffer.clone())
-        .unwrap_or(false);
-    if !current_matches {
-        return false;
-    }
-
-    if let Some((scroll_x, scroll_y)) = scroll {
-        restore_source_scroll(view, source_scroll, buffer, scroll_x, scroll_y);
-    }
-    source_scroll.queue_resize();
-    view.queue_resize();
-    view.queue_draw();
-    true
+    source
+        .scroll_x
+        .set(source.source_scroll.hadjustment().value());
+    source
+        .scroll_y
+        .set(source.source_scroll.vadjustment().value());
 }
 
 #[cfg(test)]
@@ -323,6 +194,7 @@ mod tests {
     use crate::panels::editor::tab_content::{SourceTab, TabContent};
     use crate::panels::editor::{OpenFile, SidebarMode};
     use serial_test::serial;
+    use std::cell::Cell;
     use std::path::Path;
     use std::sync::Arc;
     use tempfile::tempdir;
@@ -334,6 +206,9 @@ mod tests {
         scroll_y: Rc<Cell<f64>>,
     ) -> Rc<RefCell<EditorState>> {
         let backend: Arc<dyn FileBackend> = Arc::new(LocalFileBackend::new(root));
+        let source_view = sourceview5::View::with_buffer(&buffer);
+        let source_scroll = gtk4::ScrolledWindow::new();
+        source_scroll.set_child(Some(&source_view));
         Rc::new(RefCell::new(EditorState {
             root_dir: root.to_path_buf(),
             open_files: vec![OpenFile {
@@ -343,6 +218,8 @@ mod tests {
                 name_label: gtk4::Label::new(Some("active.rs")),
                 content: TabContent::Source(SourceTab {
                     buffer,
+                    source_view,
+                    source_scroll,
                     modified: false,
                     scroll_x,
                     scroll_y,
@@ -367,19 +244,83 @@ mod tests {
     }
 
     fn set_scroll_offsets(scroll: &gtk4::ScrolledWindow, x: f64, y: f64) {
-        let h = gtk4::Adjustment::new(x, 0.0, 1000.0, 1.0, 10.0, 100.0);
-        let v = gtk4::Adjustment::new(y, 0.0, 1000.0, 1.0, 10.0, 100.0);
-        scroll.set_hadjustment(Some(&h));
-        scroll.set_vadjustment(Some(&v));
+        let h = scroll.hadjustment();
+        h.configure(x, 0.0, 1000.0, 1.0, 10.0, 100.0);
+        let v = scroll.vadjustment();
+        v.configure(y, 0.0, 1000.0, 1.0, 10.0, 100.0);
     }
 
     #[test]
     #[serial]
-    fn remember_active_source_scroll_requires_visible_active_buffer() {
+    fn apply_source_tab_uses_its_per_tab_stack_child() {
+        crate::test_support::run_on_gtk_thread(|| {
+            let dir = tempdir().unwrap();
+            let buffer = sourceview5::Buffer::new(None::<&gtk4::TextTagTable>);
+            buffer.set_text("one\ntwo\nthree\n");
+            let scroll_x = Rc::new(Cell::new(0.0));
+            let scroll_y = Rc::new(Cell::new(0.0));
+            let state = state_with_source_tab(dir.path(), buffer.clone(), scroll_x, scroll_y);
+            let (source_view, source_scroll) = {
+                let st = state.borrow();
+                let TabContent::Source(source) = &st.open_files[0].content else {
+                    unreachable!();
+                };
+                (source.source_view.clone(), source.source_scroll.clone())
+            };
+
+            let notebook = gtk4::Notebook::new();
+            let page = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
+            notebook.append_page(&page, Some(&gtk4::Label::new(Some("active.rs"))));
+
+            let content_stack = gtk4::Stack::new();
+            let welcome = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
+            content_stack.add_named(&welcome, Some("welcome"));
+            content_stack.add_named(&source_scroll, Some("tab-1"));
+            content_stack.set_visible_child_name("welcome");
+
+            let status_lang = gtk4::Label::new(None);
+            let status_pos = gtk4::Label::new(None);
+            let status_modified = gtk4::Label::new(None);
+            let match_lines = Rc::new(RefCell::new(Vec::new()));
+            let last_query = Rc::new(RefCell::new(String::new()));
+            let match_ruler = gtk4::DrawingArea::new();
+            let notes_ruler = Rc::new(super::super::notes_ruler::NotesRuler::new(
+                source_view.clone(),
+            ));
+            let keyword_shadow_buffer = sourceview5::Buffer::new(None::<&gtk4::TextTagTable>);
+
+            assert!(apply_tab_view_state(
+                0,
+                &state,
+                &notebook,
+                &content_stack,
+                &status_lang,
+                &status_pos,
+                &status_modified,
+                &match_lines,
+                &last_query,
+                &match_ruler,
+                &notes_ruler,
+                &keyword_shadow_buffer,
+            ));
+
+            assert_eq!(content_stack.visible_child_name().as_deref(), Some("tab-1"));
+            assert_eq!(
+                source_view
+                    .buffer()
+                    .downcast::<sourceview5::Buffer>()
+                    .unwrap(),
+                buffer
+            );
+        });
+    }
+
+    #[test]
+    #[serial]
+    fn remember_active_source_scroll_saves_per_tab_adjustment() {
         crate::test_support::run_on_gtk_thread(|| {
             let dir = tempdir().unwrap();
             let active_buffer = sourceview5::Buffer::new(None::<&gtk4::TextTagTable>);
-            let visible_buffer = sourceview5::Buffer::new(None::<&gtk4::TextTagTable>);
             let scroll_x = Rc::new(Cell::new(0.0));
             let scroll_y = Rc::new(Cell::new(0.0));
             let state = state_with_source_tab(
@@ -388,40 +329,17 @@ mod tests {
                 scroll_x.clone(),
                 scroll_y.clone(),
             );
-
-            let source_view = sourceview5::View::new();
-            source_view.set_buffer(Some(&visible_buffer));
-            let source_scroll = gtk4::ScrolledWindow::new();
+            let source_scroll = {
+                let st = state.borrow();
+                let TabContent::Source(source) = &st.open_files[0].content else {
+                    unreachable!();
+                };
+                source.source_scroll.clone()
+            };
+            source_scroll.set_child(None::<&gtk4::Widget>);
             set_scroll_offsets(&source_scroll, 0.0, 500.0);
 
-            remember_active_source_scroll(1, &state, &source_view, &source_scroll);
-
-            assert_eq!(scroll_x.get(), 0.0);
-            assert_eq!(scroll_y.get(), 0.0);
-        });
-    }
-
-    #[test]
-    #[serial]
-    fn remember_active_source_scroll_saves_matching_visible_buffer() {
-        crate::test_support::run_on_gtk_thread(|| {
-            let dir = tempdir().unwrap();
-            let active_buffer = sourceview5::Buffer::new(None::<&gtk4::TextTagTable>);
-            let scroll_x = Rc::new(Cell::new(0.0));
-            let scroll_y = Rc::new(Cell::new(0.0));
-            let state = state_with_source_tab(
-                dir.path(),
-                active_buffer.clone(),
-                scroll_x.clone(),
-                scroll_y.clone(),
-            );
-
-            let source_view = sourceview5::View::new();
-            source_view.set_buffer(Some(&active_buffer));
-            let source_scroll = gtk4::ScrolledWindow::new();
-            set_scroll_offsets(&source_scroll, 0.0, 500.0);
-
-            remember_active_source_scroll(1, &state, &source_view, &source_scroll);
+            remember_active_source_scroll(1, &state);
 
             assert_eq!(scroll_x.get(), 0.0);
             assert_eq!(scroll_y.get(), 500.0);

@@ -85,11 +85,12 @@ impl NotesRuler {
         {
             let view = view.clone();
             let lines = lines.clone();
+            let total_lines = total_lines.clone();
             let bar_for_click = widget.clone();
             let activate = on_activate.clone();
             let gesture = gtk4::GestureClick::new();
             gesture.connect_pressed(move |_, _n, _x, y| {
-                let total = view.buffer().line_count().max(1);
+                let total = (*total_lines.borrow()).max(1);
                 let h = bar_for_click.height().max(1) as f64;
                 let proportion = (y / h).clamp(0.0, 1.0);
                 let clicked = (proportion * total as f64) as i32;

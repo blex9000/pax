@@ -1,10 +1,9 @@
 //! Per-tab content in the Code Editor.
 //!
-//! Each open tab owns one `TabContent`. Source tabs hold a SourceView buffer
-//! (the editor's shared source_view swaps to it on activation, matching the
-//! pre-refactor behavior). Markdown tabs own their own widget tree
-//! (rendered view + source view inside an inner stack) that lives as a child
-//! of the editor's content_stack. Image tabs (Task 5) are analogous.
+//! Each open tab owns one `TabContent`. Source and Markdown tabs own their own
+//! SourceView/ScrolledWindow pair so scroll state never leaks across files.
+//! Markdown tabs also include a rendered view inside an inner stack. Image tabs
+//! are analogous.
 
 use std::cell::{Cell, RefCell};
 use std::path::PathBuf;
@@ -14,10 +13,11 @@ use std::rc::Rc;
 #[derive(Debug, Clone)]
 pub struct SourceTab {
     pub buffer: sourceview5::Buffer,
+    pub source_view: sourceview5::View,
+    pub source_scroll: gtk4::ScrolledWindow,
     pub modified: bool,
-    /// Last known scroll position for the shared SourceView while this tab
-    /// was active. New tabs start at the top-left instead of inheriting the
-    /// previous file's adjustments.
+    /// Last known scroll position for this tab's SourceView. The widget owns
+    /// the live adjustment; these cells keep tests and state snapshots simple.
     pub scroll_x: Rc<Cell<f64>>,
     pub scroll_y: Rc<Cell<f64>>,
     /// Content on disk at last open/save — drives dirty detection.
@@ -150,12 +150,10 @@ impl TabContent {
         }
     }
 
-    /// Name used as the child key under `content_stack` for this tab. Source
-    /// tabs reuse the shared `"editor"` child; non-source tabs have their own
-    /// per-tab widget keyed by `tab-{id}`.
+    /// Name used as the child key under `content_stack` for this tab.
     pub fn content_stack_child_name(&self, tab_id: u64) -> String {
         match self {
-            TabContent::Source(_) => "editor".to_string(),
+            TabContent::Source(_) => format!("tab-{}", tab_id),
             _ => format!("tab-{}", tab_id),
         }
     }

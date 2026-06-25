@@ -1,7 +1,7 @@
 //! Markdown tab: Rendered / Source toggle in one tab.
 //!
 //! Lives as a child of the editor's content_stack under the name `tab-{id}`,
-//! alongside the shared source editor. Rendered mode uses the shared markdown
+//! alongside source tabs' per-file editor widgets. Rendered mode uses the shared markdown
 //! renderer in `crate::markdown_render`; source mode uses `sourceview5::View`
 //! with the markdown language applied.
 

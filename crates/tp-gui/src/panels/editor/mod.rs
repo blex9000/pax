@@ -463,21 +463,7 @@ impl CodeEditorPanel {
                 let state_c2 = state_c.clone();
                 let tabs_c2 = tabs_c.clone();
                 gtk4::glib::idle_add_local_once(move || {
-                    let st = state_c2.borrow();
-                    let Some(idx) = st.active_tab else { return };
-                    let Some(open_file) = st.open_files.get(idx) else {
-                        return;
-                    };
-                    let Some(buf) = open_file.source_buffer() else {
-                        return;
-                    };
-                    let Some(iter) = buf.iter_at_line(line) else {
-                        return;
-                    };
-                    buf.place_cursor(&iter);
-                    tabs_c2
-                        .source_view
-                        .scroll_to_iter(&mut iter.clone(), 0.1, true, 0.5, 0.3);
+                    tabs_c2.reveal_search_match(line, "", &state_c2);
                 });
             }))
         };
@@ -890,8 +876,8 @@ impl CodeEditorPanel {
                             // immediately. Nothing is selected → leave the
                             // existing entry text untouched.
                             let selected = {
-                                let buf = tabs_ref.source_view.buffer();
-                                buf.selection_bounds().and_then(|(s, e)| {
+                                tabs_ref.active_text_buffer(&state_c).and_then(|buf| {
+                                    let (s, e) = buf.selection_bounds()?;
                                     let text = buf.text(&s, &e, false).to_string();
                                     if text.is_empty() || text.contains('\n') {
                                         None
@@ -924,8 +910,8 @@ impl CodeEditorPanel {
                             search_btn_ref.set_active(true);
                             project_search_ref.set_mode(project_search::SearchMode::Files);
                             let selected = {
-                                let buf = tabs_ref.source_view.buffer();
-                                buf.selection_bounds().and_then(|(s, e)| {
+                                tabs_ref.active_text_buffer(&state_c).and_then(|buf| {
+                                    let (s, e) = buf.selection_bounds()?;
                                     let text = buf.text(&s, &e, false).to_string();
                                     if text.is_empty() || text.contains('\n') {
                                         None
@@ -1270,24 +1256,27 @@ fn navigate_history(
         // Scroll to saved line (deferred so layout has time to complete)
         // If line doesn't exist, go to last line
         let line = pos.line;
-        let sv = tabs.source_view.clone();
         let state_c = state.clone();
         gtk4::glib::idle_add_local_once(move || {
-            let st = state_c.borrow();
-            if let Some(idx) = st.active_tab {
-                if let Some(f) = st.open_files.get(idx) {
-                    if let Some(buf) = f.source_buffer() {
-                        let target_line = if line < buf.line_count() {
-                            line
-                        } else {
-                            buf.line_count() - 1
-                        };
-                        if let Some(iter) = buf.iter_at_line(target_line) {
-                            buf.place_cursor(&iter);
-                            sv.scroll_to_iter(&mut iter.clone(), 0.1, false, 0.0, 0.0);
-                        }
-                    }
-                }
+            let (buf, view) = {
+                let st = state_c.borrow();
+                let Some(idx) = st.active_tab else { return };
+                let Some(f) = st.open_files.get(idx) else {
+                    return;
+                };
+                let tab_content::TabContent::Source(source) = &f.content else {
+                    return;
+                };
+                (source.buffer.clone(), source.source_view.clone())
+            };
+            let target_line = if line < buf.line_count() {
+                line
+            } else {
+                buf.line_count() - 1
+            };
+            if let Some(iter) = buf.iter_at_line(target_line) {
+                buf.place_cursor(&iter);
+                view.scroll_to_iter(&mut iter.clone(), 0.1, false, 0.0, 0.0);
             }
         });
     }

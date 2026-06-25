@@ -35,6 +35,10 @@ const NOTE_MARK_COLOR_A: f32 = 0.25;
 /// Priority for the note-mark category in the gutter renderer. Non-zero
 /// so notes win over lower-priority marks if we add more categories.
 const NOTE_MARK_PRIORITY: i32 = 10;
+const SOURCE_TAB_WIDTH: u32 = 4;
+const SOURCE_LEFT_MARGIN: i32 = 6;
+const SOURCE_TOP_MARGIN: i32 = 3;
+const SOURCE_RIGHT_MARGIN_POSITION: u32 = 120;
 
 /// Key used to store metadata entries (line notes, etc.) for a file.
 /// Always the absolute path: relative paths conflated entries across
@@ -95,6 +99,109 @@ fn build_editor_extras(
         click_line,
     ));
     items
+}
+
+fn configure_source_view(view: &sourceview5::View) {
+    view.add_css_class("editor-code-view");
+    view.set_show_line_numbers(true);
+    view.set_show_line_marks(true);
+    view.set_highlight_current_line(true);
+    view.set_auto_indent(true);
+    view.set_tab_width(SOURCE_TAB_WIDTH);
+    view.set_wrap_mode(gtk4::WrapMode::None);
+    view.set_left_margin(SOURCE_LEFT_MARGIN);
+    view.set_top_margin(SOURCE_TOP_MARGIN);
+    view.set_monospace(true);
+    view.set_show_right_margin(true);
+    view.set_right_margin_position(SOURCE_RIGHT_MARGIN_POSITION);
+
+    let attrs = sourceview5::MarkAttributes::new();
+    attrs.set_icon_name(NOTE_MARK_ICON);
+    let color = gtk4::gdk::RGBA::new(
+        NOTE_MARK_COLOR_R,
+        NOTE_MARK_COLOR_G,
+        NOTE_MARK_COLOR_B,
+        NOTE_MARK_COLOR_A,
+    );
+    attrs.set_background(&color);
+    view.set_mark_attributes(
+        super::notes_state::NOTE_MARK_CATEGORY,
+        &attrs,
+        NOTE_MARK_PRIORITY,
+    );
+
+    install_text_clipboard_shortcuts(view);
+    install_text_history_shortcuts(view);
+    super::completion_lifecycle::configure(&view.completion());
+    super::completion_lifecycle::install_view_guards(view);
+    install_bracket_auto_pair(view);
+}
+
+fn install_source_note_tooltip(view: &sourceview5::View, state: &Rc<RefCell<EditorState>>) {
+    let state_c = state.clone();
+    view.set_has_tooltip(true);
+    view.connect_query_tooltip(move |view, _x, y, _keyboard, tooltip| {
+        let (_, buf_y) = view.window_to_buffer_coords(gtk4::TextWindowType::Widget, 0, y);
+        let (iter, _) = view.line_at_y(buf_y);
+        let line = iter.line();
+        let st = state_c.borrow();
+        let Some(idx) = st.active_tab else {
+            return false;
+        };
+        let Some(open_file) = st.open_files.get(idx) else {
+            return false;
+        };
+        let super::tab_content::TabContent::Source(source) = &open_file.content else {
+            return false;
+        };
+        let Some(note) = source
+            .notes
+            .notes_on_line(&source.buffer, line)
+            .into_iter()
+            .next()
+        else {
+            return false;
+        };
+        tooltip.set_text(Some(&note.text));
+        true
+    });
+}
+
+fn build_source_tab_widgets(
+    buffer: &sourceview5::Buffer,
+    state: &Rc<RefCell<EditorState>>,
+    notes_ruler: &Rc<super::notes_ruler::NotesRuler>,
+) -> (sourceview5::View, gtk4::ScrolledWindow) {
+    let source_view = sourceview5::View::with_buffer(buffer);
+    configure_source_view(&source_view);
+    install_source_note_tooltip(&source_view, state);
+
+    let source_scroll = gtk4::ScrolledWindow::new();
+    source_scroll.set_child(Some(&source_view));
+    source_scroll.set_vexpand(true);
+    source_scroll.set_hexpand(true);
+
+    let view_for_menu = source_view.clone();
+    let state_for_menu = state.clone();
+    let notes_ruler_for_menu = notes_ruler.clone();
+    text_context_menu::install(&source_scroll, &source_view, true, move |click_line| {
+        build_editor_extras(
+            &view_for_menu,
+            &state_for_menu,
+            &notes_ruler_for_menu,
+            click_line,
+        )
+    });
+
+    (source_view, source_scroll)
+}
+
+fn restore_stack_child(content_stack: &gtk4::Stack, notebook: &gtk4::Notebook, child_name: &str) {
+    if notebook.n_pages() > 0 && content_stack.child_by_name(child_name).is_some() {
+        content_stack.set_visible_child_name(child_name);
+    } else {
+        content_stack.set_visible_child_name("welcome");
+    }
 }
 
 /// Build just the Add/Edit/Delete Note entries for a given buffer +
@@ -497,13 +604,12 @@ fn alloc_tab_id() -> u64 {
     NEXT_TAB_ID.fetch_add(1, Ordering::Relaxed)
 }
 
-/// Manages the Notebook tabs and SourceView buffers.
+/// Manages the Notebook tabs and per-tab SourceView buffers.
 /// The notebook is used ONLY as a tab bar — its page content is always empty.
-/// Actual content (welcome message or source code) lives in `content_stack`.
+/// Actual content (welcome message or per-tab widgets) lives in `content_stack`.
 pub struct EditorTabs {
     pub notebook: gtk4::Notebook,
     pub source_view: sourceview5::View,
-    source_scroll: gtk4::ScrolledWindow,
     /// Buffer-word completion provider — every opened buffer is registered
     /// here so the popup can suggest words from any file currently open.
     completion_words: sourceview5::CompletionWords,
@@ -512,7 +618,7 @@ pub struct EditorTabs {
     /// once. Re-populated whenever the visible buffer (and thus its
     /// language) changes.
     keyword_shadow_buffer: sourceview5::Buffer,
-    /// Stack switching between "welcome" and "editor" content.
+    /// Stack switching between "welcome" and per-tab content.
     pub content_stack: gtk4::Stack,
     /// Horizontal wrapper holding `content_stack` and the `match_ruler`. This
     /// is what gets mounted in the editor pane: keeping the ruler outside the
@@ -542,11 +648,8 @@ pub struct EditorTabs {
     /// Drawing area beside the editor that paints a gold mark at every line
     /// in match_lines and scrolls to the nearest match on click.
     match_ruler: gtk4::DrawingArea,
-    /// Resolves to the currently-active sourceview, regardless of whether
-    /// the user is looking at a source tab (returns the shared `source_view`)
-    /// or a markdown tab (returns that tab's own `md.source_view`). Used by
-    /// shared widgets — search bar, match ruler — to operate on whichever
-    /// buffer is actually visible.
+    /// Resolves to the currently-active sourceview. Used by shared widgets
+    /// — search bar, match ruler — to operate on whichever buffer is visible.
     active_view: Rc<dyn Fn() -> sourceview5::View>,
     /// Amber note markers to the left of the source view. Populated from
     /// the active source tab's NotesState via `refresh_notes_ruler`.
@@ -638,80 +741,15 @@ impl EditorTabs {
         // Hide the notebook page content area — we only want the tab bar
         notebook.set_vexpand(false);
 
-        // Single SourceView that switches buffers
+        // Detached fallback SourceView kept for legacy callers while source
+        // tabs own the visible SourceView/ScrolledWindow pair.
         let source_view = sourceview5::View::new();
-        source_view.add_css_class("editor-code-view");
-        source_view.set_show_line_numbers(true);
-        source_view.set_show_line_marks(true);
-        source_view.set_highlight_current_line(true);
-
-        // Register mark attributes for notes so the gutter paints an amber
-        // bookmark icon next to any line that owns a note.
-        {
-            let attrs = sourceview5::MarkAttributes::new();
-            attrs.set_icon_name(NOTE_MARK_ICON);
-            let color = gtk4::gdk::RGBA::new(
-                NOTE_MARK_COLOR_R,
-                NOTE_MARK_COLOR_G,
-                NOTE_MARK_COLOR_B,
-                NOTE_MARK_COLOR_A,
-            );
-            attrs.set_background(&color);
-            source_view.set_mark_attributes(
-                super::notes_state::NOTE_MARK_CATEGORY,
-                &attrs,
-                NOTE_MARK_PRIORITY,
-            );
-        }
-        source_view.set_auto_indent(true);
-        source_view.set_tab_width(4);
-        source_view.set_wrap_mode(gtk4::WrapMode::None);
-        source_view.set_left_margin(6);
-        source_view.set_top_margin(3);
-        source_view.set_monospace(true);
-        source_view.set_show_right_margin(true);
-        source_view.set_right_margin_position(120);
-        install_text_clipboard_shortcuts(&source_view);
-        install_text_history_shortcuts(&source_view);
+        configure_source_view(&source_view);
 
         // Apply and register for theme updates
         if let Some(buf) = source_view.buffer().downcast_ref::<sourceview5::Buffer>() {
             crate::theme::register_sourceview_buffer(buf);
         }
-
-        // Hover tooltip: when the user hovers over any line in the active
-        // source tab that has a note, show the note text as a tooltip.
-        // Scoped to the line so both gutter-icon and text-area hovers
-        // surface the same preview.
-        {
-            let state_c = state.clone();
-            source_view.set_has_tooltip(true);
-            source_view.connect_query_tooltip(move |view, _x, y, _keyboard, tooltip| {
-                let (_, buf_y) = view.window_to_buffer_coords(gtk4::TextWindowType::Widget, 0, y);
-                let (iter, _) = view.line_at_y(buf_y);
-                let line = iter.line();
-                let st = state_c.borrow();
-                let Some(idx) = st.active_tab else {
-                    return false;
-                };
-                let Some(open_file) = st.open_files.get(idx) else {
-                    return false;
-                };
-                let super::tab_content::TabContent::Source(source) = &open_file.content else {
-                    return false;
-                };
-                let notes = source.notes.notes_on_line(&source.buffer, line);
-                let Some(note) = notes.into_iter().next() else {
-                    return false;
-                };
-                tooltip.set_text(Some(&note.text));
-                true
-            });
-        }
-
-        // NOTE: line-mark-activated wiring lives below, next to the
-        // `notes_ruler` creation — it needs the ruler to refresh after
-        // Edit/Delete actions in the popover.
 
         // Buffer-word provider kept available for a future in-editor
         // completion UI. It is intentionally not attached to GtkSourceView's
@@ -721,9 +759,6 @@ impl EditorTabs {
             .title("Words")
             .minimum_word_size(COMPLETION_MIN_WORD_LEN)
             .build();
-        let completion = source_view.completion();
-        super::completion_lifecycle::configure(&completion);
-        super::completion_lifecycle::install_view_guards(&source_view);
 
         // Shadow buffer fed with language keywords so they appear in the
         // popup even before the user has typed them. Always registered with
@@ -731,21 +766,11 @@ impl EditorTabs {
         let keyword_shadow_buffer = sourceview5::Buffer::new(None::<&gtk4::TextTagTable>);
         completion_words.register(&keyword_shadow_buffer);
 
-        // Auto-pair brackets/quotes (and wrap selections).
-        install_bracket_auto_pair(&source_view);
-
-        let source_scroll = gtk4::ScrolledWindow::new();
-        source_scroll.set_child(Some(&source_view));
-        source_scroll.set_vexpand(true);
-        source_scroll.set_hexpand(true);
-
-        // The editor multiplexes one search bar (and one match ruler) across
-        // heterogeneous tabs: source tabs share `source_view`, while each
-        // markdown tab owns its own SourceView (`md.source_view`).
-        // `active_view` resolves to whichever view is currently driving the
-        // visible content, so the SearchContext and the ruler always operate
-        // on the buffer the user actually sees. Defined up here because the
-        // overview ruler that consumes it is built immediately below.
+        // The editor multiplexes one search bar and one match ruler across
+        // heterogeneous tabs. `active_view` resolves to the SourceView owned
+        // by the active tab, so search and rulers operate on the buffer the
+        // user is actually seeing. Defined here because the overview ruler
+        // that consumes it is built immediately below.
         let active_view: Rc<dyn Fn() -> sourceview5::View> = {
             let editor_sv = source_view.clone();
             let state_for_view = state.clone();
@@ -753,8 +778,14 @@ impl EditorTabs {
                 let st = state_for_view.borrow();
                 if let Some(idx) = st.active_tab {
                     if let Some(of) = st.open_files.get(idx) {
-                        if let super::tab_content::TabContent::Markdown(md) = &of.content {
-                            return md.source_view.clone();
+                        match &of.content {
+                            super::tab_content::TabContent::Source(source) => {
+                                return source.source_view.clone();
+                            }
+                            super::tab_content::TabContent::Markdown(md) => {
+                                return md.source_view.clone();
+                            }
+                            super::tab_content::TabContent::Image(_) => {}
                         }
                     }
                 }
@@ -795,42 +826,42 @@ impl EditorTabs {
                     .map(|n| n.text)
             });
         }
-
-        let editor_row = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
-        editor_row.set_vexpand(true);
-        editor_row.set_hexpand(true);
-        editor_row.append(&source_scroll);
-        editor_row.append(&notes_ruler.widget);
-        // match_ruler intentionally lives outside `editor_row` (see the
-        // `content_area` wrapper below): it sits next to the whole
-        // `content_stack`, not inside the source-tab child, so it stays
-        // visible for markdown tabs too.
+        {
+            let state_c = state.clone();
+            notes_ruler.set_on_activate(move |line| {
+                let (buffer, view) = {
+                    let st = state_c.borrow();
+                    let Some(idx) = st.active_tab else {
+                        return;
+                    };
+                    let Some(open_file) = st.open_files.get(idx) else {
+                        return;
+                    };
+                    let super::tab_content::TabContent::Source(source) = &open_file.content else {
+                        return;
+                    };
+                    (source.buffer.clone(), source.source_view.clone())
+                };
+                let Some(iter) = buffer.iter_at_line(line) else {
+                    return;
+                };
+                buffer.place_cursor(&iter);
+                gtk4::glib::idle_add_local_once(move || {
+                    if let Some(iter) = buffer.iter_at_line(line) {
+                        view.scroll_to_iter(&mut iter.clone(), 0.1, true, 0.5, 0.5);
+                        view.grab_focus();
+                    }
+                });
+            });
+        }
 
         // Content stack. Welcome and editor children are added here; per-tab
-        // Markdown/Image children are inserted in open_*_file on demand.
+        // Source/Markdown/Image children are inserted in open_*_file on demand.
         // Created up front so closures (e.g. the switch-page handler) can
         // clone it before the welcome/editor children are wired.
         let content_stack = gtk4::Stack::new();
         content_stack.set_vexpand(true);
         content_stack.set_hexpand(true);
-
-        // Right-click context menu on the main editor — extras factory looks
-        // up the active file each time so the format action follows the
-        // currently-open file's extension, plus Add/Edit/Delete Note on the
-        // clicked line.
-        {
-            let view_for_menu = source_view.clone();
-            let state_for_menu = state.clone();
-            let notes_ruler_for_menu = notes_ruler.clone();
-            text_context_menu::install(&source_scroll, &source_view, true, move |click_line| {
-                build_editor_extras(
-                    &view_for_menu,
-                    &state_for_menu,
-                    &notes_ruler_for_menu,
-                    click_line,
-                )
-            });
-        }
 
         // InfoBar container (for file-changed-on-disk warnings)
         let info_bar_container = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
@@ -873,7 +904,6 @@ impl EditorTabs {
         // while another closure already holds a borrow.
         {
             let state_c = state.clone();
-            let sv = source_view.clone();
             let lang_l = status_lang.clone();
             let pos_l = status_pos.clone();
             let mod_l = status_modified.clone();
@@ -883,15 +913,12 @@ impl EditorTabs {
             let cs = content_stack.clone();
             let nr = notes_ruler.clone();
             let keyword_shadow = keyword_shadow_buffer.clone();
-            let source_scroll_c = source_scroll.clone();
             notebook.connect_switch_page(move |_nb, _page, page_num| {
                 let idx = page_num as usize;
                 if apply_tab_view_state(
                     idx,
                     &state_c,
                     _nb,
-                    &sv,
-                    &source_scroll_c,
                     &cs,
                     &lang_l,
                     &pos_l,
@@ -1241,7 +1268,7 @@ impl EditorTabs {
             });
         }
 
-        // ── Content stack: wire welcome + editor children ───────────
+        // ── Content stack: wire welcome; file tabs add per-tab children ──
         let welcome_wrap = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
         welcome_wrap.add_css_class("editor-welcome");
         welcome_wrap.set_vexpand(true);
@@ -1254,7 +1281,6 @@ impl EditorTabs {
         welcome.set_valign(gtk4::Align::Center);
         welcome_wrap.append(&welcome);
         content_stack.add_named(&welcome_wrap, Some("welcome"));
-        content_stack.add_named(&editor_row, Some("editor"));
         content_stack.set_visible_child_name("welcome");
 
         // Wrap the stack in a horizontal row so the match ruler can sit
@@ -1266,12 +1292,12 @@ impl EditorTabs {
         content_area.set_vexpand(true);
         content_area.set_hexpand(true);
         content_area.append(&content_stack);
+        content_area.append(&notes_ruler.widget);
         content_area.append(&match_ruler);
 
         Self {
             notebook,
             source_view,
-            source_scroll,
             completion_words,
             keyword_shadow_buffer,
             content_stack,
@@ -1292,25 +1318,6 @@ impl EditorTabs {
             active_view,
             notes_ruler,
         }
-    }
-
-    fn remember_active_source_scroll(&self, state: &Rc<RefCell<EditorState>>) {
-        let st = state.borrow();
-        let Some(idx) = st.active_tab else {
-            return;
-        };
-        let Some(open_file) = st.open_files.get(idx) else {
-            return;
-        };
-        let super::tab_content::TabContent::Source(source) = &open_file.content else {
-            return;
-        };
-        source
-            .scroll_x
-            .set(self.source_scroll.hadjustment().value());
-        source
-            .scroll_y
-            .set(self.source_scroll.vadjustment().value());
     }
 
     /// Refresh the notes ruler from the active source tab's NotesState.
@@ -1334,6 +1341,42 @@ impl EditorTabs {
         self.notes_ruler.update(lines, total);
     }
 
+    pub fn active_source_view(
+        &self,
+        state: &Rc<RefCell<EditorState>>,
+    ) -> Option<sourceview5::View> {
+        let st = state.borrow();
+        let idx = st.active_tab?;
+        let open_file = st.open_files.get(idx)?;
+        match &open_file.content {
+            super::tab_content::TabContent::Source(source) => Some(source.source_view.clone()),
+            _ => None,
+        }
+    }
+
+    pub fn active_text_buffer(&self, state: &Rc<RefCell<EditorState>>) -> Option<gtk4::TextBuffer> {
+        let st = state.borrow();
+        let idx = st.active_tab?;
+        let open_file = st.open_files.get(idx)?;
+        match &open_file.content {
+            super::tab_content::TabContent::Source(source) => {
+                Some(source.buffer.clone().upcast::<gtk4::TextBuffer>())
+            }
+            super::tab_content::TabContent::Markdown(md) => {
+                Some(md.buffer.clone().upcast::<gtk4::TextBuffer>())
+            }
+            super::tab_content::TabContent::Image(_) => None,
+        }
+    }
+
+    fn current_stack_child_name(&self) -> String {
+        self.content_stack
+            .visible_child_name()
+            .map(|name| name.to_string())
+            .filter(|name| !matches!(name.as_str(), "diff" | "commit-diff" | "commit-file-diff"))
+            .unwrap_or_else(|| "welcome".to_string())
+    }
+
     /// Recompute the search-match overview ruler for the currently-active
     /// buffer against `query`. Call this from the project-wide search result
     /// click so the gold ruler shows up as soon as a file is opened from
@@ -1353,11 +1396,9 @@ impl EditorTabs {
     /// Reveal a `(line, query)` match in the active tab. Forces markdown tabs
     /// to Source mode so the match is visible (the rendered view can't show
     /// a cursor or scroll target), then selects the first occurrence of
-    /// `query` on `line_zero_based` and scrolls the right view (the shared
-    /// `source_view` for source tabs, the markdown tab's own
-    /// `md.source_view` for markdown tabs). When `query` is empty just
-    /// places the cursor at the line start. Used by the project-search panel
-    /// after opening a result.
+    /// `query` on `line_zero_based` and scrolls the active tab's SourceView.
+    /// When `query` is empty just places the cursor at the line start. Used
+    /// by the project-search panel after opening a result.
     pub fn reveal_search_match(
         &self,
         line_zero_based: i32,
@@ -1377,7 +1418,7 @@ impl EditorTabs {
                 return;
             };
             match &open_file.content {
-                TabContent::Source(s) => (s.buffer.clone(), self.source_view.clone()),
+                TabContent::Source(s) => (s.buffer.clone(), s.source_view.clone()),
                 TabContent::Markdown(md) => {
                     if md.mode.get() == MarkdownMode::Rendered {
                         super::markdown_view::toggle_mode(md);
@@ -1428,8 +1469,6 @@ impl EditorTabs {
     /// Open a file in a new tab. Returns the tab index.
     /// If the file is already open, switches to that tab.
     pub fn open_file(&self, path: &Path, state: &Rc<RefCell<EditorState>>) -> Option<usize> {
-        self.remember_active_source_scroll(state);
-
         // Push current position to navigation history before switching
         super::push_nav_position(state);
 
@@ -1459,7 +1498,7 @@ impl EditorTabs {
 
         // Dispatch on extension: markdown files get a Rendered/Source viewer,
         // image files get a Picture-based viewer, everything else falls
-        // through to the shared source-code path below.
+        // through to the source-code path below.
         if let Some(ext) = path
             .extension()
             .and_then(|e| e.to_str())
@@ -1557,11 +1596,14 @@ impl EditorTabs {
         page_widget.set_height_request(0);
         let _page_idx = self.notebook.append_page(&page_widget, Some(&tab_box));
         self.notebook.set_show_tabs(true);
-        self.content_stack.set_visible_child_name("editor");
 
         // Stable id for this tab — all long-lived closures key off it so that
         // a path change (rename) doesn't orphan dirty tracking or close button.
         let tab_id = alloc_tab_id();
+        let child_name = format!("tab-{}", tab_id);
+        let (source_view, source_scroll) = build_source_tab_widgets(&buf, state, &self.notes_ruler);
+        self.content_stack
+            .add_named(&source_scroll, Some(&child_name));
 
         // Add to state
         let idx = {
@@ -1574,6 +1616,8 @@ impl EditorTabs {
                 name_label: label.clone(),
                 content: super::tab_content::TabContent::Source(super::tab_content::SourceTab {
                     buffer: buf.clone(),
+                    source_view: source_view.clone(),
+                    source_scroll: source_scroll.clone(),
                     modified: false,
                     external_modified: false,
                     scroll_x: Rc::new(Cell::new(0.0)),
@@ -1604,15 +1648,16 @@ impl EditorTabs {
             let nb = self.notebook.clone();
             let cs = self.content_stack.clone();
             let completion_words = self.completion_words.clone();
-            let source_view = self.source_view.clone();
+            let active_view = self.active_view.clone();
             let close_do_it = {
                 let state_c = state_c.clone();
                 let nb = nb.clone();
                 let cs = cs.clone();
                 let completion_words = completion_words.clone();
-                let source_view = source_view.clone();
+                let active_view = active_view.clone();
                 Rc::new(move || {
-                    super::completion_lifecycle::suspend_until_idle(&source_view);
+                    let view = active_view();
+                    super::completion_lifecycle::suspend_until_idle(&view);
                     let (empty_after, new_idx);
                     let per_tab_child = format!("tab-{}", tab_id);
                     {
@@ -1635,9 +1680,7 @@ impl EditorTabs {
                             }
                             drop(st);
                             nb.remove_page(Some(idx as u32));
-                            // Drop the per-tab content widget if this tab had one
-                            // (Markdown / Image tabs). Source tabs share the
-                            // "editor" child so there's nothing to remove.
+                            // Drop the per-tab content widget owned by this tab.
                             if let Some(w) = cs.child_by_name(&per_tab_child) {
                                 cs.remove(&w);
                             }
@@ -1946,15 +1989,16 @@ impl EditorTabs {
             let nb = self.notebook.clone();
             let cs = self.content_stack.clone();
             let completion_words = self.completion_words.clone();
-            let source_view = self.source_view.clone();
+            let active_view = self.active_view.clone();
             let close_do_it = {
                 let state_c = state_c.clone();
                 let nb = nb.clone();
                 let cs = cs.clone();
                 let completion_words = completion_words.clone();
-                let source_view = source_view.clone();
+                let active_view = active_view.clone();
                 Rc::new(move || {
-                    super::completion_lifecycle::suspend_until_idle(&source_view);
+                    let view = active_view();
+                    super::completion_lifecycle::suspend_until_idle(&view);
                     let (empty_after, new_idx);
                     let per_tab_child = format!("tab-{}", tab_id);
                     {
@@ -2250,7 +2294,8 @@ impl EditorTabs {
             return applied;
         }
 
-        super::completion_lifecycle::suspend_until_idle(&self.source_view);
+        let view = (self.active_view)();
+        super::completion_lifecycle::suspend_until_idle(&view);
         self.notebook.set_current_page(Some(idx as u32));
         let applied = self.switch_to_buffer(idx, state);
         if applied {
@@ -2265,8 +2310,6 @@ impl EditorTabs {
             idx,
             state,
             &self.notebook,
-            &self.source_view,
-            &self.source_scroll,
             &self.content_stack,
             &self.status_lang,
             &self.status_pos,
@@ -2320,6 +2363,7 @@ impl EditorTabs {
         file_path: &Path,
         backend: Arc<dyn super::file_backend::FileBackend>,
     ) {
+        let restore_child = self.current_stack_child_name();
         let rel = file_path.strip_prefix(root).unwrap_or(file_path);
         let old_content = backend
             .git_show(&format!("HEAD:{}", rel.to_string_lossy()))
@@ -2372,14 +2416,11 @@ impl EditorTabs {
             let cs = self.content_stack.clone();
             let nb = self.notebook.clone();
             let be = backend.clone();
+            let restore_child = restore_child.clone();
             revert_btn.connect_clicked(move |_| {
                 let rel = fp.strip_prefix(&root_c).unwrap_or(&fp);
                 let _ = be.git_command(&["checkout", "--", &rel.to_string_lossy()]);
-                if nb.n_pages() > 0 {
-                    cs.set_visible_child_name("editor");
-                } else {
-                    cs.set_visible_child_name("welcome");
-                }
+                restore_stack_child(&cs, &nb, &restore_child);
             });
         }
         header.append(&revert_btn);
@@ -2434,12 +2475,9 @@ impl EditorTabs {
         {
             let cs = self.content_stack.clone();
             let nb = self.notebook.clone();
+            let restore_child = restore_child.clone();
             back_btn.connect_clicked(move |_| {
-                if nb.n_pages() > 0 {
-                    cs.set_visible_child_name("editor");
-                } else {
-                    cs.set_visible_child_name("welcome");
-                }
+                restore_stack_child(&cs, &nb, &restore_child);
             });
         }
     }
@@ -2459,6 +2497,7 @@ impl EditorTabs {
         backend: Arc<dyn super::file_backend::FileBackend>,
         apply_merged: Rc<dyn Fn(&str)>,
     ) {
+        let restore_child = self.current_stack_child_name();
         let DiffViewParts { paned, new_buf } =
             build_diff_view_parts(file_path, disk_content, mine_content);
 
@@ -2515,6 +2554,7 @@ impl EditorTabs {
             let cs = self.content_stack.clone();
             let nb_pages = self.notebook.clone();
             let apply = apply_merged.clone();
+            let restore_child = restore_child.clone();
             let key_ctrl = gtk4::EventControllerKey::new();
             key_ctrl.connect_key_pressed(move |_, key, _, modifier| {
                 if crate::shortcuts::has_primary(modifier) && key == gtk4::gdk::Key::s {
@@ -2525,11 +2565,7 @@ impl EditorTabs {
                     }
                     apply(&text);
                     tracing::info!("Merge: saved merged result for {}", fp.display());
-                    if nb_pages.n_pages() > 0 {
-                        cs.set_visible_child_name("editor");
-                    } else {
-                        cs.set_visible_child_name("welcome");
-                    }
+                    restore_stack_child(&cs, &nb_pages, &restore_child);
                     return gtk4::glib::Propagation::Stop;
                 }
                 gtk4::glib::Propagation::Proceed
@@ -2547,12 +2583,9 @@ impl EditorTabs {
         {
             let cs = self.content_stack.clone();
             let nb = self.notebook.clone();
+            let restore_child = restore_child.clone();
             back_btn.connect_clicked(move |_| {
-                if nb.n_pages() > 0 {
-                    cs.set_visible_child_name("editor");
-                } else {
-                    cs.set_visible_child_name("welcome");
-                }
+                restore_stack_child(&cs, &nb, &restore_child);
             });
         }
     }
@@ -2581,24 +2614,22 @@ impl EditorTabs {
     fn prepare_search_buffer(&self, state: &Rc<RefCell<EditorState>>) {
         let buf = {
             let st = state.borrow();
-            let md_buf = st
+            let active_content = st
                 .active_tab
                 .and_then(|i| st.open_files.get(i))
-                .and_then(|of| {
-                    if let super::tab_content::TabContent::Markdown(md) = &of.content {
-                        Some(md.clone())
-                    } else {
-                        None
-                    }
-                });
-            match md_buf {
-                Some(md) => {
+                .map(|of| &of.content);
+            match active_content {
+                Some(super::tab_content::TabContent::Source(source)) => {
+                    source.buffer.clone().upcast::<gtk4::TextBuffer>()
+                }
+                Some(super::tab_content::TabContent::Markdown(md)) => {
+                    let md = md.clone();
                     if md.mode.get() == super::tab_content::MarkdownMode::Rendered {
                         super::markdown_view::toggle_mode(&md);
                     }
                     md.buffer.clone().upcast::<gtk4::TextBuffer>()
                 }
-                None => self.source_view.buffer(),
+                _ => self.source_view.buffer(),
             }
         };
         if let Some((start, end)) = buf.selection_bounds() {
@@ -2790,7 +2821,8 @@ impl EditorTabs {
 
     /// Remove the tab at the given index from the notebook and state.
     pub fn remove_tab(&self, idx: usize, state: &Rc<RefCell<EditorState>>) {
-        super::completion_lifecycle::suspend_until_idle(&self.source_view);
+        let view = (self.active_view)();
+        super::completion_lifecycle::suspend_until_idle(&view);
         let empty_after;
         let new_idx;
         let content_child_name;
@@ -2818,10 +2850,8 @@ impl EditorTabs {
         }
         // Borrow is dropped — safe to call notebook methods that trigger switch_page
         self.notebook.remove_page(Some(idx as u32));
-        if content_child_name != "editor" {
-            if let Some(w) = self.content_stack.child_by_name(&content_child_name) {
-                self.content_stack.remove(&w);
-            }
+        if let Some(w) = self.content_stack.child_by_name(&content_child_name) {
+            self.content_stack.remove(&w);
         }
         if empty_after {
             self.notebook.set_show_tabs(false);
@@ -3006,6 +3036,7 @@ impl EditorTabs {
         commit_hash: &str,
         backend: Arc<dyn super::file_backend::FileBackend>,
     ) {
+        let restore_child = self.current_stack_child_name();
         // Get commit info
         let info = backend
             .git_command(&["log", "-1", "--format=%H%n%s%n%an%n%ar", commit_hash])
@@ -3191,12 +3222,9 @@ impl EditorTabs {
         {
             let cs = self.content_stack.clone();
             let nb = self.notebook.clone();
+            let restore_child = restore_child.clone();
             back_btn.connect_clicked(move |_| {
-                if nb.n_pages() > 0 {
-                    cs.set_visible_child_name("editor");
-                } else {
-                    cs.set_visible_child_name("welcome");
-                }
+                restore_stack_child(&cs, &nb, &restore_child);
             });
         }
     }
