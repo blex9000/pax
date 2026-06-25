@@ -1,5 +1,11 @@
 use gtk4::prelude::*;
+use std::cell::RefCell;
+use std::process::Command;
 use std::rc::Rc;
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
+
+const TRANSCRIBE_CMD_ENV: &str = "PAX_VOICE_TRANSCRIBE_CMD";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum VoiceAction {
@@ -253,7 +259,8 @@ fn build_voice_popover(
          va a capo\n\
          tastiera: invio | freccia giu | freccia su | control c\n\
          pax: seleziona tab nome\n\n\
-         Nel terminale 'scrivi:' non preme Invio.",
+         Nel terminale 'scrivi:' non preme Invio.\n\
+         Backend STT: imposta PAX_VOICE_TRANSCRIBE_CMD. Il comando deve stampare il transcript su stdout.",
     ));
     help.add_css_class("dim-label");
     help.set_wrap(true);
@@ -263,6 +270,19 @@ fn build_voice_popover(
     let entry = gtk4::Entry::new();
     entry.set_placeholder_text(Some("scrivi: ls -la tastiera: invio"));
     root.append(&entry);
+
+    let transcribe_btn = gtk4::Button::with_label("Trascrivi");
+    transcribe_btn.add_css_class("flat");
+    let transcribe_configured = std::env::var(TRANSCRIBE_CMD_ENV)
+        .map(|cmd| !cmd.trim().is_empty())
+        .unwrap_or(false);
+    transcribe_btn.set_sensitive(transcribe_configured);
+    transcribe_btn.set_tooltip_text(Some(if transcribe_configured {
+        "Esegue PAX_VOICE_TRANSCRIBE_CMD e usa stdout come transcript"
+    } else {
+        "Imposta PAX_VOICE_TRANSCRIBE_CMD per abilitare registrazione/STT"
+    }));
+    root.append(&transcribe_btn);
 
     let preview = gtk4::Label::new(Some("Inserisci una frase per vedere il piano."));
     preview.add_css_class("caption");
@@ -280,6 +300,30 @@ fn build_voice_popover(
             let phrase = entry.text().to_string();
             let plan = parse_voice_phrase(&phrase);
             preview.set_text(&plan_preview(&plan));
+        });
+    }
+
+    {
+        let entry = entry.clone();
+        let preview = preview.clone();
+        transcribe_btn.connect_clicked(move |btn| {
+            btn.set_sensitive(false);
+            preview.set_text("Trascrizione in corso...");
+            let btn_c = btn.clone();
+            let entry_c = entry.clone();
+            let preview_c = preview.clone();
+            run_transcribe_command(move |result| {
+                btn_c.set_sensitive(true);
+                match result {
+                    Ok(text) if !text.trim().is_empty() => {
+                        entry_c.set_text(text.trim());
+                        let plan = parse_voice_phrase(text.trim());
+                        preview_c.set_text(&plan_preview(&plan));
+                    }
+                    Ok(_) => preview_c.set_text("Trascrizione vuota."),
+                    Err(err) => preview_c.set_text(&format!("Trascrizione fallita: {err}")),
+                }
+            });
         });
     }
 
@@ -308,6 +352,52 @@ fn build_voice_popover(
 
     popover.set_child(Some(&root));
     popover
+}
+
+fn run_transcribe_command(on_done: impl FnOnce(Result<String, String>) + 'static) {
+    let cmd = match std::env::var(TRANSCRIBE_CMD_ENV) {
+        Ok(cmd) if !cmd.trim().is_empty() => cmd,
+        _ => {
+            on_done(Err(format!("{TRANSCRIBE_CMD_ENV} non configurata")));
+            return;
+        }
+    };
+
+    let slot = Arc::new(Mutex::new(None::<Result<String, String>>));
+    let slot_thread = slot.clone();
+    let callback = Rc::new(RefCell::new(Some(on_done)));
+
+    std::thread::spawn(move || {
+        let output = Command::new("sh").arg("-lc").arg(&cmd).output();
+        let result = match output {
+            Ok(output) if output.status.success() => {
+                Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
+            }
+            Ok(output) => {
+                let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+                Err(if stderr.is_empty() {
+                    format!("comando terminato con {}", output.status)
+                } else {
+                    stderr
+                })
+            }
+            Err(err) => Err(err.to_string()),
+        };
+        *slot_thread.lock().unwrap() = Some(result);
+    });
+
+    gtk4::glib::timeout_add_local(Duration::from_millis(16), move || {
+        let result = slot.lock().unwrap().take();
+        match result {
+            Some(result) => {
+                if let Some(cb) = callback.borrow_mut().take() {
+                    cb(result);
+                }
+                gtk4::glib::ControlFlow::Break
+            }
+            None => gtk4::glib::ControlFlow::Continue,
+        }
+    });
 }
 
 fn find_next_marker(lower: &str, from: usize) -> Option<(usize, &'static Marker)> {
