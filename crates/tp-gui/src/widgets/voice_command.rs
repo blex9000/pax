@@ -240,42 +240,38 @@ fn build_voice_popover(
     writer: Rc<dyn Fn(&[u8]) -> bool>,
 ) -> gtk4::Popover {
     let popover = gtk4::Popover::new();
-    let root = gtk4::Box::new(gtk4::Orientation::Vertical, 8);
+    let root = gtk4::Box::new(gtk4::Orientation::Vertical, 10);
     root.set_margin_top(10);
     root.set_margin_bottom(10);
     root.set_margin_start(10);
     root.set_margin_end(10);
-    root.set_width_request(360);
+    root.set_width_request(340);
 
-    let title = gtk4::Label::new(Some("Comandi vocali"));
+    let title = gtk4::Label::new(Some("Input vocale"));
     title.add_css_class("heading");
     title.set_halign(gtk4::Align::Start);
     root.append(&title);
 
-    let help = gtk4::Label::new(Some(
-        "Protocollo:\n\
-         scrivi: testo da inserire\n\
-         scrivi letteralmente: testo che sembra un comando\n\
-         va a capo\n\
-         tastiera: invio | freccia giu | freccia su | control c\n\
-         pax: seleziona tab nome\n\n\
-         Nel terminale 'scrivi:' non preme Invio.\n\
-         Backend STT: imposta PAX_VOICE_TRANSCRIBE_CMD. Il comando deve stampare il transcript su stdout.",
-    ));
-    help.add_css_class("dim-label");
-    help.set_wrap(true);
-    help.set_xalign(0.0);
-    root.append(&help);
-
-    let entry = gtk4::Entry::new();
-    entry.set_placeholder_text(Some("scrivi: ls -la tastiera: invio"));
-    root.append(&entry);
-
-    let transcribe_btn = gtk4::Button::with_label("Trascrivi");
-    transcribe_btn.add_css_class("flat");
     let transcribe_configured = std::env::var(TRANSCRIBE_CMD_ENV)
         .map(|cmd| !cmd.trim().is_empty())
         .unwrap_or(false);
+
+    let status = gtk4::Label::new(Some(if transcribe_configured {
+        "Pronto per trascrivere."
+    } else {
+        "Trascrizione non configurata."
+    }));
+    status.add_css_class("dim-label");
+    status.set_wrap(true);
+    status.set_xalign(0.0);
+    root.append(&status);
+
+    let transcribe_btn = gtk4::Button::with_label(if transcribe_configured {
+        "Ascolta"
+    } else {
+        "Configura trascrizione"
+    });
+    transcribe_btn.add_css_class("suggested-action");
     transcribe_btn.set_sensitive(transcribe_configured);
     transcribe_btn.set_tooltip_text(Some(if transcribe_configured {
         "Esegue PAX_VOICE_TRANSCRIBE_CMD e usa stdout come transcript"
@@ -284,62 +280,105 @@ fn build_voice_popover(
     }));
     root.append(&transcribe_btn);
 
-    let preview = gtk4::Label::new(Some("Inserisci una frase per vedere il piano."));
+    let preview = gtk4::Label::new(Some("Nessun comando pronto."));
     preview.add_css_class("caption");
     preview.set_wrap(true);
     preview.set_xalign(0.0);
     root.append(&preview);
 
-    let run_btn = gtk4::Button::with_label("Esegui piano");
-    run_btn.add_css_class("suggested-action");
+    let run_btn = gtk4::Button::with_label("Esegui");
+    run_btn.set_sensitive(false);
     root.append(&run_btn);
 
-    {
-        let preview = preview.clone();
-        entry.connect_changed(move |entry| {
-            let phrase = entry.text().to_string();
-            let plan = parse_voice_phrase(&phrase);
-            preview.set_text(&plan_preview(&plan));
-        });
-    }
+    let manual = gtk4::Expander::new(Some("Manuale / debug"));
+    manual.set_expanded(false);
+    let manual_box = gtk4::Box::new(gtk4::Orientation::Vertical, 6);
+    let entry = gtk4::Entry::new();
+    entry.set_placeholder_text(Some("scrivi: ls -la tastiera: invio"));
+    manual_box.append(&entry);
+    manual.set_child(Some(&manual_box));
+    root.append(&manual);
+
+    let guide = gtk4::Expander::new(Some("Guida rapida"));
+    guide.set_expanded(false);
+    let help = gtk4::Label::new(Some(
+        "scrivi: testo da inserire\n\
+         scrivi letteralmente: testo che sembra un comando\n\
+         va a capo\n\
+         tastiera: invio | freccia giu | freccia su | control c\n\
+         pax: seleziona tab nome\n\n\
+         Nel terminale 'scrivi:' non preme Invio: serve 'tastiera: invio'.",
+    ));
+    help.add_css_class("dim-label");
+    help.set_wrap(true);
+    help.set_xalign(0.0);
+    guide.set_child(Some(&help));
+    root.append(&guide);
+
+    let phrase = Rc::new(RefCell::new(String::new()));
 
     {
-        let entry = entry.clone();
+        let phrase = phrase.clone();
+        let status = status.clone();
         let preview = preview.clone();
+        let run_btn = run_btn.clone();
+        let entry = entry.clone();
         transcribe_btn.connect_clicked(move |btn| {
             btn.set_sensitive(false);
-            preview.set_text("Trascrizione in corso...");
+            run_btn.set_sensitive(false);
+            status.set_text("Sto ascoltando e trascrivendo...");
+            preview.set_text("Attendi il transcript.");
             let btn_c = btn.clone();
             let entry_c = entry.clone();
+            let phrase_c = phrase.clone();
+            let status_c = status.clone();
             let preview_c = preview.clone();
+            let run_btn_c = run_btn.clone();
             run_transcribe_command(move |result| {
                 btn_c.set_sensitive(true);
                 match result {
                     Ok(text) if !text.trim().is_empty() => {
-                        entry_c.set_text(text.trim());
-                        let plan = parse_voice_phrase(text.trim());
-                        preview_c.set_text(&plan_preview(&plan));
+                        let trimmed = text.trim().to_string();
+                        entry_c.set_text(&trimmed);
+                        *phrase_c.borrow_mut() = trimmed.clone();
+                        status_c.set_text("Comando pronto. Controlla il piano prima di eseguire.");
+                        update_plan_preview(&trimmed, &preview_c, &run_btn_c);
                     }
-                    Ok(_) => preview_c.set_text("Trascrizione vuota."),
-                    Err(err) => preview_c.set_text(&format!("Trascrizione fallita: {err}")),
+                    Ok(_) => {
+                        entry_c.set_text("");
+                        phrase_c.borrow_mut().clear();
+                        status_c.set_text("Trascrizione vuota.");
+                        update_plan_preview("", &preview_c, &run_btn_c);
+                    }
+                    Err(err) => {
+                        entry_c.set_text("");
+                        phrase_c.borrow_mut().clear();
+                        status_c.set_text("Trascrizione fallita.");
+                        preview_c.set_text(&err);
+                        run_btn_c.set_sensitive(false);
+                    }
                 }
             });
         });
     }
 
     let run_plan: Rc<dyn Fn()> = Rc::new({
-        let entry = entry.clone();
+        let phrase = phrase.clone();
+        let status = status.clone();
         let preview = preview.clone();
         let panel_type = panel_type.clone();
         let writer = writer.clone();
         move || {
             let panel_type = panel_type().unwrap_or_else(|| "unknown".to_string());
-            let plan = parse_voice_phrase(&entry.text());
+            let phrase = phrase.borrow().clone();
+            let plan = parse_voice_phrase(&phrase);
             if plan.actions.is_empty() {
+                status.set_text("Nessuna azione valida.");
                 preview.set_text("Nessuna azione valida da eseguire.");
                 return;
             }
             let report = execute_voice_actions(&panel_type, &plan.actions, writer.as_ref());
+            status.set_text("Esecuzione completata.");
             preview.set_text(&execution_preview(&plan, &report));
         }
     });
@@ -348,10 +387,41 @@ fn build_voice_popover(
         let run = run_plan.clone();
         run_btn.connect_clicked(move |_| run());
     }
+
+    {
+        let phrase = phrase.clone();
+        let status = status.clone();
+        let preview = preview.clone();
+        let run_btn = run_btn.clone();
+        entry.connect_changed(move |entry| {
+            let text = entry.text().to_string();
+            *phrase.borrow_mut() = text.clone();
+            if text.trim().is_empty() {
+                status.set_text("Manuale / debug.");
+            } else {
+                status.set_text("Comando manuale pronto.");
+            }
+            update_plan_preview(&text, &preview, &run_btn);
+        });
+    }
+
     entry.connect_activate(move |_| run_plan());
 
     popover.set_child(Some(&root));
     popover
+}
+
+fn update_plan_preview(phrase: &str, preview: &gtk4::Label, run_btn: &gtk4::Button) {
+    let trimmed = phrase.trim();
+    if trimmed.is_empty() {
+        preview.set_text("Nessun comando pronto.");
+        run_btn.set_sensitive(false);
+        return;
+    }
+
+    let plan = parse_voice_phrase(trimmed);
+    preview.set_text(&plan_preview(&plan));
+    run_btn.set_sensitive(!plan.actions.is_empty());
 }
 
 fn run_transcribe_command(on_done: impl FnOnce(Result<String, String>) + 'static) {
