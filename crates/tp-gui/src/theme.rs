@@ -1527,6 +1527,38 @@ popover.app-popover modelbutton:hover label,
 popover.app-popover button.app-popover-button:hover label {
   color: @accent_color;
 }
+.voice-command-popover .voice-popover-root {
+  min-width: 260px;
+}
+.voice-command-popover .voice-status,
+.voice-command-popover .voice-preview {
+  padding: 0 6px;
+}
+.voice-command-popover .voice-preview {
+  min-height: 28px;
+}
+.voice-command-popover button.voice-mic-button {
+  background-image: none;
+  background-color: transparent;
+  border: 1px solid alpha(@border_soft, 0.9);
+  border-radius: 999px;
+  box-shadow: none;
+  margin: 4px 0;
+  padding: 0;
+}
+.voice-command-popover button.voice-mic-button image {
+  -gtk-icon-size: 30px;
+  color: @view_fg_color;
+}
+.voice-command-popover button.voice-mic-button:hover,
+.voice-command-popover button.voice-mic-button:checked {
+  background-color: alpha(@accent_color, 0.10);
+  border-color: alpha(@accent_color, 0.85);
+}
+.voice-command-popover button.voice-mic-button:hover image,
+.voice-command-popover button.voice-mic-button:checked image {
+  color: @accent_color;
+}
 window.app-dialog dropdown.settings-theme-dropdown > popover.menu,
 .editor-sidebar-pane dropdown > popover.menu {
   background-color: transparent;
