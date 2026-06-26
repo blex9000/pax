@@ -137,9 +137,12 @@ export PAX_VOICE_TRANSCRIBE_CMD="/home/xb/dev/me/pax/scripts/pax-voice-transcrib
 Optional settings:
 
 ```bash
-export PAX_VOICE_GEMINI_MODEL="gemini-3.5-flash"
+export PAX_VOICE_GEMINI_MODEL="gemini-3-flash-preview"
 export PAX_VOICE_RECORD_SECONDS="6"
 ```
+
+`GOOGLE_GENAI_MODEL_NAME` is also accepted as a model-name alias. If both are
+set, `PAX_VOICE_GEMINI_MODEL` wins.
 
 Test with an existing audio file:
 

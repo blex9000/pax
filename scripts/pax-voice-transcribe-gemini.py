@@ -80,6 +80,14 @@ def duration_value(value: str) -> float:
     return duration
 
 
+def default_model() -> str:
+    return (
+        os.environ.get("PAX_VOICE_GEMINI_MODEL")
+        or os.environ.get("GOOGLE_GENAI_MODEL_NAME")
+        or DEFAULT_MODEL
+    )
+
+
 def parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Record/transcribe audio into Pax voice protocol with Gemini.",
@@ -100,8 +108,11 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     )
     parser.add_argument(
         "--model",
-        default=os.environ.get("PAX_VOICE_GEMINI_MODEL", DEFAULT_MODEL),
-        help="Gemini model name. Defaults to PAX_VOICE_GEMINI_MODEL or gemini-3.5-flash.",
+        default=default_model(),
+        help=(
+            "Gemini model name. Defaults to PAX_VOICE_GEMINI_MODEL, "
+            "GOOGLE_GENAI_MODEL_NAME, or gemini-3.5-flash."
+        ),
     )
     parser.add_argument(
         "--keep-audio",
