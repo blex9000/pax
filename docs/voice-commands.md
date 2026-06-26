@@ -110,3 +110,53 @@ In terminal command examples, use "tastiera: invio" only when the user explicitl
 
 The native in-app Gemini backend should use the same output contract, so Terminal, Markdown,
 and future panels do not need provider-specific code.
+
+## Gemini Provider Script
+
+The repo includes a stdlib-only Gemini provider:
+
+```bash
+scripts/pax-voice-transcribe-gemini.py
+```
+
+It records a short audio clip, sends it to Gemini with inline audio data, validates
+that the model returned a Pax protocol phrase, and prints only that phrase to stdout.
+It follows the Gemini audio `generateContent` contract documented by Google:
+
+```text
+https://ai.google.dev/gemini-api/docs/generate-content/audio
+```
+
+Setup:
+
+```bash
+export GEMINI_API_KEY="..."
+export PAX_VOICE_TRANSCRIBE_CMD="/home/xb/dev/me/pax/scripts/pax-voice-transcribe-gemini.py"
+```
+
+Optional settings:
+
+```bash
+export PAX_VOICE_GEMINI_MODEL="gemini-3.5-flash"
+export PAX_VOICE_RECORD_SECONDS="6"
+```
+
+Test with an existing audio file:
+
+```bash
+scripts/pax-voice-transcribe-gemini.py --audio /tmp/sample.wav
+```
+
+Recorder behavior:
+
+- Linux: the script tries `arecord`, then `ffmpeg` with PulseAudio, then `rec`.
+- macOS: configure a custom recorder command unless `rec` is installed and configured.
+- Custom commands use shell-escaped `{output}` and `{duration}` placeholders.
+
+Example custom recorder:
+
+```bash
+export PAX_VOICE_RECORD_CMD='ffmpeg -hide_banner -loglevel error -y -f pulse -i default -t {duration} -ac 1 -ar 16000 {output}'
+```
+
+Errors go to stderr and return non-zero, so Pax will not execute ambiguous text.
