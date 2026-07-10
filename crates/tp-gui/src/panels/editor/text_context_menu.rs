@@ -5,6 +5,7 @@
 
 use std::path::Path;
 use std::process::{Command, Stdio};
+use std::{cell::RefCell, rc::Rc};
 
 use gtk4::prelude::*;
 use sourceview5::prelude::*;
@@ -65,10 +66,13 @@ pub fn install(
 
     let view_cell = view.clone();
     let host_cell = host.clone();
-    let extras_factory = std::rc::Rc::new(extras_factory);
+    let extras_factory = Rc::new(extras_factory);
+    let active_popover: Rc<RefCell<Option<gtk4::PopoverMenu>>> = Rc::new(RefCell::new(None));
 
+    let active_popover_for_press = active_popover.clone();
     gesture.connect_pressed(move |g, _n, x, y| {
         g.set_state(gtk4::EventSequenceState::Claimed);
+        close_active_context_popover(&active_popover_for_press);
 
         let Ok(buffer) = view_cell.buffer().downcast::<sourceview5::Buffer>() else {
             return;
@@ -96,6 +100,7 @@ pub fn install(
             }
         });
         popover.set_pointing_to(Some(&gtk4::gdk::Rectangle::new(x as i32, y as i32, 1, 1)));
+        *active_popover_for_press.borrow_mut() = Some(popover.clone());
         popover.popup();
     });
     host.add_controller(gesture);
@@ -397,6 +402,19 @@ fn remove_builtin_context_gesture<W: IsA<gtk4::Widget>>(widget: &W) {
                 widget.remove_controller(&gc);
             }
         }
+    }
+}
+
+fn close_active_context_popover<P>(slot: &Rc<RefCell<Option<P>>>)
+where
+    P: IsA<gtk4::Popover> + IsA<gtk4::Widget>,
+{
+    let Some(popover) = slot.borrow_mut().take() else {
+        return;
+    };
+    popover.popdown();
+    if popover.parent().is_some() {
+        popover.unparent();
     }
 }
 

@@ -551,7 +551,10 @@ impl TerminalInner {
         let gesture = gtk4::GestureClick::new();
         gesture.set_button(3);
         let vte_for_menu = vte.clone();
+        let active_popover: Rc<RefCell<Option<gtk4::PopoverMenu>>> = Rc::new(RefCell::new(None));
+        let active_popover_for_press = active_popover.clone();
         gesture.connect_pressed(move |_gesture, _n, x, y| {
+            close_active_context_popover(&active_popover_for_press);
             let vte = &vte_for_menu;
             let popover = gtk4::PopoverMenu::from_model(None::<&gtk4::gio::MenuModel>);
             crate::theme::configure_popover(&popover);
@@ -638,7 +641,13 @@ impl TerminalInner {
 
             popover.set_child(Some(&menu_box));
             popover.set_parent(vte);
+            popover.connect_closed(|popover| {
+                if popover.parent().is_some() {
+                    popover.unparent();
+                }
+            });
             popover.set_pointing_to(Some(&gtk4::gdk::Rectangle::new(x as i32, y as i32, 1, 1)));
+            *active_popover_for_press.borrow_mut() = Some(popover.clone());
             popover.popup();
         });
         vte.add_controller(gesture);
@@ -715,6 +724,19 @@ impl TerminalInner {
         *self.cwd_cb.borrow_mut() = None;
         crate::theme::unregister_vte_terminal(&self.vte);
         self.vte.feed_child(b"\x03");
+    }
+}
+
+fn close_active_context_popover<P>(slot: &Rc<RefCell<Option<P>>>)
+where
+    P: IsA<gtk4::Popover> + IsA<gtk4::Widget>,
+{
+    let Some(popover) = slot.borrow_mut().take() else {
+        return;
+    };
+    popover.popdown();
+    if popover.parent().is_some() {
+        popover.unparent();
     }
 }
 

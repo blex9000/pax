@@ -313,11 +313,14 @@ impl FileTree {
             let history_for_menu = history.clone();
             let backend = backend.clone();
             let on_open = on_file_open.clone();
+            let active_popover: Rc<RefCell<Option<gtk4::Popover>>> = Rc::new(RefCell::new(None));
             let gesture = gtk4::GestureClick::new();
             gesture.set_button(3); // right-click
             gesture.set_propagation_phase(gtk4::PropagationPhase::Capture);
+            let active_popover_for_press = active_popover.clone();
             gesture.connect_pressed(move |g, _n, x, y| {
                 g.set_state(gtk4::EventSequenceState::Claimed);
+                close_active_context_popover(&active_popover_for_press);
                 let Some(widget) = g.widget() else { return };
                 let Some(lb) = widget.downcast_ref::<gtk4::ListBox>() else {
                     return;
@@ -1005,6 +1008,7 @@ impl FileTree {
                     }
                 });
                 popover.set_pointing_to(Some(&gtk4::gdk::Rectangle::new(x as i32, y as i32, 1, 1)));
+                *active_popover_for_press.borrow_mut() = Some(popover.clone());
                 popover.popup();
             });
             list_box.add_controller(gesture);
@@ -2054,6 +2058,19 @@ fn creation_destination_for_dir(dir: &Path, name: &str) -> Option<PathBuf> {
 
 fn context_row_at_y(list_box: &gtk4::ListBox, y: f64) -> Option<gtk4::ListBoxRow> {
     list_box.row_at_y(y as i32)
+}
+
+fn close_active_context_popover<P>(slot: &Rc<RefCell<Option<P>>>)
+where
+    P: IsA<gtk4::Popover> + IsA<gtk4::Widget>,
+{
+    let Some(popover) = slot.borrow_mut().take() else {
+        return;
+    };
+    popover.popdown();
+    if popover.parent().is_some() {
+        popover.unparent();
+    }
 }
 
 fn resolve_tree_selection(
