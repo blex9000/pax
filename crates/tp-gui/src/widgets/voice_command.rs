@@ -1,6 +1,7 @@
 use gtk4::prelude::*;
 use std::cell::{Cell, RefCell};
 use std::io::Read;
+use std::path::{Path, PathBuf};
 use std::process::{Child, Command, ExitStatus, Stdio};
 use std::rc::Rc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -8,6 +9,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 const TRANSCRIBE_CMD_ENV: &str = "PAX_VOICE_TRANSCRIBE_CMD";
+const GEMINI_SCRIPT_NAME: &str = "pax-voice-transcribe-gemini.py";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum VoiceAction {
@@ -258,15 +260,9 @@ fn build_voice_popover(
     title.set_halign(gtk4::Align::Center);
     root.append(&title);
 
-    let transcribe_configured = std::env::var(TRANSCRIBE_CMD_ENV)
-        .map(|cmd| !cmd.trim().is_empty())
-        .unwrap_or(false);
+    let transcribe_status = resolve_transcribe_status();
 
-    let status = gtk4::Label::new(Some(if transcribe_configured {
-        "Pronto per trascrivere."
-    } else {
-        "Trascrizione non configurata."
-    }));
+    let status = gtk4::Label::new(Some(transcribe_status.message));
     status.add_css_class("dim-label");
     status.add_css_class("caption");
     status.add_css_class("voice-status");
@@ -279,12 +275,8 @@ fn build_voice_popover(
     mic_btn.add_css_class("voice-mic-button");
     mic_btn.set_halign(gtk4::Align::Center);
     mic_btn.set_size_request(72, 72);
-    mic_btn.set_sensitive(transcribe_configured);
-    mic_btn.set_tooltip_text(Some(if transcribe_configured {
-        "Clicca per ascoltare; riclicca per fermare"
-    } else {
-        "Imposta PAX_VOICE_TRANSCRIBE_CMD per abilitare registrazione/STT"
-    }));
+    mic_btn.set_sensitive(transcribe_status.ready);
+    mic_btn.set_tooltip_text(Some(transcribe_status.tooltip));
     let mic_icon = gtk4::Image::from_icon_name("audio-input-microphone-symbolic");
     mic_btn.set_child(Some(&mic_icon));
     root.append(&mic_btn);
@@ -361,6 +353,7 @@ fn build_voice_popover(
         let job_generation = job_generation.clone();
         let phrase = phrase.clone();
         let suppress_toggle = suppress_toggle.clone();
+        let provider = transcribe_status.provider.clone();
         let status = status.clone();
         let preview = preview.clone();
         let run_btn = run_btn.clone();
@@ -382,12 +375,12 @@ fn build_voice_popover(
                 return;
             }
 
-            if !transcribe_configured {
+            let Some(provider) = provider.clone() else {
                 set_toggle_active_silently(btn, &suppress_toggle, false);
-                status.set_text("Trascrizione non configurata.");
-                preview.set_text(&format!("Imposta {TRANSCRIBE_CMD_ENV}."));
+                status.set_text("Provider voce non trovato.");
+                preview.set_text("Script Gemini non trovato nel repo o nel bundle.");
                 return;
-            }
+            };
 
             if let Some(job) = current_job.borrow_mut().take() {
                 job.cancel();
@@ -411,7 +404,7 @@ fn build_voice_popover(
             let preview_c = preview.clone();
             let run_btn_c = run_btn.clone();
 
-            match start_transcribe_command(move |result| {
+            match start_transcribe_command(provider, move |result| {
                 if job_generation_c.get() != token {
                     return;
                 }
@@ -583,15 +576,135 @@ impl TranscribeJob {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum TranscribeProvider {
+    EnvOverride(String),
+    DefaultGemini(PathBuf),
+}
+
+impl TranscribeProvider {
+    fn command_string(&self) -> String {
+        match self {
+            TranscribeProvider::EnvOverride(cmd) => cmd.clone(),
+            TranscribeProvider::DefaultGemini(path) => shell_quote_path(path),
+        }
+    }
+}
+
+#[derive(Clone)]
+struct TranscribeStatus {
+    provider: Option<TranscribeProvider>,
+    ready: bool,
+    message: &'static str,
+    tooltip: &'static str,
+}
+
+fn resolve_transcribe_status() -> TranscribeStatus {
+    let provider = resolve_transcribe_provider();
+    match provider {
+        Some(provider @ TranscribeProvider::EnvOverride(_)) => TranscribeStatus {
+            provider: Some(provider),
+            ready: true,
+            message: "Pronto per trascrivere.",
+            tooltip: "Clicca per ascoltare; riclicca per fermare",
+        },
+        Some(provider @ TranscribeProvider::DefaultGemini(_)) if gemini_api_key_configured() => {
+            TranscribeStatus {
+                provider: Some(provider),
+                ready: true,
+                message: "Pronto per trascrivere con Gemini.",
+                tooltip: "Clicca per ascoltare; riclicca per fermare",
+            }
+        }
+        Some(provider @ TranscribeProvider::DefaultGemini(_)) => TranscribeStatus {
+            provider: Some(provider),
+            ready: false,
+            message: "Gemini API key mancante.",
+            tooltip: "Imposta GEMINI_API_KEY o GOOGLE_API_KEY per usare il microfono",
+        },
+        None => TranscribeStatus {
+            provider: None,
+            ready: false,
+            message: "Provider voce non trovato.",
+            tooltip: "Script Gemini non trovato nel repo o nel bundle",
+        },
+    }
+}
+
+fn resolve_transcribe_provider() -> Option<TranscribeProvider> {
+    let env_override = std::env::var(TRANSCRIBE_CMD_ENV)
+        .ok()
+        .map(|cmd| cmd.trim().to_string())
+        .filter(|cmd| !cmd.is_empty());
+    provider_from_override_or_paths(env_override, candidate_gemini_scripts())
+}
+
+fn provider_from_override_or_paths(
+    env_override: Option<String>,
+    candidates: Vec<PathBuf>,
+) -> Option<TranscribeProvider> {
+    if let Some(cmd) = env_override {
+        return Some(TranscribeProvider::EnvOverride(cmd));
+    }
+    candidates
+        .into_iter()
+        .find(|path| path.is_file())
+        .map(TranscribeProvider::DefaultGemini)
+}
+
+fn candidate_gemini_scripts() -> Vec<PathBuf> {
+    let mut paths = Vec::new();
+    paths.push(PathBuf::from("scripts").join(GEMINI_SCRIPT_NAME));
+    paths.push(
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../scripts")
+            .join(GEMINI_SCRIPT_NAME),
+    );
+
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(contents_dir) = exe.parent().and_then(|dir| dir.parent()) {
+            paths.push(
+                contents_dir
+                    .join("Resources/scripts")
+                    .join(GEMINI_SCRIPT_NAME),
+            );
+        }
+        for ancestor in exe.ancestors() {
+            paths.push(ancestor.join("scripts").join(GEMINI_SCRIPT_NAME));
+        }
+    }
+
+    dedupe_paths(paths)
+}
+
+fn dedupe_paths(paths: Vec<PathBuf>) -> Vec<PathBuf> {
+    let mut deduped = Vec::new();
+    for path in paths {
+        if !deduped.iter().any(|existing| existing == &path) {
+            deduped.push(path);
+        }
+    }
+    deduped
+}
+
+fn gemini_api_key_configured() -> bool {
+    ["GEMINI_API_KEY", "GOOGLE_API_KEY"].iter().any(|key| {
+        std::env::var(key)
+            .map(|value| !value.trim().is_empty())
+            .unwrap_or(false)
+    })
+}
+
+fn shell_quote_path(path: &Path) -> String {
+    let text = path.to_string_lossy();
+    format!("'{}'", text.replace('\'', "'\\''"))
+}
+
 fn start_transcribe_command(
+    provider: TranscribeProvider,
     on_done: impl FnOnce(TranscribeResult) + 'static,
 ) -> Result<TranscribeJob, String> {
-    let cmd = match std::env::var(TRANSCRIBE_CMD_ENV) {
-        Ok(cmd) if !cmd.trim().is_empty() => cmd,
-        _ => {
-            return Err(format!("{TRANSCRIBE_CMD_ENV} non configurata"));
-        }
-    };
+    let cmd = provider.command_string();
 
     let result_slot = Arc::new(Mutex::new(None::<TranscribeResult>));
     let result_slot_thread = result_slot.clone();
@@ -936,5 +1049,41 @@ mod tests {
         assert_eq!(out.into_inner(), b"ciao\nmondo");
         assert_eq!(report.executed, 3);
         assert!(report.skipped.is_empty());
+    }
+
+    #[test]
+    fn provider_override_wins_over_default_script() {
+        let provider = provider_from_override_or_paths(
+            Some("custom-transcriber".to_string()),
+            vec![PathBuf::from("/tmp/pax-existing-provider")],
+        );
+        assert_eq!(
+            provider,
+            Some(TranscribeProvider::EnvOverride(
+                "custom-transcriber".to_string()
+            ))
+        );
+    }
+
+    #[test]
+    fn provider_uses_first_existing_default_script() {
+        let root =
+            std::env::temp_dir().join(format!("pax-voice-provider-test-{}", std::process::id()));
+        let missing = root.join("missing").join(GEMINI_SCRIPT_NAME);
+        let scripts = root.join("scripts");
+        std::fs::create_dir_all(&scripts).unwrap();
+        let existing = scripts.join(GEMINI_SCRIPT_NAME);
+        std::fs::write(&existing, "#!/usr/bin/env python3\n").unwrap();
+
+        let provider = provider_from_override_or_paths(None, vec![missing, existing.clone()]);
+        assert_eq!(provider, Some(TranscribeProvider::DefaultGemini(existing)));
+
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn default_script_command_is_shell_quoted() {
+        let provider = TranscribeProvider::DefaultGemini(PathBuf::from("/tmp/Pax Voice/a'b.py"));
+        assert_eq!(provider.command_string(), "'/tmp/Pax Voice/a'\\''b.py'");
     }
 }

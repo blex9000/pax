@@ -55,16 +55,18 @@ To write command-looking words as text:
 scrivi letteralmente: pax seleziona tab terminale
 ```
 
-## Transcript Hook
+## Transcript Provider
 
-Set `PAX_VOICE_TRANSCRIBE_CMD` to enable the `Trascrivi` button in the voice popover.
-The command must print one protocol phrase to stdout.
+Pax uses the bundled Gemini provider automatically when it can find:
 
 ```bash
-export PAX_VOICE_TRANSCRIBE_CMD="$HOME/bin/pax-voice-transcribe"
+scripts/pax-voice-transcribe-gemini.py
 ```
 
-Minimal test hook:
+The provider must print one protocol phrase to stdout. For custom providers,
+advanced users can still set `PAX_VOICE_TRANSCRIBE_CMD` as an override.
+
+Minimal custom hook:
 
 ```bash
 #!/usr/bin/env bash
@@ -131,7 +133,6 @@ Setup:
 
 ```bash
 export GEMINI_API_KEY="..."
-export PAX_VOICE_TRANSCRIBE_CMD="/home/xb/dev/me/pax/scripts/pax-voice-transcribe-gemini.py"
 ```
 
 Optional settings:
@@ -143,6 +144,12 @@ export PAX_VOICE_RECORD_SECONDS="6"
 
 `GOOGLE_GENAI_MODEL_NAME` is also accepted as a model-name alias. If both are
 set, `PAX_VOICE_GEMINI_MODEL` wins.
+
+Custom provider override:
+
+```bash
+export PAX_VOICE_TRANSCRIBE_CMD="$HOME/bin/pax-voice-transcribe"
+```
 
 Test with an existing audio file:
 

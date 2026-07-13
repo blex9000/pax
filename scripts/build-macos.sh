@@ -17,11 +17,17 @@ echo "==> Creating macOS App Bundle..."
 rm -rf "$APP_DIR"
 mkdir -p "$APP_DIR/Contents/MacOS"
 mkdir -p "$APP_DIR/Contents/Resources"
+mkdir -p "$APP_DIR/Contents/Resources/scripts"
 mkdir -p "$APP_DIR/Contents/Resources/share/icons/hicolor/scalable/apps"
 mkdir -p "$APP_DIR/Contents/Resources/share/icons/hicolor/symbolic/apps"
 
 # Binary
 cp "$ROOT_DIR/target/release/pax" "$APP_DIR/Contents/MacOS/pax"
+
+# Voice provider scripts - resolved at runtime from Contents/Resources/scripts.
+if [ -f "$ROOT_DIR/scripts/pax-voice-transcribe-gemini.py" ]; then
+    cp "$ROOT_DIR/scripts/pax-voice-transcribe-gemini.py" "$APP_DIR/Contents/Resources/scripts/"
+fi
 
 # Icon (convert SVG to icns if possible, otherwise use SVG)
 if command -v rsvg-convert &>/dev/null && command -v iconutil &>/dev/null; then
