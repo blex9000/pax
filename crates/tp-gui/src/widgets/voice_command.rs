@@ -378,7 +378,7 @@ fn build_voice_popover(
             let Some(provider) = provider.clone() else {
                 set_toggle_active_silently(btn, &suppress_toggle, false);
                 status.set_text("Provider voce non trovato.");
-                preview.set_text("Script Gemini non trovato nel repo o nel bundle.");
+                preview.set_text("Provider Gemini non incluso in questa build.");
                 return;
             };
 
@@ -579,14 +579,14 @@ impl TranscribeJob {
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum TranscribeProvider {
     EnvOverride(String),
-    DefaultGemini(PathBuf),
+    BundledGemini(PathBuf),
 }
 
 impl TranscribeProvider {
     fn command_string(&self) -> String {
         match self {
             TranscribeProvider::EnvOverride(cmd) => cmd.clone(),
-            TranscribeProvider::DefaultGemini(path) => shell_quote_path(path),
+            TranscribeProvider::BundledGemini(path) => shell_quote_path(path),
         }
     }
 }
@@ -608,7 +608,7 @@ fn resolve_transcribe_status() -> TranscribeStatus {
             message: "Pronto per trascrivere.",
             tooltip: "Clicca per ascoltare; riclicca per fermare",
         },
-        Some(provider @ TranscribeProvider::DefaultGemini(_)) if gemini_api_key_configured() => {
+        Some(provider @ TranscribeProvider::BundledGemini(_)) if gemini_api_key_configured() => {
             TranscribeStatus {
                 provider: Some(provider),
                 ready: true,
@@ -616,7 +616,7 @@ fn resolve_transcribe_status() -> TranscribeStatus {
                 tooltip: "Clicca per ascoltare; riclicca per fermare",
             }
         }
-        Some(provider @ TranscribeProvider::DefaultGemini(_)) => TranscribeStatus {
+        Some(provider @ TranscribeProvider::BundledGemini(_)) => TranscribeStatus {
             provider: Some(provider),
             ready: false,
             message: "Gemini API key mancante.",
@@ -626,7 +626,7 @@ fn resolve_transcribe_status() -> TranscribeStatus {
             provider: None,
             ready: false,
             message: "Provider voce non trovato.",
-            tooltip: "Script Gemini non trovato nel repo o nel bundle",
+            tooltip: "Provider Gemini non incluso in questa build",
         },
     }
 }
@@ -649,32 +649,39 @@ fn provider_from_override_or_paths(
     candidates
         .into_iter()
         .find(|path| path.is_file())
-        .map(TranscribeProvider::DefaultGemini)
+        .map(TranscribeProvider::BundledGemini)
 }
 
 fn candidate_gemini_scripts() -> Vec<PathBuf> {
     let mut paths = Vec::new();
-    paths.push(PathBuf::from("scripts").join(GEMINI_SCRIPT_NAME));
+
+    if let Ok(exe) = std::env::current_exe() {
+        paths.extend(bundle_candidate_gemini_scripts(&exe));
+    }
+
     paths.push(
         PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("../../scripts")
             .join(GEMINI_SCRIPT_NAME),
     );
-
-    if let Ok(exe) = std::env::current_exe() {
-        if let Some(contents_dir) = exe.parent().and_then(|dir| dir.parent()) {
-            paths.push(
-                contents_dir
-                    .join("Resources/scripts")
-                    .join(GEMINI_SCRIPT_NAME),
-            );
-        }
-        for ancestor in exe.ancestors() {
-            paths.push(ancestor.join("scripts").join(GEMINI_SCRIPT_NAME));
-        }
-    }
+    paths.push(PathBuf::from("scripts").join(GEMINI_SCRIPT_NAME));
 
     dedupe_paths(paths)
+}
+
+fn bundle_candidate_gemini_scripts(exe: &Path) -> Vec<PathBuf> {
+    let mut paths = Vec::new();
+    if let Some(contents_dir) = exe.parent().and_then(|dir| dir.parent()) {
+        paths.push(
+            contents_dir
+                .join("Resources/scripts")
+                .join(GEMINI_SCRIPT_NAME),
+        );
+    }
+    for ancestor in exe.ancestors() {
+        paths.push(ancestor.join("scripts").join(GEMINI_SCRIPT_NAME));
+    }
+    paths
 }
 
 fn dedupe_paths(paths: Vec<PathBuf>) -> Vec<PathBuf> {
@@ -1076,14 +1083,35 @@ mod tests {
         std::fs::write(&existing, "#!/usr/bin/env python3\n").unwrap();
 
         let provider = provider_from_override_or_paths(None, vec![missing, existing.clone()]);
-        assert_eq!(provider, Some(TranscribeProvider::DefaultGemini(existing)));
+        assert_eq!(provider, Some(TranscribeProvider::BundledGemini(existing)));
 
         let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]
     fn default_script_command_is_shell_quoted() {
-        let provider = TranscribeProvider::DefaultGemini(PathBuf::from("/tmp/Pax Voice/a'b.py"));
+        let provider = TranscribeProvider::BundledGemini(PathBuf::from("/tmp/Pax Voice/a'b.py"));
         assert_eq!(provider.command_string(), "'/tmp/Pax Voice/a'\\''b.py'");
+    }
+
+    #[test]
+    fn appimage_candidate_uses_usr_scripts_next_to_binary_tree() {
+        let exe = PathBuf::from("/tmp/.mount_Pax/usr/bin/pax");
+        let candidates = bundle_candidate_gemini_scripts(&exe);
+        assert!(candidates.contains(&PathBuf::from(format!(
+            "/tmp/.mount_Pax/usr/scripts/{GEMINI_SCRIPT_NAME}"
+        ))));
+    }
+
+    #[test]
+    fn macos_candidate_uses_contents_resources_scripts() {
+        let exe = PathBuf::from("/Applications/Pax.app/Contents/MacOS/pax");
+        let candidates = bundle_candidate_gemini_scripts(&exe);
+        assert_eq!(
+            candidates.first(),
+            Some(&PathBuf::from(format!(
+                "/Applications/Pax.app/Contents/Resources/scripts/{GEMINI_SCRIPT_NAME}"
+            )))
+        );
     }
 }

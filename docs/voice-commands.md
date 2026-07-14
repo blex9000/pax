@@ -57,16 +57,13 @@ scrivi letteralmente: pax seleziona tab terminale
 
 ## Transcript Provider
 
-Pax uses the bundled Gemini provider automatically when it can find:
+Pax uses the bundled Gemini provider automatically. AppImage and macOS builds
+include that provider inside the application bundle.
 
-```bash
-scripts/pax-voice-transcribe-gemini.py
-```
+For custom providers, advanced users can still set `PAX_VOICE_TRANSCRIBE_CMD`
+as an override. The command must print one protocol phrase to stdout.
 
-The provider must print one protocol phrase to stdout. For custom providers,
-advanced users can still set `PAX_VOICE_TRANSCRIBE_CMD` as an override.
-
-Minimal custom hook:
+Minimal custom provider:
 
 ```bash
 #!/usr/bin/env bash
@@ -79,16 +76,16 @@ Make it executable:
 chmod +x "$HOME/bin/pax-voice-transcribe"
 ```
 
-## Provider Scripts
+## Provider Contract
 
-Provider scripts are free to use any recorder or STT service:
+Custom providers are free to use any recorder or STT service:
 
 - Gemini Flash / Gemini API
 - local Whisper / whisper.cpp
 - Google Cloud Speech-to-Text
 - a custom local model
 
-Recommended behavior for a provider script:
+Recommended behavior for a custom provider:
 
 1. Record a short audio clip.
 2. Send it to the STT/LLM provider with a prompt that requires the Pax protocol.
@@ -110,19 +107,14 @@ Never add explanations.
 In terminal command examples, use "tastiera: invio" only when the user explicitly asks to execute.
 ```
 
-The native in-app Gemini backend should use the same output contract, so Terminal, Markdown,
-and future panels do not need provider-specific code.
+The bundled Gemini provider and any custom provider use the same output
+contract, so Terminal, Markdown, and future panels do not need provider-specific code.
 
-## Gemini Provider Script
+## Gemini Provider
 
-The repo includes a stdlib-only Gemini provider:
-
-```bash
-scripts/pax-voice-transcribe-gemini.py
-```
-
-It records a short audio clip, sends it to Gemini with inline audio data, validates
-that the model returned a Pax protocol phrase, and prints only that phrase to stdout.
+The bundled Gemini provider records a short audio clip, sends it to Gemini with
+inline audio data, validates that the model returned a Pax protocol phrase, and
+prints only that phrase to stdout.
 It follows the Gemini audio `generateContent` contract documented by Google:
 
 ```text
@@ -145,16 +137,10 @@ export PAX_VOICE_RECORD_SECONDS="6"
 `GOOGLE_GENAI_MODEL_NAME` is also accepted as a model-name alias. If both are
 set, `PAX_VOICE_GEMINI_MODEL` wins.
 
-Custom provider override:
+Advanced custom provider override, not needed for normal Pax builds:
 
 ```bash
 export PAX_VOICE_TRANSCRIBE_CMD="$HOME/bin/pax-voice-transcribe"
-```
-
-Test with an existing audio file:
-
-```bash
-scripts/pax-voice-transcribe-gemini.py --audio /tmp/sample.wav
 ```
 
 Recorder behavior:
