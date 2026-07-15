@@ -45,6 +45,23 @@ build-options:
     CARGO_HOME: /run/build/pax/cargo
 
 modules:
+  # VTE (the terminal widget) is NOT part of the GNOME runtime — terminal
+  # apps bundle it. Build it here so the default `vte` cargo feature finds
+  # vte-2.91-gtk4. Must precede the pax module so its .pc lands on
+  # PKG_CONFIG_PATH (/app/lib/pkgconfig).
+  - name: vte
+    buildsystem: meson
+    config-opts:
+      - -Dgtk3=false
+      - -Dgtk4=true
+      - -Ddocs=false
+      - -Dvapi=false
+      - -Dgir=false
+    sources:
+      - type: archive
+        url: https://download.gnome.org/sources/vte/0.80/vte-0.80.5.tar.xz
+        sha256: 58a4e00ab5d4a95b4be4dc57b48308deafd72d6839dbbd076648fa353321cc41
+
   - name: pax
     buildsystem: simple
     build-commands:
