@@ -75,7 +75,7 @@ jobs:
     # flatpak-spawn --host (see dev.blex.pax.yml finish-args).
     runs-on: ubuntu-24.04
     container:
-      image: bilelmoussaoui/flatpak-github-actions:gnome-48
+      image: ghcr.io/flathub-infra/flatpak-github-actions:gnome-48
       options: --privileged
 
     steps:
