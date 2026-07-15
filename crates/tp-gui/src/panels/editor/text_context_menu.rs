@@ -642,6 +642,9 @@ fn run_formatter(fmt: &Formatter, path: &Path, buffer: &sourceview5::Buffer) {
             cmd.arg(a);
         }
     }
+    // Code formatters (prettier, rustfmt, …) are host dev tools — route
+    // through flatpak-spawn --host when sandboxed, before stdio is set.
+    let mut cmd = crate::host_spawn::hostify(cmd);
     cmd.stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());

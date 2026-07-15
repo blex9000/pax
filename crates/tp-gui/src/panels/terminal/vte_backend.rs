@@ -252,7 +252,16 @@ impl TerminalInner {
         let cwd_cb: Rc<RefCell<Option<crate::panels::PanelCwdCallback>>> =
             Rc::new(RefCell::new(None));
 
-        // Build environment: inherit current env + user overrides + TERM
+        // When packaged as a Flatpak, run the shell on the *host* via
+        // `flatpak-spawn --host` so the terminal sees the user's real
+        // tools (docker, ssh, their PATH) instead of the minimal runtime
+        // inside the sandbox. Detected once; a no-op on native builds.
+        let in_sandbox = pax_core::sandbox::in_flatpak_sandbox();
+
+        // Environment handed to the process VTE spawns. Outside a sandbox
+        // that is the shell itself. Inside a sandbox it is `flatpak-spawn`,
+        // which does NOT relay this to the host shell — `host_env` below is
+        // what actually reaches the host.
         let mut spawn_env: Vec<String> = std::env::vars()
             .map(|(k, v)| format!("{}={}", k, v))
             .collect();
@@ -260,9 +269,23 @@ impl TerminalInner {
             spawn_env.push(format!("{}={}", k, v));
         }
         spawn_env.push("TERM=xterm-256color".to_string());
-
         let env_refs: Vec<&str> = spawn_env.iter().map(|s| s.as_str()).collect();
-        let working_dir = cwd.unwrap_or(".");
+
+        // Env forwarded onto the host shell when sandboxed: only the
+        // per-panel overrides + TERM. The sandbox's own PATH /
+        // LD_LIBRARY_PATH must not leak onto the host, so std::env::vars()
+        // is deliberately excluded here — the host shell inherits the
+        // host's real environment.
+        let mut host_env: Vec<String> =
+            env.iter().map(|(k, v)| format!("{}={}", k, v)).collect();
+        host_env.push("TERM=xterm-256color".to_string());
+
+        // `--directory` reproduces the requested cwd on the host side; the
+        // sandbox-side working dir for `flatpak-spawn` itself is "." (always
+        // valid inside the sandbox). Native builds keep the cwd unchanged.
+        let host_argv = pax_core::sandbox::host_spawn_argv(in_sandbox, shell, &[], &host_env, cwd);
+        let argv: Vec<&str> = host_argv.iter().map(|s| s.as_str()).collect();
+        let working_dir = if in_sandbox { "." } else { cwd.unwrap_or(".") };
 
         // Resolve the per-panel sidechannel path once and create the file
         // upfront with mode 0600 so the FileMonitor below has something to
@@ -280,11 +303,13 @@ impl TerminalInner {
         let panel_uuid_for_cb: Option<uuid::Uuid> = panel_uuid;
         // PID captured on successful spawn and consumed by the tcgetpgrp
         // fallback poller below. Stays None on spawn failure, which
-        // silently disables the fallback.
+        // silently disables the fallback. NOTE: inside a Flatpak sandbox
+        // this is the PID of `flatpak-spawn`, not of the host shell, so
+        // the tcgetpgrp fallback is less precise there; foreground/command
+        // tracking still works via the OSC shell-integration path.
         let shell_pid: Rc<Cell<Option<i32>>> = Rc::new(Cell::new(None));
         let shell_pid_for_cb = shell_pid.clone();
 
-        let argv = [shell];
         vte.spawn_async(
             vte4::PtyFlags::DEFAULT,
             Some(working_dir),

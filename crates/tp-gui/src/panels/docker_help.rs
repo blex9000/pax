@@ -1612,7 +1612,11 @@ impl DockerCommandResult {
     }
 }
 
-fn run_command_with_timeout(mut cmd: Command, timeout: Duration) -> DockerCommandResult {
+fn run_command_with_timeout(cmd: Command, timeout: Duration) -> DockerCommandResult {
+    // docker / ssh live on the host, not in the Flatpak runtime — route
+    // the command through flatpak-spawn --host when sandboxed. Must happen
+    // before stdio is configured (see host_spawn::hostify contract).
+    let mut cmd = crate::host_spawn::hostify(cmd);
     cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
     let mut child = match cmd.spawn() {
         Ok(child) => child,

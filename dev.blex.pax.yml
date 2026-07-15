@@ -1,0 +1,75 @@
+# Flatpak manifest for Pax.
+#
+# Runs against the GNOME 48 runtime (GTK4 4.14 + libadwaita + VTE), so the
+# app works on distros whose system GTK is too old or absent entirely
+# (e.g. Ubuntu 20.04 / Linux Mint 20). The runtime bundles its own glibc,
+# which is why a Flatpak runs where the AppImage (glibc 2.39 floor) cannot.
+#
+# Build & run locally:
+#   flatpak install flathub org.gnome.Platform//48 org.gnome.Sdk//48 \
+#       org.freedesktop.Sdk.Extension.rust-stable//24.08
+#   flatpak-builder --user --install --force-clean build-dir dev.blex.pax.yml
+#   flatpak run dev.blex.pax
+id: dev.blex.pax
+runtime: org.gnome.Platform
+runtime-version: '48'
+sdk: org.gnome.Sdk
+sdk-extensions:
+  - org.freedesktop.Sdk.Extension.rust-stable
+command: pax
+
+finish-args:
+  # Display / GPU
+  - --socket=wayland
+  - --socket=fallback-x11
+  - --device=dri
+  - --share=ipc
+  # Pax is a terminal manager: it needs the network, full host filesystem
+  # access, and permission to run commands on the host via
+  # `flatpak-spawn --host` (implemented in crates/tp-core/src/sandbox.rs and
+  # wired into the terminal + docker/ssh/formatter/notebook spawn sites).
+  # --talk-name=org.freedesktop.Flatpak authorises flatpak-spawn; without
+  # it host-spawn fails silently.
+  - --share=network
+  - --filesystem=host
+  - --talk-name=org.freedesktop.Flatpak
+
+build-options:
+  append-path: /usr/lib/sdk/rust-stable/bin
+  # Let cargo fetch crates during the build. NOTE: a Flathub submission
+  # forbids network at build time — for that, replace this with an offline
+  # cargo-sources.json generated from Cargo.lock via flatpak-cargo-generator.
+  build-args:
+    - --share=network
+  env:
+    CARGO_HOME: /run/build/pax/cargo
+
+modules:
+  - name: pax
+    buildsystem: simple
+    build-commands:
+      # Default features (vte) — same as scripts/build-appimage.sh.
+      - cargo build --release
+      - install -Dm755 target/release/pax /app/bin/pax
+
+      # App-internal resources. icons.rs / fonts.rs resolve these relative
+      # to the binary as <prefix>/resources/... and <prefix>/share/...,
+      # where <prefix> is /app (binary at /app/bin/pax). Mirrors the
+      # AppDir layout produced by scripts/build-appimage.sh.
+      - install -Dm644 resources/icons/pax.svg /app/resources/icons/pax.svg
+      - install -Dm644 resources/icons/code-symbolic.svg /app/resources/icons/code-symbolic.svg
+      - mkdir -p /app/resources/share/icons && cp -r resources/share/icons/Pax /app/resources/share/icons/Pax
+      - mkdir -p /app/share/fonts/pax && (cp resources/fonts/*.ttf /app/share/fonts/pax/ || true)
+      - mkdir -p /app/share/gtksourceview-5/styles && (cp resources/sourceview-styles/*.xml /app/share/gtksourceview-5/styles/ || true)
+
+      # Desktop integration: the .desktop and icon must carry the app-id
+      # name. The desktop file ships as pax.desktop; rename + repoint Icon.
+      - install -Dm644 pax.desktop /app/share/applications/dev.blex.pax.desktop
+      - sed -i 's/^Icon=pax$/Icon=dev.blex.pax/' /app/share/applications/dev.blex.pax.desktop
+      - install -Dm644 resources/icons/pax.svg /app/share/icons/hicolor/scalable/apps/dev.blex.pax.svg
+
+      # AppStream metainfo
+      - install -Dm644 resources/dev.blex.pax.metainfo.xml /app/share/metainfo/dev.blex.pax.metainfo.xml
+    sources:
+      - type: dir
+        path: .

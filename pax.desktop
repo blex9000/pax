@@ -7,4 +7,4 @@ Icon=pax
 Terminal=false
 Categories=Development;System;TerminalEmulator;
 Keywords=terminal;session;workspace;split;tabs;
-StartupWMClass=com.sinelec.pax
+StartupWMClass=dev.blex.pax

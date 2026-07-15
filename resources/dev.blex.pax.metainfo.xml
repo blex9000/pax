@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>dev.blex.pax</id>
+
+  <name>Pax</name>
+  <summary>Terminal workspace manager with split panels and tabs</summary>
+
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>MIT</project_license>
+
+  <description>
+    <p>
+      Pax is a Tilix-style terminal workspace manager: multi-panel layouts
+      with heterogeneous panel types (terminals, editor, markdown), tabs and
+      splits, persistent workspaces, command history and full-text search.
+    </p>
+    <p>
+      When run as a Flatpak, terminals and shelled-out tools (docker, ssh,
+      formatters) execute on the host via flatpak-spawn, so your real
+      environment is available inside the sandbox.
+    </p>
+  </description>
+
+  <launchable type="desktop-id">dev.blex.pax.desktop</launchable>
+
+  <provides>
+    <binary>pax</binary>
+  </provides>
+
+  <categories>
+    <category>Development</category>
+    <category>System</category>
+    <category>TerminalEmulator</category>
+  </categories>
+
+  <content_rating type="oars-1.1" />
+
+  <releases>
+    <release version="0.1.0" date="2026-07-15">
+      <description>
+        <p>First Flatpak release.</p>
+      </description>
+    </release>
+  </releases>
+</component>

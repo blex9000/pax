@@ -104,6 +104,29 @@ pub fn spawn(
     let (program, args) = command_for(spec.lang)?;
     let mut cmd = Command::new(program);
     cmd.args(args);
+
+    // Env overrides are set BEFORE hostify so they are forwarded to the
+    // host interpreter (via `--env=`) when sandboxed, rather than applied
+    // only to the in-sandbox flatpak-spawn wrapper.
+    if let Some(dir) = helpers_dir {
+        let mut path = std::env::var("PYTHONPATH").unwrap_or_default();
+        if !path.is_empty() {
+            path.push(':');
+        }
+        path.push_str(&dir.to_string_lossy());
+        cmd.env("PYTHONPATH", path);
+    }
+    if let Some(dir) = output_dir {
+        cmd.env("PAX_OUTPUT_DIR", dir);
+    }
+
+    // Run the interpreter on the host when sandboxed so cells see the
+    // user's real python/bash and tools. NOTE: under Flatpak the setsid
+    // below and the pgid-based kill in RunHandle/supervisor act on the
+    // in-sandbox `flatpak-spawn` process, not the host interpreter;
+    // `flatpak-spawn --watch-bus` (added by hostify) is what actually
+    // tears down the host process when the wrapper is killed.
+    let mut cmd = crate::host_spawn::hostify(cmd);
     cmd.stdin(Stdio::piped());
     cmd.stdout(Stdio::piped());
     cmd.stderr(Stdio::piped());
@@ -120,18 +143,6 @@ pub fn spawn(
             }
             Ok(())
         });
-    }
-
-    if let Some(dir) = helpers_dir {
-        let mut path = std::env::var("PYTHONPATH").unwrap_or_default();
-        if !path.is_empty() {
-            path.push(':');
-        }
-        path.push_str(&dir.to_string_lossy());
-        cmd.env("PYTHONPATH", path);
-    }
-    if let Some(dir) = output_dir {
-        cmd.env("PAX_OUTPUT_DIR", dir);
     }
 
     let mut child = cmd.spawn().map_err(|e| format!("spawn failed: {}", e))?;

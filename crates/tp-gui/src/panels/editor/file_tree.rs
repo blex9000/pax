@@ -2493,10 +2493,18 @@ fn spawn_terminal_in(dir: &Path) -> std::io::Result<()> {
 
     let dir_str = dir.to_string_lossy().into_owned();
 
+    // Inside a Flatpak sandbox the terminal emulators live on the host,
+    // so we cannot probe `$PATH` for them and must route through
+    // flatpak-spawn --host. Best-effort: the availability gate below is
+    // skipped and the first candidate is attempted (x-terminal-emulator).
+    let in_sandbox = pax_core::sandbox::in_flatpak_sandbox();
+
     // Preferred: honor the user's $TERMINAL env var if set.
     if let Ok(term) = std::env::var("TERMINAL") {
         if !term.is_empty() {
-            return Command::new(&term).current_dir(dir).spawn().map(|_| ());
+            let mut cmd = Command::new(&term);
+            cmd.current_dir(dir);
+            return crate::host_spawn::hostify(cmd).spawn().map(|_| ());
         }
     }
 
@@ -2517,7 +2525,7 @@ fn spawn_terminal_in(dir: &Path) -> std::io::Result<()> {
     ];
 
     for (prog, flags) in candidates {
-        if which_executable(prog).is_none() {
+        if !in_sandbox && which_executable(prog).is_none() {
             continue;
         }
         let mut cmd = Command::new(prog);
@@ -2535,7 +2543,7 @@ fn spawn_terminal_in(dir: &Path) -> std::io::Result<()> {
                 cmd.arg(&dir_str);
             }
         }
-        return cmd.spawn().map(|_| ());
+        return crate::host_spawn::hostify(cmd).spawn().map(|_| ());
     }
 
     Err(std::io::Error::new(

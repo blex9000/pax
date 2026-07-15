@@ -385,7 +385,11 @@ impl SshFileBackend {
         }
 
         cmd.arg(&format!("{}@{}", self.user, self.host));
-        cmd
+        // ssh (and its ControlMaster socket) live on the host; route
+        // through flatpak-spawn --host when sandboxed. Callers append the
+        // remote command as a further arg and configure stdio afterwards,
+        // both of which apply correctly to the wrapped command.
+        crate::host_spawn::hostify(cmd)
     }
 
     /// Check if SSH connection is ready. Zero-cost: just reads an atomic bool.

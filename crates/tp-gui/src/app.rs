@@ -22,7 +22,7 @@ use crate::workspace_view::WorkspaceView;
 /// Canonical GApplication / xdg-shell `app_id` used by the primary Pax
 /// instance. Matches `StartupWMClass=` in `pax.desktop` so the dock /
 /// taskbar associates running windows with the desktop entry.
-pub(crate) const PRIMARY_APP_ID: &str = "com.sinelec.pax";
+pub(crate) const PRIMARY_APP_ID: &str = "dev.blex.pax";
 
 /// Set by `workspace_launcher::open_in_new_window` on every spawned
 /// child. `run_app` uses its presence to switch the GApplication's
@@ -578,7 +578,7 @@ pub fn run_app(workspace: Option<Workspace>, config_path: Option<&Path>) -> Resu
     // grouped windows (leaving the other inaccessible until the first is
     // closed). A unique id per spawned process prevents that grouping.
     // The primary instance keeps the canonical id so the `.desktop`
-    // file's `StartupWMClass=com.sinelec.pax` association still works.
+    // file's `StartupWMClass=dev.blex.pax` association still works.
     let app_id = if std::env::var_os(SECONDARY_INSTANCE_ENV).is_some() {
         format!("{}.s{}", PRIMARY_APP_ID, std::process::id())
     } else {

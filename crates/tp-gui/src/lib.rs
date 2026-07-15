@@ -4,6 +4,7 @@ pub mod backend_factory;
 pub mod dialogs;
 pub mod focus;
 mod fonts;
+pub mod host_spawn;
 mod icons;
 pub mod keymap;
 pub mod layout_ops;

@@ -602,9 +602,12 @@ fn start_transcribe_command(
     let child_slot_thread = child_slot.clone();
 
     std::thread::spawn(move || {
-        let child = Command::new("sh")
-            .arg("-lc")
-            .arg(&cmd)
+        // The transcription command is user-configured host tooling
+        // (whisper, curl, …) and may need host audio devices — route it
+        // through flatpak-spawn --host when sandboxed, before stdio.
+        let mut base = Command::new("sh");
+        base.arg("-lc").arg(&cmd);
+        let child = crate::host_spawn::hostify(base)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn();

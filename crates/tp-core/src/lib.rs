@@ -3,6 +3,7 @@ pub mod build_info;
 pub mod config;
 pub mod notebook_tag;
 pub mod safety;
+pub mod sandbox;
 pub mod ssh;
 pub mod template;
 pub mod workspace;

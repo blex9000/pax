@@ -67,6 +67,40 @@ jobs:
           files: Pax-*.AppImage
           generate_release_notes: true
 
+  build-flatpak:
+    name: Build Flatpak (Linux x86_64)
+    # Unlike the AppImage, a Flatpak bundles its own glibc + GTK4 via the
+    # GNOME 48 runtime, so it runs on distros too old for GTK 4.10 (e.g.
+    # Ubuntu 20.04 / Linux Mint 20). Terminals reach the host via
+    # flatpak-spawn --host (see dev.blex.pax.yml finish-args).
+    runs-on: ubuntu-24.04
+    container:
+      image: bilelmoussaoui/flatpak-github-actions:gnome-48
+      options: --privileged
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build Flatpak bundle
+        uses: flatpak/flatpak-github-actions/flatpak-builder@v6
+        with:
+          bundle: dev.blex.pax.flatpak
+          manifest-path: dev.blex.pax.yml
+          cache-key: flatpak-builder-${{ hashFiles('Cargo.lock') }}
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Pax-Flatpak-x86_64
+          path: dev.blex.pax.flatpak
+
+      - name: Add to GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dev.blex.pax.flatpak
+
   build-macos:
     name: Build macOS (arm64)
     runs-on: macos-latest
@@ -179,7 +213,7 @@ jobs:
           <plist version="1.0">
           <dict>
             <key>CFBundleName</key><string>Pax</string>
-            <key>CFBundleIdentifier</key><string>com.sinelec.pax</string>
+            <key>CFBundleIdentifier</key><string>dev.blex.pax</string>
             <key>CFBundleExecutable</key><string>pax</string>
             <key>CFBundleVersion</key><string>0.1.0</string>
             <key>CFBundlePackageType</key><string>APPL</string>
