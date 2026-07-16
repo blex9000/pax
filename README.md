@@ -337,6 +337,19 @@ Tutto passa per lo script helper `scripts/flatpak.sh`:
 ./scripts/flatpak.sh bundle dev.blex.pax.flatpak
 ───────
 
+Per l'**utente finale** non serve il repo: la CI (e `scripts/flatpak.sh bundle`)
+producono uno **zip** contenente il bundle `.flatpak` + un installer `pax.sh`
+self-contained. Basta scompattare e lanciarlo — senza parametri **installa (se
+serve) e avvia** in un colpo:
+
+─── bash ───
+./pax.sh            # installa se necessario, poi avvia
+./pax.sh install    # solo (re)installa
+./pax.sh run        # solo avvia
+./pax.sh version    # mostra la versione impacchettata
+# se dopo l'unzip il file non è eseguibile:  bash pax.sh
+───────
+
 **Host-spawn**: essendo Pax un terminal manager, i terminali e i tool a cui fa
 da wrapper (docker, ssh, formatter, celle notebook) vengono eseguiti sull'**host**
 tramite `flatpak-spawn --host` — così dentro il sandbox vedi il tuo ambiente
