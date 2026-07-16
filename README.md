@@ -311,9 +311,41 @@ AppImage (build locale)
 
 Lo script scarica automaticamente `linuxdeploy` e il plugin GTK4 nella cartella `build-tools/` (cachati per build successive).
 
+Flatpak (consigliato su distro non recenti)
+
+A differenza dell'AppImage, un Flatpak gira contro il runtime **GNOME 48**, che
+porta con sé GTK4 + glibc: funziona quindi anche su distro dove la GTK di
+sistema è troppo vecchia o assente (es. Ubuntu 20.04 / Linux Mint 20), dove
+l'AppImage fallisce per via della glibc. L'app-id è `dev.blex.pax`.
+
+Tutto passa per lo script helper `scripts/flatpak.sh`:
+
+─── bash ───
+# Installare un bundle .flatpak scaricato (da GitHub Actions / Release)
+./scripts/flatpak.sh install dev.blex.pax.flatpak
+# equivale a: flatpak install --user --bundle dev.blex.pax.flatpak
+
+# Avviare
+./scripts/flatpak.sh run
+# equivale a: flatpak run dev.blex.pax
+
+# Build locale da sorgente (richiede flatpak + flatpak-builder installati;
+# le dipendenze runtime/SDK vengono scaricate da Flathub al primo run)
+./scripts/flatpak.sh build
+
+# Esportare un bundle single-file da distribuire
+./scripts/flatpak.sh bundle dev.blex.pax.flatpak
+───────
+
+**Host-spawn**: essendo Pax un terminal manager, i terminali e i tool a cui fa
+da wrapper (docker, ssh, formatter, celle notebook) vengono eseguiti sull'**host**
+tramite `flatpak-spawn --host` — così dentro il sandbox vedi il tuo ambiente
+reale (PATH, docker, chiavi ssh). Serve il permesso `--talk-name=org.freedesktop.Flatpak`,
+già presente nel manifest `dev.blex.pax.yml`.
+
 GitHub Actions (CI/CD)
 
-Il workflow `.github/workflows/release.yml` builda automaticamente l'AppImage e lo pubblica come GitHub Release:
+Il workflow `.github/workflows/release.yml` builda automaticamente l'AppImage **e il Flatpak** e li pubblica come GitHub Release:
 
 - **Trigger automatico**: push di un tag `v*` (es. `v0.1.0`)
 - **Trigger manuale**: workflow_dispatch dalla pagina Actions
