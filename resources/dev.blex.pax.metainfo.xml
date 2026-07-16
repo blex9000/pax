@@ -8,6 +8,13 @@
   <metadata_license>CC0-1.0</metadata_license>
   <project_license>MIT</project_license>
 
+  <developer id="dev.blex">
+    <name>Blex</name>
+  </developer>
+
+  <url type="homepage">https://github.com/blex9000/pax</url>
+  <url type="bugtracker">https://github.com/blex9000/pax/issues</url>
+
   <description>
     <p>
       Pax is a Tilix-style terminal workspace manager: multi-panel layouts
