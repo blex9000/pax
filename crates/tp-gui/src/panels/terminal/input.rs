@@ -70,6 +70,39 @@ pub(crate) fn encode_key_input(key: gdk::Key, modifiers: gdk::ModifierType) -> O
     }
 }
 
+pub(crate) fn encode_named_key_input(key: &str) -> Option<&'static [u8]> {
+    match key {
+        "enter" => Some(b"\r"),
+        "tab" => Some(b"\t"),
+        "shift_tab" => Some(b"\x1b[Z"),
+        "escape" => Some(b"\x1b"),
+        "up" => Some(b"\x1b[A"),
+        "down" => Some(b"\x1b[B"),
+        "right" => Some(b"\x1b[C"),
+        "left" => Some(b"\x1b[D"),
+        "home" => Some(b"\x1b[H"),
+        "end" => Some(b"\x1b[F"),
+        "delete" => Some(b"\x1b[3~"),
+        "insert" => Some(b"\x1b[2~"),
+        "page_up" => Some(b"\x1b[5~"),
+        "page_down" => Some(b"\x1b[6~"),
+        "backspace" => Some(b"\x7f"),
+        "space" => Some(b" "),
+        "ctrl_a" => Some(b"\x01"),
+        "ctrl_c" => Some(b"\x03"),
+        "ctrl_d" => Some(b"\x04"),
+        "ctrl_e" => Some(b"\x05"),
+        "ctrl_l" => Some(b"\x0c"),
+        "ctrl_n" => Some(b"\x0e"),
+        "ctrl_p" => Some(b"\x10"),
+        "ctrl_r" => Some(b"\x12"),
+        "ctrl_u" => Some(b"\x15"),
+        "ctrl_w" => Some(b"\x17"),
+        "ctrl_z" => Some(b"\x1a"),
+        _ => None,
+    }
+}
+
 fn encode_control_char(c: char) -> Option<Vec<u8>> {
     match c {
         '@' | ' ' => Some(vec![0x00]),
@@ -159,5 +192,13 @@ mod tests {
             terminal_clipboard_action(gdk::Key::c, gdk::ModifierType::CONTROL_MASK),
             None
         );
+    }
+
+    #[test]
+    fn encodes_named_keys_for_assistant_terminal_control() {
+        assert_eq!(encode_named_key_input("down"), Some(b"\x1b[B".as_slice()));
+        assert_eq!(encode_named_key_input("space"), Some(b" ".as_slice()));
+        assert_eq!(encode_named_key_input("ctrl_c"), Some(b"\x03".as_slice()));
+        assert_eq!(encode_named_key_input("unknown"), None);
     }
 }

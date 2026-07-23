@@ -15,6 +15,9 @@ pub struct AppSettings {
     pub default_shell: String,
     pub scrollback_lines: usize,
     pub output_retention_days: Option<u32>,
+    pub gemini_api_key: String,
+    pub gemini_model: String,
+    pub gemini_voice: String,
 }
 
 impl Default for AppSettings {
@@ -26,6 +29,9 @@ impl Default for AppSettings {
             default_shell: std::env::var("SHELL").unwrap_or_else(|_| "/bin/bash".to_string()),
             scrollback_lines: 10_000,
             output_retention_days: None,
+            gemini_api_key: String::new(),
+            gemini_model: crate::voice_settings::load_gemini_model(),
+            gemini_voice: crate::voice_settings::load_gemini_voice().unwrap_or_default(),
         }
     }
 }
@@ -129,6 +135,51 @@ pub fn show_settings_dialog(
 
     add_separator(&vbox);
 
+    // ── AI Assistant ─────────────────────────────────
+
+    let voice_section = gtk4::Label::new(Some("AI Assistant"));
+    voice_section.add_css_class("title-4");
+    voice_section.set_halign(gtk4::Align::Start);
+    voice_section.set_margin_bottom(8);
+    vbox.append(&voice_section);
+
+    let api_key_row = make_row("Gemini API key");
+    let api_key_entry = gtk4::Entry::new();
+    api_key_entry.set_text(&current.gemini_api_key);
+    api_key_entry.set_visibility(false);
+    api_key_entry.set_placeholder_text(Some("AIza..."));
+    api_key_entry.set_tooltip_text(Some(
+        "Saved locally in Pax settings. Clear this field to remove the key.",
+    ));
+    api_key_entry.set_hexpand(true);
+    api_key_row.append(&api_key_entry);
+    vbox.append(&api_key_row);
+
+    let model_row = make_row("Gemini Live model");
+    let model_entry = gtk4::Entry::new();
+    model_entry.set_text(&current.gemini_model);
+    model_entry.set_placeholder_text(Some("gemini-3.1-flash-live-preview"));
+    model_entry.set_tooltip_text(Some("The model must support the Gemini Live API."));
+    model_entry.set_hexpand(true);
+    model_row.append(&model_entry);
+    vbox.append(&model_row);
+
+    let voice_row = make_row("Voce");
+    let voice_labels = crate::voice_settings::gemini_voice_labels();
+    let voice_label_refs = voice_labels.iter().map(String::as_str).collect::<Vec<_>>();
+    let voice_dropdown = gtk4::DropDown::from_strings(&voice_label_refs);
+    voice_dropdown.add_css_class("settings-voice-dropdown");
+    voice_dropdown.set_selected(crate::voice_settings::gemini_voice_index(Some(
+        &current.gemini_voice,
+    )));
+    voice_dropdown.set_tooltip_text(Some(
+        "Gemini Live applies the selected voice when a new assistant session starts.",
+    ));
+    voice_row.append(&voice_dropdown);
+    vbox.append(&voice_row);
+
+    add_separator(&vbox);
+
     // ── Terminal ────────────────────────────────────────
 
     let section_label3 = gtk4::Label::new(Some("Terminal"));
@@ -220,6 +271,9 @@ pub fn show_settings_dialog(
     let se = shell_entry.clone();
     let ss = scroll_spin.clone();
     let rs = retention_spin.clone();
+    let vk = api_key_entry.clone();
+    let vm = model_entry.clone();
+    let vv = voice_dropdown.clone();
     apply_btn.connect_clicked(move |_| {
         let theme_idx = td.selected() as usize;
         let theme = Theme::all().get(theme_idx).copied().unwrap_or_default();
@@ -236,6 +290,11 @@ pub fn show_settings_dialog(
             } else {
                 Some(retention)
             },
+            gemini_api_key: vk.text().to_string(),
+            gemini_model: vm.text().to_string(),
+            gemini_voice: crate::voice_settings::gemini_voice_at_index(vv.selected())
+                .unwrap_or_default()
+                .to_string(),
         });
         d.close();
     });

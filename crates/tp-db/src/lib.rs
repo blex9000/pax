@@ -1,5 +1,9 @@
+pub mod assistant;
 pub mod commands;
 
+pub use assistant::{
+    AssistantMessageRecord, AssistantSessionRecord, AssistantToolRunRecord, NewAssistantToolRun,
+};
 pub use commands::{CommandRecord, PinnedCommand};
 pub mod markdown_documents;
 pub mod metadata_entries;

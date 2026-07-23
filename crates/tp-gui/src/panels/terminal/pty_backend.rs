@@ -117,6 +117,7 @@ pub struct TerminalInner {
     pub drawing_area: gtk4::DrawingArea,
     pub widget: gtk4::Widget,
     pub writer: Arc<Mutex<Box<dyn Write + Send>>>,
+    term_state: Arc<Mutex<TermState>>,
     pub(super) panel_uuid: Option<uuid::Uuid>,
     pub(super) cmd_file: std::path::PathBuf,
     /// Held to keep the gio::FileMonitor alive for the panel's lifetime.
@@ -124,6 +125,7 @@ pub struct TerminalInner {
     input_cb: Rc<RefCell<Option<crate::panels::PanelInputCallback>>>,
     title_cb: Rc<RefCell<Option<crate::panels::PanelTitleCallback>>>,
     status_cb: Rc<RefCell<Option<crate::panels::PanelStatusCallback>>>,
+    output_cb: Rc<RefCell<Option<crate::panels::PanelOutputCallback>>>,
     cwd_cb: Rc<RefCell<Option<crate::panels::PanelCwdCallback>>>,
 }
 
@@ -214,6 +216,8 @@ impl TerminalInner {
             Rc::new(RefCell::new(None));
         let status_cb: Rc<RefCell<Option<crate::panels::PanelStatusCallback>>> =
             Rc::new(RefCell::new(None));
+        let output_cb: Rc<RefCell<Option<crate::panels::PanelOutputCallback>>> =
+            Rc::new(RefCell::new(None));
         let cwd_cb: Rc<RefCell<Option<crate::panels::PanelCwdCallback>>> =
             Rc::new(RefCell::new(None));
         // Flag flipped by the first OSC 133;A (first prompt ready) or by
@@ -263,6 +267,7 @@ impl TerminalInner {
             let writer = Arc::downgrade(&writer);
             let title_cb_ref = title_cb.clone();
             let status_cb_ref = status_cb.clone();
+            let output_cb_ref = output_cb.clone();
             let cwd_cb_ref = cwd_cb.clone();
             let booted_loop = booted.clone();
             let term_state_for_events = term_state.clone();
@@ -276,6 +281,11 @@ impl TerminalInner {
                     match ui_rx.try_recv() {
                         Ok(TerminalUiEvent::Render) => {
                             drawing_area.queue_draw();
+                            if let Ok(borrowed) = output_cb_ref.try_borrow() {
+                                if let Some(ref callback) = *borrowed {
+                                    callback();
+                                }
+                            }
                             update_scroll_to_bottom_button(
                                 &scroll_button_for_events,
                                 &term_state_for_events,
@@ -574,12 +584,14 @@ impl TerminalInner {
             drawing_area,
             widget,
             writer,
+            term_state,
             panel_uuid,
             cmd_file: cmd_file_path,
             _cmd_file_monitor: cmd_file_monitor,
             input_cb,
             title_cb,
             status_cb,
+            output_cb,
             cwd_cb,
         }
     }
@@ -612,6 +624,10 @@ impl TerminalInner {
         write_bytes(&self.writer, data)
     }
 
+    pub fn text_content(&self) -> Option<String> {
+        Some(terminal_output_text(&self.term_state))
+    }
+
     pub fn set_input_callback(&self, callback: Option<crate::panels::PanelInputCallback>) {
         *self.input_cb.borrow_mut() = callback;
     }
@@ -622,6 +638,10 @@ impl TerminalInner {
 
     pub fn set_status_callback(&self, callback: Option<crate::panels::PanelStatusCallback>) {
         *self.status_cb.borrow_mut() = callback;
+    }
+
+    pub fn set_output_callback(&self, callback: Option<crate::panels::PanelOutputCallback>) {
+        *self.output_cb.borrow_mut() = callback;
     }
 
     pub fn set_cwd_callback(&self, callback: Option<crate::panels::PanelCwdCallback>) {
@@ -645,6 +665,7 @@ impl TerminalInner {
         *self.input_cb.borrow_mut() = None;
         *self.title_cb.borrow_mut() = None;
         *self.status_cb.borrow_mut() = None;
+        *self.output_cb.borrow_mut() = None;
         *self.cwd_cb.borrow_mut() = None;
         if let Ok(mut writer) = self.writer.lock() {
             let _ = writer.flush();

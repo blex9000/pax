@@ -1,6 +1,7 @@
 [workspace]
 resolver = "2"
 members = [
+    "crates/tp-assistant",
     "crates/tp-core",
     "crates/tp-db",
     "crates/tp-gui",
@@ -14,6 +15,7 @@ license = "MIT"
 authors = ["xb"]
 
 [workspace.dependencies]
+pax-assistant = { path = "crates/tp-assistant" }
 pax-core = { path = "crates/tp-core" }
 pax-db = { path = "crates/tp-db" }
 pax-gui = { path = "crates/tp-gui", default-features = false }

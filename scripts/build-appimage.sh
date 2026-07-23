@@ -17,18 +17,12 @@ cargo build --release
 echo "==> Preparing AppDir..."
 rm -rf "$APPDIR"
 mkdir -p "$APPDIR/usr/bin"
-mkdir -p "$APPDIR/usr/scripts"
 mkdir -p "$APPDIR/usr/resources/icons"
 mkdir -p "$APPDIR/usr/share/applications"
 mkdir -p "$APPDIR/usr/share/icons/hicolor/scalable/apps"
 
 # Binary
 cp "$ROOT_DIR/target/release/pax" "$APPDIR/usr/bin/pax"
-
-# Voice provider scripts - resolved at runtime relative to the binary.
-if [ -f "$ROOT_DIR/scripts/pax-voice-transcribe-gemini.py" ]; then
-    cp "$ROOT_DIR/scripts/pax-voice-transcribe-gemini.py" "$APPDIR/usr/scripts/"
-fi
 
 # Desktop file
 cp "$ROOT_DIR/pax.desktop" "$APPDIR/usr/share/applications/pax.desktop"

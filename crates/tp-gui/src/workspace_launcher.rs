@@ -25,12 +25,40 @@ use std::process::Command;
 /// surface one of them at a time.
 pub fn open_in_new_window(config_path: &Path) -> io::Result<()> {
     let exe = launcher_executable(std::env::var_os("APPIMAGE"))?;
+    let config_path = workspace_launch_path(config_path)?;
+
+    tracing::debug!(
+        executable = %exe.display(),
+        workspace = %config_path.display(),
+        "spawning workspace in a new Pax window"
+    );
+
     Command::new(exe)
         .arg("launch")
         .arg(config_path)
         .env(crate::app::SECONDARY_INSTANCE_ENV, "1")
         .spawn()?;
     Ok(())
+}
+
+fn workspace_launch_path(path: &Path) -> io::Result<PathBuf> {
+    if let Ok(canonical) = path.canonicalize() {
+        return Ok(canonical);
+    }
+
+    if path.is_absolute() {
+        return Ok(path.to_path_buf());
+    }
+
+    Ok(absolutize_relative_path(path, &std::env::current_dir()?))
+}
+
+fn absolutize_relative_path(path: &Path, cwd: &Path) -> PathBuf {
+    if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        cwd.join(path)
+    }
 }
 
 fn launcher_executable(appimage: Option<OsString>) -> io::Result<PathBuf> {
@@ -59,6 +87,34 @@ mod tests {
         assert_eq!(
             launcher_executable(Some(OsString::new())).unwrap(),
             std::env::current_exe().unwrap()
+        );
+    }
+
+    #[test]
+    fn workspace_launch_path_canonicalizes_existing_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let nested = dir.path().join("nested");
+        std::fs::create_dir(&nested).unwrap();
+        let workspace = nested.join("workspace.json");
+        std::fs::write(&workspace, "{}").unwrap();
+
+        let non_canonical = nested.join("..").join("nested").join("workspace.json");
+
+        assert_eq!(workspace_launch_path(&non_canonical).unwrap(), workspace);
+    }
+
+    #[test]
+    fn workspace_launch_path_keeps_absolute_missing_file() {
+        let path = Path::new("/tmp/pax-missing-workspace.json");
+
+        assert_eq!(workspace_launch_path(path).unwrap(), path);
+    }
+
+    #[test]
+    fn absolutize_relative_workspace_path_against_cwd() {
+        assert_eq!(
+            absolutize_relative_path(Path::new("workspaces/foo.json"), Path::new("/tmp/pax")),
+            PathBuf::from("/tmp/pax/workspaces/foo.json")
         );
     }
 }

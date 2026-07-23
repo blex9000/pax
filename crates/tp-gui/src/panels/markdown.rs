@@ -1027,6 +1027,26 @@ impl PanelBackend for MarkdownPanel {
         Some(self.current_document_text())
     }
 
+    fn replace_text_content(&self, text: &str) -> bool {
+        if !self.edit_btn.is_active() {
+            self.edit_btn.set_active(true);
+        }
+        let cursor_offset = self.source_buffer.cursor_position();
+        self.source_buffer.begin_user_action();
+        self.suppress_emit.set(true);
+        let mut start = self.source_buffer.start_iter();
+        let mut end = self.source_buffer.end_iter();
+        self.source_buffer.delete(&mut start, &mut end);
+        self.source_buffer.insert(&mut start, text);
+        self.suppress_emit.set(false);
+        self.source_buffer.end_user_action();
+        let cursor = self
+            .source_buffer
+            .iter_at_offset(cursor_offset.min(self.source_buffer.char_count()));
+        self.source_buffer.place_cursor(&cursor);
+        true
+    }
+
     fn close_confirmation(&self) -> Option<String> {
         if !self.database_document_has_content() {
             return None;
@@ -1164,4 +1184,34 @@ fn show_markdown_conflict_bar(
     });
 
     slot.append(&bar);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serial_test::serial;
+
+    #[test]
+    #[serial]
+    fn assistant_replacement_updates_the_markdown_buffer() {
+        crate::test_support::run_on_gtk_thread(|| {
+            let temp = tempfile::tempdir().unwrap();
+            let path = temp.path().join("assistant.md");
+            std::fs::write(&path, "prima\nxxx\nultima riga").unwrap();
+            let panel = MarkdownPanel::new_with_document(MarkdownDocument::file(
+                path.to_string_lossy().as_ref(),
+            ));
+
+            assert_eq!(
+                panel.get_text_content().as_deref(),
+                Some("prima\nxxx\nultima riga")
+            );
+            assert!(panel.replace_text_content("prima\nyy"));
+            assert_eq!(panel.get_text_content().as_deref(), Some("prima\nyy"));
+            assert!(panel.edit_btn.is_active());
+            assert!(panel.modified.get());
+
+            panel.shutdown();
+        });
+    }
 }

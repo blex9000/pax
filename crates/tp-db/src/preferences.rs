@@ -25,6 +25,12 @@ impl Database {
             .optional()?;
         Ok(value)
     }
+
+    pub fn delete_app_preference(&self, key: &str) -> Result<()> {
+        self.conn
+            .execute("DELETE FROM app_preferences WHERE key = ?1", [key])?;
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -55,5 +61,15 @@ mod tests {
             db.get_app_preference("theme").unwrap().as_deref(),
             Some("catppuccin-mocha")
         );
+    }
+
+    #[test]
+    fn app_preference_delete_removes_value() {
+        let db = Database::open_memory().unwrap();
+
+        db.set_app_preference("theme", "nord").unwrap();
+        db.delete_app_preference("theme").unwrap();
+
+        assert_eq!(db.get_app_preference("theme").unwrap(), None);
     }
 }

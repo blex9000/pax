@@ -39,6 +39,7 @@ mod scroll_to_bottom;
 mod shell_bootstrap;
 
 pub(crate) use footer::format_cwd_footer;
+pub(crate) use input::encode_named_key_input;
 
 #[cfg(feature = "vte")]
 #[path = "vte_backend.rs"]
@@ -50,8 +51,8 @@ mod backend;
 
 use super::PanelBackend;
 use crate::panels::{
-    PanelCwdCallback, PanelInputCallback, PanelSshStateCallback, PanelStatusCallback,
-    PanelTitleCallback, SshConnectionState,
+    PanelCwdCallback, PanelInputCallback, PanelOutputCallback, PanelSshStateCallback,
+    PanelStatusCallback, PanelTitleCallback, SshConnectionState,
 };
 use backend::TerminalInner;
 use std::cell::{Cell, RefCell};
@@ -314,6 +315,10 @@ impl PanelBackend for TerminalPanel {
         self.inner.write_input(data)
     }
 
+    fn get_text_content(&self) -> Option<String> {
+        self.inner.text_content()
+    }
+
     fn set_input_callback(&self, callback: Option<PanelInputCallback>) {
         self.inner.set_input_callback(callback);
     }
@@ -334,6 +339,10 @@ impl PanelBackend for TerminalPanel {
             }) as PanelStatusCallback
         });
         self.inner.set_status_callback(wrapped);
+    }
+
+    fn set_output_callback(&self, callback: Option<PanelOutputCallback>) {
+        self.inner.set_output_callback(callback);
     }
 
     fn set_cwd_callback(&self, callback: Option<PanelCwdCallback>) {

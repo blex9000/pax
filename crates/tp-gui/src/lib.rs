@@ -1,5 +1,7 @@
 pub mod actions;
 pub mod app;
+pub(crate) mod assistant;
+pub(crate) mod assistant_tasks;
 pub mod backend_factory;
 pub mod dialogs;
 pub mod focus;
@@ -19,6 +21,11 @@ pub mod shortcuts;
 #[cfg(test)]
 pub(crate) mod test_support;
 pub mod theme;
+pub(crate) mod voice_live;
+pub(crate) mod voice_provider;
+pub(crate) mod voice_session;
+pub(crate) mod voice_settings;
+pub(crate) mod voice_tools;
 pub mod widget_builder;
 pub mod widgets;
 pub mod workspace_launcher;

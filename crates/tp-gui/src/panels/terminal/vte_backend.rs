@@ -209,6 +209,7 @@ pub struct TerminalInner {
     input_cb: Rc<RefCell<Option<crate::panels::PanelInputCallback>>>,
     title_cb: Rc<RefCell<Option<crate::panels::PanelTitleCallback>>>,
     status_cb: Rc<RefCell<Option<crate::panels::PanelStatusCallback>>>,
+    output_cb: Rc<RefCell<Option<crate::panels::PanelOutputCallback>>>,
     cwd_cb: Rc<RefCell<Option<crate::panels::PanelCwdCallback>>>,
 }
 
@@ -248,6 +249,8 @@ impl TerminalInner {
         let title_cb: Rc<RefCell<Option<crate::panels::PanelTitleCallback>>> =
             Rc::new(RefCell::new(None));
         let status_cb: Rc<RefCell<Option<crate::panels::PanelStatusCallback>>> =
+            Rc::new(RefCell::new(None));
+        let output_cb: Rc<RefCell<Option<crate::panels::PanelOutputCallback>>> =
             Rc::new(RefCell::new(None));
         let cwd_cb: Rc<RefCell<Option<crate::panels::PanelCwdCallback>>> =
             Rc::new(RefCell::new(None));
@@ -448,6 +451,17 @@ impl TerminalInner {
             spawn_tcgetpgrp_poller(&vte, shell_pid.clone(), status_cb.clone());
         }
 
+        {
+            let output_cb = output_cb.clone();
+            vte.connect_contents_changed(move |_| {
+                if let Ok(borrowed) = output_cb.try_borrow() {
+                    if let Some(ref callback) = *borrowed {
+                        callback();
+                    }
+                }
+            });
+        }
+
         // Register VTE for theme color updates
         crate::theme::register_vte_terminal(&vte);
 
@@ -468,6 +482,7 @@ impl TerminalInner {
             input_cb,
             title_cb,
             status_cb,
+            output_cb,
             cwd_cb,
         }
     }
@@ -710,6 +725,12 @@ impl TerminalInner {
         true
     }
 
+    pub fn text_content(&self) -> Option<String> {
+        super::export::vte_output_snapshot(&self.vte)
+            .ok()
+            .map(|bytes| String::from_utf8_lossy(&bytes).into_owned())
+    }
+
     pub fn set_input_callback(&self, callback: Option<crate::panels::PanelInputCallback>) {
         *self.input_cb.borrow_mut() = callback;
     }
@@ -720,6 +741,10 @@ impl TerminalInner {
 
     pub fn set_status_callback(&self, callback: Option<crate::panels::PanelStatusCallback>) {
         *self.status_cb.borrow_mut() = callback;
+    }
+
+    pub fn set_output_callback(&self, callback: Option<crate::panels::PanelOutputCallback>) {
+        *self.output_cb.borrow_mut() = callback;
     }
 
     pub fn set_cwd_callback(&self, callback: Option<crate::panels::PanelCwdCallback>) {
@@ -746,6 +771,7 @@ impl TerminalInner {
         *self.input_cb.borrow_mut() = None;
         *self.title_cb.borrow_mut() = None;
         *self.status_cb.borrow_mut() = None;
+        *self.output_cb.borrow_mut() = None;
         *self.cwd_cb.borrow_mut() = None;
         crate::theme::unregister_vte_terminal(&self.vte);
         self.vte.feed_child(b"\x03");

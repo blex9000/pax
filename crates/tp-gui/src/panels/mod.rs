@@ -24,6 +24,9 @@ pub type PanelSshStateCallback = std::rc::Rc<dyn Fn(SshConnectionState)>;
 /// Invoked with `true` when the panel reports a foreground command is running
 /// and `false` when the shell returns to the prompt.
 pub type PanelStatusCallback = std::rc::Rc<dyn Fn(bool)>;
+/// Invoked when terminal-visible output changes. Consumers should use this as
+/// an invalidation signal and request only the bounded text they need.
+pub type PanelOutputCallback = std::rc::Rc<dyn Fn()>;
 /// Invoked with a `file://host/path` URI when the shell changes directory
 /// (OSC 7). Empty string signals reset. Used to drive the footer bar.
 pub type PanelCwdCallback = std::rc::Rc<dyn Fn(&str)>;
@@ -66,6 +69,9 @@ pub trait PanelBackend: std::fmt::Debug {
     /// Non-terminal panels leave this as no-op.
     fn set_status_callback(&self, _callback: Option<PanelStatusCallback>) {}
 
+    /// Observe terminal output invalidations without streaming output text.
+    fn set_output_callback(&self, _callback: Option<PanelOutputCallback>) {}
+
     /// Observe OSC 7 current-directory-URI updates so the host can render
     /// `user@host:path` in the panel footer. Empty string = footer hidden.
     fn set_cwd_callback(&self, _callback: Option<PanelCwdCallback>) {}
@@ -73,6 +79,12 @@ pub trait PanelBackend: std::fmt::Debug {
     /// Get current text content for recording/alert scanning.
     fn get_text_content(&self) -> Option<String> {
         None
+    }
+
+    /// Replace the complete editable text while preserving the backend's
+    /// normal dirty tracking and undo integration.
+    fn replace_text_content(&self, _text: &str) -> bool {
+        false
     }
 
     /// Whether this panel supports text input.

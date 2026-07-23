@@ -76,6 +76,18 @@ pub fn run_migrations(db: &Database) -> Result<()> {
         "012_workspace_markdown_documents",
         MIGRATION_012_WORKSPACE_MARKDOWN_DOCUMENTS,
     )?;
+    apply_sql_migration(
+        db,
+        &applied,
+        "013_assistant_sessions",
+        MIGRATION_013_ASSISTANT_SESSIONS,
+    )?;
+    apply_sql_migration(
+        db,
+        &applied,
+        "014_assistant_tasks",
+        MIGRATION_014_ASSISTANT_TASKS,
+    )?;
 
     Ok(())
 }
@@ -442,6 +454,83 @@ CREATE INDEX IF NOT EXISTS idx_wmd_workspace
     ON workspace_markdown_documents(record_key);
 ";
 
+const MIGRATION_013_ASSISTANT_SESSIONS: &str = "
+CREATE TABLE IF NOT EXISTS assistant_sessions (
+    id                  TEXT PRIMARY KEY,
+    workspace_record_key TEXT NOT NULL,
+    provider            TEXT NOT NULL,
+    provider_session_id TEXT,
+    status              TEXT NOT NULL DEFAULT 'idle',
+    summary             TEXT,
+    context_json        TEXT NOT NULL DEFAULT '{}',
+    tool_schema_version INTEGER NOT NULL DEFAULT 1,
+    created_at          INTEGER NOT NULL,
+    updated_at          INTEGER NOT NULL,
+    last_active_at      INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_assistant_sessions_workspace
+    ON assistant_sessions(workspace_record_key, last_active_at DESC);
+
+CREATE TABLE IF NOT EXISTS assistant_messages (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id    TEXT NOT NULL,
+    turn_id       TEXT,
+    role          TEXT NOT NULL,
+    content       TEXT NOT NULL,
+    metadata_json TEXT NOT NULL DEFAULT '{}',
+    created_at    INTEGER NOT NULL,
+    FOREIGN KEY (session_id) REFERENCES assistant_sessions(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_assistant_messages_session
+    ON assistant_messages(session_id, id);
+
+CREATE TABLE IF NOT EXISTS assistant_tool_runs (
+    id             TEXT PRIMARY KEY,
+    session_id     TEXT NOT NULL,
+    turn_id        TEXT,
+    tool_name      TEXT NOT NULL,
+    risk           TEXT NOT NULL,
+    arguments_json TEXT NOT NULL,
+    result_json    TEXT,
+    status         TEXT NOT NULL,
+    approved       INTEGER NOT NULL DEFAULT 0,
+    error          TEXT,
+    started_at     INTEGER NOT NULL,
+    completed_at   INTEGER,
+    FOREIGN KEY (session_id) REFERENCES assistant_sessions(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_assistant_tool_runs_session
+    ON assistant_tool_runs(session_id, started_at);
+";
+
+const MIGRATION_014_ASSISTANT_TASKS: &str = "
+CREATE TABLE IF NOT EXISTS assistant_tasks (
+    id                   TEXT PRIMARY KEY,
+    workspace_record_key TEXT NOT NULL,
+    provider             TEXT NOT NULL,
+    provider_session_id  TEXT,
+    tool_call_id         TEXT NOT NULL,
+    tool_name            TEXT NOT NULL,
+    panel_id              TEXT,
+    state                 TEXT NOT NULL,
+    task_json             TEXT NOT NULL,
+    created_at_ms         INTEGER NOT NULL,
+    updated_at_ms         INTEGER NOT NULL,
+    deadline_at_ms        INTEGER NOT NULL,
+    completed_at_ms       INTEGER
+);
+
+CREATE INDEX IF NOT EXISTS idx_assistant_tasks_workspace
+    ON assistant_tasks(workspace_record_key, created_at_ms DESC);
+
+CREATE INDEX IF NOT EXISTS idx_assistant_tasks_active
+    ON assistant_tasks(workspace_record_key, state)
+    WHERE state IN ('pending', 'running', 'waiting_for_input');
+";
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -569,6 +658,39 @@ mod tests {
             .conn
             .query_row(
                 "SELECT COUNT(*) FROM _migrations WHERE name = '004_app_preferences'",
+                [],
+                |row| row.get::<_, i64>(0),
+            )
+            .unwrap();
+        assert_eq!(applied, 1);
+    }
+
+    #[test]
+    fn migration_013_creates_assistant_tables() {
+        let db = setup_db_without_running_migrations();
+
+        run_migrations(&db).unwrap();
+
+        for table in [
+            "assistant_sessions",
+            "assistant_messages",
+            "assistant_tool_runs",
+        ] {
+            assert!(table_exists(&db, table).unwrap(), "missing {table}");
+        }
+    }
+
+    #[test]
+    fn migration_014_creates_assistant_tasks_table() {
+        let db = setup_db_without_running_migrations();
+
+        run_migrations(&db).unwrap();
+
+        assert!(table_exists(&db, "assistant_tasks").unwrap());
+        let applied = db
+            .conn
+            .query_row(
+                "SELECT COUNT(*) FROM _migrations WHERE name = '014_assistant_tasks'",
                 [],
                 |row| row.get::<_, i64>(0),
             )

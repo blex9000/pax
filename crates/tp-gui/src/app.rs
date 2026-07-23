@@ -1330,6 +1330,17 @@ fn setup_workspace_ui(
     theme_btn.set_popover(Some(&theme_popover));
     header.pack_end(&theme_btn);
 
+    let assistant_btn = gtk4::Button::new();
+    assistant_btn.add_css_class("flat");
+    assistant_btn.add_css_class("app-header-btn");
+    assistant_btn.add_css_class("assistant-header-btn");
+    assistant_btn.set_tooltip_text(Some("AI Assistant"));
+    let assistant_btn_content = gtk4::Box::new(gtk4::Orientation::Horizontal, 5);
+    assistant_btn_content.append(&gtk4::Image::from_icon_name("starred-symbolic"));
+    assistant_btn_content.append(&gtk4::Label::new(Some("AI Assistant")));
+    assistant_btn.set_child(Some(&assistant_btn_content));
+    header.pack_end(&assistant_btn);
+
     // Dirty indicator: clickable floppy button that fires the save action
     // (same code path as Menu → Save). Hidden when the workspace is clean.
     let dirty_btn = gtk4::Button::from_icon_name("media-floppy-symbolic");
@@ -1351,8 +1362,137 @@ fn setup_workspace_ui(
 
     // Shared state
     let ws_view = Rc::new(RefCell::new(WorkspaceView::build(&workspace, config_path)));
+    let task_supervisor = crate::assistant_tasks::AssistantTaskSupervisor::new(
+        &ws_view,
+        pax_assistant::ProviderId::GEMINI_LIVE,
+    );
     let status_bar = Rc::new(RefCell::new(StatusBar::new()));
     let window_rc = window.clone();
+
+    {
+        let ws = ws_view.clone();
+        let panel_type: Rc<dyn Fn() -> Option<String>> = Rc::new(move || {
+            let view = ws.borrow();
+            let panel_id = view.focused_panel_id()?;
+            let host = view.host(panel_id)?;
+            if !host.accepts_input() {
+                return None;
+            }
+            view.workspace()
+                .panel(panel_id)
+                .map(|panel| crate::backend_factory::panel_type_to_id(&panel.effective_type()))
+                .map(str::to_string)
+        });
+        let ws = ws_view.clone();
+        let writer: Rc<dyn Fn(&[u8]) -> bool> = Rc::new(move |data| {
+            let view = ws.borrow();
+            view.focused_panel_id()
+                .and_then(|panel_id| view.host(panel_id))
+                .is_some_and(|host| host.accepts_input() && host.write_input(data))
+        });
+        let ws = ws_view.clone();
+        let tool_executor: Rc<
+            dyn Fn(crate::voice_tools::VoiceToolCall) -> crate::voice_tools::VoiceToolExecution,
+        > = {
+            let window = window_rc.clone();
+            let save_action = save_action.clone();
+            let status_bar = status_bar.clone();
+            let task_supervisor = task_supervisor.clone();
+            Rc::new(move |call| {
+                if let Some(execution) = task_supervisor.execute(call.clone()) {
+                    return execution;
+                }
+                let result = (|| {
+                    let mut view = ws.borrow_mut();
+                    if let Some(result) =
+                        crate::voice_tools::execute_workspace_tool(&mut view, &call)
+                    {
+                        let succeeded = result
+                            .response
+                            .get("status")
+                            .and_then(serde_json::Value::as_str)
+                            == Some("ok");
+                        drop(view);
+                        actions::update_dirty_ui(&ws, &window, &save_action);
+                        status_bar.borrow().set_message(if succeeded {
+                            "AI Assistant: workspace aggiornato"
+                        } else {
+                            "AI Assistant: operazione non eseguita"
+                        });
+                        return result;
+                    }
+                    if let Some(result) =
+                        crate::voice_tools::execute_terminal_tool(&mut view, &call)
+                    {
+                        let succeeded = result
+                            .response
+                            .get("status")
+                            .and_then(serde_json::Value::as_str)
+                            == Some("ok");
+                        if call.name == crate::voice_tools::TERMINAL_CONFIGURE_TOOL {
+                            drop(view);
+                            actions::update_dirty_ui(&ws, &window, &save_action);
+                        }
+                        status_bar.borrow().set_message(if succeeded {
+                            "AI Assistant: terminale aggiornato"
+                        } else {
+                            "AI Assistant: operazione terminale non eseguita"
+                        });
+                        return result;
+                    }
+                    if let Some(result) = crate::voice_tools::execute_panel_tool(&view, &call) {
+                        return result;
+                    }
+                    crate::voice_tools::VoiceToolResult::error(
+                        &call,
+                        "Tool assistant non supportato.",
+                    )
+                })();
+                crate::voice_tools::VoiceToolExecution::immediate(result)
+            })
+        };
+        let context_store = Rc::new(crate::assistant::AssistantContextStore::new());
+        context_store.refresh(&ws_view.borrow().assistant_snapshot());
+        let workspace_context: crate::widgets::voice_command::WorkspaceContextProvider = {
+            let ws = ws_view.clone();
+            let context_store = context_store.clone();
+            let task_supervisor = task_supervisor.clone();
+            Rc::new(move || {
+                let snapshot = ws.borrow().assistant_snapshot();
+                context_store.refresh(&snapshot);
+                let mut inspection = crate::voice_tools::workspace_inspection(&snapshot);
+                let tasks = task_supervisor
+                    .tasks()
+                    .into_iter()
+                    .map(|mut task| {
+                        task.result = None;
+                        task
+                    })
+                    .collect::<Vec<_>>();
+                if let Some(object) = inspection.as_object_mut() {
+                    object.insert(
+                        "assistant_tasks".to_string(),
+                        serde_json::to_value(tasks).unwrap_or_default(),
+                    );
+                }
+                inspection
+            })
+        };
+        crate::widgets::voice_command::attach_voice_assistant_window(
+            &assistant_btn,
+            panel_type,
+            writer,
+            tool_executor,
+            Some(context_store.clone()),
+            Some(task_supervisor.clone()),
+            Some(workspace_context),
+        );
+
+        let ws = ws_view.clone();
+        assistant_btn.connect_clicked(move |_| {
+            context_store.refresh(&ws.borrow().assistant_snapshot());
+        });
+    }
 
     // Wire up type chooser callback
     {
@@ -2096,6 +2236,10 @@ fn setup_workspace_ui(
                     default_shell: view.workspace().settings.default_shell.clone(),
                     scrollback_lines: view.workspace().settings.scrollback_lines,
                     output_retention_days: view.workspace().settings.output_retention_days,
+                    gemini_api_key: crate::voice_settings::load_gemini_api_key()
+                        .unwrap_or_default(),
+                    gemini_model: crate::voice_settings::load_gemini_model(),
+                    gemini_voice: crate::voice_settings::load_gemini_voice().unwrap_or_default(),
                 }
             };
             let ws2 = ws.clone();
@@ -2105,6 +2249,9 @@ fn setup_workspace_ui(
                 apply_theme(new_settings.theme);
                 save_preferred_theme(new_settings.theme);
                 save_respect_workspace_theme(new_settings.respect_workspace_theme);
+                crate::voice_settings::save_gemini_api_key(&new_settings.gemini_api_key);
+                crate::voice_settings::save_gemini_model(&new_settings.gemini_model);
+                crate::voice_settings::save_gemini_voice(&new_settings.gemini_voice);
                 {
                     let mut view = ws2.borrow_mut();
                     view.rename_workspace(&new_settings.workspace_name);

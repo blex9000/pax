@@ -1527,45 +1527,242 @@ popover.app-popover modelbutton:hover label,
 popover.app-popover button.app-popover-button:hover label {
   color: @accent_color;
 }
-.voice-command-popover .voice-popover-root {
-  min-width: 260px;
+.voice-assistant-window .voice-assistant-root {
+  min-width: 420px;
+  min-height: 480px;
+  background-color: @view_bg_color;
 }
-.voice-command-popover .voice-status,
-.voice-command-popover .voice-preview {
-  padding: 0 6px;
-}
-.voice-command-popover .voice-preview {
-  min-height: 28px;
-}
-.voice-command-popover button.voice-mic-button {
-  background-image: none;
-  background-color: transparent;
-  border: 1px solid alpha(@border_soft, 0.9);
-  border-radius: 999px;
-  box-shadow: none;
-  margin: 4px 0;
+.voice-assistant-window .assistant-top-bar {
   padding: 0;
+  border-bottom: 1px solid alpha(@border_soft, 0.7);
+  background-color: @headerbar_bg_color;
 }
-.voice-command-popover button.voice-mic-button image {
-  -gtk-icon-size: 30px;
+.voice-assistant-window .assistant-status-mark {
+  min-width: 32px;
+  min-height: 32px;
+  border: 1px solid alpha(@accent_color, 0.42);
+  border-radius: 8px;
+  background-color: alpha(@accent_color, 0.12);
+}
+.voice-assistant-window .assistant-status-icon {
+  color: @accent_color;
+  -gtk-icon-size: 17px;
+}
+.voice-assistant-window .voice-status {
+  padding: 0;
+  font-size: 12px;
+  font-weight: 600;
   color: @view_fg_color;
 }
-.voice-command-popover button.voice-mic-button:hover,
-.voice-command-popover button.voice-mic-button:checked {
-  background-color: alpha(@accent_color, 0.10);
-  border-color: alpha(@accent_color, 0.85);
+.voice-assistant-window .assistant-context-status {
+  font-size: 11px;
+  color: alpha(@view_fg_color, 0.52);
 }
-.voice-command-popover button.voice-mic-button:hover image,
-.voice-command-popover button.voice-mic-button:checked image {
+.voice-assistant-window menubutton.assistant-voice-picker > button {
+  min-width: 32px;
+  min-height: 32px;
+  padding: 0;
+  border: 1px solid alpha(@border_soft, 0.72);
+  border-radius: 6px;
+  background-color: transparent;
+  background-image: none;
+  box-shadow: none;
+}
+.voice-assistant-window menubutton.assistant-voice-picker > button image {
+  -gtk-icon-size: 15px;
+  color: alpha(@view_fg_color, 0.78);
+}
+.voice-assistant-window menubutton.assistant-voice-picker > button:hover {
+  border-color: alpha(@accent_color, 0.58);
+  background-color: alpha(@accent_color, 0.10);
+}
+.voice-assistant-window menubutton.assistant-voice-picker > button:hover image {
   color: @accent_color;
 }
+popover.assistant-voice-popover dropdown.assistant-voice-dropdown {
+  min-width: 230px;
+}
+.voice-assistant-window .assistant-view-switcher {
+  margin: 10px 12px 5px;
+}
+.voice-assistant-window .assistant-view-switcher button {
+  min-height: 28px;
+  padding: 2px 14px;
+  border-radius: 6px;
+}
+.voice-assistant-window .assistant-task-tray {
+  margin: 4px 12px;
+  padding: 5px 8px;
+  border-top: 1px solid alpha(@border_soft, 0.7);
+  border-bottom: 1px solid alpha(@border_soft, 0.7);
+  background-color: alpha(@accent_color, 0.06);
+}
+.voice-assistant-window .assistant-task-row {
+  min-height: 32px;
+}
+.voice-assistant-window .assistant-task-spinner {
+  color: @accent_color;
+}
+.voice-assistant-window .assistant-task-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: @view_fg_color;
+}
+.voice-assistant-window .assistant-task-detail {
+  font-size: 10px;
+  color: alpha(@view_fg_color, 0.52);
+}
+.voice-assistant-window button.assistant-task-cancel {
+  min-width: 28px;
+  min-height: 28px;
+  padding: 0;
+  border-radius: 6px;
+}
+.voice-assistant-window button.assistant-task-cancel image {
+  -gtk-icon-size: 13px;
+  color: alpha(@view_fg_color, 0.68);
+}
+.voice-assistant-window button.assistant-task-cancel:hover image {
+  color: @note_important;
+}
+.voice-assistant-window .assistant-conversation-scroll,
+.voice-assistant-window .assistant-conversation-list,
+.voice-assistant-window .assistant-conversation-list > row {
+  background-color: transparent;
+}
+.voice-assistant-window .assistant-conversation-list {
+  padding: 8px 12px 12px;
+}
+.voice-assistant-window .assistant-empty-state {
+  padding: 24px;
+}
+.voice-assistant-window .assistant-empty-icon {
+  -gtk-icon-size: 34px;
+  color: alpha(@accent_color, 0.72);
+  margin-bottom: 3px;
+}
+.voice-assistant-window .assistant-history-empty .assistant-empty-icon {
+  color: alpha(@view_fg_color, 0.32);
+}
+.voice-assistant-window .assistant-empty-title {
+  font-size: 16px;
+  font-weight: 700;
+  color: alpha(@view_fg_color, 0.86);
+}
+.voice-assistant-window .assistant-empty-detail {
+  font-size: 12px;
+  color: alpha(@view_fg_color, 0.48);
+}
+.voice-assistant-window .assistant-message-row {
+  padding: 4px 0;
+}
+.voice-assistant-window .assistant-message {
+  padding: 8px 10px;
+  border: 1px solid alpha(@border_soft, 0.72);
+  border-radius: 8px;
+  background-color: @card_bg_color;
+}
+.voice-assistant-window .assistant-message-user {
+  background-color: alpha(@accent_color, 0.16);
+  border-color: alpha(@accent_color, 0.38);
+}
+.voice-assistant-window .assistant-message-ai {
+  border-left: 3px solid @accent_color;
+}
+.voice-assistant-window .assistant-message-tool {
+  background-color: alpha(@note_warning, 0.08);
+  border-color: alpha(@note_warning, 0.34);
+}
+.voice-assistant-window .assistant-message-role {
+  font-size: 10px;
+  font-weight: 700;
+  color: alpha(@view_fg_color, 0.68);
+}
+.voice-assistant-window .assistant-message-time {
+  font-size: 10px;
+  color: alpha(@view_fg_color, 0.42);
+}
+.voice-assistant-window .assistant-message-content {
+  font-size: 13px;
+  color: @view_fg_color;
+}
+.voice-assistant-window .assistant-voice-strip {
+  margin: 4px 12px 0;
+  padding: 5px 8px;
+  border: 1px solid alpha(@note_important, 0.34);
+  border-radius: 6px;
+  background-color: alpha(@note_important, 0.07);
+}
+.voice-assistant-window .assistant-voice-live-icon {
+  -gtk-icon-size: 12px;
+  color: @note_important;
+}
+.voice-assistant-window .assistant-composer {
+  padding: 9px 12px 12px;
+  border-top: 1px solid alpha(@border_soft, 0.7);
+  background-color: @headerbar_bg_color;
+}
+.voice-assistant-window .assistant-message-entry {
+  min-height: 34px;
+}
+.voice-assistant-window button.assistant-control-button {
+  background-image: none;
+  background-color: transparent;
+  border: 1px solid alpha(@border_soft, 0.72);
+  border-radius: 6px;
+  box-shadow: none;
+  padding: 0;
+  min-width: 36px;
+  min-height: 36px;
+}
+.voice-assistant-window button.assistant-control-button image {
+  -gtk-icon-size: 16px;
+  color: @view_fg_color;
+}
+.voice-assistant-window button.assistant-control-button:hover {
+  background-color: alpha(@accent_color, 0.10);
+  border-color: alpha(@accent_color, 0.58);
+}
+.voice-assistant-window button.assistant-send-button:enabled {
+  background-color: @accent_color;
+  border-color: @accent_color;
+}
+.voice-assistant-window button.assistant-send-button:enabled image {
+  color: @accent_fg_color;
+}
+.voice-assistant-window button.assistant-send-button:disabled {
+  opacity: 0.46;
+}
+.voice-assistant-window button.voice-mic-button:checked {
+  background-color: alpha(@note_important, 0.14);
+  border-color: alpha(@note_important, 0.72);
+}
+.voice-assistant-window button.voice-mic-button:checked image {
+  color: @note_important;
+}
+.voice-assistant-window button.assistant-mute-button:checked {
+  background-color: alpha(@note_warning, 0.13);
+  border-color: alpha(@note_warning, 0.68);
+}
+.voice-assistant-window button.assistant-mute-button:checked image {
+  color: @note_warning;
+}
+.voice-assistant-window button.assistant-control-button:hover image {
+  color: @accent_color;
+}
+button.assistant-header-btn {
+  padding-left: 8px;
+  padding-right: 8px;
+}
 window.app-dialog dropdown.settings-theme-dropdown > popover.menu,
+window.app-dialog dropdown.settings-voice-dropdown > popover.menu,
 .editor-sidebar-pane dropdown > popover.menu {
   background-color: transparent;
   background-image: none;
   box-shadow: none;
 }
 window.app-dialog dropdown.settings-theme-dropdown > popover.menu > contents,
+window.app-dialog dropdown.settings-voice-dropdown > popover.menu > contents,
 .editor-sidebar-pane dropdown > popover.menu > contents {
   background-color: @bg_popover;
   color: @view_fg_color;
@@ -1576,6 +1773,8 @@ window.app-dialog dropdown.settings-theme-dropdown > popover.menu > contents,
 }
 window.app-dialog dropdown.settings-theme-dropdown > popover.menu scrolledwindow,
 window.app-dialog dropdown.settings-theme-dropdown > popover.menu viewport,
+window.app-dialog dropdown.settings-voice-dropdown > popover.menu scrolledwindow,
+window.app-dialog dropdown.settings-voice-dropdown > popover.menu viewport,
 .editor-sidebar-pane dropdown > popover.menu scrolledwindow,
 .editor-sidebar-pane dropdown > popover.menu viewport {
   background-color: transparent;
@@ -1584,12 +1783,15 @@ window.app-dialog dropdown.settings-theme-dropdown > popover.menu viewport,
   box-shadow: none;
 }
 window.app-dialog dropdown.settings-theme-dropdown > popover.menu > arrow,
+window.app-dialog dropdown.settings-voice-dropdown > popover.menu > arrow,
 .editor-sidebar-pane dropdown > popover.menu > arrow {
   background-color: @bg_popover;
   color: @bg_popover;
 }
 window.app-dialog dropdown.settings-theme-dropdown > popover.menu listview,
 window.app-dialog dropdown.settings-theme-dropdown > popover.menu row,
+window.app-dialog dropdown.settings-voice-dropdown > popover.menu listview,
+window.app-dialog dropdown.settings-voice-dropdown > popover.menu row,
 .editor-sidebar-pane dropdown > popover.menu listview,
 .editor-sidebar-pane dropdown > popover.menu row {
   background-color: transparent;
@@ -1597,6 +1799,8 @@ window.app-dialog dropdown.settings-theme-dropdown > popover.menu row,
 }
 window.app-dialog dropdown.settings-theme-dropdown > popover.menu row:hover,
 window.app-dialog dropdown.settings-theme-dropdown > popover.menu row:selected,
+window.app-dialog dropdown.settings-voice-dropdown > popover.menu row:hover,
+window.app-dialog dropdown.settings-voice-dropdown > popover.menu row:selected,
 .editor-sidebar-pane dropdown > popover.menu row:hover,
 .editor-sidebar-pane dropdown > popover.menu row:selected {
   background-color: alpha(@accent_color, 0.18);

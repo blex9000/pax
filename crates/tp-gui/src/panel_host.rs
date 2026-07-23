@@ -1,6 +1,7 @@
 use gtk4::glib;
 use gtk4::prelude::*;
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
+use std::collections::HashMap;
 use std::rc::Rc;
 
 use crate::panels::SshConnectionState;
@@ -45,7 +46,23 @@ pub(crate) const OSC_TITLE_MAX_WIDTH_CHARS: i32 = 60;
 //   intercepts motion events before GTK's built-in handler.
 // ─────────────────────────────────────────────────────────────────────────
 
-use crate::panels::{PanelBackend, PanelCwdCallback, PanelStatusCallback, PanelTitleCallback};
+use crate::panels::{
+    PanelBackend, PanelCwdCallback, PanelOutputCallback, PanelStatusCallback, PanelTitleCallback,
+};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct TerminalRuntimeSnapshot {
+    pub busy: bool,
+    pub command_generation: u64,
+    pub completed_generation: u64,
+    pub output_revision: u64,
+    pub last_output_at_ms: i64,
+}
+
+type StatusListener = Box<dyn Fn(bool)>;
+type OutputListener = Box<dyn Fn()>;
+type StatusListenerMap = HashMap<u64, StatusListener>;
+type OutputListenerMap = HashMap<u64, OutputListener>;
 
 /// Strip control characters (C0 except tab, and DEL) and truncate to
 /// `MAX_OSC_TITLE_LEN` characters. Used to render OSC 0/2 title payloads
@@ -65,6 +82,13 @@ pub(crate) fn sanitize_osc_title(raw: &str) -> String {
     } else {
         title
     }
+}
+
+fn now_millis() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_millis() as i64)
+        .unwrap_or(0)
 }
 
 /// Actions that can be triggered from panel/tab menus.
@@ -157,7 +181,6 @@ pub struct PanelHost {
     status_icon: gtk4::Image,
     sync_button: gtk4::Button,
     zoom_button: gtk4::Button,
-    voice_button: gtk4::Button,
     ssh_button: gtk4::Button,
     ssh_separator: gtk4::Separator,
     ssh_status_bar: gtk4::Box,
@@ -185,10 +208,17 @@ pub struct PanelHost {
     sync_input_cb_ref: Rc<RefCell<Option<crate::panels::PanelInputCallback>>>,
     /// External observers of OSC 133 waiting-state transitions. Used so
     /// parent tab labels can mirror the header indicator.
-    status_listeners: Rc<RefCell<Vec<Box<dyn Fn(bool)>>>>,
+    status_listeners: Rc<RefCell<Vec<StatusListener>>>,
     /// Last known waiting state. Replayed to new listeners on registration
     /// so mirrors added after a layout rebuild match the current shell state.
-    last_waiting: Rc<std::cell::Cell<bool>>,
+    last_waiting: Rc<Cell<bool>>,
+    command_generation: Rc<Cell<u64>>,
+    completed_generation: Rc<Cell<u64>>,
+    output_revision: Rc<Cell<u64>>,
+    last_output_at_ms: Rc<Cell<i64>>,
+    runtime_listener_serial: Rc<Cell<u64>>,
+    runtime_status_listeners: Rc<RefCell<StatusListenerMap>>,
+    output_listeners: Rc<RefCell<OutputListenerMap>>,
 }
 
 impl Drop for PanelHost {
@@ -433,32 +463,6 @@ impl PanelHost {
             });
         }
 
-        // Voice command button — shared by all input-capable panels. The
-        // current slice uses a typed transcript popover; the audio/STT backend
-        // will feed the same protocol entry point.
-        let voice_button = crate::widgets::voice_command::build_voice_command_button(
-            Rc::new({
-                let backend_ref = backend.clone();
-                move || {
-                    backend_ref
-                        .try_borrow()
-                        .ok()
-                        .and_then(|borrowed| borrowed.as_ref().map(|b| b.panel_type().to_string()))
-                }
-            }),
-            Rc::new({
-                let backend_ref = backend.clone();
-                move |bytes: &[u8]| {
-                    backend_ref
-                        .try_borrow()
-                        .ok()
-                        .and_then(|borrowed| borrowed.as_ref().map(|b| b.write_input(bytes)))
-                        .unwrap_or(false)
-                }
-            }),
-        );
-        voice_button.set_visible(false);
-
         let ssh_status_bar = gtk4::Box::new(gtk4::Orientation::Horizontal, 6);
         ssh_status_bar.add_css_class("panel-ssh-status-bar");
         ssh_status_bar.set_visible(false);
@@ -622,7 +626,7 @@ impl PanelHost {
         }
 
         // Layout: first row start=[icon][title], center=osc_title,
-        // end=[sync][zoom][voice][history][menu]. SSH panels get a second row
+        // end=[sync][zoom][history][menu]. SSH panels get a second row
         // below with target, connection state, and connect/disconnect action.
         let start_box = gtk4::Box::new(gtk4::Orientation::Horizontal, 4);
         start_box.append(&type_icon);
@@ -631,7 +635,6 @@ impl PanelHost {
         let end_box = gtk4::Box::new(gtk4::Orientation::Horizontal, 4);
         end_box.append(&sync_button);
         end_box.append(&zoom_button);
-        end_box.append(&voice_button);
         end_box.append(&history_button);
         end_box.append(&menu_button);
 
@@ -785,7 +788,6 @@ impl PanelHost {
             status_icon,
             sync_button,
             zoom_button,
-            voice_button,
             ssh_button,
             ssh_separator,
             ssh_status_bar,
@@ -807,7 +809,14 @@ impl PanelHost {
             panel_menu_sibling_cache,
             sync_input_cb_ref: Rc::new(RefCell::new(None)),
             status_listeners: Rc::new(RefCell::new(Vec::new())),
-            last_waiting: Rc::new(std::cell::Cell::new(false)),
+            last_waiting: Rc::new(Cell::new(false)),
+            command_generation: Rc::new(Cell::new(0)),
+            completed_generation: Rc::new(Cell::new(0)),
+            output_revision: Rc::new(Cell::new(0)),
+            last_output_at_ms: Rc::new(Cell::new(now_millis())),
+            runtime_listener_serial: Rc::new(Cell::new(0)),
+            runtime_status_listeners: Rc::new(RefCell::new(HashMap::new())),
+            output_listeners: Rc::new(RefCell::new(HashMap::new())),
         }
     }
 
@@ -817,6 +826,36 @@ impl PanelHost {
     pub fn add_status_listener(&self, cb: Box<dyn Fn(bool)>) {
         cb(self.last_waiting.get());
         self.status_listeners.borrow_mut().push(cb);
+    }
+
+    pub(crate) fn add_terminal_runtime_listener(
+        &self,
+        status_cb: StatusListener,
+        output_cb: OutputListener,
+    ) -> u64 {
+        let id = self.runtime_listener_serial.get().wrapping_add(1);
+        self.runtime_listener_serial.set(id);
+        status_cb(self.last_waiting.get());
+        self.runtime_status_listeners
+            .borrow_mut()
+            .insert(id, status_cb);
+        self.output_listeners.borrow_mut().insert(id, output_cb);
+        id
+    }
+
+    pub(crate) fn remove_terminal_runtime_listener(&self, id: u64) {
+        self.runtime_status_listeners.borrow_mut().remove(&id);
+        self.output_listeners.borrow_mut().remove(&id);
+    }
+
+    pub(crate) fn terminal_runtime_snapshot(&self) -> TerminalRuntimeSnapshot {
+        TerminalRuntimeSnapshot {
+            busy: self.last_waiting.get(),
+            command_generation: self.command_generation.get(),
+            completed_generation: self.completed_generation.get(),
+            output_revision: self.output_revision.get(),
+            last_output_at_ms: self.last_output_at_ms.get(),
+        }
     }
 
     /// Update the action callback (rebuilds the popover menu; buttons use shared ref automatically).
@@ -954,8 +993,6 @@ impl PanelHost {
             }
         }
 
-        self.voice_button.set_visible(backend.accepts_input());
-
         // Reset any leftover OSC title from a previous backend and wire the
         // new backend to push title updates into the centered label. The Label
         // widget is a GObject — cloning bumps a refcount, no cycle with Self.
@@ -980,15 +1017,38 @@ impl PanelHost {
         self.last_waiting.set(false);
         let status_icon = self.status_icon.clone();
         let listeners = self.status_listeners.clone();
+        let runtime_listeners = self.runtime_status_listeners.clone();
         let last_waiting = self.last_waiting.clone();
+        let command_generation = self.command_generation.clone();
+        let completed_generation = self.completed_generation.clone();
         let status_cb: PanelStatusCallback = Rc::new(move |waiting: bool| {
             status_icon.set_visible(waiting);
-            last_waiting.set(waiting);
+            let previous = last_waiting.replace(waiting);
+            if waiting && !previous {
+                command_generation.set(command_generation.get().wrapping_add(1));
+            } else if !waiting && previous {
+                completed_generation.set(command_generation.get());
+            }
             for l in listeners.borrow().iter() {
                 l(waiting);
             }
+            for listener in runtime_listeners.borrow().values() {
+                listener(waiting);
+            }
         });
         backend.set_status_callback(Some(status_cb));
+
+        let output_revision = self.output_revision.clone();
+        let last_output_at_ms = self.last_output_at_ms.clone();
+        let output_listeners = self.output_listeners.clone();
+        let output_cb: PanelOutputCallback = Rc::new(move || {
+            output_revision.set(output_revision.get().wrapping_add(1));
+            last_output_at_ms.set(now_millis());
+            for listener in output_listeners.borrow().values() {
+                listener();
+            }
+        });
+        backend.set_output_callback(Some(output_cb));
 
         // OSC 7 current-directory-uri → footer bar. Same formatter for VTE
         // (signal-driven) and PTY (byte-scanner driven) backends.
@@ -1259,6 +1319,20 @@ impl PanelHost {
         } else {
             false
         }
+    }
+
+    pub fn text_content(&self) -> Option<String> {
+        self.backend
+            .borrow()
+            .as_ref()
+            .and_then(|backend| backend.get_text_content())
+    }
+
+    pub fn replace_text_content(&self, text: &str) -> bool {
+        self.backend
+            .borrow()
+            .as_ref()
+            .is_some_and(|backend| backend.replace_text_content(text))
     }
 
     pub fn accepts_input(&self) -> bool {

@@ -760,6 +760,53 @@ impl WorkspaceView {
         self.focus_panel_after_rebuild(panel_id)
     }
 
+    /// Select a workspace tab by its visible label and focus the first panel
+    /// it contains. Exact case-insensitive matches win; a partial match is
+    /// accepted only when it identifies one tab unambiguously.
+    pub(crate) fn focus_tab_by_label(&mut self, query: &str) -> Result<String, String> {
+        let target = resolve_assistant_tab_target(&self.workspace.layout, query)?;
+        if !self.focus_panel(&target.panel_id) {
+            return Err(format!(
+                "Il tab '{}' esiste, ma il pannello {} non e' disponibile.",
+                target.label, target.panel_id
+            ));
+        }
+        Ok(target.label)
+    }
+
+    pub(crate) fn close_tab_by_label(
+        &mut self,
+        query: &str,
+    ) -> Result<(String, Vec<String>), String> {
+        let target = resolve_assistant_tab_target(&self.workspace.layout, query)?;
+        if target.panel_ids.len() >= self.workspace.panels.len() {
+            return Err("Non posso eliminare l'ultimo tab del workspace.".to_string());
+        }
+
+        for panel_id in &target.panel_ids {
+            self.run_before_close(panel_id);
+            self.update_layout_remove(panel_id);
+        }
+        self.workspace
+            .panels
+            .retain(|panel| !target.panel_ids.contains(&panel.id));
+        for panel_id in &target.panel_ids {
+            if let Some(host) = self.hosts.remove(panel_id) {
+                host.permanent_close_backend();
+                detach_widget(host.widget());
+            }
+        }
+
+        let next_panel = self
+            .workspace
+            .layout
+            .panel_ids()
+            .first()
+            .map(|panel_id| (*panel_id).to_string());
+        self.apply_layout_change(next_panel.as_deref());
+        Ok((target.label, target.panel_ids))
+    }
+
     pub fn is_dirty(&self) -> bool {
         self.dirty
     }
@@ -996,6 +1043,136 @@ impl WorkspaceView {
 
     pub fn workspace(&self) -> &Workspace {
         &self.workspace
+    }
+
+    /// Build the provider-neutral, secret-free workspace context consumed by
+    /// the assistant. Runtime tab selection and focus are read from the live
+    /// GTK tree; panel configuration is projected into explicit safe fields.
+    pub fn assistant_snapshot(&self) -> pax_assistant::WorkspaceSnapshot {
+        use pax_assistant::{
+            PanelContextSnapshot, PanelKind, PanelSnapshot, RemoteTargetSnapshot,
+            WorkspaceSnapshot, WORKSPACE_SNAPSHOT_VERSION,
+        };
+
+        let focused_panel_id = self.focused_panel_id().map(str::to_string);
+        let active_tabs = collect_assistant_active_tabs(
+            &self.root_widget,
+            &self.workspace.layout,
+            self.zoomed_panel.is_none(),
+            focused_panel_id.as_deref(),
+            &self.pre_zoom_active_tabs,
+        );
+        let selections = active_tabs
+            .iter()
+            .map(|tab| (tab.path.clone(), tab.selected_index))
+            .collect::<HashMap<_, _>>();
+        let visible_panels = if let Some(zoomed) = &self.zoomed_panel {
+            std::iter::once(zoomed.clone()).collect()
+        } else {
+            let mut visible = std::collections::HashSet::new();
+            collect_visible_assistant_panels(
+                &self.workspace.layout,
+                &mut Vec::new(),
+                &selections,
+                &mut visible,
+            );
+            visible
+        };
+
+        let panels = self
+            .workspace
+            .panels
+            .iter()
+            .map(|panel| {
+                let effective_type = panel.effective_type();
+                let (kind, context) = match &effective_type {
+                    PanelType::Empty => (PanelKind::Empty, PanelContextSnapshot::Empty),
+                    PanelType::Terminal | PanelType::Ssh { .. } | PanelType::RemoteTmux { .. } => {
+                        let remote =
+                            panel
+                                .effective_ssh()
+                                .as_ref()
+                                .map(|ssh| RemoteTargetSnapshot {
+                                    host: ssh.host.clone(),
+                                    port: ssh.port,
+                                    user: ssh.user.clone(),
+                                    tmux_session: ssh.tmux_session.clone(),
+                                });
+                        (
+                            PanelKind::Terminal,
+                            PanelContextSnapshot::Terminal {
+                                configured_cwd: panel.cwd.clone(),
+                                ssh_enabled: panel.ssh_enabled,
+                                remote,
+                            },
+                        )
+                    }
+                    PanelType::Markdown { file, storage } => (
+                        PanelKind::Markdown,
+                        PanelContextSnapshot::Markdown {
+                            storage: match storage {
+                                MarkdownStorage::Database => "database",
+                                MarkdownStorage::File => "file",
+                            }
+                            .to_string(),
+                            file: non_empty_string(file),
+                        },
+                    ),
+                    PanelType::CodeEditor {
+                        root_dir,
+                        ssh,
+                        remote_path,
+                        ..
+                    } => (
+                        PanelKind::CodeEditor,
+                        PanelContextSnapshot::CodeEditor {
+                            root_dir: root_dir.clone(),
+                            remote_path: remote_path.clone().filter(|path| !path.trim().is_empty()),
+                            remote: ssh.as_ref().map(safe_remote_target),
+                        },
+                    ),
+                    PanelType::DockerHelp { context, ssh, .. } => (
+                        PanelKind::DockerHelp,
+                        PanelContextSnapshot::DockerHelp {
+                            docker_context: context
+                                .clone()
+                                .filter(|value| !value.trim().is_empty()),
+                            remote: ssh.as_ref().map(safe_remote_target),
+                        },
+                    ),
+                    PanelType::Note => (PanelKind::Note, PanelContextSnapshot::Note),
+                };
+
+                PanelSnapshot {
+                    id: panel.id.clone(),
+                    uuid: panel.uuid,
+                    name: panel.name.clone(),
+                    kind,
+                    focused: focused_panel_id.as_deref() == Some(panel.id.as_str()),
+                    visible: visible_panels.contains(&panel.id),
+                    collapsed: self
+                        .hosts
+                        .get(&panel.id)
+                        .is_some_and(crate::panel_host::PanelHost::is_collapsed),
+                    sync_input: self.sync_panels.contains(&panel.id),
+                    context,
+                }
+            })
+            .collect();
+
+        WorkspaceSnapshot {
+            version: WORKSPACE_SNAPSHOT_VERSION,
+            workspace_id: self.workspace.id,
+            record_key: self.record_key(),
+            name: self.workspace.name.clone(),
+            config_path: self.config_path_str(),
+            dirty: self.dirty,
+            focused_panel_id,
+            zoomed_panel_id: self.zoomed_panel.clone(),
+            active_tabs,
+            layout: pax_assistant::LayoutSnapshot::from(&self.workspace.layout),
+            panels,
+        }
     }
 
     pub fn workspace_mut(&mut self) -> &mut Workspace {
@@ -1864,6 +2041,133 @@ fn find_workspace_notebook_by_path(
     None
 }
 
+fn collect_assistant_active_tabs(
+    root_widget: &gtk4::Widget,
+    layout: &LayoutNode,
+    read_widgets: bool,
+    focused_panel_id: Option<&str>,
+    fallback_active_panel_ids: &[String],
+) -> Vec<pax_assistant::ActiveTabSnapshot> {
+    fn walk(
+        root_widget: &gtk4::Widget,
+        node: &LayoutNode,
+        path: &mut Vec<usize>,
+        read_widgets: bool,
+        focused_panel_id: Option<&str>,
+        fallback_active_panel_ids: &[String],
+        result: &mut Vec<pax_assistant::ActiveTabSnapshot>,
+    ) {
+        let children = match node {
+            LayoutNode::Panel { .. } => return,
+            LayoutNode::Hsplit { children, .. } | LayoutNode::Vsplit { children, .. } => children,
+            LayoutNode::Tabs {
+                children,
+                labels,
+                tab_ids,
+            } => {
+                let selected_index = read_widgets
+                    .then(|| {
+                        find_workspace_notebook_by_path(root_widget, path)
+                            .and_then(|notebook| notebook.current_page())
+                            .map(|index| index as usize)
+                    })
+                    .flatten()
+                    .or_else(|| {
+                        focused_panel_id.and_then(|focused| {
+                            children.iter().position(|child| {
+                                crate::layout_ops::is_panel_with_id(child, focused)
+                            })
+                        })
+                    })
+                    .or_else(|| {
+                        children.iter().position(|child| {
+                            fallback_active_panel_ids.iter().any(|panel_id| {
+                                crate::layout_ops::is_panel_with_id(child, panel_id)
+                            })
+                        })
+                    })
+                    .unwrap_or(0)
+                    .min(children.len().saturating_sub(1));
+
+                result.push(pax_assistant::ActiveTabSnapshot {
+                    path: path.clone(),
+                    selected_index,
+                    tab_id: tab_ids.get(selected_index).cloned(),
+                    label: labels.get(selected_index).cloned(),
+                });
+                children
+            }
+        };
+
+        for (index, child) in children.iter().enumerate() {
+            path.push(index);
+            walk(
+                root_widget,
+                child,
+                path,
+                read_widgets,
+                focused_panel_id,
+                fallback_active_panel_ids,
+                result,
+            );
+            path.pop();
+        }
+    }
+
+    let mut result = Vec::new();
+    walk(
+        root_widget,
+        layout,
+        &mut Vec::new(),
+        read_widgets,
+        focused_panel_id,
+        fallback_active_panel_ids,
+        &mut result,
+    );
+    result
+}
+
+fn collect_visible_assistant_panels(
+    node: &LayoutNode,
+    path: &mut Vec<usize>,
+    selections: &HashMap<Vec<usize>, usize>,
+    visible: &mut std::collections::HashSet<String>,
+) {
+    match node {
+        LayoutNode::Panel { id } => {
+            visible.insert(id.clone());
+        }
+        LayoutNode::Hsplit { children, .. } | LayoutNode::Vsplit { children, .. } => {
+            for (index, child) in children.iter().enumerate() {
+                path.push(index);
+                collect_visible_assistant_panels(child, path, selections, visible);
+                path.pop();
+            }
+        }
+        LayoutNode::Tabs { children, .. } => {
+            let selected = selections.get(path).copied().unwrap_or(0);
+            if let Some(child) = children.get(selected) {
+                path.push(selected);
+                collect_visible_assistant_panels(child, path, selections, visible);
+                path.pop();
+            }
+        }
+    }
+}
+
+fn safe_remote_target(ssh: &pax_core::workspace::SshConfig) -> pax_assistant::RemoteTargetSnapshot {
+    pax_assistant::RemoteTargetSnapshot {
+        host: ssh.host.clone(),
+        port: ssh.port,
+        user: ssh.user.clone(),
+        tmux_session: ssh.tmux_session.clone(),
+    }
+}
+
+fn non_empty_string(value: &str) -> Option<String> {
+    (!value.trim().is_empty()).then(|| value.to_string())
+}
+
 fn select_workspace_tabs_for_panel(
     root_widget: &gtk4::Widget,
     layout: &LayoutNode,
@@ -1887,6 +2191,111 @@ fn select_workspace_tabs_for_panel(
         }
     }
     selected_any
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct AssistantTabTarget {
+    label: String,
+    panel_id: String,
+    panel_ids: Vec<String>,
+}
+
+fn resolve_assistant_tab_target(
+    layout: &LayoutNode,
+    query: &str,
+) -> Result<AssistantTabTarget, String> {
+    let query = query.trim();
+    if query.is_empty() {
+        return Err("Il nome del tab non puo' essere vuoto.".to_string());
+    }
+
+    let mut targets = Vec::new();
+    collect_assistant_tab_targets(layout, &mut targets);
+    let exact = targets
+        .iter()
+        .filter(|target| target.label.eq_ignore_ascii_case(query))
+        .cloned()
+        .collect::<Vec<_>>();
+    if exact.len() == 1 {
+        return Ok(exact[0].clone());
+    }
+    if exact.len() > 1 {
+        return Err(format!(
+            "Esistono piu' tab chiamati '{}'; specifica quale intendi.",
+            query
+        ));
+    }
+
+    let normalized = query.to_lowercase();
+    let partial = targets
+        .iter()
+        .filter(|target| target.label.to_lowercase().contains(&normalized))
+        .cloned()
+        .collect::<Vec<_>>();
+    if partial.len() == 1 {
+        return Ok(partial[0].clone());
+    }
+    if partial.len() > 1 {
+        let labels = partial
+            .iter()
+            .map(|target| target.label.as_str())
+            .collect::<Vec<_>>()
+            .join(", ");
+        return Err(format!(
+            "Il nome '{}' e' ambiguo. Corrispondenze: {}.",
+            query, labels
+        ));
+    }
+
+    let mut labels = targets
+        .iter()
+        .map(|target| target.label.clone())
+        .collect::<Vec<_>>();
+    labels.sort_by_key(|label| label.to_lowercase());
+    labels.dedup_by(|left, right| left.eq_ignore_ascii_case(right));
+    Err(if labels.is_empty() {
+        "Il workspace non contiene tab selezionabili.".to_string()
+    } else {
+        format!(
+            "Tab '{}' non trovato. Tab disponibili: {}.",
+            query,
+            labels.join(", ")
+        )
+    })
+}
+
+fn collect_assistant_tab_targets(node: &LayoutNode, targets: &mut Vec<AssistantTabTarget>) {
+    match node {
+        LayoutNode::Panel { .. } => {}
+        LayoutNode::Hsplit { children, .. } | LayoutNode::Vsplit { children, .. } => {
+            for child in children {
+                collect_assistant_tab_targets(child, targets);
+            }
+        }
+        LayoutNode::Tabs {
+            children, labels, ..
+        } => {
+            for (index, child) in children.iter().enumerate() {
+                if let (Some(label), Some(panel_id)) = (labels.get(index), first_panel_id(child)) {
+                    targets.push(AssistantTabTarget {
+                        label: label.clone(),
+                        panel_id: panel_id.to_string(),
+                        panel_ids: child.panel_ids().into_iter().map(str::to_string).collect(),
+                    });
+                }
+                collect_assistant_tab_targets(child, targets);
+            }
+        }
+    }
+}
+
+fn first_panel_id(node: &LayoutNode) -> Option<&str> {
+    match node {
+        LayoutNode::Panel { id } => Some(id),
+        LayoutNode::Hsplit { children, .. }
+        | LayoutNode::Vsplit { children, .. }
+        | LayoutNode::Tabs { children, .. } => children.iter().find_map(first_panel_id),
+    }
 }
 
 /// Whether two layout trees differ in any way a user would notice. Same
@@ -2252,6 +2661,198 @@ mod tests {
     }
 
     #[test]
+    fn assistant_resolves_exact_and_unique_partial_tab_labels() {
+        let layout = tabs(
+            vec![
+                panel("terminal"),
+                tabs(
+                    vec![panel("notes"), panel("readme")],
+                    &["Note progetto", "README Markdown"],
+                ),
+            ],
+            &["Terminali", "Documentazione"],
+        );
+
+        assert_eq!(
+            resolve_assistant_tab_target(&layout, "documentazione").unwrap(),
+            AssistantTabTarget {
+                label: "Documentazione".to_string(),
+                panel_id: "notes".to_string(),
+                panel_ids: vec!["notes".to_string(), "readme".to_string()],
+            }
+        );
+        assert_eq!(
+            resolve_assistant_tab_target(&layout, "readme").unwrap(),
+            AssistantTabTarget {
+                label: "README Markdown".to_string(),
+                panel_id: "readme".to_string(),
+                panel_ids: vec!["readme".to_string()],
+            }
+        );
+    }
+
+    #[test]
+    fn assistant_reports_ambiguous_and_missing_tab_labels() {
+        let layout = tabs(
+            vec![panel("one"), panel("two"), panel("three")],
+            &["Log API", "Log worker", "README"],
+        );
+
+        let ambiguous = resolve_assistant_tab_target(&layout, "log").unwrap_err();
+        assert!(ambiguous.contains("ambiguo"));
+        assert!(ambiguous.contains("Log API"));
+        assert!(ambiguous.contains("Log worker"));
+
+        let missing = resolve_assistant_tab_target(&layout, "database").unwrap_err();
+        assert!(missing.contains("non trovato"));
+        assert!(missing.contains("README"));
+    }
+
+    #[test]
+    #[serial]
+    fn assistant_focuses_the_panel_inside_the_selected_tab() {
+        crate::test_support::run_on_gtk_thread(|| {
+            let workspace = sample_workspace();
+            let mut view = WorkspaceView::build(&workspace, None);
+
+            assert_eq!(view.focus_tab_by_label("tab-b").unwrap(), "tab-b");
+            assert_eq!(view.focused_panel_id(), Some("b"));
+            assert_eq!(view.assistant_snapshot().active_tabs[0].selected_index, 1);
+        });
+    }
+
+    #[test]
+    #[serial]
+    fn assistant_workspace_action_splits_the_requested_panel() {
+        crate::test_support::run_on_gtk_thread(|| {
+            let workspace = sample_workspace();
+            let mut view = WorkspaceView::build(&workspace, None);
+            let call = crate::voice_tools::VoiceToolCall {
+                id: "split-1".into(),
+                name: crate::voice_tools::WORKSPACE_ACTION_TOOL.into(),
+                arguments: serde_json::json!({
+                    "action": "split_vertical",
+                    "panel_id": "a"
+                }),
+            };
+
+            let result = crate::voice_tools::execute_workspace_tool(&mut view, &call).unwrap();
+
+            assert_eq!(result.response["status"], "ok");
+            assert_eq!(result.response["result"]["action"], "split_vertical");
+            assert_eq!(
+                result.response["workspace"]["panels"]
+                    .as_array()
+                    .map(Vec::len),
+                Some(3)
+            );
+            assert_eq!(view.workspace().panels.len(), 3);
+        });
+    }
+
+    #[test]
+    #[serial]
+    fn assistant_workspace_action_moves_the_requested_panel() {
+        crate::test_support::run_on_gtk_thread(|| {
+            let workspace = sample_workspace();
+            let mut view = WorkspaceView::build(&workspace, None);
+            let call = crate::voice_tools::VoiceToolCall {
+                id: "move-1".into(),
+                name: crate::voice_tools::WORKSPACE_ACTION_TOOL.into(),
+                arguments: serde_json::json!({
+                    "action": "move_left",
+                    "panel_id": "b"
+                }),
+            };
+
+            let result = crate::voice_tools::execute_workspace_tool(&mut view, &call).unwrap();
+
+            assert_eq!(result.response["status"], "ok");
+            assert_eq!(result.response["result"]["action"], "move_left");
+            assert_eq!(view.workspace().layout.panel_ids(), vec!["b", "a"]);
+            assert_eq!(view.focused_panel_id(), Some("b"));
+        });
+    }
+
+    #[test]
+    #[serial]
+    fn assistant_workspace_action_requires_confirmation_before_close() {
+        crate::test_support::run_on_gtk_thread(|| {
+            let workspace = sample_workspace();
+            let mut view = WorkspaceView::build(&workspace, None);
+            let call = crate::voice_tools::VoiceToolCall {
+                id: "close-1".into(),
+                name: crate::voice_tools::WORKSPACE_ACTION_TOOL.into(),
+                arguments: serde_json::json!({
+                    "action": "close_panel",
+                    "panel_id": "a"
+                }),
+            };
+
+            let result = crate::voice_tools::execute_workspace_tool(&mut view, &call).unwrap();
+
+            assert_eq!(result.response["status"], "error");
+            assert!(result.response["error"]
+                .as_str()
+                .is_some_and(|error| error.contains("conferma esplicita")));
+            assert_eq!(view.workspace().panels.len(), 2);
+        });
+    }
+
+    #[test]
+    #[serial]
+    fn assistant_can_close_a_tab_containing_multiple_panels() {
+        crate::test_support::run_on_gtk_thread(|| {
+            let workspace = Workspace {
+                name: "demo".to_string(),
+                id: uuid::Uuid::new_v4(),
+                layout: tabs(
+                    vec![
+                        LayoutNode::Hsplit {
+                            children: vec![panel("a"), panel("b")],
+                            ratios: vec![0.5, 0.5],
+                        },
+                        panel("c"),
+                    ],
+                    &["FREEFLOW", "QUALITY-GURU_DOCVAL"],
+                ),
+                panels: vec![
+                    panel_config("a", "Panel A"),
+                    panel_config("b", "Panel B"),
+                    panel_config("c", "Panel C"),
+                ],
+                groups: Vec::new(),
+                alerts: Vec::new(),
+                startup_script: None,
+                notes_file: None,
+                settings: Default::default(),
+                ssh_configs: Vec::new(),
+            };
+            let mut view = WorkspaceView::build(&workspace, None);
+            let call = crate::voice_tools::VoiceToolCall {
+                id: "close-tab-1".into(),
+                name: crate::voice_tools::WORKSPACE_ACTION_TOOL.into(),
+                arguments: serde_json::json!({
+                    "action": "close_tab",
+                    "tab_name": "FREEFLOW",
+                    "confirm": true
+                }),
+            };
+
+            let result = crate::voice_tools::execute_workspace_tool(&mut view, &call).unwrap();
+
+            assert_eq!(result.response["status"], "ok");
+            assert_eq!(
+                result.response["result"]["detail"]["closed_panel_ids"],
+                serde_json::json!(["a", "b"])
+            );
+            assert_eq!(view.workspace().panels.len(), 1);
+            assert_eq!(view.workspace().panels[0].id, "c");
+            assert_eq!(view.workspace().layout.panel_ids(), vec!["c"]);
+        });
+    }
+
+    #[test]
     #[serial]
     fn select_workspace_tabs_for_panel_reveals_ancestor_tabs() {
         crate::test_support::run_on_gtk_thread(|| {
@@ -2410,6 +3011,39 @@ mod tests {
             let changed = view.apply_synced_layout_if_changed(view.workspace().layout.clone());
             assert!(!changed);
             assert!(!view.is_dirty());
+        });
+    }
+
+    #[test]
+    #[serial]
+    fn assistant_snapshot_tracks_focus_tabs_and_omits_secrets() {
+        crate::test_support::run_on_gtk_thread(|| {
+            let mut workspace = sample_workspace();
+            workspace.panels[0]
+                .env
+                .insert("API_TOKEN".into(), "must-not-leak".into());
+            workspace.panels[0].pre_script = Some("echo must-not-leak".into());
+            workspace.panels[0].ssh = Some(pax_core::workspace::SshConfig {
+                host: "example.test".into(),
+                port: 22,
+                user: Some("alice".into()),
+                password: Some("must-not-leak".into()),
+                identity_file: None,
+                tmux_session: None,
+            });
+
+            let mut view = WorkspaceView::build(&workspace, None);
+            assert!(view.focus_panel("b"));
+            let snapshot = view.assistant_snapshot();
+
+            assert_eq!(snapshot.focused_panel_id.as_deref(), Some("b"));
+            assert_eq!(snapshot.active_tabs[0].selected_index, 1);
+            assert!(!snapshot.panels[0].visible);
+            assert!(snapshot.panels[1].visible);
+
+            let provider_context = snapshot.provider_context().to_string();
+            assert!(!provider_context.contains("must-not-leak"));
+            assert!(!provider_context.contains("API_TOKEN"));
         });
     }
 }

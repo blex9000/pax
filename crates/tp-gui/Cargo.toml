@@ -9,6 +9,7 @@ vte = ["dep:vte4"]
 sourceview = ["dep:sourceview5"]
 
 [dependencies]
+pax-assistant = { workspace = true }
 pax-core = { workspace = true }
 pax-db = { workspace = true }
 tokio = { workspace = true }
@@ -16,6 +17,11 @@ anyhow = { workspace = true }
 tracing = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+base64 = "0.22"
+futures-util = "0.3"
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+tokio-tungstenite = { version = "0.28", default-features = false, features = ["connect", "rustls-tls-webpki-roots"] }
+url = "2"
 
 gtk4 = { version = "0.9", features = ["v4_10"] }
 libadwaita = { version = "0.7", features = ["v1_4"] }
