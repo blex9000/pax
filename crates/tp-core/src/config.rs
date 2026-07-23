@@ -165,52 +165,6 @@ mod tests {
     }
 
     #[test]
-    fn test_load_default_workspace() {
-        let manifest_dir = env!("CARGO_MANIFEST_DIR");
-        let path = std::path::Path::new(manifest_dir)
-            .parent()
-            .unwrap()
-            .parent()
-            .unwrap()
-            .join("config/default_workspace.json");
-        if path.exists() {
-            let ws = load_workspace(&path).unwrap();
-            assert_eq!(ws.name, "default");
-            assert_eq!(ws.panels.len(), 3);
-            assert_eq!(ws.groups.len(), 1);
-            assert_eq!(ws.alerts.len(), 1);
-            assert_eq!(ws.alerts[0].actions.len(), 2);
-        }
-    }
-
-    #[test]
-    fn test_load_saved_workspace() {
-        let manifest_dir = env!("CARGO_MANIFEST_DIR");
-        let path = std::path::Path::new(manifest_dir)
-            .parent()
-            .unwrap()
-            .parent()
-            .unwrap()
-            .join("config/workspace_save_test.json");
-        if path.exists() {
-            let ws = load_workspace(&path).unwrap();
-            assert_eq!(ws.panels.len(), 4);
-            // Verify layout has all panel IDs
-            let ids = ws.layout.panel_ids();
-            assert_eq!(ids.len(), 4);
-            assert!(ids.contains(&"p1"));
-            assert!(ids.contains(&"p2"));
-            assert!(ids.contains(&"p3"));
-            assert!(ids.contains(&"p4"));
-            // Verify types
-            for p in &ws.panels {
-                println!("  {} -> {:?}", p.id, p.effective_type());
-                assert_ne!(p.effective_type(), crate::workspace::PanelType::Empty);
-            }
-        }
-    }
-
-    #[test]
     fn test_save_load_roundtrip() {
         let mut f = NamedTempFile::new().unwrap();
         f.write_all(sample_json().as_bytes()).unwrap();

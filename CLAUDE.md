@@ -66,6 +66,6 @@ crates/
 
 - Database: `~/.local/share/pax/pax.db` (SQLite3 with FTS5)
 - Log file: `~/.local/share/pax/pax.log`
+- Workspaces: `$XDG_DATA_HOME/pax/workspaces/` by default, or a user-selected JSON path
 - Migrations: `migrations/001_initial.sql`
 - Theme CSS: `resources/style.css`
-- Example configs: `config/*.json`

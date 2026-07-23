@@ -175,10 +175,6 @@ pax/
 │   │       ├── panel_config.rs     # Dialog config pannello (CWD, script, min size)
 │   │       └── settings.rs         # Dialog impostazioni workspace
 │   └── pax-cli/src/main.rs          # Entry point CLI
-├── config/
-│   ├── default_workspace.json      # 3 terminali in split
-│   ├── mixed_workspace.json        # Terminal + markdown + browser
-│   └── tabs_workspace.json         # Split + tabs annidati
 ├── migrations/001_initial.sql
 └── resources/
     └── style.css                   # GTK CSS theming

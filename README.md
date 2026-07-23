@@ -272,7 +272,6 @@ pax/
 │   │           ├── git_log.rs        # Git history view
 │   │           └── project_search.rs # Project-wide search
 │   └── pax-cli/     # Entry point CLI (clap)
-├── config/           # Workspace JSON di esempio
 ├── resources/        # Icone, CSS, style scheme sourceview
 ───────
 

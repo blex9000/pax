@@ -176,7 +176,7 @@ Manual, executed with the build after each coherent step (per project convention
 
 1. Open `README.md` in the editor → rendered view shows headers, bold, code blocks, lists.
 2. Click Source → edit text → `Ctrl+S` → reopen in file manager / `stat` mtime confirms save → click Rendered → edits visible.
-3. Open `config/example.json` → still opens in `SourceView` with syntax highlighting (unchanged).
+3. Open a `.json` file → it still opens in `SourceView` with syntax highlighting (unchanged).
 4. Open a `.png` asset → image + metadata header visible.
 5. Zoom image with `Ctrl+=`, `Ctrl+-`, `Ctrl+0`, Ctrl+scroll, and the three buttons → size updates; zoom clamps at min/max.
 6. Open an SVG → renders via librsvg.
