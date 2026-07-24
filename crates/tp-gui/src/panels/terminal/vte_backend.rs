@@ -279,8 +279,7 @@ impl TerminalInner {
         // LD_LIBRARY_PATH must not leak onto the host, so std::env::vars()
         // is deliberately excluded here — the host shell inherits the
         // host's real environment.
-        let mut host_env: Vec<String> =
-            env.iter().map(|(k, v)| format!("{}={}", k, v)).collect();
+        let mut host_env: Vec<String> = env.iter().map(|(k, v)| format!("{}={}", k, v)).collect();
         host_env.push("TERM=xterm-256color".to_string());
 
         // `--directory` reproduces the requested cwd on the host side; the

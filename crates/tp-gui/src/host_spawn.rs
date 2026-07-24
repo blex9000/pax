@@ -51,9 +51,7 @@ pub fn hostify(cmd: Command) -> Command {
     // removals; forward only the sets.
     let env: Vec<String> = cmd
         .get_envs()
-        .filter_map(|(k, v)| {
-            v.map(|v| format!("{}={}", k.to_string_lossy(), v.to_string_lossy()))
-        })
+        .filter_map(|(k, v)| v.map(|v| format!("{}={}", k.to_string_lossy(), v.to_string_lossy())))
         .collect();
 
     let arg_refs: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
